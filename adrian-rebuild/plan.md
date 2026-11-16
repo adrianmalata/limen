@@ -49,6 +49,9 @@ Done:
   `tools/test-pre-push.sh` passes 11/11 cases offline on the source and the installed copy, and fails 8 cases against a
   permissive hook.
 - Skeleton: `plan.md`, `changes.md`, `audit.md`, `taste.md`, `evidence/`, `tools/`; `adrian-rebuild/input/` ignored.
+- First commit `3e3d867` pushed with `git push -u origin adrian-rebuild` (exit 0; the hook let the new branch through).
+  Live check with the installed hook: `git push --dry-run origin rebuild-base` and
+  `git push --dry-run origin adrian-rebuild:main` are both refused by `pre-push` (exit 1).
 
 Next: gate 0 — Adrian decides on the test gate (open question 1). After that, stage 1 (system map) in a new or the
 same session.
