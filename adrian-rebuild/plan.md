@@ -40,7 +40,7 @@ Pending (stage 4).
 
 ## State
 
-Updated 2026-11-16, stage 2 (audit): pass 1 done; pass 2 (with history) next.
+Updated 2026-11-16, stage 2 (audit): passes 1 and 2 done; cold read next.
 
 Done:
 - Stage 0 closed at gate 0: test gate `sh adrian-rebuild/tools/gate.sh` (D-001), commit identity (D-002).
@@ -51,10 +51,12 @@ Done:
   → 85 findings, 778 references, 0 errors. Evidence of every critical and high finding checked by hand at
   `rebuild-base`.
 
+- Stage 2 pass 2: 22 hypotheses from the owner's analysis marked in `audit.md` → "Pass 2: hypotheses"; every finding
+  has `Status` (57 new, 28 known; 14 marked DELIBERATE by the author, 2 CONFLICT) and `History`; author's intents in
+  `evidence/audit-pass2/history.md` and summarised in `audit.md` (material for stage 3).
+
 Next:
-1. Pass 2: read `input/petla-uczenia-2026-11-15.md`, `spec/research/limen-ops-retro-2026-09-10.md` and F952, F954,
-   F957, F958, F959; mark each hypothesis `confirmed` / `refuted` / `partial` with evidence; give every finding
-   `- Status: new | known (<source>)`; record the author's intents as material for stage 3.
+1. (done) Pass 2.
 2. Cold read of `audit.md` by a fresh subagent; fix or move each remark to `## To verify`.
 3. Gate 2: verdict in 5 sentences and the critical/high table; Adrian decides fix / accepted-risk / rejected per
    finding; record `- Decision:` in `audit.md`.
