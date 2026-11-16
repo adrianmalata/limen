@@ -1,6 +1,6 @@
 <!-- PL: Plan przebudowy Limena i punkt wznowienia każdej sesji: wizja, decyzje Adriana, etapy, tickety R-NNN, kroki
 wdrożenia na seat, pomiary, definicje subagentów i sekcja State. Nowa sesja zaczyna od State i ostatnich wpisów
-changes.md. Stan: decyzje z bramki 0 zapisane (D-001, D-002); sekcje planu wypełni etap 4; etap 1 zamknięty, następny etap 2. -->
+changes.md. Stan: decyzje z bramki 0 zapisane (D-001, D-002); sekcje planu wypełni etap 4; etap 1 zamknięty, trwa etap 2 (audyt). -->
 
 # Rebuild plan
 
@@ -40,7 +40,7 @@ Pending (stage 4).
 
 ## State
 
-Updated 2026-11-16, stage 1 (system map) done; next is stage 2 (audit).
+Updated 2026-11-16, stage 2 (audit) pass 1 in progress.
 
 Done:
 - Stage 0 closed at gate 0: test gate `sh adrian-rebuild/tools/gate.sh` (D-001), commit identity (D-002).
@@ -51,9 +51,12 @@ Done:
   `tools/check.mjs` validates `audit.md` references and finding fields (stage 2 format: `### A-NNN <title>` with
   `- Area/Severity/Location/Evidence/Rule/Verdict/Direction`, later `Status`, `Decision`, `Final`).
 
-Next: stage 2, pass 1 without history — read code, tests, role prompts and repo docs only; do not read `spec/` or
-`input/petla-uczenia…` until pass 2. Start from the "Observations for the audit" in `evidence/map/*.md` as leads, not as
-findings: each finding needs its own evidence.
+In progress (stage 2, pass 1): four subagents write candidate findings to `evidence/audit-pass1/` (reliability,
+security, determinism-autonomy, cost-crosscut). The main session verifies every critical/high candidate against the code,
+merges them into `audit.md` as `A-NNN`, runs `tools/check.mjs`, then pass 2 and the cold read.
+
+Next after pass 1: stage 2, pass 2 with history: `input/petla-uczenia…`, `spec/research/limen-ops-retro-2026-09-10.md`, F952,
+F954, F957, F958, F959. Pass 1 must not read `spec/` or `input/petla-uczenia…`.
 
 Open questions for Adrian: none.
 

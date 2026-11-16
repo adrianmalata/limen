@@ -10,7 +10,8 @@ const BASE = "rebuild-base";
 const AUDIT = "adrian-rebuild/audit.md";
 
 const FIELDS = {
-	Area: /^(reliability|determinism|autonomy|cost|cross-cutting)$/,
+	// reliability and security together are priority 1 of the rebuild prompt.
+	Area: /^(reliability|security|determinism|autonomy|cost|cross-cutting)$/,
 	Severity: /^(critical|high|medium|low)$/,
 	Location: /`[^`]+:\d+(-\d+)?`/,
 	Evidence: /\S/,
