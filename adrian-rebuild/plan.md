@@ -1,6 +1,6 @@
 <!-- PL: Plan przebudowy Limena i punkt wznowienia każdej sesji: wizja, decyzje Adriana, etapy, tickety R-NNN, kroki
 wdrożenia na seat, pomiary, definicje subagentów i sekcja State. Nowa sesja zaczyna od State i ostatnich wpisów
-changes.md. Stan: decyzje z bramki 0 zapisane (D-001, D-002); sekcje planu wypełni etap 4, State opisuje etap 1. -->
+changes.md. Stan: decyzje z bramki 0 zapisane (D-001, D-002); sekcje planu wypełni etap 4; etap 1 zamknięty, następny etap 2. -->
 
 # Rebuild plan
 
@@ -40,22 +40,25 @@ Pending (stage 4).
 
 ## State
 
-Updated 2026-11-16, stage 1 (system map) in progress.
+Updated 2026-11-16, stage 1 (system map) done; next is stage 2 (audit).
 
 Done:
-- Stage 0 closed at gate 0: Adrian accepted the test gate (D-001) and the commit identity (D-002). Evidence in
-  `evidence/env.md` and `evidence/baseline.md`; push guard in `tools/pre-push` (installed, tested offline and live).
+- Stage 0 closed at gate 0: test gate `sh adrian-rebuild/tools/gate.sh` (D-001), commit identity (D-002).
+- Stage 1: `audit.md` → `## Map` (components, processes, ticket flow with code/model deciders, sizes). Detail in
+  `evidence/map/` (four subagent maps, `file:line` evidence, each with "Observations for the audit"). Tools:
+  `tools/spec-index.mjs` → `evidence/spec-index.md`; `tools/context-size.mjs` + `tools/role-context.mjs` →
+  `evidence/context-size-rebuild-base.md` (role context per request, per prompt, once per session; lines per module);
+  `tools/check.mjs` validates `audit.md` references and finding fields (stage 2 format: `### A-NNN <title>` with
+  `- Area/Severity/Location/Evidence/Rule/Verdict/Direction`, later `Status`, `Decision`, `Final`).
 
-In progress (stage 1):
-- Subagents write the component maps to `evidence/map/` (CLI and flow, runtime and integrations, agent context,
-  tests and docs). The main session merges them into `audit.md` → `## Map`.
-- `tools/` gets a spec index script and a context size script; their output goes to `evidence/`.
-
-Next: stage 2 (audit), pass 1 without history.
+Next: stage 2, pass 1 without history — read code, tests, role prompts and repo docs only; do not read `spec/` or
+`input/petla-uczenia…` until pass 2. Start from the "Observations for the audit" in `evidence/map/*.md` as leads, not as
+findings: each finding needs its own evidence.
 
 Open questions for Adrian: none.
 
 Notes for the next session:
 - The Claude Code task list tool is not available in this session; progress lives in this section.
 - After moving or re-cloning the repo, run `sh adrian-rebuild/tools/install-hooks.sh` again.
-- Run the gate as `sh adrian-rebuild/tools/gate.sh` (D-001).
+- Run the gate as `sh adrian-rebuild/tools/gate.sh` (D-001). Run `node adrian-rebuild/tools/check.mjs` after editing
+  `audit.md`.
