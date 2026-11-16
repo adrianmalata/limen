@@ -103,6 +103,15 @@
 		}
 	},
 	"files": {
-		"includes": ["**", "!!node_modules", "!!package-lock.json"]
+		// The Pi extensions in docs/seat/ are kept byte for byte as they run on the seat, so that a change of them has a
+		// history. They import Pi packages that Limen does not depend on, and they follow the seat, not this style.
+		"includes": [
+			"**",
+			"!!node_modules",
+			"!!package-lock.json",
+			"!!docs/seat/coordinator-handoff.ts",
+			"!!docs/seat/quota-resume.ts",
+			"!!docs/seat/statusline.ts"
+		]
 	}
 }

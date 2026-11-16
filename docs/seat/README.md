@@ -4,7 +4,7 @@ Operator checklist and the current setup steps. Limen does not run these. Copy t
 
 The seat owns the project copy (the Git checkout), the worktrees, and the job files in `.limen/jobs/`. The laptop is only a window. [vps.md](../vps.md) is an old record of one setup pass, not this checklist.
 
-Units next to this file: `bell.sh`, `limen-bell.{service,timer}`, `limen-prune.{service,timer}`.
+Units next to this file: `bell.sh`, `limen-bell.{service,timer}`, `limen-prune.{service,timer}`, and the Pi extensions `coordinator-handoff.ts`, `quota-resume.ts` and `statusline.ts`.
 
 ## Box
 
@@ -33,6 +33,18 @@ ntfy is the fallback when Moshi is not in play:
 3. Drop-in for `limen-bell.service`: `User`, `LIMEN_ROOT` (the project that contains `.limen`), `NTFY_TOPIC`, `ExecStart` → that script.
 4. `systemctl enable --now limen-bell.timer`
 5. `limen spawn --detached "echo seat-smoke && exit"` from the project. Close the SSH session. Phone should ring. `cat .limen/jobs/<id>/notify/bell` exists. Re-run the script: no second ping.
+
+## Pi extensions
+
+`coordinator-handoff.ts`, `quota-resume.ts` and `statusline.ts` are the Pi extensions that this seat loads from `~/.pi/agent/extensions/` for every session, byte for byte as they run there. Limen does not install them. They change how a coordinator works, so a change of them belongs in a commit here.
+
+- `coordinator-handoff.ts`: when a coordinator's context passes 30 % of the window, it asks for a handoff note and, after `.limen/coordinator-handoff.request`, opens a new session in the same pane with that note as its first message.
+- `quota-resume.ts`: when a run of a session with `LIMEN_COORDINATOR=1` ends on a Claude quota limit, it sends the session one message a few minutes after the reset.
+- `statusline.ts`: the model, the time, the cost, the context and the 5 h and 7 d limits of Claude in the status line, in Polish.
+
+`herdr-agent-state.ts` lies beside them on the seat, but `herdr integration install pi` writes and updates it, so it is not kept here.
+
+To use the copies of a checkout, link them: `ln -sf "$PWD"/docs/seat/{coordinator-handoff,quota-resume,statusline}.ts ~/.pi/agent/extensions/`. A copy that differs from the seat shows with `for f in coordinator-handoff quota-resume statusline; do diff docs/seat/$f.ts ~/.pi/agent/extensions/$f.ts; done`.
 
 ## Prune
 
