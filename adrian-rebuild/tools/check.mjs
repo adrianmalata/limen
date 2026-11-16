@@ -64,9 +64,19 @@ function findings(text) {
 		.filter((block) => /^A-\d{3}\b/.test(block))
 		.map((block) => {
 			const id = block.slice(0, 5);
+			// A field is `- Name: value`; indented lines below it continue its value (e.g. a bulleted Evidence).
 			const fields = new Map();
-			for (const match of block.matchAll(/^- (\w+): (.*)$/gm)) {
-				fields.set(match[1], match[2].trim());
+			let current;
+			for (const line of block.split("\n").slice(1)) {
+				const match = line.match(/^- (\w+):[ \t]?(.*)$/);
+				if (match) {
+					current = match[1];
+					fields.set(current, match[2].trim());
+				} else if (current && /^\s+\S/.test(line)) {
+					fields.set(current, `${fields.get(current)} ${line.trim()}`.trim());
+				} else {
+					current = undefined;
+				}
 			}
 			return { id, fields };
 		});
