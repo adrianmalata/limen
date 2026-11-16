@@ -1,6 +1,6 @@
 <!-- PL: Plan przebudowy Limena i punkt wznowienia każdej sesji: wizja, decyzje Adriana, etapy, tickety R-NNN, kroki
 wdrożenia na seat, pomiary, definicje subagentów i sekcja State. Nowa sesja zaczyna od State i ostatnich wpisów
-changes.md. Stan: szkielet z etapu 0; sekcje planu wypełni etap 4, State opisuje bramkę 0. -->
+changes.md. Stan: decyzje z bramki 0 zapisane (D-001, D-002); sekcje planu wypełni etap 4, State opisuje etap 1. -->
 
 # Rebuild plan
 
