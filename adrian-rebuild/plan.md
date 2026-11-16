@@ -1,6 +1,6 @@
 <!-- PL: Plan przebudowy Limena i punkt wznowienia każdej sesji: wizja, decyzje Adriana, etapy, tickety R-NNN, kroki
 wdrożenia na seat, pomiary, definicje subagentów i sekcja State. Nowa sesja zaczyna od State i ostatnich wpisów
-changes.md. Stan: decyzje z bramki 0 zapisane (D-001, D-002); sekcje planu wypełni etap 4; etap 1 zamknięty; w etapie 2 przejście 1 audytu zakończone, następne przejście 2. -->
+changes.md. Stan: decyzje z bramki 0 zapisane (D-001, D-002); sekcje planu wypełni etap 4; etap 1 zamknięty; etap 2 (audyt) zakończony, czeka bramka 2. -->
 
 # Rebuild plan
 
@@ -40,7 +40,7 @@ Pending (stage 4).
 
 ## State
 
-Updated 2026-11-16, stage 2 (audit): passes 1 and 2 done; cold read next.
+Updated 2026-11-16, stage 2 (audit) done; waiting at gate 2.
 
 Done:
 - Stage 0 closed at gate 0: test gate `sh adrian-rebuild/tools/gate.sh` (D-001), commit identity (D-002).
@@ -55,13 +55,16 @@ Done:
   has `Status` (57 new, 28 known; 14 marked DELIBERATE by the author, 2 CONFLICT) and `History`; author's intents in
   `evidence/audit-pass2/history.md` and summarised in `audit.md` (material for stage 3).
 
-Next:
-1. (done) Pass 2.
-2. Cold read of `audit.md` by a fresh subagent; fix or move each remark to `## To verify`.
-3. Gate 2: verdict in 5 sentences and the critical/high table; Adrian decides fix / accepted-risk / rejected per
-   finding; record `- Decision:` in `audit.md`.
+- Stage 2 cold read: 41 remarks in `evidence/audit-pass2/cold-read.md`, each fixed in `audit.md` or moved to the
+  merged questions Q1–Q11 in `## To verify` (disposition table at the end of the cold-read file).
+- Gate 2 prepared: `audit.md` → "Gate 2: recommended decisions" (fix 73, accepted-risk 2, rejected 10; decisions
+  G1–G4).
 
-Open questions for Adrian: none yet (gate 2 will bring them).
+Next: Adrian decides at gate 2; record `- Decision:` in every finding of `audit.md`, then stage 3 (taste).
+
+Open questions for Adrian (gate 2):
+- G1 which features run on the seat; G2 job isolation (a/b); G3 land gate; G4 review gate;
+- accept the remaining recommendations as a block, or name exceptions.
 
 Notes for the next session:
 - The Claude Code task list tool is not available in this session; progress lives in this section.

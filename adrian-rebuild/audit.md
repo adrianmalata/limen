@@ -1,6 +1,6 @@
 <!-- PL: Audyt Limena przy tagu rebuild-base: mapa systemu (etap 1), znaleziska A-NNN z dowodami i werdyktami
 względem rubryki (etap 2) oraz decyzje Adriana o każdym znalezisku (bramka 2). Twierdzenia bez dowodu trafiają
-do sekcji To verify, nie do znalezisk. Stan: mapa z etapu 1 gotowa; przejścia 1 i 2 audytu zakończone (85 znalezisk ze statusem new/known, 22 hipotezy); czeka cold read i bramka 2. -->
+do sekcji To verify, nie do znalezisk. Stan: mapa z etapu 1 gotowa; przejścia 1 i 2 audytu oraz cold read zakończone (85 znalezisk, 22 hipotezy, 11 pytań do seata); czeka bramka 2. -->
 
 # Audit of Limen at `rebuild-base`
 
@@ -20,7 +20,7 @@ ticket flow), `runtime-integrations.md` (processes, lifecycle, integrations, tru
 |---|---|---|---|
 | CLI entry | `bin/limen`, `src/main.ts` (242) | One dispatch table of 30 commands (`src/main.ts:34`); re-enters itself as the detached wrapper or the hosted supervisor (`src/main.ts:164`) | Before almost every command it resends queued webhook pings and ends due seat rules (`src/main.ts:187`, `src/main.ts:191`) |
 | Commands | `src/commands` (7039) | spawn, continue, land, steer, stop, wait, jobs, status, prune, keeper, ticket, board, rule, group, github, picture, sweep… | Calls job, project, runtime, integrations; `spawn.ts` (864) and `jobs.ts` (641) are the largest |
-| Job record | `src/job` (2883) | A job is a directory of plain files `.limen/jobs/<id>/`, published by one rename (`src/job/publication.ts:96`); `state` is the commit point; only `finalizeJob` writes a terminal state (`src/job/record.ts:36`); wake text, task note, groups | Read by nearly every command; written by spawn, wrapper, supervisor, hooks |
+| Job record | `src/job` (2883) | A job is a directory of plain files `.limen/jobs/<id>/`, published by one rename (`src/job/publication.ts:96`); `state` is the commit point; only `finalizeJob` writes a terminal state (`src/job/record.ts:36`), except a group's reserved slot (`src/commands/group.ts:558`, A-022); wake text, task note, groups | Read by nearly every command; written by spawn, wrapper, supervisor, hooks |
 | Project and seat state | `src/project` (1772) | git wrapper, ticket lanes and board, F-number series, seat registry, seat rules, limits, planning source, picture tick/watch | Seat state lives in `~/.limen/` (projects, series, rules, start queue) |
 | Runtime | `src/runtime` (3523) | Detached wrapper (own process group, engine child, 90 min timeout, 900 tool calls, stall check); hosted supervisor (1 Hz watch of a Herdr pane); engine argv; start queue; containment; reaper; recovery; Devin runner | Engines are `pi`/`omp` binaries started with Limen's hooks and a preamble (`src/runtime/engine.ts:227`) |
 | Integrations | `src/integrations` (3473) | Herdr adapter (every Herdr CLI call), GitHub App poller and doorbell, coordinator registration and wake, finish webhooks with a disk queue | GitHub poller runs as a separate Unix user and reaches the worker account only through `sudo` for two commands |
@@ -39,7 +39,8 @@ ticket flow), `runtime-integrations.md` (processes, lifecycle, integrations, tru
   worktree → tool processes. Per hosted job: supervisor polling a Herdr pane once a second.
 - Channels: job-directory files (`state` is the commit point), process-group signals, the Herdr CLI and socket, HTTPS
   (GitHub, Devin, webhook targets, ntfy), `sudo` for the poller. No FIFOs.
-- Seat timers: `limen-prune` (daily), `limen-github` (poller), `limen-bell` (15 s). `limen sweep` is scheduled only by a
+- Seat units in `docs/seat/`: `limen-prune` (daily) and `limen-bell` (15 s), the ones `docs/seat/README.md:7` lists, plus
+  `limen-github` for the optional doorbell (`docs/seat/README.md:80`). `limen sweep` is scheduled only by a
   macOS LaunchAgent (`src/project/seat.ts:41`).
 
 ### Ticket flow from `limen spawn` to `limen land`
@@ -50,14 +51,14 @@ ticket flow), `runtime-integrations.md` (processes, lifecycle, integrations, tru
 |---|---|---|---|
 | 0 | Write the ticket | Model chooses (`templates/agents.md:152`); code allocates the F-number (`limen ticket new`) | `spec/features/<lane>/FNNN-slug/ticket.md` |
 | 1 | Move `planned/` → `active/` | Model only (`templates/agents.md:152`) | folder rename |
-| 2 | Commit the ticket | Model (`templates/agents.md:153`); code refuses a `Ticket:` pointer missing at the base in committed mode | commit |
+| 2 | Commit the ticket | Model (`templates/agents.md:153`); in committed planning mode code refuses a `Ticket:` pointer missing at the base (`src/commands/spawn.ts:340-341`) | commit |
 | 3 | `limen spawn` | Model picks flags, engine and model; code validates, plans the worktree, publishes the record, launches (`src/commands/spawn.ts:164`) | `.limen/jobs/<id>/`, worktree, branch `limen/<id>`, Herdr tab, wrapper |
-| 4 | Queue, handshake, prune, `--prepare` | Code (wrapper, start queue, job setup) | `pid`, `born`, `queued`, `start-notice` |
-| 5 | Engine run | Code builds argv and enforces timeout, tool cap and stall; model reads the ticket, edits, commits, writes `note.md`, answers the note check, calls `finish` | commits, `note.md`, `session/*.jsonl`, `result` |
-| 6 | Terminal state | Code (`src/job/record.ts:36`); `done` vs `failed` on exit 0 follows the model's `stopReason` (`src/runtime/wrapper.ts:377`) | `state`, `commits`, `tip`, `open-checks` |
+| 4 | Queue, handshake, prune, `--prepare` | Code: start queue (`src/runtime/wrapper.ts:97`), prune then `--prepare` (`src/runtime/job-setup.ts:29`) | `pid`, `born`, `queued`, `start-notice` |
+| 5 | Engine run | Code builds argv; for detached jobs only it enforces timeout, tool cap and stall (hosted jobs have none, A-023); model reads the ticket, edits, commits, writes `note.md`, answers the note check, calls `finish` | commits, `note.md`, `session/*.jsonl`, `result` |
+| 6 | Terminal state | Code (`src/job/record.ts:36`); for a detached job, `done` vs `failed` on exit 0 follows the model's `stopReason` (`src/runtime/wrapper.ts:377`); a hosted job ends through `finish`, session end or an idle heuristic (A-023) | `state`, `commits`, `tip`, `open-checks` |
 | 7 | Wake the coordinator | Code routes; the wake text suggests the next step (`src/job/wake-text.ts:82`) | prompt in the coordinator session |
 | 8 | Review | Model decides whether, files `review-N.md`, caps repairs at one plus one re-review (`templates/agents.md:156`, `templates/agents.md:157`); code runs the review job | review job, `review-N.md` |
-| 9 | Keeper | Model starts it; code forces it indirectly: `land` refuses a failing ticket check | keeper branch and job |
+| 9 | Keeper | Model starts it; code forces it indirectly: `land` refuses a failing ticket check (`src/commands/land.ts:150-151`) | keeper branch and job |
 | 10 | `limen land` | Model decides when (`templates/agents.md:158`); code gates on `state === "done"` (`src/commands/land.ts:94`), dirty overlap, ticket check, `test/` cap; then merges, deletes branch and worktree, closes the ticket, commits (`src/project/lanes.ts:102`) | merge, ticket in `done/YYYY-MM/`, board, close commit |
 | 11 | After land | Model: `outcome.md`, close tabs, quality pass after ten landings (`templates/agents.md:100`; no code reads it) | `outcome.md`, `spec/quality/` |
 
@@ -92,22 +93,151 @@ base prompt, built-in tools, skills and `AGENTS.md` loading are outside the repo
   and `spec/build.md` are larger. The same script measures a real project with `--project <path>` (read-only copies of
   its guidance files) — a step for the seat, listed for stage 4 `## Measurement`.
 
+## Gate 2: recommended decisions
+
+Recommendations by the main session, 2026-11-16, for Adrian to decide. Counts: fix 73, accepted-risk
+2, rejected 10. "Follows G1…G4" ties a finding to one decision below; "taste T" marks a
+finding whose direction is a taste question for stage 3 (the decision `fix` stands, the shape waits for `taste.md`).
+
+- **G1** Which features run on the seat: GitHub doorbell, groups, finish webhooks, picture map, Linear mirror, Devin,
+  OMP, hosted `--tab` jobs, non-Git workspace. Unused ones are cut, which closes their findings by removal.
+- **G2** Job isolation (A-004): (a) allow-list the engine environment and keep one Unix account, accepting the rest of
+  the same-account risk; (b) a separate Unix account for jobs, without credentials or write access to the checkouts
+  (a seat change you carry out).
+- **G3** Land gate (A-012): land requires an approval that only your own message produces (recorded by the
+  coordinator's hook from your literal "land"), or the rule stays in prose (accepted-risk).
+- **G4** Review gate (A-013): land refuses a branch tip that differs from the reviewed PASS commit when a review
+  exists. This overrides the author's "Limen informs; the coordinator decides".
+
+| ID | Severity | Recommendation | Reason |
+|---|---|---|---|
+| A-001 | critical | fix | prune keeps any worktree with uncommitted or unmerged work; the manual stops promising survival |
+| A-002 | critical | fix | retire only records that land or ticket done marked landed; archive, do not delete, the session |
+| A-003 | critical | fix | refuse fork-head reviews or run them without credentials; cut the doorbell if unused (G1) |
+| A-004 | critical | fix | scope per G2: allow-list engine environment now; separate job account is G2 option b |
+| A-005 | high | fix | reaper checks and terminates the process group before it finalizes |
+| A-006 | high | fix | strip the push credential from job environments (with A-004); server-side protection is your action (Q3) |
+| A-007 | high | fix | follows G1: frame and bound the GitHub text, or cut the doorbell |
+| A-008 | high | fix | frame the final message as job data, bound it, point to the file |
+| A-009 | high | fix | handoff note written only by the coordinator session and framed as data |
+| A-010 | high | fix | refuse rule changes from jobs; residual same-account risk follows G2 |
+| A-011 | high | fix | jobs cannot write the files that feed the coordinator prompt (follows G2); land refuses `docs/` changes |
+| A-012 | high | fix | code gate per G3: land needs your recorded approval |
+| A-013 | high | fix | land refuses a tip that differs from the reviewed PASS commit when a review exists (G4) |
+| A-014 | high | fix | one running job per project in the start queue, every mode; remove the parallel advice |
+| A-015 | high | fix | round counter in code; the third round escalates to you |
+| A-016 | high | fix | quota-failed marker, owed wakes, a resume command; ship the extension through init or cut it |
+| A-017 | medium | fix | lock owner records birth time; bounded wait with a message |
+| A-018 | medium | fix | follows G1 (stale-lock recovery or cut) |
+| A-019 | medium | fix | finalize claims the terminal state atomically (exclusive create) |
+| A-020 | medium | fix | limits live outside the signal handler; TERM reaches the engine group |
+| A-021 | medium | fix | ticket close is one commit or a clean rollback; land exits non-zero on failure |
+| A-022 | medium | fix | atomic writes for board, tickets and job files |
+| A-023 | medium | fix | hosted jobs get the same limits; no done by idleness (or cut hosted mode, G1) |
+| A-024 | medium | fix | a Linux sweep timer, or the sweep folded into an existing timer |
+| A-025 | medium | fix | hooks resolve only from the pinned package path |
+| A-026 | medium | fix | follows G1 (redact or cut) |
+| A-027 | medium | fix | follows G1 for webhooks: secret outside the checkout, or cut webhooks |
+| A-028 | medium | accepted-risk | same Unix account by design until G2 option b; the steer inbox stays the correction channel |
+| A-029 | medium | fix | follows G1 for groups (cut groups, or move guards out of env) |
+| A-030 | medium | fix | no silent model substitute; a continuation inherits its parent route |
+| A-031 | medium | fix | taste T: proof is a command that ran or a file the session changed (author chose any existing file) |
+| A-032 | medium | fix | `stop "done: …"` still computes open checks |
+| A-033 | medium | fix | owed wakes per plant survive a coordinator restart |
+| A-034 | medium | fix | taste T: decisions the owner gives in conversation go to a file by command |
+| A-035 | medium | fix | code files the review verdict; retire never deletes it |
+| A-036 | medium | fix | start-queue wait has a limit that escalates |
+| A-037 | medium | fix | volatile board digest leaves the system prompt (after Q9) |
+| A-038 | medium | fix | job roles get a machine register without the human sections |
+| A-039 | medium | fix | separate coordinator and job registers; the Polish overlay reaches only the coordinator |
+| A-040 | medium | fix | cut the manual sections with the features cut in G1 |
+| A-041 | medium | fix | taste T: guidance once per context, either in the system prompt or as reminders, not both |
+| A-042 | medium | fix | drift notice once per change, acknowledged by the operator |
+| A-043 | medium | fix | capability frame states the shared quota (prose; measured on the seat) |
+| A-044 | medium | fix | taste T: measure the task note on the seat, then keep or cut it |
+| A-045 | medium | fix | skip the keeper when the deterministic check passes |
+| A-046 | medium | fix | bounded by A-015 and A-045; sessions per ticket measured |
+| A-047 | medium | fix | seat extensions under tsc, biome and tests, or cut |
+| A-048 | medium | fix | ticket check without the viewer; picture shrink or cut per G1 |
+| A-049 | medium | fix | cut engines and integrations with no seat use (G1) |
+| A-050 | medium | fix | correct SECURITY.md |
+| A-051 | medium | fix | a test on the assembled prompt per role |
+| A-052 | low | fix | record a signal kill as failed, not a requested stop |
+| A-053 | low | fix | wrapper does not overwrite a terminal state |
+| A-054 | low | fix | units per project; no bell flood on first run |
+| A-055 | low | accepted-risk | one coordinator per project allocates tickets |
+| A-056 | low | fix | a missing `born` is not proof of the same process |
+| A-057 | low | rejected | compliant: nothing to change |
+| A-058 | low | rejected | compliant: nothing to change |
+| A-059 | low | rejected | bounds hold; their gaps are A-001 and A-020 |
+| A-060 | low | rejected | compliant: nothing to change |
+| A-061 | low | fix | strip `LIMEN_COORDINATOR` from job environments (with A-004) |
+| A-062 | low | fix | follows G1 |
+| A-063 | low | fix | follows G1 |
+| A-064 | low | rejected | compliant: nothing to change |
+| A-065 | low | rejected | compliant: nothing to change |
+| A-066 | low | fix | topic file mode 600; accepted-risk for the public relay |
+| A-067 | low | rejected | compliant: nothing to change |
+| A-068 | low | fix | with A-016 (resume keyed on the recorded stop reason, not error text) |
+| A-069 | low | fix | follows G1 for groups |
+| A-070 | low | fix | taste T: spawn moves a planned ticket to active; `ticket start|drop` commands |
+| A-071 | low | fix | taste T: count landings in code and notify, or cut the quality pass |
+| A-072 | low | fix | with A-045 |
+| A-073 | low | fix | worker jobs require a `Ticket:` pointer |
+| A-074 | low | rejected | compliant with z. 4; its cache cost is A-037 |
+| A-075 | low | rejected | compliant; moot if groups are cut (G1) |
+| A-076 | low | rejected | compliant: nothing to change |
+| A-077 | low | fix | taste T: shorter cue without repeated fixed text |
+| A-078 | low | fix | with A-008: wake carries a bounded summary and a pointer |
+| A-079 | low | fix | keep the preamble stable on continue |
+| A-080 | low | fix | follows G1 for groups |
+| A-081 | low | fix | skills and tools scoped per role (after Q10) |
+| A-082 | low | fix | group hook loads only when a group runs (or cut, G1) |
+| A-083 | low | fix | cut macOS-only branches |
+| A-084 | low | fix | correct developer docs |
+| A-085 | low | fix | one source per shared text (with A-038, A-040) |
+
 ## Findings
 
 Pass 1 (without history), 2026-11-16. Four subagents audited one area each and wrote candidates to
-`evidence/audit-pass1/` (`R-` reliability, `S-` security, `D-` determinism and autonomy, `K-` cost and cross-cutting),
-backing critical and high candidates with experiments on throwaway repos (scripts kept in the session scratchpad, not
-in the repo). The main session merged duplicates (85 findings from 96 candidates; `Candidates` names
-the sources), checked every reference with `tools/check.mjs`, and verified the evidence of every critical and high
-finding against `rebuild-base` by hand.
+`evidence/audit-pass1/` (`R-` reliability, `S-` security, `D-` determinism and autonomy, `K-` cost and cross-cutting).
+They backed most critical and high candidates with experiments; the others rest on code quotes. The main session merged
+duplicates (85 findings from 96 candidates; `Candidates` names the sources, and `Also (X-NN):` marks evidence taken
+from a merged candidate), checked every reference with `tools/check.mjs`, and verified the evidence of every critical
+and high finding against `rebuild-base` by hand. A cold read by a fresh subagent (`evidence/audit-pass2/cold-read.md`,
+41 remarks) led to the definitions below, the `Note` fields and the merged questions in `## To verify`.
 
-Counts: critical 4, high 12, medium 35, low 34. Low findings with verdict
-`compliant` record mechanisms that hold.
+Counts: critical 4, high 12, medium 35, low 34. Low findings with verdict `compliant` record mechanisms that hold.
 
-Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidence`, `Rule` (rubric rule, `z. N`),
-`Verdict`, `Direction`, `Scenario` (critical and high), `Candidates`; pass 2 adds `Status` and `History`
-(`DELIBERATE:` = the author chose this behaviour on purpose; `CONFLICT:` = a history source disagrees), gate 2 adds
-`Decision`, stage 6 adds `Final`. Pass 2 detail and the author's intents: `evidence/audit-pass2/history.md`.
+Definitions:
+- **People.** Adrian is the owner and operator of the seat; "the human" is Adrian. Adam Gospodarczyk (overment) is
+  Limen's author. "Owner's analysis l. N" points at `input/petla-uczenia-2026-11-15.md`, a local input not published.
+- **Seat facts** (Ubuntu VPS, Pi via the Claude bridge, one Claude Max subscription, one job at a time per project,
+  land only after Adrian says "land", only Adrian pushes a project's `main`, `docs/` changed only by Adrian, a Polish
+  communication overlay in each project) come from the rebuild prompt's description of the target environment. They are
+  operator facts, not repo facts, and are not cited by `file:line`.
+- **Severity.** critical: loss of data or work, a leaked secret, execution of untrusted content, or a silent false
+  success; high: a failure with no recovery, or a guarantee on the critical path that exists only in prose; medium: a
+  defect with a recovery path, a cost or a guarantee off the critical path; low: a small defect, a cleanup, or a
+  record of a mechanism that holds. Where severity depends on a seat fact, a `Note` says which question in
+  `## To verify` settles it.
+- **Rule** cites the owner's harness principles (`input/zasady-budowy-harnessu.md`, local; rules 1–41, written `z. N`).
+  `none` means no principle applies; the finding then measures the code against its own docs or comments.
+- **Verdict.** compliant: the mechanism meets the rule (or its own claim); partial: it meets part of it; non-compliant:
+  it breaks it; n/a: a defect with no rule to measure against.
+- **Scenario** is required for critical and high; medium and low findings may carry one.
+- **Experiments** ran the real `bin/limen` of `rebuild-base` with the fake engine (`test/fake-engine.mjs`) on
+  throwaway repos; no real engine and no network. A label such as `exp2` belongs to the pass of the candidate it comes
+  from (see `Candidates` and `Also (X-NN):`). The scripts stayed in the session scratchpad, not in the repo.
+- **Status** (pass 2): `known` when a history source names the same mechanism, or shows the author chose the behaviour
+  (`DELIBERATE:` in `History`); `new` otherwise, also when a source is only related. `CONFLICT:` marks a history
+  source that disagrees with the finding's facts.
+- **Stages and gates** are those of the rebuild plan (`plan.md`): gate 2 adds `Decision`, stage 6 adds `Final`, and
+  "stage 4 `## Measurement`" means that section of `plan.md`.
+
+Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidence`, `Rule`, `Verdict`, `Direction`,
+`Scenario`, `Candidates`, `Status`, `History`, `Note`, later `Decision` and `Final`. Pass 2 detail and the author's
+intents: `evidence/audit-pass2/history.md`.
 
 | ID | Severity | Area | Verdict | Title | Candidates | Pass 2 |
 |---|---|---|---|---|---|---|
@@ -126,22 +256,22 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 | A-013 | high | determinism | non-compliant | Review verdict is never read, and land merges the branch tip instead of the reviewed candidate | D-03 | new |
 | A-014 | high | determinism | non-compliant | "One job at a time per project" is absent from code, and the manual mandates the opposite | D-05, K-01, R-12 | known · deliberate |
 | A-015 | high | autonomy | non-compliant | The review/repair loop has no exit condition in code | D-04 | known |
-| A-016 | high | autonomy | non-compliant | Quota resumption depends on an uninstalled seat extension and on prose; wakes during the limit stop after two attempts | D-07 | known · deliberate |
+| A-016 | high | autonomy | non-compliant | Quota resumption depends on prose and on a seat extension Limen does not install; wakes during the limit stop after two attempts | D-07 | known · deliberate |
 | A-017 | medium | reliability | non-compliant | The worktree lock and the seat start-queue lock wait forever when the owner pid is reused; no message, no timeout | R-04 | new |
 | A-018 | medium | reliability | non-compliant | A stale GitHub `poll.lock` disables the doorbell for that project permanently | R-05 | new |
 | A-019 | medium | reliability | n/a | `finalizeJob` is check-then-write with no lock; concurrent finalizers both commit and the final state is a coin toss | R-06 | new |
 | A-020 | medium | reliability | non-compliant | SIGTERM to the wrapper alone disarms the timeout, tool cap and stall watch without stopping the engine | R-07 | new |
 | A-021 | medium | reliability | non-compliant | Land's ticket close is not transactional; a failed commit leaves staged moves, prints a false "tickets stay active" and exits 0 | R-08, D-15 | new |
 | A-022 | medium | reliability | n/a | The board, tickets and some job files are rewritten in place (truncate, then write) | R-09 | new |
-| A-023 | medium | reliability | non-compliant | Hosted jobs have no wall-clock or tool-call bound | R-10, D-12 | new |
+| A-023 | medium | reliability | non-compliant | Hosted jobs have no wall-clock or tool-call bound, and an idle heuristic can end one `done` | R-10, D-12 | new |
 | A-024 | medium | reliability | partial | No seat-level reaper on Linux: a dead job stays `running` unless a coordinator session or a human runs a command | R-11, D-10, K-19 | new |
 | A-025 | medium | security | partial | Harness code loaded into later sessions resolves from worker-writable locations, not from the root-owned release | S-10 | new · conflict |
 | A-026 | medium | security | partial | The App posts worker-written job output to public threads without redaction | S-11 | new |
 | A-027 | medium | security | non-compliant | Webhook bearer tokens sit in a dotenv inside the checkout that every job can read; the payload carries the whole final message | S-12 | new |
-| A-028 | medium | security | non-compliant | The steer inbox (the owner's correction channel) is writable by every job and is delivered as a user message | S-13 | known |
+| A-028 | medium | security | non-compliant | The steer inbox (the owner's correction channel) is writable by every job and is delivered as a user message | S-13 | new |
 | A-029 | medium | security | partial | Group-role guards are keyed on environment variables and tool names that a member's own shell controls | S-14 | new |
 | A-030 | medium | determinism | non-compliant | A spawn or continue without route flags silently substitutes a model | D-08, K-06 | known |
-| A-031 | medium | determinism | partial | A note-check line marked "proven" is closed by naming any existing file | D-13 | known · deliberate |
+| A-031 | medium | determinism | partial | A note-check line marked "proven" is closed by naming any existing file | D-13 | known · deliberate · conflict |
 | A-032 | medium | determinism | partial | `limen stop <id> "done: …"` lets the model create a landable `done` that skips open checks | D-14 | known · deliberate |
 | A-033 | medium | autonomy | partial | A new coordinator session loses wakes for jobs that ended while it was down | D-09 | known |
 | A-034 | medium | autonomy | partial | Owner decisions given in conversation live only in the thread; the handoff reminder fires once | D-11 | known |
@@ -150,18 +280,18 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 | A-037 | medium | cost | non-compliant | The system prompt is rebuilt every prompt; every land invalidates the coordinator's cached history | K-02 | new |
 | A-038 | medium | cost | non-compliant | Job roles carry the human register, the ticket rules and maintainer notes | K-03 | new |
 | A-039 | medium | cost | n/a | One register file serves the coordinator and every job; the Polish override reaches all jobs | K-04 | new |
-| A-040 | medium | cost | non-compliant | The shop manual ships ≈2.5k tokens per request for features the seat does not use | K-05 | new |
+| A-040 | medium | cost | non-compliant | The shop manual ships ≈2.5k tokens per request for features whose seat use is unknown | K-05 | new |
 | A-041 | medium | cost | non-compliant | Guidance already in the system prompt is re-requested as forced reads | K-07 | known · deliberate |
 | A-042 | medium | cost | non-compliant | The drift advisory repeats in every coordinator prompt for the operator's deliberate overlay | K-08 | new |
 | A-043 | medium | cost | n/a | The capability frame tells every agent that time is abundant, on a shared quota | K-10 | new |
 | A-044 | medium | cost | non-compliant | The task-note mechanism adds work to every job, read-only roles included, and its experiment was never closed | K-11 | known · deliberate |
 | A-045 | medium | cost | non-compliant | The keeper spends a model session on mostly deterministic link fixes, even when the check is clean | K-12 | new |
 | A-046 | medium | cost | partial | Session and turn multipliers per ticket | K-13 | known |
-| A-047 | medium | cross-cutting | non-compliant | The seat's Pi extensions run in every coordinator with no typecheck, lint or test | K-20 | new |
+| A-047 | medium | cross-cutting | non-compliant | The seat's Pi extensions, where installed, run in every coordinator with no typecheck, lint or test | K-20 | new |
 | A-048 | medium | cross-cutting | n/a | The picture subsystem is ≈28 % of shipped code and sits on the ticket-check path | K-21 | known |
-| A-049 | medium | cross-cutting | non-compliant | Engines and integrations the seat does not use make up ≈6k lines | K-22 | known · deliberate |
+| A-049 | medium | cross-cutting | non-compliant | Engines and integrations with no known seat use make up ≈6k lines | K-22 | known · deliberate |
 | A-050 | medium | cross-cutting | n/a | `SECURITY.md` misstates Linux process containment | K-24 | new |
-| A-051 | medium | cross-cutting | non-compliant | No test guards what the model actually receives | K-26 | new |
+| A-051 | medium | cross-cutting | non-compliant | No test checks the assembled prompt beyond marker counts | K-26 | new |
 | A-052 | low | reliability | n/a | An engine killed by a signal is recorded as a requested stop | R-13 | new |
 | A-053 | low | reliability | n/a | The wrapper writes `state=running` unconditionally after starting the engine | R-14 | new |
 | A-054 | low | reliability | n/a | Seat units cover one project each; the bell floods on first run | R-15 | new |
@@ -210,6 +340,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Candidates: R-01, D-01
 - Status: new
 - History: Related only: the retro says durable job files saved a job's uncommitted work (`spec/research/limen-ops-retro-2026-09-10.md:43`). No source says that prune deletes it.
+- Note: The `continue` message is printed at `src/commands/continue.ts:484`; the manual line is `templates/agents.md:224`; `docs/seat/agent-setup.md:194` is the seat setup step that installs the daily prune timer.
 
 ### A-002 `prune --retire` treats a zero-commit branch as landed and deletes the job's record, transcript, branch and worktree
 - Area: reliability
@@ -236,6 +367,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Candidates: S-01
 - Status: new
 - History: Adam asked to leave `limen github …` alone (`spec/features/planned/F959-docs-and-messages-describe-a-coordinator-as-a-session/ticket.md:25`). No source discusses fork PR code.
+- Note: Severity assumes the doorbell runs on the seat (To verify Q2). The reviewer at the fork head is started by the coordinator running `limen github review`, as the code-written doorbell prompt tells it to (`src/commands/github.ts:268`, `src/commands/github.ts:219`): fork code runs after a model decision that Limen's own text prompts. Whether a job can read the gh credential as a file, and what the engine loads from the worktree, are To verify (Q4, Q5).
 
 ### A-004 Jobs run without a sandbox, with approvals bypassed and the spawner's whole environment, as the account that holds all credentials
 - Area: security
@@ -245,9 +377,11 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Rule: z. 9, z. 14
 - Verdict: non-compliant
 - Direction: Give jobs their own Unix user (or container) with no `gh`/Claude credential files, no write access to the canonical checkouts, `~/.limen`, `~/.pi` or the Herdr socket, and pass the engine an allow-list environment instead of a deny-list. Hand model access through a broker or a narrow bridge credential.
-- Scenario: Untrusted text reaches jobs routinely: fetched pages, dependency files, PR and issue text (S-01, S-03), worker output passed between roles (S-04). One followed injection inside any job gives that job read access to the GitHub token, the Claude Max login and every secret exported in the coordinator's shell. It can also reach both production projects' checkouts and job records. Nothing in code limits what a job reads or where it sends data.
+- Scenario: Untrusted text reaches jobs routinely: fetched pages, dependency files, PR and issue text (A-003, A-007), worker output passed between roles (A-008). One followed injection inside any job gives that job read access to the GitHub token, the Claude Max login and every secret exported in the coordinator's shell. It can also reach both production projects' checkouts and job records. Nothing in code limits what a job reads or where it sends data.
 - Candidates: S-02
 - Status: new
+- History: no source in the pass-2 set names this mechanism.
+- Note: Pi jobs get `--approve` (the Pi profile sets `projectTrust: true`, `src/runtime/engine.ts:38`); OMP jobs get `--auto-approve` (`src/runtime/engine.ts:50`). What `--approve` permits in Pi is To verify (Q6), so "approvals bypassed" is certain only for OMP. The seat keeps `gh auth login` on the worker account (`docs/seat/README.md:20`); whether a job can read that credential as a file is To verify (Q4).
 
 ### A-005 Reaper marks a job "process group gone" while its engine group still runs, then prune removes the live engine's worktree
 - Area: reliability
@@ -275,6 +409,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Candidates: S-06, D-06
 - Status: new
 - History: Context: in the author's practice, the coordinator commits and pushes `main` when the owner authorizes it (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/group/brief.md:9`). The rule that only the human pushes `main` comes from the seat (owner's analysis l. 201).
+- Note: The project pre-push hook is an operator fact from the rebuild prompt (it lives in the projects, outside this repo). The finding is that the hook sits in the git directory every job worktree shares and that jobs hold the push credential. If `main` is protected on GitHub, severity drops to medium (Q3).
 
 ### A-007 Untrusted GitHub text from any commenter is typed into the coordinator as a human prompt, with a prose-only boundary
 - Area: security
@@ -288,6 +423,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Candidates: S-03
 - Status: new
 - History: Adam asked to leave `limen github …` alone (`spec/features/planned/F959-docs-and-messages-describe-a-coordinator-as-a-session/ticket.md:25`). No source discusses commenter text.
+- Note: Severity assumes the doorbell runs on the seat (Q2). The role check cited as `:401` is `src/integrations/github-poller.ts:401`.
 
 ### A-008 A job's whole final message enters the coordinator as an unframed user message, followed by a landing instruction
 - Area: security
@@ -296,11 +432,12 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Evidence: `const result = text(join(job, "result")); if (result) { sections.push(\`Final message:\n${result}\`);` (`src/job/wake-text.ts:35-37`; the header comment says "the final message is never cut"). For a done job the wake ends with `"Then land the work at the verified commit."` (`:94`). Delivery is `pi.sendUserMessage(message)` (`hook/wake.ts:444`). `result` is a plain file in the worker-writable job directory.
 - Rule: z. 15, z. 14
 - Verdict: non-compliant
-- Direction: Deliver job output as a custom/tool-role message marked as worker data, bounded and quoted, and keep the harness's own next-step text outside it. A wake must not tell the coordinator to land (see S-05).
-- Scenario: A worker or reviewer that read injected content (S-01, S-03) writes a final message that addresses the coordinator. It might claim checks passed or say the owner already approved. It reaches the coordinator in the user role, uncut and unlabelled, directly before a harness sentence that says to land. Any job can also rewrite another job's `result` before the wake is built.
+- Direction: Deliver job output as a custom/tool-role message marked as worker data, bounded and quoted, and keep the harness's own next-step text outside it. A wake must not tell the coordinator to land (see A-012).
+- Scenario: A worker or reviewer that read injected content (A-003, A-007) writes a final message that addresses the coordinator. It might claim checks passed or say the owner already approved. It reaches the coordinator in the user role, uncut and unlabelled, directly before a harness sentence that says to land. Any job can also rewrite another job's `result` before the wake is built.
 - Candidates: S-04
 - Status: new
 - History: Related: the author wants the whole report in the final message (`spec/features/active/F954-a-private-assessment-combines-verified-collaboration-counts-from-both-session-stores/group/teams/team-1.md:9`; see A-078). No source discusses how it is framed or whether it is trusted.
+- Note: Missing framing means: the result goes into a user-role prompt after a plain `Final message:` header (`src/job/wake-text.ts:35-37`), with no delimiter marking it as job-authored data, no length bound, and the harness's own landing instruction after it (`src/job/wake-text.ts:94-98`).
 
 ### A-009 Coordinator-handoff turns a worker-writable file into the first user message of a fresh coordinator session
 - Area: security
@@ -314,6 +451,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Candidates: S-07
 - Status: new
 - History: Related only: the retro saw that the "replacement authority" between shepherd notes was unclear (`spec/research/limen-ops-retro-2026-09-10.md:117`). No source names the handoff file.
+- Note: Severity assumes `coordinator-handoff.ts` is installed on the seat (Q7).
 
 ### A-010 Any job can set seat-wide rules that every coordinator on the seat receives each turn and as a typed prompt
 - Area: security
@@ -332,7 +470,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Area: security
 - Severity: high
 - Location: `hook/communication.ts:177-192`, `hook/communication.ts:341-350`, `src/commands/spawn.ts:75-85`, `src/commands/spawn.ts:319`, `templates/worker.md:21`, `src/commands/land.ts:171`, `src/commands/land.ts:177`
-- Evidence: each coordinator prompt rebuilds the system prompt from `spec/vision.md`, `.agents/limen/styleguide.md` and the `NOW`/`NEXT` sections of `spec/build.md` read from the checkout (`communication.ts:177-192, 342`). Every new job's preamble is `${root}/.agents/limen/${role}.md` when present (`src/commands/spawn.ts:76`). The worker is told `Never edit the board, ticket status, or outcome files.` (`templates/worker.md:21`), and no code check backs this. The test-line cap claims `The cap is read from the target's vision, the owner's copy, so a branch cannot raise its own cap.` (`src/commands/land.ts:171`). It reads `HEAD:spec/vision.md` of the canonical repository (`:177`), which a job can commit to directly (same account, shared refs, S-06 demo).
+- Evidence: each coordinator prompt rebuilds the system prompt from `spec/vision.md`, `.agents/limen/styleguide.md` and the `NOW`/`NEXT` sections of `spec/build.md` read from the checkout (`communication.ts:177-192, 342`). Every new job's preamble is `${root}/.agents/limen/${role}.md` when present (`src/commands/spawn.ts:76`). The worker is told `Never edit the board, ticket status, or outcome files.` (`templates/worker.md:21`), and no code check backs this. The test-line cap claims `The cap is read from the target's vision, the owner's copy, so a branch cannot raise its own cap.` (`src/commands/land.ts:171`). It reads `HEAD:spec/vision.md` of the canonical repository (`:177`), which a job can commit to directly (same account, shared refs, A-006 demo).
 - Rule: z. 14, z. 16, z. 30
 - Verdict: non-compliant
 - Direction: Make the canonical checkout read-only to jobs (separate user or mount). Read coordinator context and role preambles from committed `HEAD` blobs that only a human-approved land changes, or from a root/human-owned copy. Refuse lands whose diff touches `docs/`, the board's coordinator prose or `.agents/limen/` without explicit owner approval.
@@ -340,6 +478,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Candidates: S-09
 - Status: new
 - History: Related: coordinators committed each other's board hunks in the shared checkout, and the retro asks for one board writer (`spec/research/limen-ops-retro-2026-09-10.md:119`, `spec/research/limen-ops-retro-2026-09-10.md:157`). No source names jobs that write into the checkout.
+- Note: "`docs/` only by the human" is an operator rule from the rebuild prompt, not written in this repo. A-011 is high and A-025 medium because A-011 uses files the coordinator reads every turn by design, while A-025 needs a job to redirect how hooks resolve.
 
 ### A-012 `limen land` has no human gate, and the code-written wake tells the coordinator to land
 - Area: determinism
@@ -354,6 +493,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Candidates: D-02, S-05
 - Status: known (`spec/research/limen-ops-retro-2026-09-10.md:157`)
 - History: DELIBERATE: the author wants one landing owner per checkout, and that owner is the coordinator ("Only the lane's coordinator lands", `spec/features/planned/F958-seat-wide-rules-reach-every-coordinator-session/outside-limen.md:26`). The reason: fewer merge and board collisions (`spec/research/limen-ops-retro-2026-09-10.md:170`). The human gate is the seat's rule (A-012 cites `docs/seat/agent-setup.md:70`).
+- Note: The full wake text is "Job done. Next step: land it, or name the check that still blocks landing." (`src/job/wake-text.ts:82`), and the instruction ends "After it lands, continue with the next item" (`src/job/wake-text.ts:98`). "Land only after the human says land" is not written in this repo; whether the projects' `AGENTS.md` or overlays record it is To verify (Q8).
 
 ### A-013 Review verdict is never read, and land merges the branch tip instead of the reviewed candidate
 - Area: determinism
@@ -383,10 +523,11 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Rule: z. 14, z. 21
 - Verdict: non-compliant
 - Direction: Add a per-plant concurrency limit, for example `.agents/limen/limits.json` `maxJobs: 1`, enforced in `recordSpawnedJob`/`enterStartQueue`. Hosted jobs, reviews and keepers count toward it. Remove the contrary manual lines.
-- Scenario: The coordinator follows `templates/agents.md:152` and starts two workers on "disjoint" tickets, plus a keeper. All three share the 5 h window and hit the limit together, so three jobs fail at once. Their uncommitted work is then exposed to D-01, and the coordinator receives three wakes while itself at quota (D-07).
+- Scenario: The coordinator follows `templates/agents.md:152` and starts two workers on "disjoint" tickets, plus a keeper. All three share the 5 h window and hit the limit together, so three jobs fail at once. Their uncommitted work is then exposed to A-001, and the coordinator receives three wakes while itself at quota (A-016).
 - Candidates: D-05, K-01, R-12
 - Status: known (`spec/research/limen-ops-retro-2026-09-10.md:45`)
 - History: DELIBERATE: the author runs parallel jobs, coordinators and multi-model groups ("Explicit handbacks enabled useful parallel work"). So the one-job limit comes from the seat, not from the author.
+- Note: The scenario assumes a quota hit ends a job `failed`; that is To verify (Q1).
 
 ### A-015 The review/repair loop has no exit condition in code
 - Area: autonomy
@@ -395,7 +536,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Evidence: `Each round is a fresh spend, not momentum: one repair and one re-review settle an ordinary ticket. A second FAIL on the same slice ends the loop … Do not buy a third round.` The same line also says `A rejection is iteration input, not a reason to stop or ask permission`. There is no round counter, verdict file or limit anywhere in `src/` or `hook/` (see T13 and T16).
 - Rule: z. 1, z. 34
 - Verdict: non-compliant
-- Direction: Record review rounds per feature, using the verdicts from D-03. Make `spawn --review` / repair spawns refuse past N rounds, unless an owner override exists, and emit an escalation to the human instead.
+- Direction: Record review rounds per feature, using the verdicts from A-013. Make `spawn --review` / repair spawns refuse past N rounds, unless an owner override exists, and emit an escalation to the human instead.
 - Scenario: Each round is a fresh xhigh reviewer plus a high worker on the Claude Max budget:
   1. FAIL;
   2. repair;
@@ -406,8 +547,9 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Candidates: D-04
 - Status: known (`spec/research/limen-ops-retro-2026-09-10.md:152`)
 - History: The retro: "Do not turn an unchanged baseline failure into an automatic repair loop". The owner counted one ticket with 3 review rounds (owner's analysis l. 99), and F953 ran 4 rounds before Adam stopped it (`spec/features/done/2026-10/F953-a-done-job-with-open-note-checks-tells-the-coordinator-and-is-not-a-plain-done/ticket.md:40`).
+- Note: Absence search: `git grep -n -i -E 'round|re-review|repair' rebuild-base -- src hook` matches only group rounds and unrelated words; no review-round counter or verdict file exists.
 
-### A-016 Quota resumption depends on an uninstalled seat extension and on prose; wakes during the limit stop after two attempts
+### A-016 Quota resumption depends on prose and on a seat extension Limen does not install; wakes during the limit stop after two attempts
 - Area: autonomy
 - Severity: high
 - Location: `docs/seat/quota-resume.ts:159-168`, `docs/seat/README.md:39`, `src/job/wake-delivery.ts:18`, `src/job/wake-delivery.ts:178-200`, `hook/wake.ts:982-999`, `hook/wake.ts:753-765`, `src/commands/continue.ts:195`
@@ -421,10 +563,11 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
   - keep blocked wakes as a durable "owed" list per plant;
   - have `limen status` (or a `limen resume --quota` command) re-launch each marked job with its recorded route (`engine`/`model` files plus recorded provider and thinking);
   - ship the extension through `limen init` or a checked install step.
-- Scenario: A worker hits the 5 h window and ends `failed` (correctly, not faked). Its completion wake triggers a coordinator turn, which also fails on quota. A second attempt fails the same way, and completion delivery is now blocked in every session. If `quota-resume.ts` is not linked, nothing happens after the reset: the coordinator sits idle until Adrian notices. If it is linked, the model must run `limen status`, identify the quota failures and type four route flags correctly. A missed flag starts the package default model (D-08). Meanwhile, D-01 can delete the failed job's uncommitted edits.
+- Scenario: A worker hits the 5 h window and ends `failed` (correctly, not faked). Its completion wake triggers a coordinator turn, which also fails on quota. A second attempt fails the same way, and completion delivery is now blocked in every session. If `quota-resume.ts` is not linked, nothing happens after the reset: the coordinator sits idle until Adrian notices. If it is linked, the model must run `limen status`, identify the quota failures and type four route flags correctly. A missed flag starts the package default model (A-030). Meanwhile, A-001 can delete the failed job's uncommitted edits.
 - Candidates: D-07
 - Status: known (`spec/research/limen-ops-retro-2026-09-10.md:144`)
 - History: DELIBERATE: after the 10,480-wake storm, the retro's first fix bounds wake retries (`spec/research/limen-ops-retro-2026-09-10.md:167`) and accepts that recovery "may require deliberate resumption". The claim is "retained for human recovery" (`src/job/wake-delivery.ts:202`, checked). So "dropped" means "not sent again automatically".
+- Note: The scenario assumes a quota hit ends a job `failed` (Q1); whether the seat extension is installed is Q7.
 
 ### A-017 The worktree lock and the seat start-queue lock wait forever when the owner pid is reused; no message, no timeout
 - Area: reliability
@@ -437,6 +580,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Scenario: The seat reboots while `limen spawn` is inside `publishJob`'s rename, or a human presses Ctrl-Z on `limen prune`. After the reboot an unrelated process gets the recorded pid. Every `limen spawn`, `land` and `prune` for that project hangs silently. With the seat queue lock, every detached start on the seat stays `queued`.
 - Candidates: R-04
 - Status: new
+- History: no source in the pass-2 set names this mechanism.
 
 ### A-018 A stale GitHub `poll.lock` disables the doorbell for that project permanently
 - Area: reliability
@@ -449,6 +593,8 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Scenario: The seat reboots during a one-minute poll. From then on, `@limen` mentions in that repository are never claimed. The only trace is a failed oneshot unit in the journal.
 - Candidates: R-05
 - Status: new
+- History: no source in the pass-2 set names this mechanism.
+- Note: Applies only if the doorbell runs on the seat (Q2).
 
 ### A-019 `finalizeJob` is check-then-write with no lock; concurrent finalizers both commit and the final state is a coin toss
 - Area: reliability
@@ -461,6 +607,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Scenario: The coordinator runs `limen stop <id> "done: accepted"` on a job whose engine exits quickly on TERM. The wrapper's `stopped` can win, so `limen land` refuses ("land requires a done job"), and the wake already said `done`, or the other way round.
 - Candidates: R-06
 - Status: new
+- History: no source in the pass-2 set names this mechanism.
 
 ### A-020 SIGTERM to the wrapper alone disarms the timeout, tool cap and stall watch without stopping the engine
 - Area: reliability
@@ -473,6 +620,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Scenario: Following the Recovery table ("Check the recorded PID", `docs/jobs.md:234`), an operator or a script runs `kill <pid>` from `limen jobs`. The engine runs without any bound until it exits by itself, burning the Max window, and the job stays `running`.
 - Candidates: R-07
 - Status: new
+- History: no source in the pass-2 set names this mechanism.
 
 ### A-021 Land's ticket close is not transactional; a failed commit leaves staged moves, prints a false "tickets stay active" and exits 0
 - Area: reliability
@@ -486,6 +634,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Scenario: The human says "land". The project's pre-commit hook (lint, format) rejects the close commit. The coordinator reads exit 0. The ticket is half-moved and staged in the main checkout. The human's next commit on `main` sweeps it in, or the next land is refused.
 - Candidates: R-08, D-15
 - Status: new
+- History: no source in the pass-2 set names this mechanism.
 
 ### A-022 The board, tickets and some job files are rewritten in place (truncate, then write)
 - Area: reliability
@@ -498,8 +647,9 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Scenario: The disk fills (Maven `target/` across worktrees) during `limen land`. `spec/build.md` is left truncated. In private planning mode (`src/project/planning.ts:5`) spec/ has no Git copy, so the board's coordinator-written TRACK/NEXT prose is lost.
 - Candidates: R-09
 - Status: new
+- History: no source in the pass-2 set names this mechanism.
 
-### A-023 Hosted jobs have no wall-clock or tool-call bound
+### A-023 Hosted jobs have no wall-clock or tool-call bound, and an idle heuristic can end one `done`
 - Area: reliability
 - Severity: medium
 - Location: `src/runtime/supervisor.ts:128`, `src/job/publication.ts:60`, `docs/jobs.md:170-171`, `src/runtime/supervisor.ts:450-451`, `src/runtime/supervisor.ts:454-455`, `src/commands/spawn.ts:253-254`, `templates/worker.md:10`
@@ -526,6 +676,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Scenario: The coordinator's Pi session has stopped on quota, and the wrapper dies (OOM). The job stays `running` with a dead pid for as long as the session is down. The bell never rings, and the human assumes work is progressing.
 - Candidates: R-11, D-10, K-19
 - Status: new
+- History: no source in the pass-2 set names this mechanism.
 
 ### A-025 Harness code loaded into later sessions resolves from worker-writable locations, not from the root-owned release
 - Area: security
@@ -551,6 +702,8 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Scenario: A job prints a token or a private path into its final message or log tail, by accident or because injected content asked it to. The App then publishes it on a public PR or issue under the App's name, where it cannot be fully withdrawn.
 - Candidates: S-11
 - Status: new
+- History: no source in the pass-2 set names this mechanism.
+- Note: Applies only if the doorbell runs on the seat (Q2).
 
 ### A-027 Webhook bearer tokens sit in a dotenv inside the checkout that every job can read; the payload carries the whole final message
 - Area: security
@@ -575,8 +728,8 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Direction: Authenticate steers, for example with a per-job secret held by the spawner and checked by the hook, or let only the coordinator's own process write them. Tag the origin in the delivered text.
 - Scenario: A misled job drops a file into another running job's inbox. That job receives it mid-turn as an owner correction, which its role prompt says to obey as "a correction to the current slice".
 - Candidates: S-13
-- Status: known (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/group/findings/final.md:56`)
-- History: The F952 group found that a steer has no author field (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/group/findings/final.md:209`) and can hold coordinator text or a timeout nudge. The group sees an attribution gap, not a write-access hole.
+- Status: new
+- History: Related only (different mechanism): The F952 group found that a steer has no author field (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/group/findings/final.md:209`) and can hold coordinator text or a timeout nudge. The group sees an attribution gap, not a write-access hole.
 
 ### A-029 Group-role guards are keyed on environment variables and tool names that a member's own shell controls
 - Area: security
@@ -589,6 +742,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Scenario: A group member that strips one variable from a child process, or starts an agent through Bash, can land, start keepers, steer other teams or launch helpers beyond its allowance. The tool-call hook sees only the named tool, not the effect (z. 14).
 - Candidates: S-14
 - Status: new
+- History: no source in the pass-2 set names this mechanism.
 
 ### A-030 A spawn or continue without route flags silently substitutes a model
 - Area: determinism
@@ -680,6 +834,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Scenario: n/a (medium).
 - Candidates: D-17
 - Status: new
+- History: no source in the pass-2 set names this mechanism.
 
 ### A-037 The system prompt is rebuilt every prompt; every land invalidates the coordinator's cached history
 - Area: cost
@@ -693,6 +848,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Candidates: K-02
 - Status: new
 - History: The author's core keeps two system-prompt appends (`spec/features/active/F957-first-principles-cut-of-limen-architecture-new-graph-marks-unvaluable-parts/ticket.md:38`). No source discusses cache invalidation.
+- Note: Assumes the usual prompt-cache order (tools, then system, then messages); where the bridge places cache breakpoints is To verify (Q9).
 
 ### A-038 Job roles carry the human register, the ticket rules and maintainer notes
 - Area: cost
@@ -718,8 +874,9 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Scenario: n/a (medium). Effect on the seat: every job carries the project's Polish human-register file in its fixed context, and a project file that omits `## Cue: Agent` leaves jobs with no audience cue.
 - Candidates: K-04
 - Status: new
+- History: no source in the pass-2 set names this mechanism.
 
-### A-040 The shop manual ships ≈2.5k tokens per request for features the seat does not use
+### A-040 The shop manual ships ≈2.5k tokens per request for features whose seat use is unknown
 - Area: cost
 - Severity: medium
 - Location: `hook/communication.ts:164-169`, `templates/agents.md:21-32`, `templates/agents.md:38-40`, `templates/agents.md:57`, `templates/agents.md:71-73`, `templates/agents.md:96`, `templates/agents.md:98`, `templates/agents.md:150`, `templates/agents.md:164`, `templates/agents.md:199-214`, `templates/agents.md:228`
@@ -810,7 +967,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Status: known (`spec/research/limen-ops-retro-2026-09-10.md:13`)
 - History: The retro: "The recurring cost was machinery retries and coordination repair". It asks for proportional review, with one falsifier per commit (`spec/research/limen-ops-retro-2026-09-10.md:152`).
 
-### A-047 The seat's Pi extensions run in every coordinator with no typecheck, lint or test
+### A-047 The seat's Pi extensions, where installed, run in every coordinator with no typecheck, lint or test
 - Area: cross-cutting
 - Severity: medium
 - Location: `tsconfig.json:21`, `biome.jsonc:112-114`, `docs/seat/quota-resume.ts:20-22`, `docs/seat/coordinator-handoff.ts:89-96`
@@ -821,6 +978,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Scenario: n/a (medium).
 - Candidates: K-20
 - Status: new
+- History: no source in the pass-2 set names this mechanism.
 
 ### A-048 The picture subsystem is ≈28 % of shipped code and sits on the ticket-check path
 - Area: cross-cutting
@@ -835,7 +993,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Status: known (`spec/features/active/F957-first-principles-cut-of-limen-architecture-new-graph-marks-unvaluable-parts/ticket.md:42`)
 - History: The author's core leaves the picture out ("not part of this essence"), and F957 would give it a verdict. F952 refuses the picture as a durable store (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/group/findings/final.md:76`).
 
-### A-049 Engines and integrations the seat does not use make up ≈6k lines
+### A-049 Engines and integrations with no known seat use make up ≈6k lines
 - Area: cross-cutting
 - Severity: medium
 - Location: `src/runtime/devin.ts:1`, `src/runtime/engine.ts:44-66`, `src/integrations/coordinator-wake.ts:22-31`, `src/main.ts:38-39`, `src/main.ts:61`, `hook/wake.ts:23`
@@ -859,8 +1017,9 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Scenario: n/a (medium).
 - Candidates: K-24
 - Status: new
+- History: no source in the pass-2 set names this mechanism.
 
-### A-051 No test guards what the model actually receives
+### A-051 No test checks the assembled prompt beyond marker counts
 - Area: cross-cutting
 - Severity: medium
 - Location: `test/s4-steering.test.ts:90-92`, `test/fake-engine.mjs:24`, `src/runtime/supervisor.ts:371`, `src/runtime/wrapper.ts:79`
@@ -884,6 +1043,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Scenario: The OOM killer SIGKILLs the engine. The coordinator sees `stopped` (as if someone asked) rather than a failure to investigate.
 - Candidates: R-13
 - Status: new
+- History: no source in the pass-2 set names this mechanism.
 
 ### A-053 The wrapper writes `state=running` unconditionally after starting the engine
 - Area: reliability
@@ -896,6 +1056,8 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Scenario: A stop lands just after setup. The record says `running` with no pid, and the reaper ends it 10 min later as `failed: process group gone`.
 - Candidates: R-14
 - Status: new
+- History: no source in the pass-2 set names this mechanism.
+- Note: "10 min" is the reaper's startup grace `STARTUP_GRACE_MS` (`src/runtime/reap.ts:8`, applied at `src/runtime/reap.ts:106`).
 
 ### A-054 Seat units cover one project each; the bell floods on first run
 - Area: reliability
@@ -908,6 +1070,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Scenario: The second production project (Java/Maven) never gets bell notifications unless the operator copies the units by hand.
 - Candidates: R-15
 - Status: new
+- History: no source in the pass-2 set names this mechanism.
 
 ### A-055 Ticket numbers outside a series are allocated without a lock
 - Area: reliability
@@ -920,6 +1083,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Scenario: Two `limen ticket new` runs at once produce two F042 tickets. The second land is refused and needs a keeper.
 - Candidates: R-16
 - Status: new
+- History: no source in the pass-2 set names this mechanism.
 
 ### A-056 A missing `born` file counts as "same process" in the reaper
 - Area: reliability
@@ -932,6 +1096,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Scenario: The wrapper dies before `born` lands. After a reboot its pid belongs to another process, and the job stays `running` indefinitely.
 - Candidates: R-17
 - Status: new
+- History: no source in the pass-2 set names this mechanism.
 
 ### A-057 Job publication is atomic and prune-safe
 - Area: reliability
@@ -940,7 +1105,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Evidence: All starting files are written `flag: "wx", flush: true` into `.publishing-<id>`, then `await worktreeLock(jobsRoot, () => rename(publishing, jobDir));`. Failure removes the hidden directory.
 - Rule: none
 - Verdict: compliant
-- Direction: Keep it, and use the same pattern for the multi-file close in R-08.
+- Direction: Keep it, and use the same pattern for the multi-file close in A-021.
 - Scenario: n/a
 - Candidates: R-18
 - Status: new
@@ -953,7 +1118,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Evidence: Claims compare pid and birth (`info.process.born === born`). The wake is claimed with `writeFile(receipt, …, { flag: "wx", flush: true })` (`return; // Another finalizer already owns this wake.`). The hosted binding compares `boot_id`.
 - Rule: none
 - Verdict: compliant
-- Direction: Reuse this identity model for `groupLock`, `withSeatLock` and `poll.lock` (R-04, R-05).
+- Direction: Reuse this identity model for `groupLock`, `withSeatLock` and `poll.lock` (A-017, A-018).
 - Scenario: n/a
 - Candidates: R-19
 - Status: known (`spec/research/limen-ops-retro-2026-09-10.md:81`)
@@ -967,7 +1132,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
   Also (D-21): `const DEFAULT_TIMEOUT_MS = 90 * 60_000;`, `const MAX_TOOL_CALLS = 900;`, `isFailedStopReason(seen.stop) ? … "failed"`. The 80 % steer asks for a commit.
 - Rule: z. 1, z. 2
 - Verdict: partial
-- Direction: The bounds are right, but their effect depends on R-01 (the failed job's tree is pruned) and R-07 (one SIGTERM disarms them).
+- Direction: The bounds are right, but their effect depends on A-001 (the failed job's tree is pruned) and A-020 (one SIGTERM disarms them).
 - Scenario: n/a
 - Candidates: R-20, D-21
 - Status: new
@@ -990,7 +1155,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Area: security
 - Severity: low
 - Location: `src/runtime/wrapper.ts:200-210`, `src/commands/github.ts:120-125`, `docs/seat/quota-resume.ts:171`, `docs/remote.md:166`
-- Evidence: the deny-list (`src/runtime/wrapper.ts:201`) omits `LIMEN_COORDINATOR`; the S-02 demo shows `LIMEN_COORDINATOR=set` in the engine. `insideCoordinator` is `process.env.HERDR_ENV === "1" && process.env.LIMEN_COORDINATOR === "1" && process.env.HERDR_PANE_ID === binding.coordinator` (`src/commands/github.ts:122-124`), and the pane id is in group-readable `binding.json`. The docs acknowledge the answer is `not independently authenticated` (`docs/remote.md:166`).
+- Evidence: the deny-list (`src/runtime/wrapper.ts:201`) omits `LIMEN_COORDINATOR`; the A-004 demo shows `LIMEN_COORDINATOR=set` in the engine. `insideCoordinator` is `process.env.HERDR_ENV === "1" && process.env.LIMEN_COORDINATOR === "1" && process.env.HERDR_PANE_ID === binding.coordinator` (`src/commands/github.ts:122-124`), and the pane id is in group-readable `binding.json`. The docs acknowledge the answer is `not independently authenticated` (`docs/remote.md:166`).
 - Rule: z. 14
 - Verdict: partial
 - Direction: Strip `LIMEN_COORDINATOR` from job environments. Treat `github resolve/work` as unauthenticated (as documented), or move the decision behind something only the coordinator holds.
@@ -1010,6 +1175,8 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Scenario: A worker-side process can redirect the poller's writes (lock and nonce-free claim copies) into any directory the poller user can write, including its private state. That breaks the documented promise that workers cannot alter accepted claims (`docs/remote.md:139`), though the written content stays poller-generated.
 - Candidates: S-16
 - Status: new
+- History: no source in the pass-2 set names this mechanism.
+- Note: Applies only if the doorbell runs on the seat (Q2).
 
 ### A-063 The poller runs git in the worker-owned repository with the ownership check overridden
 - Area: security
@@ -1022,6 +1189,8 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Scenario: Safety rests on `remote get-url` happening never to invoke config-driven programs. A future edit that adds a status or fetch call here, or a git version that changes behaviour, would run code from the worker's repository config as the App-key user.
 - Candidates: S-17
 - Status: new
+- History: no source in the pass-2 set names this mechanism.
+- Note: Applies only if the doorbell runs on the seat (Q2).
 
 ### A-064 App key isolation and poller preconditions hold (compliant mechanism)
 - Area: security
@@ -1034,6 +1203,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Scenario: n/a
 - Candidates: S-18
 - Status: new
+- History: no source in the pass-2 set names this mechanism.
 
 ### A-065 Doorbell trigger authorization is enforced in code (compliant mechanism)
 - Area: security
@@ -1042,10 +1212,11 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Evidence: a mention counts only outside fences, quotes, indented code, inline code and HTML comments (`:54-75`). The author's effective role must be `["admin", "write", "maintain"]` (`:376`); the comment must be newer than `connectedAt` (`:390`); the thread must be open and match the number (`:408`). Issue bodies need a write-role author and the same repository (`:461-466`). `test/s10-doorbell.test.ts:66-89` covers outside, read and triage users.
 - Rule: z. 14
 - Verdict: compliant
-- Direction: Keep. Add the PR author and head repository to the same check (S-01) and stop forwarding non-writer text (S-03).
+- Direction: Keep. Add the PR author and head repository to the same check (A-003) and stop forwarding non-writer text (A-007).
 - Scenario: n/a
 - Candidates: S-19
 - Status: new
+- History: no source in the pass-2 set names this mechanism.
 
 ### A-066 The ntfy bell sends job labels to a public relay, and its topic secret sits in a world-readable unit drop-in
 - Area: security
@@ -1058,6 +1229,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Scenario: Labels (ticket titles, PR numbers) leave the tailnet to a public service whose only access control is the topic name. Any local account can read that name from the unit configuration.
 - Candidates: S-20
 - Status: new
+- History: no source in the pass-2 set names this mechanism.
 
 ### A-067 The statusline reads the Claude OAuth token but sends it only to a fixed HTTPS endpoint (compliant mechanism)
 - Area: security
@@ -1066,16 +1238,17 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Evidence: `const USAGE_URL = "https://api.anthropic.com/api/oauth/usage";` and `CREDENTIALS = path.join(homedir(), ".claude", ".credentials.json")` (`:18-19`). The token goes only into the `Authorization` header of that request (`:165-166`). The shared cache `~/.pi/agent/statusline-limits.json` stores percentages only (`:144-145`) and feeds the footer, not the model context.
 - Rule: z. 14
 - Verdict: compliant
-- Direction: Keep. Note that it confirms the Claude login is a plain file in the worker's home, which every job can read (S-02).
+- Direction: Keep. Note that it confirms the Claude login is a plain file in the worker's home, which every job can read (A-004).
 - Scenario: n/a
 - Candidates: S-21
 - Status: new
+- History: no source in the pass-2 set names this mechanism.
 
 ### A-068 quota-resume sends an automatic coordinator turn keyed on error text and one environment variable
 - Area: security
 - Severity: low
 - Location: `docs/seat/quota-resume.ts:152-156`, `docs/seat/quota-resume.ts:159-167`, `docs/seat/quota-resume.ts:171`, `docs/seat/quota-resume.ts:182-193`
-- Evidence: the trigger is any assistant message with `stopReason === "error"` whose `errorMessage` or content text matches `/hit your (?:[\w-]+ )?limit/i` (`:20, 152-156`). That text is quoted into the wake: `the error "${error.trim()}"` (`:162`). The wake tells the coordinator to `resume each job that failed on the limit with \`limen continue <id>\`` (`:163`). The only gate is `if (process.env.LIMEN_COORDINATOR !== "1") return;` (`:171`), and jobs inherit that variable (S-15).
+- Evidence: the trigger is any assistant message with `stopReason === "error"` whose `errorMessage` or content text matches `/hit your (?:[\w-]+ )?limit/i` (`:20, 152-156`). That text is quoted into the wake: `the error "${error.trim()}"` (`:162`). The wake tells the coordinator to `resume each job that failed on the limit with \`limen continue <id>\`` (`:163`). The only gate is `if (process.env.LIMEN_COORDINATOR !== "1") return;` (`:171`), and jobs inherit that variable (A-061).
 - Rule: z. 15
 - Verdict: partial
 - Direction: Match only the provider's `errorMessage`, not content parts. Quote it as data. Gate on `LIMEN_JOB !== "1"` as coordinator-handoff does (`docs/seat/coordinator-handoff.ts:68`).
@@ -1108,6 +1281,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Scenario: n/a (low).
 - Candidates: D-18
 - Status: new
+- History: no source in the pass-2 set names this mechanism.
 
 ### A-071 The quality-pass trigger (ten landings) is prose-only although it is countable
 - Area: determinism
@@ -1133,6 +1307,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Scenario: n/a (low).
 - Candidates: D-20
 - Status: new
+- History: no source in the pass-2 set names this mechanism.
 
 ### A-073 The ticket-at-base check covers only `Ticket: spec/…` pointers
 - Area: determinism
@@ -1154,7 +1329,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Evidence: `systemPrompt: event.systemPrompt ? \`${event.systemPrompt}\n\n${extra}\` : extra` rebuilt on every `before_agent_start`. `pi.on("session_compact", forget);`.
 - Rule: z. 4, z. 19
 - Verdict: compliant
-- Direction: Keep this. Extend it to owner decisions (D-11).
+- Direction: Keep this. Extend it to owner decisions (A-034).
 - Scenario: n/a (low).
 - Candidates: D-22
 - Status: known (`spec/features/active/F957-first-principles-cut-of-limen-architecture-new-graph-marks-unvaluable-parts/ticket.md:38`)
@@ -1167,7 +1342,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Evidence: `next < run.rounds.length && Date.now() < run.deadline - run.reserveMs ? await roundTeams(run, next) : []`. The result names each team's state and reason.
 - Rule: z. 1
 - Verdict: compliant
-- Direction: Keep this. Landing the group result inherits D-02 and D-03.
+- Direction: Keep this. Landing the group result inherits A-012 and A-013.
 - Scenario: n/a (low).
 - Candidates: D-23
 - Status: known (`spec/features/active/F954-a-private-assessment-combines-verified-collaboration-counts-from-both-session-stores/group/recovery-1.md:3`)
@@ -1216,13 +1391,14 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Area: cost
 - Severity: low
 - Location: `src/commands/continue.ts:219-220`, `src/commands/continue.ts:355-366`, `src/commands/continue.ts:569`, `src/commands/group-rounds.ts:156-167`
-- Evidence: `const role = review ? "reviewer" : …` then `const preamble = resolvePreamble(root, role);` in front of the copied `session/*.jsonl`; the Limen block is rebuilt from current files (K-02); each group round > 0 is a continuation.
+- Evidence: `const role = review ? "reviewer" : …` then `const preamble = resolvePreamble(root, role);` in front of the copied `session/*.jsonl`; the Limen block is rebuilt from current files (A-037); each group round > 0 is a continuation.
 - Rule: z. 3
 - Verdict: partial
 - Direction: Reuse the parent's recorded system prompt for a continuation; remove `continue --review` (the code itself prints "this review is not independent").
 - Scenario: n/a (low).
 - Candidates: K-15
 - Status: new
+- History: no source in the pass-2 set names this mechanism.
 
 ### A-080 A group lead gets a model turn per peer batch
 - Area: cost
@@ -1235,6 +1411,7 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 - Scenario: n/a (low).
 - Candidates: K-16
 - Status: new
+- History: no source in the pass-2 set names this mechanism.
 
 ### A-081 Tools and skills are not scoped per role
 - Area: cost
@@ -1304,32 +1481,33 @@ Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidenc
 ## Pass 2: hypotheses from the owner's analysis
 
 Source: `input/petla-uczenia-2026-11-15.md` (local, not published), read only after pass 1. Each hypothesis about
-Limen's code is marked against `rebuild-base`. Claims about the seat, the projects' data or upstream cannot be settled
-from the repo; they are marked "not settled here" and listed in `## To verify`.
+Limen's code is marked against `rebuild-base` as `confirmed`, `partial` or `refuted` (none was refuted); "Adrian" is the
+owner and author of that analysis, "the author" or "Adam" is Limen's author. Claims about the seat, the projects' data or upstream cannot be settled
+from the repo; they are marked "not settled here" and listed in `## To verify` (Q10, Q11).
 
 | # | Hypothesis (analysis §) | Mark | Evidence |
 |---|---|---|---|
-| H-01 | Limen has the raw signal for a learning loop (job note, `open-checks`, reminder marks, steer log, quality pass, fake-engine tests), but nothing aggregates it (§1, §3) | confirmed | `open-checks` is read per job only (`src/commands/jobs.ts`, `src/commands/status.ts`, `src/job/view.ts`); no cross-job reader exists in `src/` or `hook/`; steer log line at `hook/steering.ts:134` |
+| H-01 | Limen has the raw signal for a learning loop (job note, `open-checks`, reminder marks, steer log, quality pass, fake-engine tests), but nothing aggregates it (§1, §3) | confirmed | `git grep -l "open-checks" rebuild-base -- src hook` lists seven files (`jobs.ts`, `status.ts`, `finish-receipt.ts`, `job.ts`, `record.ts`, `task-note.ts`, `view.ts`), each reading one job; none reads across jobs; steer log line at `hook/steering.ts:134` |
 | H-02 | `open-checks` counts proof deterministically: only a bash call that exited 0 and joined commands only with `&&` (§3) | partial | The command rule holds (`src/job/task-note.ts:87-88`), but a "proven" line also closes when any backticked name is an existing file (`src/job/task-note.ts:217`); see A-031 |
 | H-03 | Project reminders enter the first prompt and the pre-finish check, each marked followed / broken / not proven (§3) | confirmed | `src/job/task-note.ts:14` reads `.agents/limen/reminders.md`; marks parsed at `src/job/task-note.ts:16` |
 | H-04 | Every `limen steer` appends `steered: …` to the job log (§3) | confirmed | `hook/steering.ts:134` |
-| H-05 | The quality pass runs after ten landings and only proposes (§3) | confirmed (prose only) | The trigger exists only in the shop manual (`templates/agents.md:100`); no code counts landings or reads `spec/quality/` (A-071) |
-| H-06 | The README has a before/after measurement plan; its results are not in the public repo (§3, §8b) | partial | The plan is at `README.md:109`; no result file exists in code or docs, and the one-week window has passed (A-044); the rest of `spec/` was not searched |
+| H-05 | The quality pass runs after ten landings and only proposes (§3) | partial | "Only proposes" holds: the role may write only a findings file (`templates/quality.md:11-13`). "Runs after ten landings" holds only as prose: the trigger is in the shop manual (`templates/agents.md:100`) and no code counts landings (A-071) |
+| H-06 | The README has a before/after measurement plan; its results are not in the public repo (§3, §8b) | partial | The plan is at `README.md:109`; no result file exists in code or docs (as the cost tables say), and the one-week window has passed (A-044); `spec/` beyond the pass-2 set was not searched, hence partial |
 | H-07 | Reminders arrive just in time (after a relevant edit, once per context, again after compaction) instead of every turn (§3) | partial | The just-in-time mechanism is as described (`hook/communication.ts:117-123`), but the same guidance also rides the system prompt on every request (`hook/communication.ts:104`); A-038, A-041 |
-| H-08 | Seat rules are temporary (`--until`), not standing principles (§3) | confirmed | `docs/commands.md:129`; any job can also set them (A-010) |
+| H-08 | Seat rules are temporary (`--until`), not standing principles (§3) | confirmed | `limen rule set` refuses a rule without `--until` (`src/commands/rule.ts:89`; documented at `docs/commands.md:129`); any job can also set them (A-010) |
 | H-09 | Override drift is computed by `listDrift` (§3) | confirmed | `src/project/inherit.ts:64`; it repeats in every coordinator prompt (A-042) |
 | H-10 | About 3.3k test lines on a fake engine, no LLM: a regression gate for mechanics, not for behaviour driven by prose (§3) | confirmed | `test/` has 3 499 lines (`evidence/context-size-rebuild-base.md`); no test checks what the model receives (A-051) |
 | H-11 | Pi puts every skill's name, description and path into every session; `disable-model-invocation: true` hides one (§4, from F952) | not settled here | Engine behaviour outside the repo; Limen does not scope skills per role (A-081). To verify on the seat |
 | H-12 | The vision reminder at `limen spawn` arrives after the job already has its task (§4) | confirmed | The reminder is appended to the coordinator's tool result of the bash call that ran `limen spawn` (`hook/communication.ts:434-436`), after the job was published |
 | H-13 | Fixed context: coordinator 111–174 KB, worker 65–98 KB (§4, author's measurement) | partial | Limen's own share on a fresh fixture is 63.6 KB (coordinator) and 16.7–23.4 KB (job roles) (`evidence/context-size-rebuild-base.md`); the engine prompt, skills and project files make up the rest and are measured on the seat |
-| H-14 | Limen's code fetches nothing from upstream (§10) | confirmed | No fetch from `overment/limen` in `src/`, `hook/` or `bin/`; the only author-specific reference is a default dotenv path `~/.overment/…` in `bin/tony-finish-ping.sh:34` |
+| H-14 | Limen's code fetches nothing from upstream (§10) | confirmed | `git grep -n -i overment rebuild-base -- src hook bin` finds one line and no fetch; the only author-specific reference is a default dotenv path `~/.overment/…` in `bin/tony-finish-ping.sh:34` |
 | H-15 | Limen has no runtime dependencies (§10) | confirmed | `test/structure.test.ts:24-27` asserts `dependencies` is empty |
 | H-16 | Projects load Limen's hooks from the package through the stub `.pi/extensions/limen.ts` (§10) | confirmed | `templates/limen-extension.ts:6-9`, copied by `src/commands/init.ts:79-80`; resolution can reach worker-writable locations (A-025) |
 | H-17 | A clean review session needs `--no-extensions`, or the project stub loads Limen's hooks (§11) | confirmed | `templates/limen-extension.ts:6-9` loads `wake`, `communication`, `steering`, `group-peer` in any Pi session in the project |
 | H-18 | Job worktrees live outside `.limen/`, so a `.limen/` archive does not hold them (§11) | confirmed | `src/commands/spawn.ts:324` |
 | H-19 | `limen prune --retire` must wait until the archive is verified (§11, step 9) | confirmed | Retire deletes records and transcripts, including never-landed zero-commit jobs (A-002) |
 | H-20 | A stats script can read the Note check result, `open-checks`, `steered:` lines, `role`, `parent` and the review verdict from `.limen/jobs/*/` (§7) | partial | All exist except a structured review verdict: it is only the first line of the reviewer's `result` (`templates/reviewer.md:20`) and nothing reads it (A-013) |
-| H-21 | The before/after method compares time windows (other tasks), not the same task (§8b; rule 40) | confirmed | `README.md:109` |
+| H-21 | The before/after method compares time windows (other tasks), not the same task (§8b; z. 40) | confirmed | `README.md:109` |
 | H-22 | Seat and project facts: quality pass left no trace, no `reminders.md` in either project, "planted bug passes the gate" class, upstream `main` equals the pin (§1, §8a) | not settled here | Project data and the network are out of this session's reach; A-071 explains the quality pass gap by a prose-only trigger |
 
 ## Pass 2: the author's intents (material for stage 3)
@@ -1396,29 +1574,29 @@ Full list with quotes and `path:line`: `evidence/audit-pass2/history.md` → "Au
 
 | Prose rule | Where written | Code enforcement | Verdict |
 |---|---|---|---|
-| Land only after the human says "land" | operator decision; repo text only for the setup agent `docs/seat/agent-setup.md:70` | **none**. Confirm only on a TTY `src/commands/land.ts:38`; code-written wake says land `src/job/wake-text.ts:82`, `:94` | none (D-02) |
-| Only the human pushes `main` | `docs/seat/agent-setup.md:70`; group members `templates/group-member.md:5`; doorbell `templates/agents.md:40` | **none**. No coordinator/worker prose; tools auto-approved `src/runtime/engine.ts:232-237` | none (D-06) |
-| One job at a time per project | operator decision; manual says the opposite `templates/agents.md:67`, `:152` | **none**. `src/commands/spawn.ts:385-386` prints a note and starts another | none (D-05) |
-| Commit the ticket before spawn *(trigger)* | `templates/agents.md:153` | `src/commands/spawn.ts:340-341`, `:365-371`, only for `Ticket: spec/` pointers | partial (D-25) |
+| Land only after the human says "land" | operator decision; repo text only for the setup agent `docs/seat/agent-setup.md:70` | **none**. Confirm only on a TTY `src/commands/land.ts:38`; code-written wake says land `src/job/wake-text.ts:82`, `:94` | none (A-012) |
+| Only the human pushes `main` | `docs/seat/agent-setup.md:70`; group members `templates/group-member.md:5`; doorbell `templates/agents.md:40` | **none**. No coordinator/worker prose; tools auto-approved `src/runtime/engine.ts:232-237` | none (A-006) |
+| One job at a time per project | operator decision; manual says the opposite `templates/agents.md:67`, `:152` | **none**. `src/commands/spawn.ts:385-386` prints a note and starts another | none (A-014) |
+| Commit the ticket before spawn *(trigger)* | `templates/agents.md:153` | `src/commands/spawn.ts:340-341`, `:365-371`, only for `Ticket: spec/` pointers | partial (A-073) |
 | Review when the blast radius is high | `templates/agents.md:156` | none | none |
-| Reviewer's first line is `PASS/FAIL <sha>` | `templates/reviewer.md:20` | none; a FAIL review ends `done` (exp2) | none (D-03) |
-| "Land the work at the verified commit" | `src/job/wake-text.ts:94` (text written by code) | none; land merges the branch tip `src/commands/land.ts:45` | none (D-03) |
-| File `review-N.md` before a repair *(trigger)* | `templates/agents.md:157` | none | none (D-16) |
-| One repair and one re-review; stop after a second FAIL *(trigger)* | `templates/agents.md:157` | none | none (D-04) |
+| Reviewer's first line is `PASS/FAIL <sha>` | `templates/reviewer.md:20` | none; a FAIL review ends `done` (exp2) | none (A-013) |
+| "Land the work at the verified commit" | `src/job/wake-text.ts:94` (text written by code) | none; land merges the branch tip `src/commands/land.ts:45` | none (A-013) |
+| File `review-N.md` before a repair *(trigger)* | `templates/agents.md:157` | none | none (A-035) |
+| One repair and one re-review; stop after a second FAIL *(trigger)* | `templates/agents.md:157` | none | none (A-015) |
 | Decide each open check before landing | `src/job/wake-text.ts:86-87`; `templates/agents.md:155` | recorded `src/job/record.ts:47-50`; land reads only `state` `src/commands/land.ts:94` | partial |
 | Keeper before landing changed tickets *(trigger)* | `templates/agents.md:162` | land refuses failing changed tickets `src/commands/land.ts:148-151` | partial (gate is code) |
 | Worker never edits the board or ticket status | `templates/worker.md:21` | NOW/PROVEN regenerated `src/project/lanes.ts:70-80`; ticket gate `src/commands/land.ts:148-151` | partial |
-| A hosted job ends only through `finish` | `templates/worker.md:10` | contradicted: idle close `src/runtime/supervisor.ts:450-451` | contradicted (D-12) |
-| Worktree survives a dead wrapper; commit checkpoints | `templates/agents.md:224`; `docs/jobs.md:44`; `templates/worker.md:31` | contradicted: prune drops every terminal job's worktree `src/commands/prune.ts:153` | contradicted (D-01) |
-| Pass route flags; never silently substitute a model | `templates/agents.md:69`, `:94` | contradicted: fallback `src/runtime/engine.ts:88-90`; `src/commands/continue.ts:195` | contradicted (D-08) |
-| Quality pass after ten landings *(trigger)* | `templates/agents.md:100` | none | none (D-19) |
+| A hosted job ends only through `finish` | `templates/worker.md:10` | contradicted: idle close `src/runtime/supervisor.ts:450-451` | contradicted (A-023) |
+| Worktree survives a dead wrapper; commit checkpoints | `templates/agents.md:224`; `docs/jobs.md:44`; `templates/worker.md:31` | contradicted: prune drops every terminal job's worktree `src/commands/prune.ts:153` | contradicted (A-001) |
+| Pass route flags; never silently substitute a model | `templates/agents.md:69`, `:94` | contradicted: fallback `src/runtime/engine.ts:88-90`; `src/commands/continue.ts:195` | contradicted (A-030) |
+| Quality pass after ten landings *(trigger)* | `templates/agents.md:100` | none | none (A-071) |
 | Research only when the human authorizes it | `templates/agents.md:201` | none | none |
 | `test/` cap raised only by the owner | `templates/agents.md:197` | cap read from `HEAD:spec/vision.md` `src/commands/land.ts:171-205`; nothing stops the coordinator committing `vision.md` | partial |
 | `spec/vision.md` is human-owned | `templates/agents.md:45` | none | none |
-| Resume each quota-failed job with its full route *(trigger)* | `docs/seat/quota-resume.ts:161-166` | none | none (D-07) |
-| Write a handoff note past 30 % context *(trigger)* | `docs/seat/coordinator-handoff.ts:36-47` | reminder once `:71`, `:90-96`; switch on a request file `:83-86` | partial (D-11) |
+| Resume each quota-failed job with its full route *(trigger)* | `docs/seat/quota-resume.ts:161-166` | none | none (A-016) |
+| Write a handoff note past 30 % context *(trigger)* | `docs/seat/coordinator-handoff.ts:36-47` | reminder once `:71`, `:90-96`; switch on a request file `:83-86` | partial (A-034) |
 | Commit before the timeout | steer at 80 % `src/runtime/wrapper.ts:349-357` | hard timeout `src/runtime/wrapper.ts:347` | code limit |
-| Note check before finish | `src/job/task-note.ts:70-105` | sent once `hook/finish.ts:46-54`; parsed `src/job/task-note.ts:125-146` | code, weak proof (D-13) |
+| Note check before finish | `src/job/task-note.ts:70-105` | sent once `hook/finish.ts:46-54`; parsed `src/job/task-note.ts:125-146` | code, weak proof (A-031) |
 | Coordinator never blocks on `wait` | `templates/agents.md:154` | `src/commands/wait.ts:14-18` | code |
 | Group members cannot land or start a keeper | `templates/group-member.md:5` | `src/commands/land.ts:27-29`; `src/commands/keeper.ts:47-51` | code |
 | Never spawn a coordinator role | `templates/agents.md:9` | `src/commands/spawn.ts:207-213` | code |
@@ -1495,30 +1673,30 @@ Claude bridge, Herdr, one Claude Max subscription, one job at a time per project
 |---|---|---|---|---|---|
 | Job core: `spawn.ts`, `wrapper.ts`, `record.ts`, `job.ts`, `land.ts`, `stop.ts`, `prune.ts`, `reap.ts` | ≈2,900 | `src/main.ts:40-51` | critical path | keep | The product. |
 | `continue.ts` | 580 | `src/main.ts:41`; `src/commands/continue.ts:355-366` copies the parent transcript | used (quota recovery: `docs/seat/quota-resume.ts:163`) | keep, shrink | Needed for resume; `--review` variant is a non-independent review (`src/commands/continue.ts:569`). |
-| `hook/communication.ts` | 672 | `templates/limen-extension.ts:8`; `src/runtime/supervisor.ts:377` | every session | shrink | ≈270 lines (`:382-650`) re-ask for guidance that is already in the system prompt (K-07). |
+| `hook/communication.ts` | 672 | `templates/limen-extension.ts:8`; `src/runtime/supervisor.ts:377` | every session | shrink | ≈270 lines (`:382-650`) re-ask for guidance that is already in the system prompt (A-041). |
 | `hook/wake.ts` + `wake-delivery.ts` + `wake-text.ts` | 1,861 | `templates/limen-extension.ts:8` | coordinator | keep, shrink | Core wake; fallback/advisory/uncertainty variants (`hook/wake.ts:561-676`) multiply paths. |
-| Start queue CPU/memory gate | 442 | `src/runtime/wrapper.ts:97` | every detached job | shrink | Gates on CPU and memory (`src/runtime/start-queue.ts:38`), not on the operator's one-job-per-project rule (K-01). |
+| Start queue CPU/memory gate | 442 | `src/runtime/wrapper.ts:97` | every detached job | shrink | Gates on CPU and memory (`src/runtime/start-queue.ts:38`), not on the operator's one-job-per-project rule (A-014). |
 | Seat rules + start priority (`rule.ts`, `seat-rules.ts`) | 329 | `hook/communication.ts:254-262` | unknown usage | shrink | Manual quota lever (`templates/agents.md:67`); a project slot would replace most of it. |
 | Hosted mode (`supervisor.ts`, `hosted-binding.ts`, `hosted-uncertainty.ts`, `hook/hosted.ts`, `recovery.ts`) | 1,230 | `src/runtime/supervisor.ts:366-386` | first picture map, doorbell, group default (`templates/agents.md:86,164`) | shrink; unknown usage | Jobs should be machine-like; hosted is only for "a person will type into the worker" (`templates/agents.md:84`). |
-| Groups (`group.ts`, `group-rounds.ts`, `group-cabinet.ts`, `group-events.ts`, `group-packet.ts`, `hook/group-peer.ts`, `bin/limen-group-fixture.mjs`) | 2,054 (+ tests 424, docs 136) | `src/main.ts:39`; loaded in every coordinator by `templates/limen-extension.ts:8` | unknown usage | cut | N teams in parallel contradicts one job at a time; costs a 1 s timer in every coordinator (K-17). |
+| Groups (`group.ts`, `group-rounds.ts`, `group-cabinet.ts`, `group-events.ts`, `group-packet.ts`, `hook/group-peer.ts`, `bin/limen-group-fixture.mjs`) | 2,054 (+ tests 424, docs 136) | `src/main.ts:39`; loaded in every coordinator by `templates/limen-extension.ts:8` | unknown usage | cut | N teams in parallel contradicts one job at a time; costs a 1 s timer in every coordinator (A-082). |
 | GitHub doorbell (`github.ts`, `github-doctor.ts`, `github-poller.ts`, `github-review.ts`, `docs/seat/github-setup.sh`) | 1,950 (+ s10 218) | `src/main.ts:38`; `templates/agents.md:38-40` | unknown usage (no unit in `docs/seat/README.md:7`) | cut unless used | ≈394 tokens of shop manual per coordinator request for an opt-in feature. |
 | Finish webhooks + coordinator signals (`finish-webhook.ts`, `webhook-queue.ts`, `finish-receipt.ts`, `finish-turn.ts`, `coordinator-signal.ts`, `webhook.ts`, `bin/tony-finish-ping.sh`) | 1,584 (+ docs 752, tests 320) | `hook/wake.ts:23,162,782` | unknown usage | cut or shrink | Seat bell is `docs/seat/bell.sh` (ntfy), a separate 30-line path; finish-ping prose is in every worker prompt (`templates/worker.md:38`). |
 | Devin engine (`devin.ts`) | 303 (+ s11 98) | `src/runtime/wrapper.ts:23`; `src/runtime/engine.ts:55-66` | none (only provider is Claude Max) | cut | Dead on the seat. |
 | OMP paths (`.omp/extensions/limen.ts`, `prepareSkillConfig`, `coordinator-wake.ts`, `finish.ts` `session_stop`) | ≈470 | `src/runtime/wrapper.ts:172`; `src/runtime/engine.ts:161-225`; `src/integrations/coordinator-wake.ts:22-31`; `hook/finish.ts:93-96` | none (seat runs Pi) | cut | Second engine doubles argv, skills and wake routes; OMP text also in the shop manual (`templates/agents.md:96,106,189`). |
-| Picture viewer (`picture/viewer/*`) | 5,150 | `src/picture/picture-build.ts:36` | no agent role needs it | cut from ticket check; cut | The ticket check `limen picture build --strict` (`templates/worker.md:17`) loads the viewer to check front matter (K-21). |
+| Picture viewer (`picture/viewer/*`) | 5,150 | `src/picture/picture-build.ts:36` | no agent role needs it | cut from ticket check; cut | The ticket check `limen picture build --strict` (`templates/worker.md:17`) loads the viewer to check front matter (A-048). |
 | Picture model, tick, watch, serve (`src/picture/*`, `picture-tick.ts`, `picture-watch.ts`, `commands/picture.ts`) | 3,316 | `src/commands/land.ts:288` (`readPicture`); `src/project/picture-tick.ts:22` | ticket front matter on the critical path; map unknown usage | shrink | Keep `tickets.ts`/`frontmatter.ts` as the ticket checker; tick/watch/serve have no test (Table B). |
 | Linear mirror (`linear.ts`, `templates/linear.md`) | 145 | `src/main.ts:61`; `templates/agents.md:57` | unknown usage | cut | Mirroring is agent work (`src/commands/linear.ts:6`): a model-driven bridge, not a generated view (z. 22). |
-| macOS-only branches | ≈90 | `src/runtime/contain.ts:223` (Ruby `proc_pidinfo`); `src/runtime/start-queue.ts:128` (`memory_pressure`); `src/integrations/herdr.ts:579` (`osascript`); `src/project/seat.ts:41,53` (LaunchAgent) | dead on a Linux seat | cut | Linux branch exists (`src/runtime/contain.ts:190`); the LaunchAgent is a silent no-op on Linux (K-19). |
+| macOS-only branches | ≈90 | `src/runtime/contain.ts:223` (Ruby `proc_pidinfo`); `src/runtime/start-queue.ts:128` (`memory_pressure`); `src/integrations/herdr.ts:579` (`osascript`); `src/project/seat.ts:41,53` (LaunchAgent) | dead on a Linux seat | cut | Linux branch exists (`src/runtime/contain.ts:190`); the LaunchAgent is a silent no-op on Linux (A-024). |
 | Non-Git workspace (`workspace init`, `--repo`) | ≈150 | `src/commands/init.ts:59-67`; `templates/agents.md:71-73` | unknown usage | shrink | ≈155 tokens of shop manual every request. |
 | Private planning (`planning.ts`, `planning-source.ts`) | 126 | `src/main.ts:37`; `hook/communication.ts:161-163` | unknown usage | cut or test | Zero tests (Table B); branches in spawn, continue, hooks and groups. |
-| Template drift tracking (`src/project/inherit.ts:64-199`, `templates/.history/*`) | ≈150 + 10 files | `hook/communication.ts:245-249` | fires on every coordinator prompt on the seat | shrink | Flags the operator's deliberate communication overlay on every prompt (K-08). |
+| Template drift tracking (`src/project/inherit.ts:64-199`, `templates/.history/*`) | ≈150 + 10 files | `hook/communication.ts:245-249` | fires on every coordinator prompt on the seat | shrink | Flags the operator's deliberate communication overlay on every prompt (A-042). |
 | Jevgrep search cue | ≈20 | `hook/communication.ts:174-176,196-207` | unknown (no `jg` here) | keep | Cheap; system prompt only when present. |
 | Highlight (`highlight.ts` + Herdr/wake parts) | ≈60 | `src/main.ts:60` | unknown usage | keep or cut | Human-display nicety; low cost. |
-| Task-note experiment (`task-note.ts`, `session-commands.ts`) | 451 | `hook/communication.ts:89-96`; `hook/finish.ts:64-68,85-96` | every job | decide: keep or cut | Experiment with a one-week measurement window that has passed with no measurement in the repo (K-11). |
-| Keeper (`keeper.ts`, `templates/keeper.md`) | 244 | `src/job/wake-text.ts:133`; `src/commands/keeper.ts:109-116` | suggested in every done wake | shrink | Model session for link fixes that are mostly deterministic (K-12). |
+| Task-note experiment (`task-note.ts`, `session-commands.ts`) | 451 | `hook/communication.ts:89-96`; `hook/finish.ts:64-68,85-96` | every job | decide: keep or cut | Experiment with a one-week measurement window that has passed with no measurement in the repo (A-044). |
+| Keeper (`keeper.ts`, `templates/keeper.md`) | 244 | `src/job/wake-text.ts:133`; `src/commands/keeper.ts:109-116` | suggested in every done wake | shrink | Model session for link fixes that are mostly deterministic (A-045). |
 | `docs/vps.md`, `docs/reviews/*` | 176 + 308 | not referenced from code or templates | none | cut | `docs/vps.md:3` calls itself an old record. |
-| `docs/diagrams/context-injection.html` | 395 | none | none | fix or cut | Its cache claims are false (K-02, Table C). |
-| Seat Pi extensions (`docs/seat/{coordinator-handoff,quota-resume,statusline}.ts`) | 608 | `docs/seat/README.md:39` | every coordinator | keep, bring under checks | Production code with no typecheck, lint or test (K-20). |
+| `docs/diagrams/context-injection.html` | 395 | none | none | fix or cut | Its cache claims are false (A-037, Table C). |
+| Seat Pi extensions (`docs/seat/{coordinator-handoff,quota-resume,statusline}.ts`) | 608 | `docs/seat/README.md:39` | every coordinator | keep, bring under checks | Production code with no typecheck, lint or test (A-047). |
 | `.pi/settings.json` | 8 | repo-local Pi defaults | seat irrelevant | cut | `openai-codex/gpt-6-astra` xhigh (`.pi/settings.json:2-4`); the seat has only Claude. |
 
 #### Table B — critical-path mechanisms without a test (area 6)
@@ -1531,11 +1709,11 @@ Grep base: `git grep -n -E '<pattern>' rebuild-base -- test`. "0" = no test file
 | Hosted job role preamble reaches the model | `src/runtime/supervisor.ts:371` (a path), `src/commands/spawn.ts:75-85` | `LIMEN_PREAMBLE` | 0; `test/fake-engine.mjs:24` takes the flag value as literal text | A path-vs-text mismatch would not fail any test (see To verify). |
 | Seat extensions: handoff at 30 %, quota resume, statusline | `docs/seat/coordinator-handoff.ts:89-96`; `docs/seat/quota-resume.ts:20-22,182-195` | `coordinator-handoff\|quota-resume\|statusline` | 0; not type-checked (`tsconfig.json:21`), not linted (`biome.jsonc:112-114`) | The only automatic recovery after a quota stop. |
 | Job ending on a Claude quota error, then `continue` | `docs/seat/quota-resume.ts:159-168`; `src/commands/continue.ts:195` | `hit your\|quota` | 0 (s3 covers a generic provider error) | The shared-quota failure mode of the seat. |
-| Continuation model when no `--model` is given | `src/commands/continue.ts:195`; `src/runtime/engine.ts:89` | `gpt-6-astra\|defaultModel` | 0 | Falls back to an OpenAI route the seat cannot serve (K-06). |
+| Continuation model when no `--model` is given | `src/commands/continue.ts:195`; `src/runtime/engine.ts:89` | `gpt-6-astra\|defaultModel` | 0 | Falls back to an OpenAI route the seat cannot serve (A-030). |
 | `continue --review` | `src/commands/continue.ts:219,569` | `"continue".*"--review"` | 0 (only `spawn --review` in `test/group-extensions.test.ts:134`) | Swaps the preamble in front of a worker transcript. |
 | Private planning | `src/project/planning.ts`; `hook/communication.ts:161-163,232` | `planning` | 0 | Branches through spawn, continue, hooks, groups. |
 | `picture tick` / `picture watch` (spawns model jobs) | `src/project/picture-tick.ts:22-60`; `src/project/picture-watch.ts` | `picture-tick\|"tick"`, `picture-watch` | 0 | "Spends nothing" claim (`templates/agents.md:164`) is a cost guarantee without a test. |
-| `limen sweep --install` | `src/commands/sweep.ts:27-32`; `src/project/seat.ts:40-56` | `"--install"` | 0 | Writes a macOS plist on Linux (K-19). |
+| `limen sweep --install` | `src/commands/sweep.ts:27-32`; `src/project/seat.ts:40-56` | `"--install"` | 0 | Writes a macOS plist on Linux (A-024). |
 | Guidance drift advisory | `src/project/inherit.ts:64-112`; `hook/communication.ts:245-249` | `listDrift\|Guidance drift\|leftover` | 0 | Text that enters every coordinator prompt on the seat. |
 | `limen ticket done` | `src/commands/ticket.ts:25` | `ticket", "done` | 0 | Board regeneration path besides `land`. |
 | OMP job skill view | `src/runtime/engine.ts:161-225` | `prepareSkillConfig\|skills-config` | 0 | Dead on the seat; untested elsewhere. |
@@ -1560,25 +1738,44 @@ Grep base: `git grep -n -E '<pattern>' rebuild-base -- test`. "0" = no test file
 
 ## To verify
 
+### Merged questions
+
+Questions the repo cannot settle, merged across passes (the per-pass lists below hold the detail). Each names the
+findings whose severity or direction it changes.
+
+| Q | Question | Settled by | Changes |
+|---|---|---|---|
+| Q1 | Does a Claude quota hit end a detached job `failed` (error `stopReason`) or `done` (exit 0)? `done` would be a silent false success (critical) | a quota-hit job record on the seat (`stop-reason`, `state`) | A-001, A-014, A-016 |
+| Q2 | Is the GitHub doorbell (poller, `limen-github` units) enabled for any project? | `systemctl list-timers`, `.limen/github/binding.json` on the seat | A-003, A-007, A-018, A-026, A-062, A-063 |
+| Q3 | Is `main` of each project protected on GitHub (server side)? | the repositories' branch protection settings | A-006 (high → medium if protected) |
+| Q4 | Is the `gh` credential a plain file the worker account can read? | `gh auth status` and the credential store on the seat | A-003, A-004 |
+| Q5 | What does Pi load from a job's cwd (`AGENTS.md`, skills) when the worktree is a fork head? | a Pi session in a scratch worktree on the seat | A-003 |
+| Q6 | What does Pi's `--approve` permit in a job? | Pi 1.2.0 docs or a scratch session | A-004 |
+| Q7 | Are `coordinator-handoff.ts`, `quota-resume.ts`, `statusline.ts` installed in `~/.pi/agent/extensions/` on the seat? | `ls` on the seat | A-009, A-016, A-047 |
+| Q8 | Do the projects' `AGENTS.md`, `spec/build.md` or `.agents/limen/communication.md` say "land only after the human says land"? | the two project repos | A-012 |
+| Q9 | Where does the Claude bridge place prompt-cache breakpoints? | bridge 5.0.3 source or a cache-usage log | A-037, A-079 |
+| Q10 | Does Pi list every skill in every session, and does `disable-model-invocation: true` hide one (H-11)? How many skills does a job see? | a Pi job session on the seat | A-081 |
+| Q11 | Project facts from the owner's analysis (H-22): no `spec/quality/` and no `reminders.md` in either project; the "planted bug passes the gate" class; upstream `main` equals the pin | the project repos and `git ls-remote` on the seat | A-071, A-044 |
+
 ### From the reliability pass
 
-- Does Pi 1.2.0 with the Claude bridge exit promptly on SIGTERM? If it takes longer than 25 ms, `limen stop` usually wins R-06. If it ignores TERM and the `limen stop` process is cancelled within 5 s (e.g. the coordinator's tool call is aborted), no KILL is ever sent (`src/commands/stop.ts:52-58` runs in a `void` task of the CLI process). Settle by stopping a real job on the seat and timing the engine's exit.
+- Does Pi 1.2.0 with the Claude bridge exit promptly on SIGTERM? If it takes longer than 25 ms, `limen stop` usually wins A-019. If it ignores TERM and the `limen stop` process is cancelled within 5 s (e.g. the coordinator's tool call is aborted), no KILL is ever sent (`src/commands/stop.ts:52-58` runs in a `void` task of the CLI process). Settle by stopping a real job on the seat and timing the engine's exit.
 - What does the Claude bridge emit when the 5 h or weekly limit hits mid-job: an assistant message with `stopReason` `error` (→ `failed`), or plain text with exit 0 (→ `done`, `src/runtime/wrapper.ts:377-383`)? The second would be a false success. Settle with the bridge source or a captured session JSONL from a quota hit (`quota-resume.ts` matches "hit your … limit" on assistant errors only for coordinators).
-- On the seat, are detached wrappers in the Herdr server's cgroup, so that a Herdr or user-service restart kills all jobs at once (turning R-01 into a fleet-wide loss)? Settle with `systemd-cgls` while a job runs.
-- Are the production projects in `committed` or `private` planning mode? This sets the impact of R-09. Settle with `cat <project>/.limen/planning-source`.
-- Is the GitHub App poller enabled on the seat? This sets the impact of R-05 and R-10. Settle with `systemctl is-enabled limen-github.timer`.
+- On the seat, are detached wrappers in the Herdr server's cgroup, so that a Herdr or user-service restart kills all jobs at once (turning A-001 into a fleet-wide loss)? Settle with `systemd-cgls` while a job runs.
+- Are the production projects in `committed` or `private` planning mode? This sets the impact of A-022. Settle with `cat <project>/.limen/planning-source`.
+- Is the GitHub App poller enabled on the seat? This sets the impact of A-018 and A-023. Settle with `systemctl is-enabled limen-github.timer`.
 - When root moves `/opt/limen` to a new tag while jobs run, do running wrappers or hooks load modules lazily from the new tree (mixed versions mid-job)? Settle by grepping `src/` and `hook/` for dynamic `import(` on the finalize path.
 
 ### From the security pass
 
 1. What exactly does Pi 1.2.0 `--approve` (project trust) enable for a job whose cwd is a PR-head worktree: project `.pi/settings.json`, packages, prompts or `AGENTS.md` from that tree, even with `--no-extensions`? Settled by Pi's docs or source for 1.2.0, or a seat run with a marker setting in a scratch worktree.
-2. Do both production repositories have server-side protection on `main` (branch protection or ruleset restricting pushes to the human)? Settled on GitHub (repo settings or `gh api repos/<o>/<r>/rules/branches/main`). If yes, S-06 drops to medium.
-3. Which `limen` and `node` resolve first in the coordinator pane's `PATH` on the seat (the worker runs Node 26 while setup installs root-owned Node 24), and is `LIMEN_PACKAGE` set? Settled by `command -v -a limen node` and `echo $LIMEN_PACKAGE` in the pane (S-10).
-4. What does the worker's `gh` credential cover (classic token scopes, repositories, orgs), and is it stored as a plain file? Settled by `gh auth status` on the seat, without printing the token (S-02, S-06).
-5. Do the projects' `AGENTS.md` state "land only after the human says land", and does anything else in the seat setup gate `limen land`? Settled by reading the two production `AGENTS.md` files (S-05).
-6. Are the two production projects on one seat registry (`~/.limen/projects`), so that seat rules, PATH shadowing and checkout writes cross projects? Settled by the registry content on the seat (S-08, S-09).
+2. Do both production repositories have server-side protection on `main` (branch protection or ruleset restricting pushes to the human)? Settled on GitHub (repo settings or `gh api repos/<o>/<r>/rules/branches/main`). If yes, A-006 drops to medium.
+3. Which `limen` and `node` resolve first in the coordinator pane's `PATH` on the seat (the worker runs Node 26 while setup installs root-owned Node 24), and is `LIMEN_PACKAGE` set? Settled by `command -v -a limen node` and `echo $LIMEN_PACKAGE` in the pane (A-025).
+4. What does the worker's `gh` credential cover (classic token scopes, repositories, orgs), and is it stored as a plain file? Settled by `gh auth status` on the seat, without printing the token (A-004, A-006).
+5. Do the projects' `AGENTS.md` state "land only after the human says land", and does anything else in the seat setup gate `limen land`? Settled by reading the two production `AGENTS.md` files (A-012).
+6. Are the two production projects on one seat registry (`~/.limen/projects`), so that seat rules, PATH shadowing and checkout writes cross projects? Settled by the registry content on the seat (A-010, A-011).
 7. Is the `limen-github.service` journal readable by the worker (membership in `adm`/`systemd-journal`)? Poller errors such as a JSON parse of an unexpected file may include file excerpts. Settled by `id -nG` of the worker.
-8. Is the pre-push hook installed in the shared `.git/hooks` or via `core.hooksPath`, and is the hooks directory writable by the worker? Settled by `git config core.hooksPath` and `ls -l .git/hooks/pre-push` in each project (S-06).
+8. Is the pre-push hook installed in the shared `.git/hooks` or via `core.hooksPath`, and is the hooks directory writable by the worker? Settled by `git config core.hooksPath` and `ls -l .git/hooks/pre-push` in each project (A-006).
 9. Does any production job route still use Devin or a finish webhook (both read credentials in the job account)? Settled by job records' `engine` and `finish-webhook-env` files.
 
 ### From the determinism and autonomy pass
@@ -1589,17 +1786,17 @@ Grep base: `git grep -n -E '<pattern>' rebuild-base -- test`. "0" = no test file
 - Does the project's own `spec/build.md` or `AGENTS.md` record "land only after the human says land" and "one job at a time"? This would make it prose, not nothing; code enforcement is still none. Settle by reading the project's board, which is outside this repo.
 - Does GitHub branch protection on the project block pushes to `main` by the seat's `gh` identity? Settle in the repository settings.
 - Are `quota-resume.ts` and `coordinator-handoff.ts` actually linked into `~/.pi/agent/extensions/` on the seat, byte-identical to `docs/seat/`? Settle with the `diff` loop in `docs/seat/README.md:47`.
-- Does Herdr 0.9.3 restore the coordinator pane and its Pi session after a machine reboot, and with the same session ID (which matters for D-09)? Settle with a reboot test.
+- Does Herdr 0.9.3 restore the coordinator pane and its Pi session after a machine reboot, and with the same session ID (which matters for A-033)? Settle with a reboot test.
 - Does Pi auto-compaction run before the 30 % handoff reminder can act, and what does it keep of owner decisions? Settle from a compacted session JSONL.
-- Does a Pi `ctx.newSession` handoff give a new session ID, so that jobs finished during the switch fall into D-09? Settle by comparing `notify/subscribers/` before and after a handoff.
+- Does a Pi `ctx.newSession` handoff give a new session ID, so that jobs finished during the switch fall into A-033? Settle by comparing `notify/subscribers/` before and after a handoff.
 
 ### From the cost and cross-cutting pass
 
 1. Does Pi 1.2.0 treat `--append-system-prompt <value>` as a file path when the value names a file? Hosted jobs pass a path (`src/runtime/supervisor.ts:371`), detached jobs pass text (`src/runtime/wrapper.ts:79`). Settled by the Pi CLI source for that flag, or by a hosted job's recorded session showing the role text.
-2. How does the Claude bridge (`pi-claude-bridge`) map Pi's system prompt and messages onto Claude requests, and where are cache breakpoints? K-02 assumes the standard order (tools → system → messages). Settled by the bridge source or by cache-read/cache-write counts in a job's `turns.jsonl` before and after a `limen land`.
+2. How does the Claude bridge (`pi-claude-bridge`) map Pi's system prompt and messages onto Claude requests, and where are cache breakpoints? A-037 assumes the standard order (tools → system → messages). Settled by the bridge source or by cache-read/cache-write counts in a job's `turns.jsonl` before and after a `limen land`.
 3. What does the engine add outside the repo per request (Pi base prompt, built-in tool schemas, skills index, project `AGENTS.md`, and any Claude Code system prompt under the bridge)? Settled by logging one raw request on the seat.
 4. Does `agent_before_settle` with `continue: true` (`hook/finish.ts:91`) start a new `before_agent_start`, i.e. a second system-prompt rebuild and cue? Settled by the Pi extension API docs or a fake-engine trace with real Pi.
 5. Which optional features run on the seat: GitHub doorbell, finish webhooks, groups, picture watch, Linear, highlight, workspace, private planning? Settled by the seat's `systemctl list-timers`, `spec/linear.md`, `.limen/groups/`, `.git/hooks/reference-transaction`, `.limen/planning-source`, and the webhook env files.
-6. Does the seat set `LIMEN_WORKER_MODEL`/`LIMEN_REVIEWER_MODEL`? If yes, K-06's fallback is masked; if no, any flagless spawn or continue fails. Settled by the coordinator pane's environment.
+6. Does the seat set `LIMEN_WORKER_MODEL`/`LIMEN_REVIEWER_MODEL`? If yes, A-030's fallback is masked; if no, any flagless spawn or continue fails. Settled by the coordinator pane's environment.
 7. How large is the project `AGENTS.md` on the seat, and do jobs load it through the engine? If a project copied the shop manual into `AGENTS.md`, every job carries ≈11.8k extra tokens. Settled by `wc -c AGENTS.md` per project and one job's raw request.
-8. What context window does the bridge report for Opus 5.5? The 30 % handoff (`docs/seat/coordinator-handoff.ts:24`) sets how much history each land re-caches (K-02). Settled by `ctx.getContextUsage()` on the seat.
+8. What context window does the bridge report for Opus 5.5? The 30 % handoff (`docs/seat/coordinator-handoff.ts:24`) sets how much history each land re-caches (A-037). Settled by `ctx.getContextUsage()` on the seat.
