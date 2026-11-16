@@ -1,0 +1,49 @@
+#!/bin/sh
+# PL: Hook pre-push pilnujący pracy nad przebudową: przepuszcza wyłącznie fast-forward gałęzi adrian-rebuild
+# PL: do repo adrianmalata/limen. Odrzuca każdą inną gałąź i każdy tag, usunięcie gałęzi, force push oraz push
+# PL: na inny adres (np. upstream overment/limen). Źródło jest śledzone tutaj; install-hooks.sh kopiuje je do
+# PL: .git/hooks/pre-push, a test-pre-push.sh sprawdza je bez sieci.
+#
+# Git passes the remote name and URL as arguments and one line per ref on stdin:
+#   <local ref> <local sha> <remote ref> <remote sha>
+# One refused line refuses the whole push. Bypassing this hook with --no-verify is forbidden by the rebuild prompt.
+
+allowed_ref=refs/heads/adrian-rebuild
+url=$2
+
+refuse() {
+	echo "pre-push: refused: $1" >&2
+	exit 1
+}
+
+# An object name: 40 (SHA-1) or 64 (SHA-256) lowercase hex digits.
+is_sha() {
+	case $1 in
+	'' | *[!0-9a-f]*) return 1 ;;
+	esac
+	[ ${#1} -eq 40 ] || [ ${#1} -eq 64 ]
+}
+
+is_zero() {
+	case $1 in
+	*[!0]*) return 1 ;;
+	esac
+	return 0
+}
+
+case $url in
+https://github.com/adrianmalata/limen | https://github.com/adrianmalata/limen.git) ;;
+git@github.com:adrianmalata/limen | git@github.com:adrianmalata/limen.git) ;;
+ssh://git@github.com/adrianmalata/limen | ssh://git@github.com/adrianmalata/limen.git) ;;
+*) refuse "remote URL '$url' is not adrianmalata/limen" ;;
+esac
+
+while read -r _local_ref local_sha remote_ref remote_sha; do
+	[ "$remote_ref" = "$allowed_ref" ] || refuse "'$remote_ref': only $allowed_ref may be pushed"
+	is_sha "$local_sha" && is_sha "$remote_sha" || refuse "'$remote_ref': malformed ref line"
+	! is_zero "$local_sha" || refuse "'$remote_ref': deleting the branch is not allowed"
+	is_zero "$remote_sha" && continue
+	git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null ||
+		refuse "'$remote_ref': remote $remote_sha is not an ancestor of $local_sha (force push)"
+done
+exit 0
