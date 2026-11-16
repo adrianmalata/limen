@@ -2,7 +2,7 @@
 # PL: Bramka testów przebudowy: uruchamia `npm run check` tak, żeby laptop (WSL2 Ubuntu 22.04) dał ten sam wynik co seat.
 # PL: Ustawia prywatny TMPDIR, bo test S10 trzyma klucz GitHub App w katalogu testu, a poller słusznie odrzuca klucz
 # PL: pod /tmp z prawami 1777. Gdy lokalny git nie zna `worktree list -z` (git < 2.36), podkłada shim z tego katalogu.
-# PL: Niczego nie instaluje; stan: propozycja bramki do akceptacji na bramce 0 (evidence/baseline.md).
+# PL: Niczego nie instaluje; stan: przyjęta jako bramka przebudowy 2026-11-16 (plan.md, D-001).
 #
 # The rebuild's test gate: `npm run check` plus two platform workarounds, each applied only when needed.
 #  - TMPDIR: test plants hold a GitHub App key, and the poller refuses a key below a group- or world-writable
