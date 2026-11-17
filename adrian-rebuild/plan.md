@@ -1,10 +1,11 @@
 <!-- PL: Plan przebudowy Limena i punkt wznowienia każdej sesji: wizja, słownik, decyzje Adriana (kopia §2 bramki 2,
-D-008–D-018 z bramki 4 i po niej: wdrożenie po SHA, format changes.md, narzędzia seata w TypeScript, praca nocna,
+D-008–D-019 z bramki 4 i po niej: wdrożenie po SHA, format changes.md, narzędzia seata w TypeScript, praca nocna,
 wznowienie projektów po a0.3.0 jako ryzyko z terminem 21.11.2026, limit tygodniowy, akceptacja planu i definicji,
 uprawnienia w settings.local.json, Claude Code instalowany przez roota,
-zapis narzędzi przez --out bez przekierowań), fakty o silniku z pomiarem B.1 z seata,
+zapis narzędzi przez --out bez przekierowań, nocny przebieg tools/night.mjs z formatem status.json i zasadą dla
+niezacommitowanych zmian), fakty o silniku z pomiarem B.1 z seata,
 wymagania systemowe, 9 etapów z kosztem i efektem, 87 ticketów R-NNN, wdrożenie, pomiary, protokół subagentów
-i polecenia na allow-listę. Stan: bramka 4 zamknięta; następny jest etap 5 w nowej sesji, od R-001. -->
+i polecenia na allow-listę. Stan: bramka 4 zamknięta, night.mjs gotowy; następny jest etap 5 w nowej sesji, od R-001. -->
 
 # Rebuild plan
 
@@ -212,6 +213,34 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   scan in `check.mjs` (no `>` in a command of a `tools/` tool in `## Agents`, `## Commands` and the subagent
   definitions); the `--out` tests in `tools/test-review-guard.mjs`. The scan exposed that `check.mjs` read `## Agents`
   only up to the template's first `## ` line inside a code block; `section()` now skips headings inside code fences.
+- 2026-11-17 D-019 (Adrian, before the first night run; the night mode of the rebuild prompt v6 and D-016 (1)): the
+  night runner `tools/night.mjs` and a supplement to the night mode. Specification and review:
+  `evidence/night-runner/`.
+  - Adrian starts `node adrian-rebuild/tools/night.mjs --until HH:MM` in a terminal; no session runs it, and it is not
+    on the allow-list. `--until` is local time: the end is the next HH:MM, and an HH:MM more than 18 hours ahead counts
+    as passed (it was at most 6 hours ago; Adrian, 2026-11-17).
+  - Before the first run it refuses with exit 1: no or a passed `--until`; `input/prompt.md` lacks the first message
+    word for word (the constant `FIRST_MESSAGE` in `night.mjs`); the `claude` command is not an executable file; a
+    live runner holds `.night/lock`. The lock holds the pid, the process start time and the boot id; any mismatch
+    makes it abandoned, and it is taken over (A-017).
+  - Each run: `claude -p "<first message> Tryb nocny do HH:MM." --permission-mode dontAsk --output-format json` from
+    the repository root, stdin on `/dev/null`, stdout and stderr appended to `.night/<date>-run-<n>.log`, never
+    `--dangerously-skip-permissions`.
+  - The end is decided by one field (z. 2). Before it ends, a night session writes `adrian-rebuild/.night/status.json`
+    with the Write tool as `{"reason": "<reason>"}`, the reason one of `done`, `no-ticket`, `failed-twice`, `end-time`
+    and `dirty-tree`. The time of the status is the file's modification time, which the kernel sets: no session has a
+    clock command (`date` is not on the allow-list), so a time written by the model would be a guess (z. 14). A known
+    reason in a file modified after the run started ends the night with exit 0. Otherwise the runner retries after 30,
+    then 60, then 120 minutes, at most 3 retries a night, and never starts a run at or after the end; a night that ends
+    without a reason exits 3 with a line in the last run's log. A failure of the runner itself exits 4, so that a crash
+    never reads as a refusal.
+  - The runner runs no git command and writes nothing outside `adrian-rebuild/.night/`, which `.gitignore` excludes.
+  - Supplement to the night mode (Adrian): a run resumed after an interruption in the middle of a ticket finds
+    uncommitted changes. The session then continues the ticket that `## State` names, from the step where it stopped
+    (the gate, the review), and never reverts work silently. When it cannot tell which ticket the changes belong to, it
+    writes an entry in `.night/questions.md` and ends with the reason `dirty-tree`. The questions file is
+    `adrian-rebuild/.night/questions.md`, as in the prompt; D-011's `adrian-rebuild/questions.md` names the same file.
+  - Check: `node --test adrian-rebuild/tools/test-night.mjs` (a fake `claude` and an artificial clock, no real wait).
 
 ### Gate 2 §2, copied
 
@@ -1090,7 +1119,8 @@ Rules of form (D-016):
   (`atomic-write.mjs`), and keeps stdout for its result; `check.mjs` rejects a `>` in their commands in this section,
   in `## Agents` and in the subagent definitions (D-018).
 - Night runs go through `tools/night.mjs`, which runs `claude -p` with `--permission-mode dontAsk`: a command off the
-  list is refused and a write to a protected path is denied.
+  list is refused and a write to a protected path is denied. Adrian starts it in a terminal; it is not on the list, so
+  no session starts a night run of its own (D-019).
 
 Adrian writes `.claude/settings.local.json`; the rebuild session never changes its own permissions. He adds the
 command strings of the gate-time tool (R-011) and of the contract script (R-017) after those tickets' `outcome.md`,
@@ -1102,7 +1132,7 @@ Every stage:
 |---|---|
 | everyone: reading | `git status`, `git diff`, `git log`, `git show`, `git ls-files`, `git rev-parse`, `git cat-file`, `git grep`, `git for-each-ref`, `ls`, `cat`, `head`, `tail`, `wc`, `grep`, `find` (without `-delete` and `-exec`), `sed -n`, `sort`, `uniq`, `cmp`, `diff`, `file`, `command -v` |
 | reviewer: checks | `node --test <test file>`, `node bin/limen <args>` on a test fixture (never the full gate, D-015) |
-| main session, implementer: checks | `node adrian-rebuild/tools/gate.mjs`, `npm run check`, `npm run typecheck`, `npx tsc --noEmit`, `npx biome check --error-on-warnings <path>`, `node --test <test file>`, `node adrian-rebuild/tools/check.mjs`, `node --test adrian-rebuild/tools/test-changes-entries.mjs`, `node --test adrian-rebuild/tools/test-review-guard.mjs`, `node --test adrian-rebuild/tools/test-fails-before.mjs`, `node --test adrian-rebuild/tools/test-review-verdict.mjs`, `sh adrian-rebuild/tools/test-pre-push.sh`, `node bin/limen <args>` on a test fixture |
+| main session, implementer: checks | `node adrian-rebuild/tools/gate.mjs`, `npm run check`, `npm run typecheck`, `npx tsc --noEmit`, `npx biome check --error-on-warnings <path>`, `node --test <test file>`, `node adrian-rebuild/tools/check.mjs`, `node --test adrian-rebuild/tools/test-changes-entries.mjs`, `node --test adrian-rebuild/tools/test-review-guard.mjs`, `node --test adrian-rebuild/tools/test-fails-before.mjs`, `node --test adrian-rebuild/tools/test-review-verdict.mjs`, `node --test adrian-rebuild/tools/test-night.mjs`, `sh adrian-rebuild/tools/test-pre-push.sh`, `node bin/limen <args>` on a test fixture |
 | main session, implementer: changes | `npx biome format --write <path>`, `npm ci`; `git rm <path>`, `git rm -r <path>` and `git mv <old> <new>` on the paths a ticket's `## Change` names (the cuts of stage 1, R-042 and R-059 replace files, R-083 renames test files, and others); every deletion and move goes through them, so the list stays the same every night (D-014) |
 | main session only | `node adrian-rebuild/tools/review-guard.mjs snapshot --out <file>`, `snapshot --git --out <file>`, `diff --out <file>`, `compare <file>` and `compare --git <file> <ticket.md>`; `node adrian-rebuild/tools/fails-before.mjs`; `node adrian-rebuild/tools/review-verdict.mjs <reply> <ticket.md>`; `git restore --source=HEAD -- <path>` and `git apply --include=<path> <diff>` (after a void review); `git add <paths>` (`git add -A -- <paths>` for deletions and renames), `git commit`, `git push origin adrian-rebuild`; `sh adrian-rebuild/tools/install-hooks.sh` (after a move or a new clone); at the close of a stage `git tag <tag> <sha>` (local), the gate-time tool of R-011 and, from stage 4, `node adrian-rebuild/tools/context-size.mjs <ref>` |
 
@@ -1124,7 +1154,7 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 ## State
 
 Updated 2026-11-17, rebuild stage 4 (plan) done; gate 4 closed: the plan accepted (D-014), the subagent definitions
-accepted after corrections (D-015).
+accepted after corrections (D-015); the night runner `tools/night.mjs` built and reviewed (D-019).
 
 Done:
 - Rebuild stages 0–3 with gates 0, 2 and 3 (D-001–D-007); rebuild stage 1 has no gate.
@@ -1146,12 +1176,14 @@ Done:
   after corrections → D-015 (`review-guard.mjs compare --git`, `fails-before.mjs`, `review-verdict.mjs`, `gate.mjs`,
   each with a test).
 - The old `limen-prune` timers on the seat were disabled on 2026-11-17 (Adrian); step 3.1 checks it.
+- The night mode is in the rebuild prompt (v6) and `.claude/settings.local.json` is written (D-016). `tools/night.mjs`
+  (D-019) is done with its test and a review by `rebuild-reviewer`: `evidence/night-runner/` (ticket, review,
+  outcome).
 
-Next: rebuild stage 5 starts with plan stage 1 ("Cut, then one error type and one command registry") in a new session,
-started in the repository root, with R-001. Before it: Adrian adds the night mode to the rebuild prompt (D-011) and
-writes `.claude/settings.local.json` from `## Commands` (D-016); B.2 runs on the seat before a0.1.0 is deployed (B.1
-was done on 2026-11-17). The first task of rebuild stage 5, before any night run, is `tools/night.mjs` with a test, built to the
-night mode and to D-016 (1).
+Next: rebuild stage 5 starts with plan stage 1 ("Cut, then one error type and one command registry") with R-001, in a
+new session started in the repository root, by day or as a night run that Adrian starts with
+`node adrian-rebuild/tools/night.mjs --until HH:MM`. B.2 runs on the seat before a0.1.0 is deployed (B.1 was done on
+2026-11-17). Active ticket: none.
 
 Open questions for Adrian: none (Q7 → D-018).
 
