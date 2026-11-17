@@ -1,7 +1,7 @@
 <!-- PL: Rubryka taste przebudowy: część A to jawny inwentarz opinii autora Limena wbudowanych w system, część B to
 zasady Adriana (T-NN) z regułą, uzasadnieniem i sposobem sprawdzenia. Po bramce 3 plik jest rubryką obok zasad
 z input/, a nowe decyzje taste dopisuje się tu z datą i źródłem. Stan: część A gotowa (80 opinii autora, 40 już
-rozstrzygniętych bramką 2, 40 otwartych do wywiadu); część B powstaje w wywiadzie z Adrianem. -->
+rozstrzygniętych bramką 2, 40 otwartych do wywiadu); część B powstaje w wywiadzie z Adrianem (rundy 1–2: T-01–T-08). -->
 
 # Taste
 
@@ -623,4 +623,133 @@ Source with quotes, examples and interview questions: `evidence/taste/part-a-cod
 
 ## Part B: Adrian's taste
 
-Pending: the interview with Adrian (stage 3) is in progress.
+Adrian's rules for the rebuilt Limen, from the stage 3 interview (2026-11-17). Each rule has an ID, the rule, why it
+holds, how it is checked (a tool, a test or a script in `npm run check`; otherwise a question for the reviewer, or
+`Check: none`), and its source: the interview round, the Part A item it answers, and whether it keeps or departs from
+the author's choice. Later taste decisions are added here with their date and source.
+
+### T-01 Errors never vanish
+- Rule: An error on the main path always propagates and ends the command with a non-zero exit code (T-02), a message
+  and the next command. A side channel may keep the work going only through one best-effort function, which records
+  the failure in the job record or log and makes it visible in `limen status`. An expected absence (`ENOENT`, a dead
+  process) is an explicit condition, never a catch-all. Limen has one error type: class, code, message, next command.
+- Shape of the best-effort function: `bestEffort(sink, channel, work): Promise<T | undefined>`, where `sink` is a
+  required `SideFailureSink` interface (`add`); the helper itself writes nothing. In `finalizeJob` the sink collects
+  failures in memory, and the transition function writes them atomically together with the terminal state (field
+  `sideFailures` of `record.json`, S1+, A-019). Seat channels get a sink that writes to the seat log. A failed write
+  of the transition is a main-path failure, exit code 4. Rejected shapes: a helper that writes the record itself
+  (bypasses the transition function and ties the helper to the record) and a returned `{ ok }` result (the caller can
+  ignore `ok: false`).
+- Why: the author's side channels swallow their errors (40 `.catch(() => {})`, 108 `catch {` in `src/` and `hook/`),
+  and `limen land` reports success while the ticket close failed (A-021); z. 1, z. 12.
+- Check: a script in `npm run check` allows `catch` only in `src/side.ts` and in the transition function; every command
+  has an error-path test that asserts its exit code; a test makes `recordCommits` fail and asserts `done`, an entry in
+  `sideFailures` and its line in `limen status`; a test makes the transition write fail and asserts exit code 4.
+- Source: interview round 1, AU-219 and the follow-up on the best-effort shape (two variants at
+  `src/job/record.ts:45`); departs from the author.
+
+### T-02 Exit codes are failure classes
+- Rule: 0 success, also "nothing to do"; 1 refusal: a code-checked condition is not met, with the reason and the next
+  command; 2 usage error: flags, arguments, unknown command; 3 transient failure: a lock after its wait limit, the
+  network, a rate limit; safe to retry; 4 environment failure: git, the file system, permissions, a missing tool;
+  5 internal error: an unexpected exception, with the stack in the log. The exit code is the class; the detail is the
+  last stderr line, a JSON object with `class`, `code` and `next`, which timers and tests read; on success the same
+  line, with `next`, ends stdout. Timers retry 3 at their
+  next run and ring only after several in a row; 2, 4 and 5 ring at once; 1 is a normal state.
+- Why: under G3 the coordinator, the owner channel's timer and `limen-sweep` must tell a refusal from a failure
+  without parsing prose (AU-209: the author has only 0 and 1); z. 2, z. 12.
+- Check: a test for every refusal and failure path asserts the exit code and the `code` field; a script forbids exit
+  codes 126–255; the code table is generated from the code into the docs (A-084).
+- Source: interview round 1, AU-209 (the `next` line on success: round 2); departs from the author; refines the
+  classes of T-01.
+
+### T-03 Settings come only from owner files
+- Rule: Limen's names fall into three kinds. **Settings** (anything that affects agents or limits) come only from the
+  owner files of the published copy (`limits.json`, `routes.json`) and from root-owned seat files; an environment
+  variable never overrides them (z. 16). A setting that `limen init` asks for and that has no value makes the command
+  refuse, naming the file and the field; there is no silent default. **Transport** between Limen's processes is
+  environment set by Limen only, read as a location hint, never as a permission (A-061). **Test knobs** are read only
+  in test mode; T1 and the coordinator start script do not pass them. Code constants serve only mechanics that Adrian
+  does not configure, and they are generated into the docs (A-084).
+- Why: the author reads an environment variable first, then the project file, then a constant, over 84 `LIMEN_*`
+  names, so a job's environment beats the owner's file (AU-224); z. 16.
+- Check: one configuration module is the only reader of `process.env.LIMEN_*` (a script in `npm run check`); a
+  registry lists every name with its kind; a test asserts that no name of the "settings" kind is read from the
+  environment, and a test asserts that a variable does not override a file.
+- Source: interview round 1, AU-224; departs from the author.
+
+### T-04 Read commands never write and never wait
+- Rule: Read commands (`jobs`, `status`, `diff`, `queue`, `stats`, `jobs --result`, `github show`, `handoff show`)
+  never write and never wait. They compute a dead job's state and show it without writing it, e.g. "wrapper dead since
+  …; limen-sweep will finalize". The housekeeping before every `limen` call goes. Only `limen-sweep` (A-024) and
+  explicit state-changing commands, a manual `limen sweep` included, clean up and finalize.
+- Why: the author's read commands reap jobs and can wait 10 s (AU-205); the owner channel and the bell read records
+  read-only; a read must be predictable.
+- Check: a test asserts that every read command leaves `.limen/` byte-identical and returns without waiting; a test
+  runs them on a read-only copy of `.limen/`; the command registry marks each command read or change, and read
+  commands do not import the state-transition functions.
+- Source: interview round 1, AU-205; departs from the author.
+
+### T-05 A product question is a typed exit
+- Rule: The author's sense stays: a product decision stops the worker; an engineering decision the worker makes
+  itself. The channel and the flow change.
+  1. A worker ends with `limen ask`. Code checks four non-empty parts: the question, 2–3 options, a recommendation with
+     its reason, and what is done and what blocks. The question lives in `record.json`; the outcome `needs-decision`
+     goes through the transition function; no file in the worktree. The wake header names `needs-decision` and the
+     question id; the coordinator fetches the content with a command (A-008).
+  2. The coordinator may answer from sources only with evidence: `limen answer <qid> --source <path:line> --quote
+     "<text>"`. Code checks that the quote stands at that place on `main` (the published copy); otherwise it refuses,
+     and the question goes to Adrian (z. 10, z. 14; the pattern of A-034).
+  3. An escalation to Adrian is a choice: the bell rings `escalation`, and `limen status` shows the four parts. His
+     answer is recorded by `limen decide` (A-034), and the job resumes in the same worktree with the decision in its
+     task.
+  4. After Adrian's answer, Limen itself opens a ticket "record decision Q-NNN in `docs/`" with its criteria written up
+     front (`Judgment`: `docs/` describes the decision; `Check`: the decision register contains Q-NNN), through the
+     normal review path (z. 34, z. 36).
+  5. A question uses no round (A-015). A job in `needs-decision` does not block spawns for other tickets (an exception
+     to A-001 (3)), but a project has at most 2 open questions (`limits.json`); above that a worker spawn refuses
+     (exit code 1).
+  6. `limen stats` reports questions per ticket, answered from sources vs escalated, and the time to an answer (z. 37).
+- Why: the author's worker writes the question to a plain file in its worktree and names the path in its final
+  message (AU-112), which is easy to miss once wakes carry only a header (A-008).
+- Check: tests for an incomplete `ask` (exit code 1), a valid `ask` (record, wake header, bell), an `answer` whose quote
+  is not at the source (refusal), the automatic ticket after a decision, the open-question limit, and `stats`.
+- Source: interview round 2, AU-112; keeps the author's sense, departs on the channel and the flow; amends A-001 (3).
+
+### T-06 A re-review is bounded for findings and complete for criteria
+- Rule: For findings the author's scope stays: a re-review checks the earlier blocking findings at the new tip,
+  reports new blocking findings only in the delta, and does not reopen settled matters. For criteria: Limen runs every
+  `Check` at every tip (A-031 (7)), and every `Judgment` ID has an answer for the tip being merged. A `Judgment` may
+  declare a path scope in the ticket (`Judgment [paths: …]: …`); code carries a `met` over from the previous review
+  when the delta touches no path in that scope. A `Judgment` without a scope is judged every time. The fixed
+  judgments of A-031 (5) get automatic scopes (tests, `docs/`).
+- Why: the author bounds a re-review by the prior findings and the delta (AU-115), which keeps rounds cheap (author's
+  intent, gate 2 §5 #3) but leaves criteria outside the delta answered from stale evidence (A-031).
+- Check: `limen ticket check` validates the scopes; tests for a carry-over outside the scope, a required answer inside
+  it, a judgment with no scope, and a missing answer counted as `not met`.
+- Source: interview round 2, AU-115; keeps the author's scope for findings, departs for criteria.
+
+### T-07 Code builds a job's task
+- Rule: Code builds a job's task from a fixed template: the ticket's Outcome, Scope and Out of scope sections from the
+  base commit on `main`, the criteria from the record verbatim (A-031, A-044), the owner's decisions for the ticket
+  (A-034), and the prior-findings path for a repair (A-035). The coordinator gives only an optional `--seam <path>`
+  (code checks that it exists at the base commit) and an optional `--note` with a hard limit of 120 words, inserted as
+  a section "Lead from the coordinator (a lead, not a fact)". The author's rule on verified causes and labelled
+  guesses stays as prose guidance for `--note`.
+- Why: the author's coordinator writes every handoff by hand (AU-127), so its quality varies; a deterministic task is
+  a script's job (z. 21) and can be tested exactly.
+- Check: a golden test of the template (A-051); `--seam` with a missing path and `--note` over the limit refuse (exit
+  code 1); a test that the task carries the record's criteria and the ticket sections from the base commit.
+- Source: interview round 2, AU-127; departs from the author.
+
+### T-08 Two certainty vocabularies, and a parsed finding line
+- Rule: Criteria keep `met | not met | unknown` (A-031). Claims use `proven` (with evidence: a command with its result,
+  or `path:line`), `observed` or `guessed`, shared by the reviewer, the scout, the worker and `limen ask`; a claim with
+  no label counts as `guessed`; `plausible` and `unverified` go. A reviewer finding has a fixed line format:
+  `blocking|note · proven|observed|guessed · text · evidence`. Code checks the findings against the verdict: a FAIL
+  needs at least one `blocking proven` finding, a PASS may have none, and `proven` needs evidence; a mismatch counts as
+  no verdict (G4 V1). The scout's and the worker's labels stay prose with the shared vocabulary. `limen stats` counts
+  findings by label and weight.
+- Why: the author has four vocabularies for one idea, and code parses only some of them (AU-126); z. 10, z. 2.
+- Check: tests for the three mismatches (each gives no verdict); a script rejects the retired words in `templates/`.
+- Source: interview round 2, AU-126; departs from the author.
