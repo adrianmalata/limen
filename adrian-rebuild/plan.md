@@ -1,12 +1,13 @@
 <!-- PL: Plan przebudowy Limena i punkt wznowienia każdej sesji: wizja, słownik, decyzje Adriana (kopia §2 bramki 2,
-D-008–D-019 z bramki 4 i po niej: wdrożenie po SHA, format changes.md, narzędzia seata w TypeScript, praca nocna,
+D-008–D-024 z bramki 4 i po niej: wdrożenie po SHA, format changes.md, narzędzia seata w TypeScript, praca nocna,
 wznowienie projektów po a0.3.0 jako ryzyko z terminem 21.11.2026, limit tygodniowy, akceptacja planu i definicji,
 uprawnienia w settings.local.json, Claude Code instalowany przez roota,
 zapis narzędzi przez --out bez przekierowań, nocny przebieg tools/night.mjs z formatem status.json i zasadą dla
-niezacommitowanych zmian), fakty o silniku z pomiarem B.1 z seata,
-wymagania systemowe, 9 etapów z kosztem i efektem, 87 ticketów R-NNN, wdrożenie, pomiary, protokół subagentów
-i polecenia na allow-listę. Stan: etap 5 (przebudowa) w toku, etap planu 1; noc 17.11: R-008 i R-010 zamknięte,
-R-001, R-011 i R-013 zablokowane pytaniami Q-1–Q-3 (.night/questions.md); noc skończona z powodem no-ticket. -->
+niezacommitowanych zmian, odpowiedzi na nocne pytania Q-1–Q-3: R-001 po R-010, próba same-task jako sesja
+koordynatora, pole ids w końcowej linii JSON, start nocy przez sesję na prośbę Adriana), fakty o silniku z pomiarem
+B.1 z seata, wymagania systemowe, 9 etapów z kosztem i efektem, 87 ticketów R-NNN, wdrożenie, pomiary, protokół
+subagentów i polecenia na allow-listę. Stan: etap 5 (przebudowa) w toku, etap planu 1; noc 17.11: R-008 i R-010
+zamknięte; 18.11 odpowiedzi D-020–D-023 odblokowały R-001, R-011 i R-013 na kolejną noc. -->
 
 # Rebuild plan
 
@@ -242,6 +243,50 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
     writes an entry in `.night/questions.md` and ends with the reason `dirty-tree`. The questions file is
     `adrian-rebuild/.night/questions.md`, as in the prompt; D-011's `adrian-rebuild/questions.md` names the same file.
   - Check: `node --test adrian-rebuild/tools/test-night.mjs` (a fake `claude` and an artificial clock, no real wait).
+- 2026-11-18 D-020 (Adrian, night question Q-1): R-001 depends on R-010. The 3,500-line cap of `test/`, which R-010
+  removes (T-11), left one line, so R-001's tests could not pass the gate before R-010. It is an exposed dependency,
+  like R-067 on R-069 in D-011; no ticket changes its scope. R-010 is done, so R-001 runs as written.
+- 2026-11-18 D-021 (Adrian, night question Q-2; changes R-011 and the same-task method of `## Measurement`): one
+  same-task attempt is a whole coordinator session, not one worker job.
+  - The runner starts the tested Limen's coordinator headless through Pi's RPC mode, sends one fixed owner message
+    (Q-2's proposal: "Implement <ticket>; decide engineering questions yourself") and answers every question
+    addressed to the owner with the fixed reply "Decide this yourself; I am not available." The attempt ends when the
+    coordinator is idle with no running job, or at the time limit; the reference tests and the project gate then run
+    on the tip of the newest `done` worker job, and M-05 is counted from the coordinator's session file.
+  - (1) Every question addressed to the owner counts as a touchpoint (T-40, z. 37), also when it gets the fixed reply.
+    In the "after" version an escalation is the final result `escalated`, which only the owner channel closes (T-05
+    (3)).
+  - (2) The time limit of an attempt is 1.5 times the candidate ticket's real time from the M1 records, at least 3
+    hours, the same for both versions; Adrian gives the time from the records in step B.2.
+  - (3) An attempt interrupted by the subscription limit is void and runs again; it does not count as a failure
+    (`rebuild-base` has no resume after a limit; that mechanism has its own test, gate 2 §2).
+  - (4) The attempt runs in a clean copy of the project without `origin` (at `rebuild-base` jobs hold the GitHub
+    credential, A-004). The hidden tests of the merged M1 change stay out of the agents' reach and are laid over only
+    after the attempt. The final state is evaluated by: the tests, landed or not, rounds, tokens by class, time, and
+    owner touchpoints.
+  - Plan changes: R-011 becomes size L with API `pi`, and B.2 starts with its seat check (the headless coordinator
+    loads Limen's hooks and receives a wake).
+- 2026-11-18 D-022 (Adrian, night question Q-3; taste, added to T-37): the final JSON line gets an optional field
+  `ids` with the identifiers of what the command created or changed, and no data (AU-210 stays: the full data come
+  from the records). `spawn` ends with `{"class":"ok","code":0,"next":"End your turn; Limen wakes you when the job
+  ends.","ids":{"job":"<full id>"}}`; the token of AU-211 is the last 8 characters of the id, with no field of its
+  own. Every command declares its `ids` keys in the registry (T-19): `job`, `ticket` (FNNN), `question` (Q-NNN). The
+  poller and the other processes that call the CLI read `ids` only through the client function (AU-217); an id is not
+  part of `next` or of a text line as a contract (z. 2). The text for people gives the label and the token. Check: a
+  test of the client function that returns `ids.job` after `spawn`; a test that every command returns only the `ids`
+  keys its registry entry declares, with values in the format of a job id, FNNN or Q-NNN; a golden test of `spawn`'s
+  final line. R-013 builds the field with the final line; the declaration of the keys is part of the registry (R-014,
+  T-19).
+- 2026-11-18 D-023 (Adrian): R-008 leaves the LaunchAgent installer (`limen sweep --install`, `--uninstall`) to
+  R-032, which replaces it with the systemd installer, as the night run proposed (R-008 → `ticket.md` →
+  `## Decisions`).
+- 2026-11-18 D-024 (Adrian; amends D-019): the main session may start the night runner when Adrian asks for it in the
+  conversation, never on its own. Before the start it shows the runner's tests, the reviewer's verdict, the pushed SHA
+  and a clean tree, and checks that a new `claude -p` session lists both subagent definitions. It runs `mkdir -p
+  adrian-rebuild/.night` and `nohup node adrian-rebuild/tools/night.mjs --until HH:MM` with stdout and stderr to
+  `adrian-rebuild/.night/launcher.log`, in the background; from then on it changes nothing in the repository until
+  Adrian writes, and on "sprawdź" it only reads the runner's processes, logs and `status.json`. First used on
+  2026-11-17 at 22:09.
 
 ### Gate 2 §2, copied
 
@@ -575,7 +620,7 @@ Columns:
 
 | ID | Title | Stage | Sources | Depends | Size | Mode | Run | Mig. | API | Seat | Status |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| R-001 | Leftover files of cut features are listed and can be dropped | 1 | A-042 | — | S | delegated | night | — | — | — | blocked |
+| R-001 | Leftover files of cut features are listed and can be dropped | 1 | A-042 | R-010 | S | delegated | night | — | — | — | planned |
 | R-002 | Cut finish webhooks, coordinator signals and the finish ping | 1 | G1.3, A-027, A-060, A-076 | R-001 | M | delegated | night | yes | — | — | planned |
 | R-003 | Cut Devin and the Linear mirror | 1 | G1.5, G1.6, A-049 | R-001 | M | delegated | night | yes | — | — | planned |
 | R-004 | Cut the OMP engine | 1 | G1.7, A-049 | R-001 | M | delegated | night | yes | — | — | planned |
@@ -585,9 +630,9 @@ Columns:
 | R-008 | Cut the macOS branches | 1 | A-083 | — | S | delegated | night | — | — | — | done |
 | R-009 | Cut the scout role and the `jg` cue | 1 | T-33, T-36, A-081 | R-001 | S | delegated | night | yes | — | — | planned |
 | R-010 | The author's working history leaves the tree; Limen's own test-line cap goes | 1 | T-39, T-11, §6 | — | M | delegated | night | — | — | — | done |
-| R-011 | The same-task runner and the gate-time tool | 1 | H-21, T-11, T-41, §2 | — | M | delegated | night | — | — | — | blocked |
+| R-011 | The same-task runner and the gate-time tool | 1 | H-21, T-11, T-41, §2, D-021 | — | L | delegated | night | — | pi | B.2 | planned |
 | R-012 | A root deployment script for a pinned SHA | 1 | D-008, D-010, §7 | R-002 | M | delegated | night | — | — | 1.0 | planned |
-| R-013 | One error type, exit codes as failure classes, a final JSON line | 1 | T-01, T-02 | — | L | delegated | night | yes | — | — | blocked |
+| R-013 | One error type, exit codes as failure classes, a final JSON line | 1 | T-01, T-02, D-022 | — | L | delegated | night | yes | — | — | planned |
 | R-014 | One command registry, a shared parser and generated help | 1 | T-19, T-18, T-26, T-37 | R-002, R-003, R-004, R-005, R-006, R-007, R-009, R-013 | L | pair | day-after | yes | — | — | planned |
 | R-015 | One configuration reader; settings come only from owner files | 2 | T-03 | R-014 | M | delegated | night | yes | — | — | planned |
 | R-016 | One boundary parsing module with validators; the cast ratchet | 2 | T-27 | R-013 | M | delegated | night | — | — | — | planned |
@@ -679,7 +724,7 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   a test (T-11); the projects' optional `testLineCap` in `limits.json` is a different setting, built by R-062.
 - R-011: the runner takes the project, the parent commit, the ticket file and the reference test paths as arguments;
   the rebuild session has no access to the projects, so Adrian picks the ticket before B.2 by the criterion of
-  `## Measurement`.
+  `## Measurement`. One attempt is a whole coordinator session, run headless through Pi's RPC mode (D-021).
 - R-005: the GitHub module's review today reads the job's `hosted` file and gives up without it
   (`src/integrations/github-review.ts:146`); hosted jobs: 0 in both projects (gate 2 §1).
 - R-012: the script is `seat/deploy.ts` (TypeScript, D-010), which also puts `seat/` under `tsconfig.json` and
@@ -825,7 +870,9 @@ commit, outside `/opt/limen`, and points it at the `rebuild-base` checkout in `/
   turn and one job turn (M-02). From the same log: whether each turn reuses or rewrites the Claude Code session, the
   cache TTL (`modelUsage` 5m or 1h), the context window of `claude-opus-5-5` on the Max login, and the cache read of
   the turn after a manual `/compact`, which forces a rewrite (E-1, E-2, E-8).
-- **B.2** The same-task baseline: the same-task runner of R-011 with `rebuild-base`, k attempts (M-05).
+- **B.2** The same-task baseline: the same-task runner of R-011 with `rebuild-base`, k attempts (M-05). First the
+  seat check of R-011 (D-021): the coordinator started headless through Pi's RPC mode loads Limen's hooks and
+  receives a wake; Adrian gives the candidate ticket's real time from the M1 records, which sets the time limit.
 - **B.3** After a0.2.0 is deployed: `limen stats` of a0.2.0 over a migrated copy of each project's `.limen/` from the
   snapshot taken before the first deployment (R-024; M-03, M-04, M-06–M-11).
 
@@ -992,7 +1039,8 @@ behaviour or of the seat is measured on the seat, before and after, by Adrian (z
 
 Same-task method (gate 2 §2, H-21; the same-task runner of R-011): a closed synchronizer M1 ticket that went through
 several review rounds, run again from its parent commit in a scratch clone outside the projects' `.limen/`, never landed; identical
-input (commit and ticket file), the same model and reasoning level, a clean state. An attempt passes when the job
+input (commit and ticket file), the same model and reasoning level, a clean state. An attempt is a whole coordinator
+session with a fixed owner message and a fixed reply to every owner question (D-021). An attempt passes when the job
 reaches `done` and the test files of the merged reference change pass on the job's tip together with the project
 gate. The result is pass^k (all k attempts pass), reported next to the number of passing attempts; k = 3 per version,
 because every attempt is a whole ticket on the shared Max window (z. 17).
@@ -1156,8 +1204,9 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-17 (night run), rebuild stage 5 in progress at plan stage 1: R-008 and R-010 `done`; R-001, R-011 and
-R-013 `blocked` on Q-1–Q-3; the night ended with the reason `no-ticket`.
+Updated 2026-11-18 (day session after the night run of 2026-11-17), rebuild stage 5 in progress at plan stage 1:
+R-008 and R-010 `done`; Adrian's answers to Q-1–Q-3 and the R-008 point are D-020–D-023, so R-001, R-011 and R-013 are
+`planned` again.
 
 Done:
 - Rebuild stages 0–3 with gates 0, 2 and 3 (D-001–D-007); rebuild stage 1 has no gate.
@@ -1202,15 +1251,24 @@ Night run of 2026-11-17 (until 07:00; commits `d51cc24`, `6968edf`, `e444106`):
 - No stage-1 `night` ticket could start after that (R-014 is `pair`, `day-after`), so the night ended with `no-ticket`
   (`.night/status.json`). Gate 5.1 is not due: stage 1 has 9 tickets left.
 
-Next (day session): read the answers in `adrian-rebuild/.night/questions.md`, move each into its ticket's
-`## Decisions` (R-001's `ticket.md`; R-011 and R-013 get their `ticket.md` written from the answer), mark the entries
-resolved, and resume: R-001, then R-002–R-007 and R-009 in the order of IDs, R-011, R-012, R-013, and R-014 (pair)
+Day session of 2026-11-18 (Adrian's answers, moved from `adrian-rebuild/.night/questions.md`, whose entries are
+marked resolved):
+- Q-1 → D-020: R-001 depends on R-010 (done); R-001 `planned`, and its `ticket.md` → `## Decisions` holds the answer.
+- Q-2 → D-021: one same-task attempt is a whole coordinator session through Pi's RPC mode, with Adrian's four
+  additions (touchpoints, time limit, a void attempt at the subscription limit, a clean copy without `origin` and
+  hidden tests); R-011 is size L with API `pi` and the seat check in B.2; R-011 `planned`, its `ticket.md` is written
+  from D-021.
+- Q-3 → D-022 and `taste.md` → T-37: an optional field `ids` in the final JSON line; R-013 `planned`, its
+  `ticket.md` is written from D-022.
+- The R-008 point → D-023: the LaunchAgent installer goes with R-032.
+- D-024: the main session starts the night runner when Adrian asks for it in the conversation.
+
+Next (night run): R-001, then R-002–R-007 and R-009 in the order of IDs, R-011, R-012, R-013; R-014 (pair) by day
 after them. B.2 runs on the seat before a0.1.0 is deployed (B.1 was done on 2026-11-17).
 
 Active ticket: none.
 
-Open questions for Adrian: Q-1, Q-2 and Q-3 in `adrian-rebuild/.night/questions.md` (untracked); the R-008 point
-above.
+Open questions for Adrian: none.
 
 Notes for the next session:
 - Start Claude Code in the repository root, so that it loads `.claude/agents/`.

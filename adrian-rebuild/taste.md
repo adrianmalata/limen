@@ -2,7 +2,8 @@
 rozstrzygniętych bramką 2); część B to zasady Adriana T-01–T-43 z wywiadu etapu 3, każda z regułą, uzasadnieniem,
 sposobem sprawdzenia i źródłem, oraz fakty z pytań otwartych i lista zmian w decyzjach bramki 2. Po bramce 3 plik
 jest rubryką obok zasad z input/, a nowe decyzje taste dopisuje się tu z datą i źródłem. Stan: przyjęty przez
-Adriana na bramce 3 (2026-11-17, D-007). -->
+Adriana na bramce 3 (2026-11-17, D-007); 18.11 T-37 dostała pole ids w końcowej linii JSON (nocne pytanie Q-3,
+D-022). -->
 
 # Taste
 
@@ -1427,12 +1428,21 @@ the author's choice. Taste decisions taken after this interview are added here w
   one form. `group status --json` is cut (no consumer in the code, `src/commands/group.ts:483-497`); the Picture data
   (`/activity.json`, `/events`) stays as the module's data interface (G1.4). A general `--json` is `rejected`. Revisit
   when: a consumer outside Limen needs a command's data and cannot read the records, in at least two cases (z. 38).
+- Identifiers in the final line (2026-11-18, Adrian, night question Q-3; `plan.md` D-022): the line gets an optional
+  field `ids` with the identifiers of what the command created or changed, and no data (AU-210 stays: the full data
+  come from the records). `spawn` ends with `{"class":"ok","code":0,"next":"End your turn; Limen wakes you when the job
+  ends.","ids":{"job":"<full id>"}}`; the token of AU-211 is the last 8 characters of the id, with no field of its
+  own. Every command declares its `ids` keys in the registry (T-19): `job`, `ticket` (FNNN), `question` (Q-NNN). The
+  poller and the other processes that call the CLI read `ids` only through the client function (AU-217); an id is
+  not part of `next` or of a text line as a contract (z. 2). The text for people gives the label and the token.
 - Why: the author's output is plain text for both readers, JSON exists in two commands, and internal callers parse
   prose (AU-210).
 - Check: a scan: Limen's stdout is parsed only in the client function of the final JSON line; a test that every
   registry command ends with a valid JSON line (on success and on refusal); a test that the footer and `limen status`
-  use the same function (T-15).
-- Source: interview round 8, AU-210; departs from the author.
+  use the same function (T-15); for `ids` (D-022): a test of the client function that returns `ids.job` after
+  `spawn`, a test that every command returns only the `ids` keys its registry entry declares, with values in the
+  format of a job id, FNNN or Q-NNN, and a golden test of `spawn`'s final line.
+- Source: interview round 8, AU-210; departs from the author. `ids`: night question Q-3, 2026-11-18.
 
 ### T-38 A refusal leaves no trace, by construction
 - Rule: Every `change` command follows one shape. (1) A domain operation is `validate(): Plan | Refusal`, then

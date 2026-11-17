@@ -1,7 +1,8 @@
 <!-- PL: Ticket R-008 etapu 1 przebudowy: wycięcie gałęzi macOS, które na Linuksie są martwym kodem (pomocnik Ruby
 proc_pidinfo, memory_pressure, powiadomienie osascript, opóźnione ponowne sprawdzenie startu procesu, darwin
 w package.json i w CI) oraz ich opisów w dokumentacji (decyzja A-083). Instalator LaunchAgent zostaje dla R-032,
-bo jego wycięcie zmienia CLI. Stan: zamknięty w nocy 17.11 (recenzja PASS, review.md, outcome.md). -->
+bo jego wycięcie zmienia CLI (Adrian potwierdził 18.11, D-023). Stan: zamknięty w nocy 17.11 (recenzja PASS,
+review.md, outcome.md). -->
 
 # R-008 Cut the macOS branches
 
@@ -90,3 +91,4 @@ none: no on-disk format, file name, command or flag changes.
   installer of `limen seat sweep --install`; reason: R-008 has `Mig. —` and the stage-1 list of refusing commands has
   no `sweep`, while cutting the installer here would need a refusal and its test (a CLI change) that the 3,500-line
   cap of `test/` does not allow before R-010. To confirm or change by Adrian in the morning (it is listed in `## State`).
+- 2026-11-18 (Adrian → `plan.md` D-023): confirmed; R-032 removes the LaunchAgent installer.

@@ -1,7 +1,8 @@
 <!-- PL: Ticket R-001 etapu 1 przebudowy: jeden moduł z rejestrem plików pozostałych po wyciętych funkcjach, ich lista
 w `limen status` i usuwanie przez `limen init --drop-leftovers` (decyzja A-042). Kolejne tickety wycinające funkcje
 dopisują do rejestru swoje ścieżki; cięcie śledzenia dryfu i porady w prompcie należy do R-040. Stan: zablokowany
-w nocy 17.11 (limit 3500 linii w `test/`, który usuwa R-010; pytanie Q-1), nic nie zaimplementowano. -->
+w nocy 17.11 limitem 3500 linii w `test/` (pytanie Q-1); 18.11 Adrian zdecydował, że R-001 zależy od R-010 (D-020),
+a R-010 limit już usunął, więc ticket czeka na wznowienie; nic jeszcze nie zaimplementowano. -->
 
 # R-001 Leftover files of cut features are listed and can be dropped
 
@@ -119,3 +120,5 @@ only `src/commands/init.ts`).
   by the main session with `wc -l`); R-010 removes the cap (T-11). `review-guard.mjs compare --git` → exit 0. The
   question of the order is Q-1 of the night's `adrian-rebuild/.night/questions.md` (recommended: R-001 depends on
   R-010); the answer goes here.
+- 2026-11-18 (Adrian, Q-1 → `plan.md` D-020): R-001 depends on R-010, an exposed dependency like R-067 on R-069 in
+  D-011; no scope changes. R-010 is done (`e444106`) and removed the cap with its test, so R-001 runs as written.
