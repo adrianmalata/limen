@@ -155,7 +155,8 @@ Pending (stage 4). Every before/after measurement of prompt-driven behaviour sta
 "no system-prompt prose, per-turn cue" (gate 2 §1–§2, revision 4). Metrics already named, to be placed here in stage
 4: gate 2 §2 (Measurement) in `audit.md`; T-11
 (run time of `npm run check` at every stage tag against the stage 0 baseline); T-15 (share of model replies with
-their own Done / In progress / Waiting for you lines: target 0).
+their own Done / In progress / Waiting for you lines: target 0); T-34 (the number of `sleep` calls and of repeated
+`status` reads in coordinator turns, before and after).
 
 ## Agents
 

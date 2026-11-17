@@ -1,7 +1,7 @@
 <!-- PL: Rubryka taste przebudowy: część A to jawny inwentarz opinii autora Limena wbudowanych w system, część B to
 zasady Adriana (T-NN) z regułą, uzasadnieniem i sposobem sprawdzenia. Po bramce 3 plik jest rubryką obok zasad
 z input/, a nowe decyzje taste dopisuje się tu z datą i źródłem. Stan: część A gotowa (80 opinii autora, 40 już
-rozstrzygniętych bramką 2, 40 otwartych do wywiadu); część B powstaje w wywiadzie z Adrianem (rundy 1–7: T-01–T-32). -->
+rozstrzygniętych bramką 2, 40 otwartych do wywiadu); część B powstaje w wywiadzie z Adrianem (rundy 1–8: T-01–T-36). -->
 
 # Taste
 
@@ -1340,6 +1340,81 @@ the author's choice. Taste decisions taken after this interview are added here w
   and mismatching types; a test that start and spawn refuse another version (exit code 4); a type-guard test on an
   event of the wrong shape.
 - Source: interview round 7, AU-220; departs from the author.
+
+### T-33 The scout role is cut
+- Rule: The scout role is `rejected`. On the seat there were 0 scout jobs among 142 (84 worker, 58 reviewer; also 0
+  keeper, which confirms A-045). The seam is the starting point in the ticket's Scope and the checked `--seam` (T-07),
+  and the depth of investigation belongs to the worker (`templates/agents.md:183`); with `maxJobs` 1 a scout would
+  serialise every ticket (a second queue, a start and window use); a single read-only question the coordinator asks a
+  Claude Code subagent in its own session, with no queue slot and no worktree, and only the result comes back (z. 7,
+  z. 20; on condition that the subagent tool's name under the bridge is verified, A-029 and §9 step 12). The ban on
+  another role preparing a review is code: the reviewer's task is built only from the ticket, the diff range and the
+  prior-findings file (T-07, A-035), with no attached packets. The scout table (`templates/agents.md:173-183`) leaves
+  the manual. A-081's list of read-only roles drops the scout. Migration: records with role scout are read as history
+  (`limen stats`); a new spawn with role scout exits with code 2 and a `next`. Revisit when: `maxJobs` > 1 and, in at
+  least two different tickets, the coordinator needed an answer before a spawn that a subagent in its session could
+  not give (e.g. another model route or a separate worktree), with evidence from the coordinator's transcripts or
+  `limen stats` (z. 38); a return reuses the read-only role mechanism of A-081 (route, task template of T-07, registry
+  entry).
+- Why: the author keeps a cheap read-only scout with a pilot table of allowed uses (AU-111).
+- Check: a test that the reviewer's task holds only the ticket, the diff range and the prior-findings path; a test that
+  spawn with role scout exits with code 2; a test that `limen stats` reads historical scout records.
+- Source: interview round 8, AU-111 (seat data: job counts by role); departs from the author; amends A-081.
+
+### T-34 The coordinator never waits; a long search is a survey ticket
+- Rule: (1) Code keeps the conversation free: a wake after every job (A-033) with a header (A-008), and `wait` is cut
+  (T-18). The coordinator manual keeps one sentence: "Limen wakes you when a job ends; end your turn instead of
+  waiting." (missing context the model cannot infer; T-09). A mistake guard: a hook in the coordinator's session
+  refuses a Bash `sleep` of 30 s or more, with that sentence in the message (z. 12, z. 14). (2) The "about 5 minutes"
+  threshold goes; a long search is a survey ticket: `limen ticket new --survey` generates the criteria (`Check`: the
+  notes file in the ticket folder exists and is not empty; `Judgment`: the notes answer the ticket's questions); the
+  worker writes the notes in the ticket folder, a change only in `spec/`, so no review (A-013 V2) and publication is
+  covered (A-006 (2)). Short questions: the coordinator itself or a subagent in its session (T-33). The manual says:
+  "A question you cannot answer from a few files is a survey ticket." (3) The prose on parallel workers goes (A-014 is
+  code). (4) The prose "the coordinator does not implement" goes: the hook on `main` (T-22) and the publication rule
+  (A-006) enforce it, and the refusal message teaches it. `templates/agents.md:191` and the sentences around it on
+  these rules leave the manual.
+- Why: the author keeps the coordinator free with prose rules (no waiting or polling; a dig past about five minutes
+  becomes a job; parallel workers) (AU-110).
+- Check: a hook test: `sleep 240` in the coordinator's Bash is refused with the message, `sleep 5` passes; a test that
+  `ticket new --survey` generates both criteria and that landing notes only in `spec/` needs no review; a metric for
+  `plan.md` → `## Measurement`: the number of `sleep` calls and repeated `status` reads in coordinator turns, before
+  and after (H-21).
+- Source: interview round 8, AU-110; departs from the author.
+
+### T-35 One synthesis rule for groups and research
+- Rule: One synthesis rule serves groups and research; only the kind of evidence differs. (1) Every difference that
+  evidence settles is settled; no averaging and no choice without evidence. (2) Evidence: in a group, the code, tests
+  and Limen's `Check`s at the integration tip (A-031); the merged result passes checks and review like any job (A-045,
+  A-013 V2). In research, a cited source: a claim is supported only when its quote appears in the saved source file in
+  the results directory (B2c), checked by code as in A-034 (z. 21). (3) What evidence does not settle is an explicit
+  divergence with the evidence of both sides, in a format code parses: "<ID>: resolved: <evidence>" or "<ID>: open:
+  <A> / <B>" (vocabulary of T-08). (4) Open divergences go to the coordinator, which settles engineering questions
+  itself (A-043); only true ties reach Adrian, through `limen ask --kind decision` (T-15). The rule lives once, in the
+  agent register, not in the judge's and the group lead's prompts (A-085). Both modules stay off by default (G1.2,
+  G1.11).
+- Why: the author has two synthesis styles for one act: a group's final team decides every difference, while the
+  research judge must keep divergence visible and pick no winner (AU-119).
+- Check: a parser test of the synthesis result (resolved and open with evidence; resolved without evidence is an
+  error); a quote-check test on a fixture of a saved source (present: supported; absent: not supported); a test that
+  the number of open divergences is a field of the wake header (A-008) and reaches the owner's questions only through
+  `limen ask`.
+- Source: interview round 8, AU-119; departs from the author.
+
+### T-36 A tool a prompt recommends comes from a declaration, never from detection
+- Rule: A tool that a prompt recommends comes only from a declaration (a switch in `limits.json` or the system
+  requirements of T-12), never from detection on the host; the start checks every declared tool and exits with code 4
+  when one is missing (A-037, A-051). `jg` is not on the seat (`command -v jg` exits non-zero), so the "Cue: Search"
+  and its detection (the `jg --help` probe in `hook/communication.ts:196-207`) are cut, and searching uses the
+  engine's tools (under the bridge, Pi's tools, E-5). `jg` is `rejected`. Revisit when: Adrian wants search by a
+  decision model (z. 25) and has settled where that model comes from and which domain it needs on the B2c allow-list
+  (a decision about the G2 boundary, not a prompt hint).
+- Why: the author's prompt recommends `jg` whenever `jg` is found on the host's PATH, so the prompt depends on the
+  host (AU-140).
+- Check: a scan: hooks start no process to detect tools while the context message is built; a golden test that the
+  context message is identical with and without `jg` on PATH; a test that a declared but missing tool gives exit code
+  4 at start.
+- Source: interview round 8, AU-140 (seat fact: no `jg`); departs from the author.
 
 ### Part A items settled by earlier rules
 - AU-129 (ticket shape): the sections come from T-07 (the task takes Outcome, Scope and Out of scope), the budgets are
