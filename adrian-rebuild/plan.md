@@ -144,6 +144,10 @@ runs it. Stage 4 sets the order, the exact commands and the steps after each sta
 14. Measurements "before" (gate 2 §2, Measurement): one raw request of a coordinator and of a job; cache tokens per
     landed ticket and in the turn after a land; the same-task baseline run.
 15. A full `.limen/` snapshot before the first deployment and after each milestone (no periodic backup).
+16. At every tag, and after any change of the Pi or bridge version: the bridge contract (T-31: the bridge log with
+    `CLAUDE_BRIDGE_DEBUG=1` of one coordinator turn and one job turn against the fake engine's model view for the
+    same scenario) and the type contract (T-32: Pi's real types against the adapter's interface); a version change
+    lands only after both pass.
 
 ## Measurement
 
