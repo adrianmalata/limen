@@ -1,7 +1,7 @@
 <!-- PL: Rubryka taste przebudowy: część A to jawny inwentarz opinii autora Limena wbudowanych w system, część B to
 zasady Adriana (T-NN) z regułą, uzasadnieniem i sposobem sprawdzenia. Po bramce 3 plik jest rubryką obok zasad
 z input/, a nowe decyzje taste dopisuje się tu z datą i źródłem. Stan: część A gotowa (80 opinii autora, 40 już
-rozstrzygniętych bramką 2, 40 otwartych do wywiadu); część B powstaje w wywiadzie z Adrianem (rundy 1–2: T-01–T-08). -->
+rozstrzygniętych bramką 2, 40 otwartych do wywiadu); część B powstaje w wywiadzie z Adrianem (rundy 1–4: T-01–T-16). -->
 
 # Taste
 
@@ -707,14 +707,16 @@ the author's choice. Later taste decisions are added here with their date and so
      front (`Judgment`: `docs/` describes the decision; `Check`: the decision register contains Q-NNN), through the
      normal review path (z. 34, z. 36).
   5. A question uses no round (A-015). A job in `needs-decision` does not block spawns for other tickets (an exception
-     to A-001 (3)), but a project has at most 2 open questions (`limits.json`); above that a worker spawn refuses
-     (exit code 1).
-  6. `limen stats` reports questions per ticket, answered from sources vs escalated, and the time to an answer (z. 37).
+     to A-001 (3)), but a project has at most 2 open questions of kind `decision` (`limits.json`); above that a worker
+     spawn refuses (exit code 1). Requests (`--kind request`, T-15) do not count toward the limit.
+  6. `limen stats` reports questions per ticket, answered from sources vs escalated, and the time to an answer, with
+     decisions and requests counted apart (z. 37).
 - Why: the author's worker writes the question to a plain file in its worktree and names the path in its final
   message (AU-112), which is easy to miss once wakes carry only a header (A-008).
 - Check: tests for an incomplete `ask` (exit code 1), a valid `ask` (record, wake header, bell), an `answer` whose quote
   is not at the source (refusal), the automatic ticket after a decision, the open-question limit, and `stats`.
-- Source: interview round 2, AU-112; keeps the author's sense, departs on the channel and the flow; amends A-001 (3).
+- Source: interview round 2, AU-112 (the limit by kind: round 4, from a real end-of-milestone message with two
+  decisions and one request); keeps the author's sense, departs on the channel and the flow; amends A-001 (3).
 
 ### T-06 A re-review is bounded for findings and complete for criteria
 - Rule: For findings the author's scope stays: a re-review checks the earlier blocking findings at the new tip,
@@ -753,3 +755,143 @@ the author's choice. Later taste decisions are added here with their date and so
 - Why: the author has four vocabularies for one idea, and code parses only some of them (AU-126); z. 10, z. 2.
 - Check: tests for the three mismatches (each gives no verdict); a script rejects the retired words in `templates/`.
 - Source: interview round 2, AU-126; departs from the author.
+
+### T-09 A prompt sentence comes last and must earn its place
+- Rule: The order of repair after an incident is: a guarantee in code, then a test or a `Check`, then a tool, and a
+  sentence in a prompt last, only for judgment (z. 14, z. 21). A new standing sentence needs a class of friction from
+  at least two sources, and a same-task measurement before and after or a mechanism test, recorded in the repo
+  (incidents, measurement, sentence) (z. 38, z. 40). Each role's Limen context message (A-086) has a hard token
+  budget checked by a test; the budget is set by a measurement at the end of the rebuild, plus 10 %; a sentence over
+  the budget enters only when another one leaves (z. 31). Every section in `templates/` carries a maintainer comment
+  with its source (incident, A-NNN, T-NN), stripped at injection; when code already guarantees the source, the
+  sentence leaves. A `Check` accepts a sentence, not Adrian's approval word for word.
+- Why: the author added a sentence after each incident and approved wording word for word; the manual had 128
+  versions in ten weeks and grew from 462 to 7,597 words with no recorded before/after (AU-105).
+- Check: a budget test per role; a script that requires a source comment with an existing reference in every section
+  of `templates/`; the golden test (A-051).
+- Source: interview round 3, AU-105; departs from the author.
+
+### T-10 Every checkable limit is enforced where the artefact is made
+- Rule: Code enforces every checkable limit where the artefact is created or accepted; everything else is an explicitly
+  marked rule of judgment; no limit lives only in prose. One registry of limits in code (value, place of enforcement,
+  reason) is generated into the docs (A-084); the author's values are the starting point, except `--note` at 120
+  words (T-07). Enforcement: the ticket (prose sections, Acceptance excluded) in `limen ticket check`; the label at 40
+  characters in spawn; TRACK ≤ 3, one-line NEXT and PARKED entries and the board ≤ 120 lines in the command that
+  changes the board's prose; PROVEN is generated by code. The silent cut at 1,000 lines ends: the per-role budget of
+  the context message (T-09) replaces it, and publishing an owner file that is too large refuses. Content fetched by a
+  command (A-008) always says, when cut, how much was left out and where the whole is. At most 5 scout findings and
+  1–3-line answers stay prose, marked as rules of judgment.
+- Why: the author states numbers almost everywhere, but code enforces only the 1,000-line cut and the 120-line
+  advisory (AU-139); z. 14, z. 21.
+- Check: a test per registry limit (exit code 1 with a message); a script that requires every number in `templates/`
+  to come from the registry or carry the judgment-rule mark; a test that nothing is cut silently.
+- Source: interview round 3, AU-139; departs from the author.
+
+### T-11 A test-line cap is an optional owner setting
+- Rule: For projects, the test-line cap stops being a sentence in `spec/vision.md` and becomes an optional setting
+  `testLineCap` (with a path pattern) in `limits.json`, an owner file; unset by default, asked by `limen init`. When set,
+  it is a land condition, and the refusal states the excess. Parsing `vision.md` for numbers goes (this amends A-011 (a)
+  and A-012). In Limen's own repo the 3,500-line cap and its test go, because they contradict the tests of gate 2 and
+  of T-NN. Instead of a line count, the run time of `npm run check` is recorded in `evidence/` at every stage tag and
+  compared with the stage 0 baseline, as a metric for gate 5.N. The rule "a new test replaces a weaker one" stays prose
+  for the worker and is judged in the fixed judgment on tests (A-031 (5)).
+- Why: the author's cap lives in prose, read by a regex, and the suite sits one line under it (3,499 of 3,500) while
+  the rebuild adds many tests (AU-227).
+- Check: a land test with the cap set (refusal) and unset (pass); a script that forbids reading numbers from
+  `vision.md`; a script that records the gate's run time.
+- Source: interview round 3, AU-227; departs from the author; amends A-011 (a) and A-012.
+
+### T-12 Zero runtime dependencies, narrow formats, declared system tools
+- Rule: The author's choice stays: zero runtime dependencies and no build step. Both costs are solved without
+  dependencies. (1) Narrow formats: ticket front matter is a strict subset (`key: value`, block lists, a known key
+  list) with a refusal outside it; Markdown is parsed only for section headings and the fixed line format of
+  `## Acceptance` (A-031); shorter parsers with tests on synthetic fixtures. (2) System requirements (Node ≥ 24, git ≥
+  2.36, tar, ps and any others found) are declared in the platform adapter (A-083), checked at `limen init` and at
+  coordinator start (a refusal with exit code 4 that names the missing tool), and installed in pinned versions by the
+  seat script (S).
+- Why: zero dependencies keep code that agents run free of an npm supply chain and keep the release root-owned (A-025,
+  z. 14); the author's cost was hand-written broad parsers and undeclared system tools (AU-214, H-15).
+- Check: the empty-`dependencies` test stays; parser tests (valid input, every refusal, edge cases); a test that `init`
+  refuses when a tool is missing or too old.
+- Source: interview round 3, AU-214; keeps the author's choice.
+
+### T-13 Two languages by audience
+- Rule: The owner register (A-038) answers in the language of the owner's last message, with no setting and no
+  per-project override (A-039). It covers the conversation with the coordinator, including how `limen ask` questions
+  and escalations are put to Adrian. The agent and specs registers use plain technical English, about 80 %
+  ASD-STE100, as the author wrote: tickets, job tasks, handoffs, review findings, the text of `limen ask` and
+  `limen escalate` in the record, commits, code, CLI messages and bell fields. The audience line of the cue carries
+  the language ("Audience: owner. Answer in the language of the owner's last message." / "Audience: agent. Plain
+  technical English."); the fixed "English" on every turn goes.
+- Why: the author's cue demands English on every turn, also when Adrian writes Polish (AU-124); Adrian wants a normal
+  conversation with the coordinator and machine-like text everywhere else.
+- Check: a golden test: the owner register holds the language rule, and the owner cue does not contain "English";
+  a seat check (`plan.md` → `## Deployment` item 12): a Polish message gets a Polish answer, and a ticket written from
+  that conversation is in English.
+- Source: interview round 4, AU-124; keeps the author's English for agents, departs for the owner.
+
+### T-14 Role prompts are literal
+- Rule: Role prompts are written literally, in the plain technical English of the agent register (T-13). Each rule is
+  the rule and its reason in one or two sentences (z. 21). Metaphors and slogans go; where one carries a concept, a
+  term defined once in a short glossary at the start of the context message replaces it (e.g. seam, lead, round,
+  candidate tip), counted in the budget of T-09. Tickets that change the tone of role prompts run in `pair` mode.
+- Why: the author teaches by slogans and metaphors ("repository archaeology", "money burned twice", "uncommitted
+  brilliance") against his own no-idiom rule, and models copy the style they are given (AU-125).
+- Check: a script rejects the author's known metaphors (list in `tools/`, from the Part A inventory); a script checks
+  that every glossary term has a definition and every definition is used; a reviewer question on literal clarity
+  (otherwise `Check: none`); the style change is measured in the same-task comparison (H-21).
+- Source: interview round 4, AU-125 (two variants on `templates/worker.md:29-32`); departs from the author.
+
+### T-15 An owner message has a fixed shape; code builds its structured parts
+- Rule: A coordinator message to Adrian has five parts in this order. (1) First the result with its evidence, where
+  it is recorded (file, commit, published or not) and the next step. (2) The fact that triggers a decision and why
+  the decision is Adrian's: a reference to a rule (`path#anchor`) or an explicit reason. (3) Each decision: the
+  subject, "what I know" (facts with numbers and sources, rejected alternatives with their measurement), options with
+  their effects (document changes included), and a recommendation with a one-sentence reason. (4) Each request (e.g.
+  for a resource): what is needed, what the coordinator does without it, and the concrete question; no forced options
+  (z. 10). (5) A footer: Done / In progress / Waiting for you, with the publication state of `main`. Mechanisms: (1) is
+  one rule with its reason in the owner register. (2), (3) and (4) are built by code: `limen ask --kind
+  decision|request` requires the fields of its kind, refuses without them and renders a fixed template that the
+  coordinator passes on; the rule reference of (2) is checked (the file and the anchor exist). (5) is generated by code
+  from the records: lands, active jobs and the queue, open `limen ask` items with their numbers, and the published SHA
+  against local `main`.
+- Shape reference (anonymised skeleton from a real end-of-milestone message; the original stays out of the repo):
+  ```
+  <Result> is done. <Evidence: what passed and where>. Recorded on the board (<file>, commit <sha>,
+  <published | not yet>). Next is <step>.
+  <Fact that triggers a decision>. Per <document#section> you decide <what>.
+  Decisions:
+  1. <Subject>. What I know: <fact with a number and its source>; <rejected alternative with its measurement and
+     reason>; <what changes next>. Options: a) <option and effect>; b) <option and effect, a document change
+     included>. I recommend <x>, because <one sentence>.
+  2. <Subject from a board rule>. <Facts, cause, action already taken>. I recommend <x>.
+  3. <Request>. I need: <what>. Without it I do now: <what>. Question: <concrete question>.
+  Done: <result>; published <sha>, local main has <n> more commits.
+  In progress: <jobs, or "nothing">.
+  Waiting for you: <numbers of the decisions and requests>.
+  ```
+- Why: the author's owner register is about 1.7k tokens of shapes and formatting rules (AU-122), while Adrian's
+  conversation with the coordinator works today without any Limen register (A-086); what matters to him is the
+  content and its evidence, not the formatting.
+- Check: tests that `limen ask` refuses without the required fields for both kinds; a test that renders the template
+  on the skeleton; a test of the rule-reference check; a test that generates the footer from test records; a metrics
+  script over the previous message (footer present, decision blocks complete, language matches); for (1) `Check: none`
+  apart from the measurement.
+- Open: the footer's channel and its "Done" window (interview round 4 follow-up).
+- Source: interview round 4, AU-122; departs from the author.
+
+### T-16 Evidence in a report comes from records, not from the model
+- Rule: The order of a report follows from where its parts come from: the model's prose, the `limen ask` blocks, the
+  footer. Evidence is not model prose: the footer's "Done" line gives, for every closed item, the ticket, the SHA, the
+  results of the `Check`s Limen ran at `done` and the review verdict, all from the records (z. 14, z. 39). The model
+  writes only what works now and the next step; evidence from outside the records (e.g. Adrian's own check on his
+  laptop) comes with its source. A turn with work in flight ends with the footer's "In progress" line from the
+  records; the model-written overview goes. A decision is a `limen ask --kind decision` block (T-15 (3)), and one
+  message may hold several numbered decisions. "What it touches and what it costs" is not part of a report: no source
+  of friction asks for it (T-09); if Limen records usage per job, its place is `limen status`, and its first friction
+  goes to the backlog.
+- Why: the author's report is four parts in a fixed order written by the model, with a model-written overview at the
+  end of every turn with work in flight (AU-123).
+- Check: a test that the "Done" line carries the ticket, SHA, `Check` results and verdict from a test record; the rest
+  as in T-15.
+- Source: interview round 4, AU-123; departs from the author.

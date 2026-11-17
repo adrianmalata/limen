@@ -128,7 +128,8 @@ runs it. Stage 4 sets the order, the exact commands and the steps after each sta
     for the 5-hour and weekly limits (E-9); the jiti cache path and `-e` module resolution (E-4); the Claude Code binary
     the launcher pins and its version (E-1, E-15); a job in isolated mode (`CLAUDE_BRIDGE_ISOLATED=1`) still sees
     `CLAUDE.md`: it quotes the first rule of the "Real data" section, and the per-query CLI log shows the file loaded
-    (E-7, E-15, D-005). The source already settles the subagent tool: always denied (E-5).
+    (E-7, E-15, D-005); a Polish message to the coordinator gets a Polish answer, and a ticket written from that
+    conversation is in English (T-13). The source already settles the subagent tool: always denied (E-5).
 13. Reboot test: Herdr restores the coordinator pane (A-033); jobs survive a Herdr restart (A-029, `systemd-cgls`).
 14. Measurements "before" (gate 2 §2, Measurement): one raw request of a coordinator and of a job; cache tokens per
     landed ticket and in the turn after a land; the same-task baseline run.
