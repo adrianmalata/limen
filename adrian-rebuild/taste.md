@@ -704,9 +704,17 @@ the author's choice. Taste decisions taken after this interview are added here w
      answer is recorded by `limen decide --answers Q-NNN` (A-034), and the job resumes in the same worktree with the
      decision in its task. `answer` and `decide` stay two commands: `answer` closes a question with a quote checked at
      `path:line` in the published copy; `decide` records the owner's words, checked against an owner message (T-16),
-     as an entry with scope and lifetime. On a question that comes from an escalation after the review rounds are
-     used up (A-015), `decide --answers` records the choice but never changes the round limit; one more round and
-     `abandon` stay actions of the owner channel (z. 16).
+     as an entry with scope and lifetime.
+  3a. Escalation after the review rounds are used up (A-015): `limen escalate` creates a question Q-NNN of kind
+     `escalation`, and only an action of the owner channel closes it: one more round for FNNN, or `abandon` (A-015,
+     z. 16). `decide --answers` on a question of kind `escalation` exits with code 1, with the exact owner-channel
+     commands in `next` (z. 12); the footer shows the Q-NNN under "Waiting for you" with that command, and the bell
+     sends `escalation` (A-066). After one more round, Limen wakes the coordinator with a computed header, and the
+     coordinator continues the job in the same worktree (3) with the reviewer's findings as its brief. Splitting the
+     ticket is `abandon` through the owner channel, then new tickets in the normal way; Adrian may record his choice
+     "split" with a plain `decide`. Rejected: resuming the job and letting `land` refuse until a round is added
+     (against A-015 L3, and it burns tokens on work that may be abandoned); options that `ask` turns into a command
+     the owner channel then confirms (variant (a) with a double action and an extra conversion).
   4. After Adrian's answer, Limen itself opens a ticket "record decision Q-NNN in `docs/`" with its criteria written up
      front (`Judgment`: `docs/` describes the decision; `Check`: the decision register contains Q-NNN), through the
      normal review path (z. 34, z. 36).
@@ -717,16 +725,15 @@ the author's choice. Taste decisions taken after this interview are added here w
      decisions and requests counted apart (z. 37).
 - Why: the author's worker writes the question to a plain file in its worktree and names the path in its final
   message (AU-112), which is easy to miss once wakes carry only a header (A-008).
-- Open conflict (for Adrian; not resolved here): T-05 (3) resumes the job after `limen decide`. When the question
-  belongs to a ticket whose review rounds are used up, A-015 L3 refuses spawns of review and repair for that ticket:
-  a resumed job is then either itself a repair (refused) or makes a new tip that needs a review (refused), so it cannot
-  reach land, and `decide --answers` may not add a round. T-05 (3) does not say what happens in that case.
 - Check: tests for an incomplete `ask` (exit code 1), a valid `ask` (record, wake header, bell), an `answer` whose quote
   is not at the given `path:line` in the published copy (refusal), a `decide` whose quote is not in an owner message
-  (refusal, T-16), a `decide --answers` on an escalation question that changes neither the round limit nor the job's
-  state, the automatic ticket after a decision, the open-question limit, and `stats`.
+  (refusal, T-16), `decide --answers` on an `escalation` question exits with code 1 with the owner-channel commands in
+  `next` and leaves the record unchanged, one more round from the owner channel raises the ticket's round limit by 1,
+  closes the Q-NNN and wakes the coordinator, the footer with an open `escalation` question, the automatic ticket
+  after a decision, the open-question limit, and `stats`.
 - Source: interview round 2, AU-112 (the limit by kind: round 4, from a real end-of-milestone message with two
-  decisions and one request); keeps the author's sense, departs on the channel and the flow; amends A-001 (3).
+  decisions and one request; `decide --answers` and the escalation flow 3a: round 5 follow-ups, which resolved the
+  conflict between (3) and A-015 L3); keeps the author's sense, departs on the channel and the flow; amends A-001 (3).
 
 ### T-06 A re-review is bounded for findings and complete for criteria
 - Rule: For findings the author's scope stays: a re-review checks the earlier blocking findings at the new tip,
