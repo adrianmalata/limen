@@ -2,7 +2,8 @@
 wdrożenia na seat, pomiary, definicje subagentów i sekcja State. Nowa sesja zaczyna od State i ostatnich wpisów
 changes.md. Stan: bramki 0 i 2 zamknięte i przyjęte (D-001–D-005, decyzje w rewizji 4, w tym A-086: wiadomość
 kontekstowa Limena zamiast system promptu; joby z bridge'em w trybie izolowanym), fakty o Pi 1.5.1 i bridge'u 5.0.3 w
-Engine facts (E-1–E-16), czynności Adriana na seacie w Deployment; trwa etap 3 (taste), rundy 1–6 zapisane (T-01–T-24). -->
+Engine facts (E-1–E-16), czynności Adriana na seacie w Deployment; etap 3 (taste) zakończony (T-01–T-43, D-006),
+czeka bramka 3. -->
 
 # Rebuild plan
 
@@ -43,6 +44,10 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   in isolated mode, so the A-042 fallback applies to them: the project's `AGENTS.md`, if it exists, goes into the
   Limen context message; the job launcher passes the Claude Code executable path and the bridge settings explicitly
   (E-15).
+- 2026-11-17 D-006 (stage 3; in force once Adrian accepts `taste.md` at gate 3): the taste rules T-01–T-43 in
+  `taste.md` → Part B are Adrian's decisions from the interview; where they
+  change a gate-2 decision, the list "Changes to gate 2 decisions made in stage 3" in `taste.md` names each one, and
+  the rule holds over the gate-2 wording. Stage 4 builds the tickets from both.
 
 ## Engine facts
 
@@ -167,40 +172,29 @@ Pending (stage 4).
 
 ## State
 
-Updated 2026-11-17, gate 2 applied in its final form (revision 4), §7 B answered, gate 2 accepted (D-005); stage 3
-(taste) in progress: rounds 1–6 recorded (T-01–T-24).
+Updated 2026-11-17, stage 3 (taste) done; waiting at gate 3.
 
 Done:
 - Stage 0 closed at gate 0: test gate `sh adrian-rebuild/tools/gate.sh` (D-001), commit identity (D-002).
 - Stage 1: `audit.md` → `## Map`; detail in `evidence/map/`; tools `spec-index.mjs`, `context-size.mjs` +
   `role-context.mjs`, `check.mjs`.
 - Stage 2: 85 findings, 22 hypotheses, cold read (`evidence/audit-pass1/`, `evidence/audit-pass2/`).
-- Gate 2 (2026-11-17): Adrian's decisions applied in revision 4 of his file. Every finding has `Decision` (fix 76,
-  rejected 9, rejected / fix 1); A-086 added (revision 2); A-008, A-009, A-037, A-038, A-042, A-051, A-078, A-079
-  changed (revisions 2–3); A-034, A-077, A-086 and two §1 facts changed (revision 4; E-16 answers its Pi source
-  question). `audit.md` → `## Gate 2: decisions` holds §1, §2, §4–§7; §8 is D-004, §9 is `## Deployment`; D-003 binds the
-  plan to them. `check.mjs` requires `Decision` and checks `fix (via X)` targets: `node adrian-rebuild/tools/check.mjs`
-  → 86 findings (fix 76, rejected / fix 1, rejected 9), 937 references, 0 errors. Gate `sh adrian-rebuild/tools/gate.sh`
-  → 83/83, exit 0 (run after the `check.mjs` change).
-- Gate 2 §7 B: Pi 1.5.1 and bridge 5.0.3 sources read by two subagents, key claims checked by the main session;
-  answers in `## Engine facts` (E-1–E-14), detail in `evidence/engine-sources/`; unsettled points in `## Deployment`
-  item 12.
-- Gate 2 accepted by Adrian (D-005), with the isolated-mode clarification for jobs (E-15) and a seat check that an
-  isolated job still sees `CLAUDE.md` (`## Deployment` item 12).
-- Stage 3 Part A done: two subagents inventoried the author's taste into `evidence/taste/part-a-prompts.md` (AU-101–140)
-  and `evidence/taste/part-a-code-cli.md` (AU-201–240); 54 basename-only references expanded to full paths; merged
-  into `taste.md` → Part A (80 items, 40 settled by gate 2, 40 open). `check.mjs` now also checks the references in
-  `taste.md` (418, 0 errors).
+- Gate 2 (2026-11-17): Adrian's decisions in their final form (revision 4) in `audit.md`; 86 findings with
+  `Decision` (fix 76, rejected 9, rejected / fix 1); D-003–D-005; engine facts E-1–E-16 from the Pi 1.5.1 and bridge
+  5.0.3 sources (`evidence/engine-sources/`).
+- Stage 3: Part A, the author's taste, 80 items (`evidence/taste/part-a-*.md`), 40 settled by gate 2. Part B, Adrian's
+  taste, T-01–T-43 from eight interview rounds and the open questions: every open Part A item is answered or listed
+  as settled by earlier rules; facts from the open questions; the changes to gate 2 decisions listed for stage 4
+  (D-006). Drafts judged on real output: `evidence/taste/help-registry.mjs`, `evidence/taste/board-draft.mjs`.
+  `node adrian-rebuild/tools/check.mjs` → 86 findings, 43 taste rules (each with Rule, Why, Check, Source), 457
+  taste references, 0 errors; gate `sh adrian-rebuild/tools/gate.sh` → 83/83, exit 0.
 
-Next: resolve the ticket-content commit gap (T-22, shown to Adrian), then interview round 7 (code style and tests:
-AU-216, AU-226, AU-215, AU-217, AU-218, AU-225, AU-229), round 8 (the remaining open Part A items as recommendations
-to accept or change, and the open questions: what slows Adrian down, what he enjoys), then gate 3. Rounds 1–6 and their
-follow-ups are recorded as T-01–T-24 in `taste.md` → Part B; drafts that Adrian judged on real output:
-`evidence/taste/help-registry.mjs` (T-18, T-19) and `evidence/taste/board-draft.mjs` (T-23). The Claude Code task
-list now tracks the remaining stage 3 steps. Interview method: AskUserQuestion, at most 4 questions per turn, one area
-per turn; appearance questions show two variants on a real repo fragment.
+Next: Adrian decides at gate 3 (accept `taste.md` or correct it). Then stage 4 (plan) in this or a new session:
+Vision from `taste.md`, Decisions (copy gate 2 §2 and its constraints, D-006), Stages, Tickets R-NNN (every `fix`
+and every T-NN with a Check gets a ticket), Deployment (order and commands), Measurement (every named metric), Agents
+(the two subagent definitions), then the plan checks in `check.mjs` and a cold read.
 
-Open questions for Adrian: none.
+Open questions for Adrian: gate 3.
 
 Notes for the next session:
 - Progress lives in this section; the Claude Code task list mirrors the open steps when the tool is available.

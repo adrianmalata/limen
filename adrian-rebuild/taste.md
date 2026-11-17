@@ -1,7 +1,8 @@
-<!-- PL: Rubryka taste przebudowy: część A to jawny inwentarz opinii autora Limena wbudowanych w system, część B to
-zasady Adriana (T-NN) z regułą, uzasadnieniem i sposobem sprawdzenia. Po bramce 3 plik jest rubryką obok zasad
-z input/, a nowe decyzje taste dopisuje się tu z datą i źródłem. Stan: część A gotowa (80 opinii autora, 40 już
-rozstrzygniętych bramką 2, 40 otwartych do wywiadu); część B powstaje w wywiadzie z Adrianem (rundy 1–8 i pytania otwarte: T-01–T-42). -->
+<!-- PL: Rubryka taste przebudowy. Część A to jawny inwentarz 80 opinii autora Limena wbudowanych w system (40
+rozstrzygniętych bramką 2); część B to zasady Adriana T-01–T-43 z wywiadu etapu 3, każda z regułą, uzasadnieniem,
+sposobem sprawdzenia i źródłem, oraz fakty z pytań otwartych i lista zmian w decyzjach bramki 2. Po bramce 3 plik
+jest rubryką obok zasad z input/, a nowe decyzje taste dopisuje się tu z datą i źródłem. Stan: etap 3 zakończony,
+czeka bramka 3. -->
 
 # Taste
 
@@ -1509,6 +1510,20 @@ the author's choice. Taste decisions taken after this interview are added here w
   that `seat sweep` reports a foreign timer on a fixture and deletes nothing.
 - Source: stage 3 open questions, Adrian's correction of the same day (`limen rule` has replacements, A-010).
 
+### T-43 No per-job resource budget for now
+- Rule: Limen sets no CPU or memory budget per job scope now: `rejected`. The one case (a ticket that needed extra
+  heavy processes, where the reviewer job started five at once instead of one at a time, so the other project's jobs
+  could not run on the shared seat) may not come back after the rebuild: the role prompts were not reaching the
+  model at all (A-086), Limen runs every `Check` itself at the tip (A-031 (3), (6)), and `maxJobs` holds (A-014).
+  Revisit when: the measured peak CPU or memory of one job scope keeps the other project's job from starting or makes
+  it fail, in at least two different tickets (the metric in `plan.md` → `## Measurement`; z. 38, z. 40); a return then
+  uses systemd properties of the job scope (A-029) set from a root-owned seat file.
+- Why: what slowed Adrian down included the load on the machine from one ticket's reviews (stage 3, open questions);
+  his decision is to wait and see whether it returns after the rebuild.
+- Check: none for the rule itself; the signal is the `## Measurement` metric "peak CPU and memory per job scope, and the
+  time two projects could not both run a job".
+- Source: stage 3 open questions, Adrian's follow-up (2026-11-17).
+
 ### Facts from the open questions (stage 3, 2026-11-17)
 - Slowing Adrian down today: the long time spent in one ticket; the token cost (the 5-hour limit stops work often, and
   he waits); the load on the machine (reviews in one ticket started many CPU- and memory-heavy processes, so the two
@@ -1521,6 +1536,24 @@ the author's choice. Taste decisions taken after this interview are added here w
 - Measurements these facts add to `plan.md` → `## Measurement`: lead time per ticket (spawn to land, split into queue,
   job runs, checks, review and waiting for the owner); tokens per landed ticket; owner touchpoints per landed ticket
   (T-40); peak CPU and memory per job scope, and the time two projects could not both run a job.
+
+### Changes to gate 2 decisions made in stage 3
+Stage 4 applies these together with gate 2 (`plan.md` → D-006). Each rule named here holds over the wording of the
+gate-2 decision it changes.
+- A-001 (3): a job in `needs-decision` does not block worker spawns for other tickets (T-05).
+- A-006: recovery of a blocked publication by `hold` and `replay` (T-22); the bell gets `uncovered-commit`.
+- A-011 (a), A-012: the test-line cap is an optional owner setting in `limits.json`, not a number read from
+  `spec/vision.md` (T-11).
+- A-015: `limen escalate` creates a Q-NNN of kind `escalation`, closed only by an owner-channel action (T-05 3a).
+- A-024, A-002: `limen sweep` is `limen seat sweep`; prune and retire are its steps, with no command of their own
+  (T-18); no housekeeping runs before other commands (T-04).
+- A-025, A-047: `jg` and its cue are cut (T-36); hooks call only `limen` by an absolute path.
+- A-031: a `Judgment` may declare a path scope, and a `met` carries over outside it (T-06); the checks of T-22 join
+  `limen ticket check`.
+- A-066: "bell" is named "alerts" in user-facing text and identifiers (T-18).
+- A-073, A-044: spawn takes `<role> <FNNN>`, and code builds the whole task (T-07); `--label` is cut (T-24).
+- A-081: the scout leaves the list of read-only roles (T-33).
+- G1.11: the research module's command is `limen research submit "<question>"` (T-18).
 
 ### Part A items settled by earlier rules
 - AU-129 (ticket shape): the sections come from T-07 (the task takes Outcome, Scope and Out of scope), the budgets are
