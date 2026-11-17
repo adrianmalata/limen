@@ -1,8 +1,9 @@
 <!-- PL: Plan przebudowy Limena i punkt wznowienia każdej sesji: wizja, słownik, decyzje Adriana (kopia §2 bramki 2,
-D-008–D-016 z bramki 4 i po niej: wdrożenie po SHA, format changes.md, narzędzia seata w TypeScript, praca nocna, wznowienie
-projektów po a0.3.0 jako ryzyko z terminem 21.11.2026, limit tygodniowy, akceptacja planu i definicji subagentów, uprawnienia w settings.local.json),
-fakty o silniku, 9 etapów z kosztem i efektem, 87 ticketów R-NNN z kolumną Run, wdrożenie na seat, pomiary, protokół
-subagentów i polecenia na allow-listę. Stan: bramka 4 zamknięta; następny jest etap 5 w nowej sesji, od R-001. -->
+D-008–D-017 z bramki 4 i po niej: wdrożenie po SHA, format changes.md, narzędzia seata w TypeScript, praca nocna,
+wznowienie projektów po a0.3.0 jako ryzyko z terminem 21.11.2026, limit tygodniowy, akceptacja planu i definicji,
+uprawnienia w settings.local.json, Claude Code instalowany przez roota), fakty o silniku z pomiarem B.1 z seata,
+wymagania systemowe, 9 etapów z kosztem i efektem, 87 ticketów R-NNN, wdrożenie, pomiary, protokół subagentów
+i polecenia na allow-listę. Stan: bramka 4 zamknięta; następny jest etap 5 w nowej sesji, od R-001. -->
 
 # Rebuild plan
 
@@ -192,6 +193,15 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   (e.g. `TMPDIR=… node …`) breaks the match of an allow rule, so the tools set their environment themselves. The file
   joins the implementer's reserved paths, and `review-guard.mjs` checks its digest in both modes (with
   `.git/info/`).
+- 2026-11-17 D-017 (Adrian; extends A-025): today the bridge runs Claude Code from the agents' home directory, which the
+  agents can write and which updates itself. Instead, root installs Claude Code in a root directory in a pinned
+  version, and only the seat script updates it, after the type contract (T-32, AU-220) and the bridge contract (T-31,
+  AU-225) pass (z. 18). The version is a system requirement (T-12, AU-214, `## System requirements`); a mismatch
+  exits with code 4 at coordinator start and at spawn. The bridge gets the explicit path to that binary.
+  `DISABLE_UPDATES=1` is set in the environment of the coordinator and of every job, but the boundary is the file's
+  owner (z. 14). The copy in the agents' directory is removed after the migration. Tickets: R-049 (install, version,
+  refusal), R-048 (explicit path), R-087 (`DISABLE_UPDATES` in the job allow-list), R-050 (the start script sets it for
+  the coordinator); steps 3.10, 5.3, 5.9 and 5.20.
 
 ### Gate 2 §2, copied
 
@@ -294,19 +304,19 @@ the sources itself.
 
 | # | Question | Answer | Feeds | Settled |
 |---|---|---|---|---|
-| E-1 | How the bridge maps the system prompt and messages (Q9, cost 2) | One SDK `query()` per Pi prompt, continuing Claude Code's own session file with `resume`; when Pi's history diverges (compaction, a `system` entry after the cursor, an abort) the bridge rewrites that file from Pi's history. The system prompt is Claude Code's `claude_code` preset plus an append of exactly three parts: the nearest `AGENTS.override.md`/`AGENTS.md`/`AGENTS.MD` walking up from the cwd, Pi's skills block, and four opt-in blocks that are off by default. **Pi's system prompt is not forwarded**, so Limen's role preamble (`--append-system-prompt`, `src/runtime/engine.ts:248` at `rebuild-base`) and the hook's system block (`hook/communication.ts:104`) never reach the model on the `pi-claude` route. Pi user messages (the task, and at `rebuild-base` the wakes and steers sent with `pi.sendUserMessage`) and Pi custom messages (the per-turn cue, reminders) all arrive as `user`; Pi's `role: "system"` patch entries are dropped. So the per-turn cue, with its register lines, reaches the model every turn (gate 2 §1, revision 4). | A-037, A-042, A-051, A-079, A-008, A-038, A-040, A-043, A-077; new finding (below) | yes (code and the bridge README); one raw request on the seat confirms |
-| E-2 | Cache breakpoints and TTL (Q9, cost 2) | The bridge sets no `cache_control`, breakpoint, TTL or caching variable; Claude Code decides all three. It reports `cacheRead` and `cacheWrite` per Pi turn (summed over the child's API calls; cost 0, no 5m/1h split). Claude Code's auto-compaction is switched off (`DISABLE_AUTO_COMPACT=1`); Pi compaction forces a session rewrite. | A-037, A-078, A-079, Measurement | partly: TTL, breakpoints and the cache effect of a rewrite are seat checks |
+| E-1 | How the bridge maps the system prompt and messages (Q9, cost 2) | One SDK `query()` per Pi prompt, continuing Claude Code's own session file with `resume`; when Pi's history diverges (compaction, a `system` entry after the cursor, an abort) the bridge rewrites that file from Pi's history. The system prompt is Claude Code's `claude_code` preset plus an append of exactly three parts: the nearest `AGENTS.override.md`/`AGENTS.md`/`AGENTS.MD` walking up from the cwd, Pi's skills block, and four opt-in blocks that are off by default. **Pi's system prompt is not forwarded**, so Limen's role preamble (`--append-system-prompt`, `src/runtime/engine.ts:248` at `rebuild-base`) and the hook's system block (`hook/communication.ts:104`) never reach the model on the `pi-claude` route. Pi user messages (the task, and at `rebuild-base` the wakes and steers sent with `pi.sendUserMessage`) and Pi custom messages (the per-turn cue, reminders) all arrive as `user`; Pi's `role: "system"` patch entries are dropped. So the per-turn cue, with its register lines, reaches the model every turn (gate 2 §1, revision 4). | A-037, A-042, A-051, A-079, A-008, A-038, A-040, A-043, A-077; new finding (below) | yes (code and the bridge README); seat B.1 (2026-11-17): a Pi turn resumes the same Claude Code session (turns 2 and 3), and a job starts in a new one |
+| E-2 | Cache breakpoints and TTL (Q9, cost 2) | The bridge sets no `cache_control`, breakpoint, TTL or caching variable; Claude Code decides all three. It reports `cacheRead` and `cacheWrite` per Pi turn (summed over the child's API calls; cost 0, no 5m/1h split). Claude Code's auto-compaction is switched off (`DISABLE_AUTO_COMPACT=1`); Pi compaction forces a session rewrite. | A-037, A-078, A-079, Measurement | yes; seat B.1 (2026-11-17): cache TTL 1 h for the coordinator and for a job (`ephemeral_5m` = 0 everywhere); a Pi compaction rewrites the session (next turn: cache read 3,272, cache write 27,578 tokens) |
 | E-3 | What `--approve` enables (Q6, security 1) | Only project trust for the run: Pi then reads `<cwd>/.pi/settings.json` (which can install packages and change `npmCommand`, `shellPath`, `shellCommandPrefix`), `.pi/skills`, `.agents/skills` and `.pi/SYSTEM.md`, and the bridge reads `.pi/claude-bridge.json` (which can set the Claude Code executable path). Pi has no tool-call approvals and no `--auto-approve` (OMP had it). Without `--approve`, JSON mode resolves trust to "untrusted". | A-004, A-025, A-003 | yes |
 | E-4 | What a job loads from its worktree (Q5) | Pi: context files (`AGENTS.override.md`, `AGENTS.md`, `CLAUDE.md`, case variants) from the cwd up to `/` and from `~/.pi/agent`, never trust-gated (off only with `--no-context-files`); under the bridge these sit in Pi's prompt and do not reach Claude. Bridge: the nearest `AGENTS*` file, re-read every query (none in isolated mode, E-15). Claude Code: `CLAUDE.md` and `.claude/settings*.json` per its default setting sources (E-7). `--no-extensions` keeps the project stub `.pi/extensions/limen.ts` out of jobs but does not stop settings-listed package installs (`--offline` does). Extensions given with `-e` go through jiti's transpile cache in the OS temp directory, shared by every process of the account (`JITI_FS_CACHE=0` or a private `TMPDIR` avoids it). The whole Pi environment is forwarded to Claude Code. | A-025, A-004 (T1), A-003 | partly: jiti cache path, `-e` module resolution and Node's compile cache are seat checks |
-| E-5 | Tool restrictions and the subagent tool (A-081, A-029) | Claude Code's built-in tools are disabled; Pi's tools are served to it as `mcp__custom-tools__<name>` under `bypassPermissions`, so Pi's `--tools` allowlist (e.g. `read,grep,find,ls`) reaches Claude exactly. `Agent`, `Task`, `Skill`, `AskUserQuestion` and other Claude Code tools are always denied; Pi's `tool_call` event sees only Pi tool names. Exception: a session with zero Pi tools gets Claude Code's own Bash/Read/Write back, so no role may run with an empty tool list. | A-081, A-029 | yes for the bridge; whether the seat binary still lists tools it loads on demand is a seat check |
+| E-5 | Tool restrictions and the subagent tool (A-081, A-029) | Claude Code's built-in tools are disabled; Pi's tools are served to it as `mcp__custom-tools__<name>` under `bypassPermissions`, so Pi's `--tools` allowlist (e.g. `read,grep,find,ls`) reaches Claude exactly. `Agent`, `Task`, `Skill`, `AskUserQuestion` and other Claude Code tools are always denied; Pi's `tool_call` event sees only Pi tool names. Exception: a session with zero Pi tools gets Claude Code's own Bash/Read/Write back, so no role may run with an empty tool list. | A-081, A-029 | yes for the bridge; seat B.1 (2026-11-17): the coordinator has 4 tools and a job 5; tools loaded on demand: step 4.3 |
 | E-6 | Skills (Q10, H-11) | Pi lists every loaded skill (name, description, path) when `read` or `bash` is active; `disable-model-invocation: true` hides one; `--no-skills` plus `--skill <path>` restricts a session. The bridge forwards that block into Claude's append. | A-081 | yes |
 | E-7 | Is `CLAUDE.md` loaded under the bridge (A-042) | The bridge passes no `settingSources`; the SDK documents that all sources (user, project, local, `CLAUDE.md`) then load. The bridge's own append reads only `AGENTS*`, not `CLAUDE.md`. | A-042 | partly: seat check (item 12) |
-| E-8 | Context window (cost 8, A-034 thresholds) | Pi takes 1,000,000 input / 128,000 output for `claude-opus-5-5` from pi-ai's catalog; the bridge passes neither to Claude Code. Pi auto-compacts above window − 16,384 tokens and keeps a summary plus about the last 20,000 tokens. `ctx.getContextUsage()` = the last assistant usage plus a chars/4 estimate. Claude Code's real window on the Max login is unknown, and its own auto-compaction is off. | A-034, A-033 | partly: seat check (item 12) |
+| E-8 | Context window (cost 8, A-034 thresholds) | Pi takes 1,000,000 input / 128,000 output for `claude-opus-5-5` from pi-ai's catalog; the bridge passes neither to Claude Code. Pi auto-compacts above window − 16,384 tokens and keeps a summary plus about the last 20,000 tokens. `ctx.getContextUsage()` = the last assistant usage plus a chars/4 estimate. Claude Code's real window on the Max login is unknown, and its own auto-compaction is off. | A-034, A-033 | yes; seat B.1 (2026-11-17): the window of `claude-opus-5-5` on the Max login is 1,000,000 tokens |
 | E-9 | Limit errors (A-016) | A usage-limit result ends the Pi turn with `stopReason: "error"` and the Claude Code text in `errorMessage` (provider text, not model text). A structured reset time (`resetAtMs`, `rateLimitType`) appears only on Pi's event bus as `kendex:rate-limit`, and only if the binary sends a `rate_limit_event`. A 90 s silent stream ends the turn as `error` with `rateLimitType: "stream_idle"`. | A-016 | partly: whether the event fires for the 5-hour and weekly limits is a seat check |
-| E-10 | Reasoning level (A-030) | Pi's level maps through the model's own table: for Opus 5.5 `high` → `--effort high`, `xhigh` → `--effort xhigh`; no level → Claude Code's default. | A-030 | yes |
+| E-10 | Reasoning level (A-030) | Pi's level maps through the model's own table: for Opus 5.5 `high` → `--effort high`, `xhigh` → `--effort xhigh`; no level → Claude Code's default. | A-030 | yes; seat B.1 (2026-11-17): `--thinking` reaches Claude Code as `effort` |
 | E-11 | Extension API Limen relies on | `before_agent_start` runs once per run (each prompt sent while idle), not per LLM turn; a returned `systemPrompt` applies to that run only. `sendMessage` custom messages reach the model as `user` (`display: false` hides them from the TUI only); `appendEntry` stays out of the context. `/new` and `ctx.newSession()` give a new session ID, re-run extension factories and keep the CLI options. | A-009, A-033, A-037, A-008 | yes |
 | E-12 | `--append-system-prompt` text or path | Text, or the file's contents when the value names an existing file relative to the cwd. | (hosted mode, cut) | yes |
-| E-13 | Pi compaction vs the resumed Claude Code session (§7 B, revision 2; A-086) | Every Pi compaction path writes the compaction entry, rebuilds Pi's context and awaits `session_compact` before the next model call; the bridge listens to the same event. With no bridge query running (before a prompt, after a run, overflow, manual `/compact`), the next query rewrites the Claude Code session in place; between turns of a run, the bridge kills the query and restarts it under a new session id, re-sending the pending request and a "history replaced" notice. The rewritten session holds Pi's summary as one user record plus the kept entries; system entries are dropped. The hook re-sends the context message on `session_compact`, but no single `sendMessage` option fits every trigger: the default (steer) lands in the next request except after a run, where it starts an extra turn; there `triggerTurn: false` is right (between `agent_end` and `agent_settled`, `willRetry` false). Keeping the message through compaction instead is not simpler (Pi keeps one contiguous range). Claude Code's own auto-compaction is off; whether settings can turn it back on is engine-side. | A-086, A-037, A-079 | partly: end-to-end order is a seat check |
+| E-13 | Pi compaction vs the resumed Claude Code session (§7 B, revision 2; A-086) | Every Pi compaction path writes the compaction entry, rebuilds Pi's context and awaits `session_compact` before the next model call; the bridge listens to the same event. With no bridge query running (before a prompt, after a run, overflow, manual `/compact`), the next query rewrites the Claude Code session in place; between turns of a run, the bridge kills the query and restarts it under a new session id, re-sending the pending request and a "history replaced" notice. The rewritten session holds Pi's summary as one user record plus the kept entries; system entries are dropped. The hook re-sends the context message on `session_compact`, but no single `sendMessage` option fits every trigger: the default (steer) lands in the next request except after a run, where it starts an extra turn; there `triggerTurn: false` is right (between `agent_end` and `agent_settled`, `willRetry` false). Keeping the message through compaction instead is not simpler (Pi keeps one contiguous range). Claude Code's own auto-compaction is off; whether settings can turn it back on is engine-side. | A-086, A-037, A-079 | partly: end-to-end order is a seat check (4.2); seat B.1 (2026-11-17): a compaction is two requests without tools in new sessions (cache writes of about 4k and 24k tokens, TTL 1 h), and the next turn resumes a new transcript built from Pi's history |
 | E-14 | Does each Pi user message reach the request intact (§7 B, revision 2; A-086) | Yes, as far as the bridge goes: no truncation, length cap, escaping or rewriting of user or custom text (its rewrites touch only the AGENTS text, the skills hint and tool names). When the session is reused, consecutive user messages are joined in order with a blank line into one prompt (text blocks of one message joined with a newline); on a rewrite each message is its own record, stored unchanged. The bridge has no size limit; a Claude Code limit on one prompt, and whether a leading `/` is parsed as a command, are engine-side. Until settled, the context message never starts with `/`. | A-086, A-051 | partly: size limit and verbatim delivery of a ~100 KB message are seat checks |
 | E-15 | What `CLAUDE_BRIDGE_ISOLATED=1` turns off (Adrian, 2026-11-17; D-005) | In isolated mode the bridge forwards no `AGENTS*` file at all (`bridge@5.0.3/src/agents-md.ts#L75`), reads no project `.pi/` settings, no `.pi/claude-bridge.json` and no project `APPEND_SYSTEM.md`, and never searches `PATH` for `claude` (`bridge@5.0.3/src/claude-executable.ts#L25-L28`). Its only configuration is `claude-bridge.json` in the Pi agent directory (`bridge@5.0.3/src/config.ts#L322-L328`), plus an explicitly configured executable; with none, it falls back to the SDK's bundled default binary. It does not change Claude Code's own setting sources, so Claude Code is still expected to load `CLAUDE.md` (E-7). Consequences for jobs: the A-042 fallback applies (the project's `AGENTS.md`, if present, goes into the Limen context message), and the launcher passes the Claude Code path and the bridge settings explicitly, from a location the agents' account cannot write (A-025). | A-042, A-086, A-025 | yes for the bridge; `CLAUDE.md` in isolated mode is a seat check (item 12) |
 | E-16 | How a Limen custom message reaches the coordinator (A-034, revision 4) | `pi.sendMessage(msg, { deliverAs: "followUp", triggerTurn: true })`: when the session is idle, Pi starts a new run with the message (`pi-coding-agent@1.5.1/dist/core/agent-session.js#L1946-L1972`, `sendCustomMessage` → `_startRun`; held until `agent_settled` has been emitted when it arrives during that event); when a run is active, the message goes to the follow-up queue (`agent.followUp`) and enters only when the agent would otherwise stop, i.e. after the current turn's tool calls and steers (`pi-agent-core@1.5.1/dist/agent-loop.js#L196-L202`), in the same run. This matches today's wake semantics (`hook/wake.ts:442-446`: `sendUserMessage` when idle, `deliverAs: "followUp"` when busy) and the pattern of `hook/group-peer.ts:132-135`. The message is stored with role `custom`, so the session's `user` entries stay Adrian's own. | A-034, T-16, T-05 | yes (code) |
@@ -332,6 +342,28 @@ the sources itself.
   (with its consequences in E-15 and D-005) and a private `TMPDIR` or `JITI_FS_CACHE=0` (A-025, E-3, E-4); the T1 allow-list is the only environment filter,
   because the bridge forwards everything (A-004, E-4); read-only roles get a non-empty Pi `--tools` allowlist (A-081,
   E-5); the reset time is taken from `kendex:rate-limit` when present, otherwise from `errorMessage` (A-016, E-9).
+
+**Seat measurement B.1 (Adrian, 2026-11-17, on `rebuild-base`; raw logs stay on the seat).** E-1, E-2, E-5, E-8, E-10
+and E-13 above carry its results. Consequences: a Pi compaction rewrites the Claude Code session anyway, so sending the
+Limen context message again after a compaction (A-086, E-13) costs only its own length; the thresholds of A-034 use
+the window of 1,000,000 tokens; the reference for A-078 (M-03) is a coordinator cache read of about 297k–313k tokens
+per request in the M1 transcripts.
+
+## System requirements
+
+What the seat must provide; R-020 declares it in the platform adapter (T-12), `limen init` and the coordinator start
+check it, and a missing tool or another version exits with code 4 naming both versions (T-32 (3), D-017).
+
+| Requirement | Version or check | Declared and checked by | Installed by |
+|---|---|---|---|
+| Node.js | ≥ 24 (root 24, agents' account 26 on the seat) | R-020 | the seat |
+| git | supports `git worktree list --porcelain -z` (git ≥ 2.36), checked as a feature (note R-020) | R-020 | the seat |
+| tar, ps and the other tools R-020 finds in use | present | R-020 | the seat |
+| Pi (`@earendil-works/pi-coding-agent`) | 1.5.1 | R-020; another version refused at coordinator start and spawn by R-049 | root, seat script (5.3) |
+| Claude bridge (`@vanillagreen/pi-claude-bridge`) | 5.0.3 | R-020; R-049 | root, seat script (5.3) |
+| Claude Code | the version Adrian pins at installation (5.3), recorded here then; updated only by the seat script after the contracts pass | R-049 (D-017); the bridge gets its path (R-048) | root, in a root directory (5.3); the agents' copy removed (5.20) |
+| systemd user instance with lingering | scopes and timers work (`systemd-run --user --scope true`) | R-026, R-032 | root enables lingering (3.1) |
+| Herdr | 0.9.3 on the seat | R-020 (T-12: tools found in use) | the seat |
 
 ## Stages
 
@@ -397,7 +429,7 @@ questions; their number cannot be known in advance.
 | 2 | a0.2.0 | 11: 0 / 9 / 2 | 0 | 3: gate 5.2; id collisions in the record migration report (2.1); the `LIMEN_*` variables to remove (2.4) | 5, plus B.3 |
 | 3 | a0.3.0 | 13: 0 / 9 / 4 | 0 | 3, plus one per unlanded job: gate 5.3; the account names (3.3); `continue` or `abandon` for each finished job with unlanded work (3.6) | 12 |
 | 4 | a0.4.0 | 10: 2 / 6 / 2 | 2: R-041, R-046 (day-after) | 4: gate 5.4; the cue wording (R-041); the role prompt texts and their glossary of terms (T-14, R-046); the modules to switch on (4.9) | 10 |
-| 5 | a0.5.0 | 13: 0 / 9 / 4 | 0 | 3: gate 5.5; the owner channel's key, forced command and tokens (5.1); the domains added to the egress list (5.16) | 20 |
+| 5 | a0.5.0 | 13: 0 / 9 / 4 | 0 | 3: gate 5.5; the owner channel's key, forced command and tokens (5.1); the domains added to the egress list (5.16) | 21 |
 | 6 | a0.6.0 | 7: 0 / 1 / 6 | 3: R-065, R-066, R-068 (day-after) | 5: gate 5.6; the refusal and message texts of the ticket commands (R-065); the board, and which old prose sections go to `docs/` (R-066, 6.4); the question blocks (R-068); the `limen init` values (6.1) | 5 |
 | 7 | a0.7.0 | 9: 3 / 4 / 2 | 1: R-073 (day-after) | 2: gate 5.7; the footer wording (R-073) | 6 |
 | 8 | a0.8.0 | 4: 1 / 1 / 2 | 0 | 2: gate 5.8; whether to switch on groups and research (8.1, 8.2) | 3 |
@@ -538,7 +570,7 @@ Columns:
 | R-035 | Start-queue thresholds: a diagnosis at 30 min, a failure at 2 h | 3 | A-036 | R-026, R-033 | M | delegated | night | — | systemd | 3.8 | planned |
 | R-036 | Stall is measured over the whole job scope | 3 | A-059 | R-026 | M | delegated | night | — | systemd | 3.8 | planned |
 | R-037 | Land runs as recorded steps with an atomic closing commit | 3 | A-021, A-057, T-18, T-28 | R-023, R-031 | L | delegated | night | yes | herdr | 3.9 | planned |
-| R-087 | The job environment is an allow-list; git and gh in a job hold no credential (T1) | 3 | A-004, A-061, E-4 | R-015, R-021, R-026 | M | delegated | night | — | pi, bridge | 3.10 | planned |
+| R-087 | The job environment is an allow-list; git and gh in a job hold no credential (T1) | 3 | A-004, A-061, E-4, D-017 | R-015, R-021, R-026 | M | delegated | night | — | pi, bridge | 3.10 | planned |
 | R-038 | The fake engine shows the model's view under the bridge | 4 | T-31, A-051 | R-017 | M | delegated | night | — | bridge | 4.1 | planned |
 | R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16 | R-021, R-038 | L | delegated | night | yes | pi, bridge | 4.2 | planned |
 | R-040 | Role texts come from the package, in three registers | 4 | A-038, A-039, A-042, D-005 | R-001, R-039 | M | delegated | night | yes | — | — | planned |
@@ -549,9 +581,9 @@ Columns:
 | R-045 | Tools and skills per role; a read-only role that writes fails | 4 | A-081, E-5 | R-044 | M | delegated | night | — | pi, bridge | 4.3 | planned |
 | R-046 | Role prompts are literal, sourced and budgeted | 4 | T-09, T-14, T-15, T-08, T-10, T-21, A-043, A-085, A-040 | R-040, R-041, R-042, R-044 | L | pair | day-after | — | — | — | planned |
 | R-047 | The coordinator never waits | 4 | T-34 | R-039 | S | delegated | night | — | pi | 4.6 | planned |
-| R-048 | Jobs run the bridge isolated: no `--approve`, `--offline`, a private `TMPDIR`, an explicit Claude Code path | 5 | A-025, E-3, E-4, E-15, D-005 | R-040, R-087 | M | delegated | night | — | pi, bridge | 5.8, 5.9 | planned |
-| R-049 | Agents run only root-owned code; Pi and bridge versions are declared | 5 | A-025, T-32, T-36 | R-017, R-020, R-048 | L | delegated | night | yes | pi | 5.3, 5.5, 5.6, 5.10 | planned |
-| R-050 | The registered coordinator and its start script | 5 | A-033, A-061, A-029, §2 | R-026, R-033, R-034, R-049 | L | delegated | night | yes | pi, herdr, systemd | 5.4, 5.11 | planned |
+| R-048 | Jobs run the bridge isolated: no `--approve`, `--offline`, a private `TMPDIR`, an explicit Claude Code path | 5 | A-025, E-3, E-4, E-15, D-005, D-017 | R-040, R-087 | M | delegated | night | — | pi, bridge | 5.8, 5.9 | planned |
+| R-049 | Agents run only root-owned code; Pi, bridge and Claude Code versions are declared | 5 | A-025, T-32, T-36, D-017 | R-017, R-020, R-048 | L | delegated | night | yes | pi | 5.3, 5.5, 5.6, 5.10, 5.20 | planned |
+| R-050 | The registered coordinator and its start script | 5 | A-033, A-061, A-029, §2, D-017 | R-026, R-033, R-034, R-049 | L | delegated | night | yes | pi, herdr, systemd | 5.4, 5.11, 5.20 | planned |
 | R-051 | Wakes carry a computed header; Limen's messages are custom messages | 5 | A-008, A-078, A-034, T-16, E-16 | R-039, R-050 | M | delegated | night | — | pi | 5.12 | planned |
 | R-052 | The handoff note goes through a registered tool | 5 | A-009, A-034, A-047 | R-051 | M | delegated | night | yes | pi | 5.13 | planned |
 | R-053 | Steer entries carry an envelope; only the coordinator steers | 5 | A-028 | R-050 | M | delegated | night | yes | pi | 5.14 | planned |
@@ -646,7 +678,7 @@ Where the owner actions of gate 2 §9 (the 16 items recorded at gate 2) are plac
 |---|---|---|
 | 1 | Accounts: names, owner channel, research account, alerts account, egress allow-list, tokens | 3.3, 5.1, 5.16, 8.2 |
 | 2 | GitHub ruleset on `main` of both projects (§7 D1) | 3.11, 5.2 |
-| 3 | Root-owned installs of Pi 1.5.1, the bridge and the coordinator start script | 5.3 |
+| 3 | Root-owned installs of Pi 1.5.1, the bridge, Claude Code (D-017) and the coordinator start script | 5.3, 5.20 |
 | 4 | Coordinators start only through the start script | 5.4 |
 | 5 | `limen seat sweep --install`, old prune units off (done on 2026-11-17), route variables out of the environment | 3.1, 6.1 |
 | 6 | Old seat extensions removed; the extra Limen checkout in the agents' home | 5.5 |
@@ -731,8 +763,8 @@ full SHA.
 - **0.3** Reload every coordinator session with `/reload` (from a0.5.0: restart it through the start script, R-050).
 - **0.4** The stage's steps below, in order; a migration runs first with `--dry-run` where the step says so.
 - **0.5** From a0.4.0: the bridge contract of R-038 (T-31), the bridge log of one coordinator turn and one job turn
-  against the fake engine's model view of the same scenario. It runs at every tag and after any change of the Pi or
-  bridge version; a version change lands only after the bridge and the type contract pass.
+  against the fake engine's model view of the same scenario. It runs at every tag and after any change of the Pi,
+  bridge or Claude Code version; a version change lands only after the bridge and the type contract pass (D-017).
 - **0.6** Trial route in one project: one small ticket through spawn, review and land; note the exit codes and the
   time. The stage's steps name what else to watch.
 - **0.7** Rollback: copy the current `<project>/.limen/` of both projects aside, to be kept (z. 29); run
@@ -747,7 +779,7 @@ deployment: once R-011 is pushed, Adrian runs it on the seat as the agents' acco
 commit, outside `/opt/limen`, and points it at the `rebuild-base` checkout in `/opt/limen` and at a scratch clone.
 
 
-- **B.1** On `rebuild-base` (today's seat), with `CLAUDE_BRIDGE_DEBUG=1`: save the per-query CLI log of one coordinator
+- **B.1** Done on 2026-11-17 (results in `## Engine facts`, seat measurement B.1). On `rebuild-base` (today's seat), with `CLAUDE_BRIDGE_DEBUG=1`: save the per-query CLI log of one coordinator
   turn and one job turn (M-02). From the same log: whether each turn reuses or rewrites the Claude Code session, the
   cache TTL (`modelUsage` 5m or 1h), the context window of `claude-opus-5-5` on the Max login, and the cache read of
   the turn after a manual `/compact`, which forces a rewrite (E-1, E-2, E-8).
@@ -806,7 +838,8 @@ commit, outside `/opt/limen`, and points it at the `rebuild-base` checkout in `/
   with kind `stall` (R-026, R-035, R-036).
 - **3.9** Land closes the job's Herdr tab in its `cleaned` step (R-037).
 - **3.10** A trial job reaches Claude with the allow-listed environment; inside it, `env` shows only the allow-listed
-  names, `git config --get credential.helper` prints nothing, and `gh auth status` reports no login (R-087).
+  names, `git config --get credential.helper` prints nothing, `gh auth status` reports no login, and
+  `DISABLE_UPDATES` is `1` (R-087, D-017).
 - **3.11** Before the projects resume: a GitHub ruleset on `main` of both projects that forbids force pushes and
   deletion (part of §7 D1; D-012). Step 5.2 adds the rest of D1.
 
@@ -837,7 +870,8 @@ commit, outside `/opt/limen`, and points it at the `rebuild-base` checkout in `/
   the GitHub write token to it; give the agents' account a read-only token (R-055).
 - **5.2** Extend the ruleset of 3.11 on `main` of both projects: push only from the owner channel's identity (item 2;
   §7 D1; R-055).
-- **5.3** Root-owned installs by the seat script: Pi 1.5.1 and bridge 5.0.3, with Pi's install path confirmed, and the
+- **5.3** Root-owned installs by the seat script: Pi 1.5.1, bridge 5.0.3 and Claude Code in a pinned version in a root
+  directory (D-017; note the version in `## System requirements`), with Pi's install path confirmed, and the
   coordinator start script (item 3; R-049, R-050).
 - **5.4** Coordinators start only through the start script, never by exporting `LIMEN_COORDINATOR`; a second start for
   the same project refuses and names the PID (item 4; R-050).
@@ -867,6 +901,8 @@ commit, outside `/opt/limen`, and points it at the `rebuild-base` checkout in `/
   request per 2 minutes, the endpoint's limit per account (A-047; R-059).
 - **5.19** In a coordinator and in a job, `crontab -e` is refused; a timer Adrian creates by hand on the agents' account
   appears in the next sweep report and stays untouched (R-060).
+- **5.20** After the migration: the coordinator and a job run the root-owned Claude Code (5.9), both environments
+  have `DISABLE_UPDATES=1`, and the copy in the agents' home directory is removed (D-017; R-049, R-050).
 
 ### After stage 6 (a0.6.0)
 
@@ -922,8 +958,8 @@ because every attempt is a whole ticket on the shared Max window (z. 17).
 | ID | Metric | Source | Before | After | Tickets |
 |---|---|---|---|---|---|
 | M-01 | Fixed context per role, bytes and ≈tokens | `node adrian-rebuild/tools/context-size.mjs <ref>` on the laptop; `--project` on the seat | `rebuild-base` (`evidence/context-size-rebuild-base.md`): system-prompt text the bridge drops, plus the cue that reaches the model | at the close of every stage from stage 4: the context message and the cue | R-039–R-047, R-086 |
-| M-02 | One raw request per role (coordinator turn, job turn) | per-query CLI log with `CLAUDE_BRIDGE_DEBUG=1` | B.1 | 4.8, 9.1 | R-039 |
-| M-03 | Coordinator cache-read tokens per landed ticket (A-078) | `limen stats` | B.3, M1 history | 9.1, the next ten landed tickets | R-051 |
+| M-02 | One raw request per role (coordinator turn, job turn) | per-query CLI log with `CLAUDE_BRIDGE_DEBUG=1` | B.1, done 2026-11-17 (`## Engine facts`) | 4.8, 9.1 | R-039 |
+| M-03 | Coordinator cache-read tokens per landed ticket (A-078) | `limen stats` | B.3, M1 history; reference from B.1: about 297k–313k cache-read tokens per coordinator request | 9.1, the next ten landed tickets | R-051 |
 | M-04 | Coordinator cache-write tokens in the turn after a land (A-037) | `limen stats` | B.3 | 9.1 | R-039 |
 | M-05 | Same-task pass^k, with per run: owner commands outside owner-channel actions (T-41, target 0), `sleep` calls and repeated `status` reads by the coordinator (T-34), share of model replies with their own Done / In progress / Waiting for you lines (T-15, target 0 from a0.7.0), reply language equal to the owner's (T-13), metaphors from the T-14 list in replies | same-task runner (R-011) and its transcript counts | B.2, `rebuild-base` | 4.8 (a0.4.0), 9.1 (a1.0.0) | R-011, R-039–R-047, R-067, R-073 |
 | M-06 | Lead time per ticket, split into queue, job runs, checks, review and waiting for the owner | `limen stats` | B.3 | 9.1 | R-024, R-076 |
@@ -1100,11 +1136,14 @@ Done:
 
 Next: rebuild stage 5 starts with plan stage 1 ("Cut, then one error type and one command registry") in a new session,
 started in the repository root, with R-001. Before it: Adrian adds the night mode to the rebuild prompt (D-011) and
-writes `.claude/settings.local.json` from `## Commands` (D-016); B.1 and B.2 run on the seat before a0.1.0 is
-deployed. The first task of rebuild stage 5, before any night run, is `tools/night.mjs` with a test, built to the
+writes `.claude/settings.local.json` from `## Commands` (D-016); B.2 runs on the seat before a0.1.0 is deployed (B.1
+was done on 2026-11-17). The first task of rebuild stage 5, before any night run, is `tools/night.mjs` with a test, built to the
 night mode and to D-016 (1).
 
-Open questions for Adrian: none.
+Open questions for Adrian:
+- Q7 The protocol writes the guard's files with a redirection (`review-guard.mjs snapshot > <file>`); whether an allow
+  rule matches a command with `>` is unknown. Recommendation: an `--out <file>` option in `review-guard.mjs`, so that
+  no command of the protocol needs a redirection under `--permission-mode dontAsk`.
 
 Notes for the next session:
 - Start Claude Code in the repository root, so that it loads `.claude/agents/`.
