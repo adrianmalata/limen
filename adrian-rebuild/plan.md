@@ -5,7 +5,8 @@ uprawnienia w settings.local.json, Claude Code instalowany przez roota,
 zapis narzędzi przez --out bez przekierowań, nocny przebieg tools/night.mjs z formatem status.json i zasadą dla
 niezacommitowanych zmian), fakty o silniku z pomiarem B.1 z seata,
 wymagania systemowe, 9 etapów z kosztem i efektem, 87 ticketów R-NNN, wdrożenie, pomiary, protokół subagentów
-i polecenia na allow-listę. Stan: bramka 4 zamknięta, night.mjs gotowy; następny jest etap 5 w nowej sesji, od R-001. -->
+i polecenia na allow-listę. Stan: etap 5 (przebudowa) w toku, etap planu 1; w nocy 17.11 R-001 zablokowany pytaniem
+Q-1 (limit linii testów), noc bierze R-008, R-010, R-011 i R-013. -->
 
 # Rebuild plan
 
@@ -568,11 +569,13 @@ Columns:
 - **Mig.**: `yes` when the ticket needs a migration path (`## Stages` → conventions).
 - **API**: Pi, bridge, Herdr or systemd behaviour that the fake engine cannot prove.
 - **Seat**: the `## Deployment` steps that verify it on the seat.
-- **Status**: `planned`, `active`, `done`, or `dropped (<reason>)` by Adrian's decision.
+- **Status**: `planned`, `active`, `blocked` (a night run's question waits for Adrian in `.night/questions.md`, the
+  night mode of the rebuild prompt v6; the day session resumes the ticket), `done`, or `dropped (<reason>)` by
+  Adrian's decision.
 
 | ID | Title | Stage | Sources | Depends | Size | Mode | Run | Mig. | API | Seat | Status |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| R-001 | Leftover files of cut features are listed and can be dropped | 1 | A-042 | — | S | delegated | night | — | — | — | planned |
+| R-001 | Leftover files of cut features are listed and can be dropped | 1 | A-042 | — | S | delegated | night | — | — | — | blocked |
 | R-002 | Cut finish webhooks, coordinator signals and the finish ping | 1 | G1.3, A-027, A-060, A-076 | R-001 | M | delegated | night | yes | — | — | planned |
 | R-003 | Cut Devin and the Linear mirror | 1 | G1.5, G1.6, A-049 | R-001 | M | delegated | night | yes | — | — | planned |
 | R-004 | Cut the OMP engine | 1 | G1.7, A-049 | R-001 | M | delegated | night | yes | — | — | planned |
@@ -1183,7 +1186,12 @@ Done:
 Next: rebuild stage 5 starts with plan stage 1 ("Cut, then one error type and one command registry") with R-001, in a
 new session started in the repository root, by day or as a night run that Adrian starts with
 `node adrian-rebuild/tools/night.mjs --until HH:MM`. B.2 runs on the seat before a0.1.0 is deployed (B.1 was done on
-2026-11-17). Active ticket: none.
+2026-11-17).
+
+Night run of 2026-11-17 (until 07:00): R-001 is `blocked`: Q-1 in `adrian-rebuild/.night/questions.md` (the 3,500-line
+cap of `test/` leaves one line, and R-010 removes it; recommended: R-001 depends on R-010); R-001's ticket is written,
+nothing is implemented. R-002–R-007 and R-009 depend on R-001, R-012 on R-002, so they wait for the answer. The night
+takes R-008, R-010, R-011 and R-013 in that order. Active ticket: none.
 
 Open questions for Adrian: none (Q7 → D-018).
 

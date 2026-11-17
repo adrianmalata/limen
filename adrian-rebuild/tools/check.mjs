@@ -4,7 +4,8 @@
    każdego znaleziska `fix` i każdej reguły T-NN ticketem, zgodność kopii §2 z audit.md, wywołanie skryptu wdrożenia
    w każdym etapie (D-008), brak przekierowań `>` w poleceniach narzędzi (D-018) i definicje pomiarów M-NN. Sprawdza też polskie streszczenia plików w adrian-rebuild/
    i .claude/agents/, a od etapu 5 foldery ticketów (szablon ticket.md) i wpisy changes.md według D-009
-   (changes-entries.mjs). Stan: działa; kończy się kodem 1 i listą błędów. */
+   (changes-entries.mjs); status ticketu może być też `blocked` z trybu nocnego. Stan: działa; kończy się kodem 1
+   i listą błędów. */
 // Usage: node adrian-rebuild/tools/check.mjs   (run from the repository root)
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -40,7 +41,8 @@ const OPTIONAL = {
 const COLUMNS = ["ID", "Title", "Stage", "Sources", "Depends", "Size", "Mode", "Run", "Mig.", "API", "Seat", "Status"];
 const SOURCE = /^(A-\d{3}|T-\d{2}|G1\.\d+|G[2-4]|§\d|S1\+|H-\d{2}|E-\d+|D-\d{3})$/;
 const ENGINE_APIS = new Set(["pi", "bridge", "herdr", "systemd"]);
-const STATUS = /^(planned|active|done|dropped \(.+\))$/;
+// `blocked`: a night run's question waits for Adrian in `.night/questions.md` (night mode of the rebuild prompt v6).
+const STATUS = /^(planned|active|blocked|done|dropped \(.+\))$/;
 // The template of `ticket.md` in plan.md → `## Agents`.
 const TICKET_SECTIONS = [
 	"Problem",
