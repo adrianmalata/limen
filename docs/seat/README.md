@@ -75,7 +75,7 @@ If 1 fails, do not move the coordinator. If 1–3 work, the laptop is a window f
 
 ## Linux process identity
 
-Linux reads process identity from `/proc/<pid>/stat`. `limen stop` and process containment use the same code as on macOS. Job files are truth.
+Limen reads process identity from `/proc/<pid>/stat`; `limen stop` and process containment use it. Job files are truth.
 
 ## GitHub doorbell
 

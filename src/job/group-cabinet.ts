@@ -357,8 +357,6 @@ export async function jobMembership(jobDir: string): Promise<GroupIdentity | und
 export async function retainedGroupJob(jobDir: string): Promise<boolean> {
 	return Boolean((await jobMembership(jobDir))?.run.closed === false);
 }
-/** One member check may wait this long for a process query: the default second is missed under heavy load. */
-const MEMBER_QUERY_MS = 15_000;
 /**
  * Why a member job is not over, or undefined when it is: its state says running, a process it recorded may still run,
  * or it has no record yet. A process that cannot be checked counts as running. Its worktree plays no part.
@@ -369,9 +367,8 @@ export async function memberLive(root: string, member: GroupMember): Promise<str
 	if (state === "running") {
 		return "its state is running";
 	}
-	const deadline = Date.now() + MEMBER_QUERY_MS;
 	const pid = Number(await readFile(`${dir}/pid`, "utf8").catch(() => ""));
-	if (pid > 0 && (await processInfo(pid, deadline)).kind !== "absent") {
+	if (pid > 0 && (await processInfo(pid)).kind !== "absent") {
 		return `its process ${pid} still runs or cannot be checked`;
 	}
 	const target = (await readFile(`${dir}/herdr/agent`, "utf8").catch(() => "")).trim();
@@ -382,7 +379,7 @@ export async function memberLive(root: string, member: GroupMember): Promise<str
 		pid: number;
 		born: string;
 	} | null;
-	const info = owner ? await processInfo(owner.pid, deadline) : undefined;
+	const info = owner ? await processInfo(owner.pid) : undefined;
 	if (info?.kind === "unavailable" || (info?.kind === "present" && info.process.born === owner?.born)) {
 		return `its owner process ${owner?.pid} ${info.kind === "present" ? "still runs" : "cannot be checked"}`;
 	}

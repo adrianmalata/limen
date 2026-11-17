@@ -6,7 +6,7 @@ Install Limen, define the project, and ask an agent to do the work.
 
 ## Requirements
 
-- **Operating system:** macOS or Linux. Limen does not support Windows.
+- **Operating system:** Linux. Limen supports no other operating system.
 - **Tools:** Node.js 24 or later, and Git.
 - **Engine:** Pi (`pi`, the default) or OMP (`omp`) on `PATH`.
 - **Last known-good versions:** pi 1.2.0, omp 18.4.4 and Herdr 0.9.1. Limen records the versions on each job, but it does not refuse other versions.

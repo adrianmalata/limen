@@ -1,13 +1,11 @@
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import { appendLimenLog, atomicWrite } from "../job/record.ts";
 
 const ESCAPED_TERM_GRACE_MS = 2_000;
 const ESCAPED_KILL_GRACE_MS = 1_000;
 const PROCESS_QUERY_TIMEOUT_MS = 1_000;
 const PROCESS_QUERY_MAX_BYTES = 1024 * 1024;
-const PIDINFO_HELPER = fileURLToPath(new URL("./proc-pidinfo.rb", import.meta.url));
 type ProcessIdentity = { readonly pid: number; readonly born: string };
 export type JobProcess = ProcessIdentity & { readonly pgid: number; readonly command: string };
 type ProcessInfo = JobProcess & { readonly ppid: number };
@@ -83,7 +81,7 @@ async function listEscapedDescendants(rootPid: number): Promise<readonly JobProc
 	}
 	const captured = await Promise.all(
 		escaped.map(async (row): Promise<JobProcess | undefined> => {
-			const outcome = await processInfo(row.pid, deadline);
+			const outcome = await processInfo(row.pid);
 			if (outcome.kind === "present") {
 				return outcome.process;
 			}
@@ -180,57 +178,34 @@ export async function recordCleanup(jobDir: string, processes: readonly JobProce
 	);
 	await appendLimenLog(jobDir, `cleanup note written: unconfirmed pid(s) ${processes.map((p) => p.pid).join(", ")}`);
 }
-export async function processInfo(
-	pid: number,
-	deadline = Date.now() + PROCESS_QUERY_TIMEOUT_MS,
-): Promise<ProcessQueryOutcome> {
+export async function processInfo(pid: number): Promise<ProcessQueryOutcome> {
 	if (!Number.isSafeInteger(pid) || pid <= 0) {
 		return { kind: "unavailable" };
 	}
-	if (process.platform === "linux") {
-		try {
-			const stat = await readFile(`/proc/${pid}/stat`, "utf8");
-			const close = stat.lastIndexOf(") ");
-			if (close < 0) {
-				return { kind: "unavailable" };
-			}
-			const fields = stat
-				.slice(close + 2)
-				.trim()
-				.split(/\s+/);
-			const ppid = Number(fields[1]);
-			const pgid = Number(fields[2]);
-			const born = fields[19];
-			if (fields[0] === "Z") {
-				return { kind: "absent" };
-			}
-			if (!Number.isSafeInteger(ppid) || !Number.isSafeInteger(pgid) || !born || !/^\d+$/.test(born)) {
-				return { kind: "unavailable" };
-			}
-			return { kind: "present", process: { pid, ppid, pgid, born, command: stat.slice(stat.indexOf("(") + 1, close) } };
-		} catch (error) {
-			return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT"
-				? { kind: "absent" }
-				: { kind: "unavailable" };
-		}
-	}
-	// No process holds the pid: that is exact, and needs no helper, which misses its deadline under heavy load.
-	if (!processAlive(pid)) {
-		return { kind: "absent" };
-	}
 	try {
-		const value: unknown = JSON.parse(
-			await runBounded("/usr/bin/ruby", [PIDINFO_HELPER, String(pid)], "proc_pidinfo", deadline),
-		);
-		if (isProcessInfo(value, pid)) {
-			return { kind: "present", process: value };
+		const stat = await readFile(`/proc/${pid}/stat`, "utf8");
+		const close = stat.lastIndexOf(") ");
+		if (close < 0) {
+			return { kind: "unavailable" };
 		}
-		if (typeof value === "object" && value !== null && (value as Record<string, unknown>).status === "absent") {
+		const fields = stat
+			.slice(close + 2)
+			.trim()
+			.split(/\s+/);
+		const ppid = Number(fields[1]);
+		const pgid = Number(fields[2]);
+		const born = fields[19];
+		if (fields[0] === "Z") {
 			return { kind: "absent" };
 		}
-		return { kind: "unavailable" };
-	} catch {
-		return { kind: "unavailable" };
+		if (!Number.isSafeInteger(ppid) || !Number.isSafeInteger(pgid) || !born || !/^\d+$/.test(born)) {
+			return { kind: "unavailable" };
+		}
+		return { kind: "present", process: { pid, ppid, pgid, born, command: stat.slice(stat.indexOf("(") + 1, close) } };
+	} catch (error) {
+		return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT"
+			? { kind: "absent" }
+			: { kind: "unavailable" };
 	}
 }
 async function processTable(deadline: number): Promise<readonly ProcessTableRow[]> {
@@ -301,24 +276,6 @@ async function runBounded(
 async function recordCleanupWarning(jobDir: string, warning: string): Promise<void> {
 	await atomicWrite(`${jobDir}/cleanup`, `[limen ${new Date().toISOString()}] ${warning}\n`).catch(() => {});
 	await appendLimenLog(jobDir, `cleanup warning: ${warning}`).catch(() => {});
-}
-function isProcessInfo(value: unknown, pid: number): value is ProcessInfo {
-	if (typeof value !== "object" || value === null) {
-		return false;
-	}
-	const candidate = value as Record<string, unknown>;
-	return (
-		candidate.pid === pid &&
-		typeof candidate.ppid === "number" &&
-		Number.isSafeInteger(candidate.ppid) &&
-		candidate.ppid >= 0 &&
-		typeof candidate.pgid === "number" &&
-		Number.isSafeInteger(candidate.pgid) &&
-		candidate.pgid > 0 &&
-		typeof candidate.born === "string" &&
-		/^\d+\.\d{6}$/.test(candidate.born) &&
-		typeof candidate.command === "string"
-	);
 }
 function isCode(error: unknown, code: string): boolean {
 	return typeof error === "object" && error !== null && "code" in error && error.code === code;

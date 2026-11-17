@@ -567,26 +567,13 @@ async function jobTabs(
 	return found;
 }
 
-/** The seat's notice: a Herdr notification, or a macOS one when Herdr cannot show it. Only Herdr's copy carries the mark. */
+/** The seat's notice as a Herdr notification; false when Herdr is missing or cannot show it. */
 export async function showSeatNotification(title: string, body: string): Promise<boolean> {
 	const herdr = herdrBinary();
-	if (
-		herdr &&
-		(await notify(herdr, ["notification", "show", limenText(title), "--body", body, "--sound", "request"]))
-	) {
-		return true;
+	if (!herdr) {
+		return false;
 	}
-	return notify("/usr/bin/osascript", [
-		"-e",
-		"on run argv",
-		"-e",
-		"display notification (item 2 of argv) with title (item 1 of argv)",
-		"-e",
-		"end run",
-		"--",
-		title,
-		body,
-	]);
+	return notify(herdr, ["notification", "show", limenText(title), "--body", body, "--sound", "request"]);
 }
 function notify(command: string, args: readonly string[]): Promise<boolean> {
 	const requested = Number(process.env.LIMEN_SEAT_NOTIFY_TIMEOUT_MS);

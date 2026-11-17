@@ -11,15 +11,12 @@ import test, { type TestContext } from "node:test";
 import { containEscapedDescendants, processInfo } from "../src/runtime/contain.ts";
 import { ownerAlive, reapDeadJobs } from "../src/runtime/reap.ts";
 
-// The real identity query, with a deadline that load cannot miss (the product's one-second default can, and then
-// counts the process as unknown).
-const query = (pid: number) => processInfo(pid, Date.now() + 60_000);
 /** A sleeping child, its exit and its recorded identity; the test kills it when it ends. */
 async function sleeper(t: TestContext, detached: boolean) {
 	const code = "Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0)";
 	const child = spawn(process.execPath, ["-e", code], { detached, stdio: "ignore" });
 	t.after(() => child.kill("SIGKILL"));
-	const [exited, info] = [once(child, "exit"), await query(child.pid ?? 0)];
+	const [exited, info] = [once(child, "exit"), await processInfo(child.pid ?? 0)];
 	assert.ok(info.kind === "present", "the child is present");
 	return { child, exited, info };
 }
@@ -28,10 +25,10 @@ test("a recycled pid with another birth is never signaled and is named for clean
 	const job = await mkdtemp(join(tmpdir(), "u9-"));
 	t.after(() => rm(job, { recursive: true, force: true }));
 	const { child, exited, info } = await sleeper(t, true);
-	await containEscapedDescendants(job, [{ ...info.process, born: "0.000000" }], "u9", { query });
+	await containEscapedDescendants(job, [{ ...info.process, born: "0.000000" }], "u9");
 	assert.deepEqual([child.exitCode, child.signalCode], [null, null], "the stranger is still running");
 	assert.match(await readFile(join(job, "cleanup"), "utf8"), new RegExp(`^${info.process.pid} 0\\.000000 `, "m"));
-	await containEscapedDescendants(job, [info.process], "u9", { query });
+	await containEscapedDescendants(job, [info.process], "u9");
 	assert.deepEqual(await exited, [null, "SIGTERM"]);
 });
 
@@ -49,11 +46,11 @@ test("the reaper keeps a live owner and finalizes a dead owner and a stranger at
 	const owner = await record("owner", info.process.pid, info.process.born);
 	const stranger = await record("stranger", process.pid, "1.000000"); // this live process is not that birth
 	const t0 = Date.now();
-	assert.equal(await ownerAlive(owner, t0, query), true, "the recorded birth is the owner");
-	assert.equal(await ownerAlive(stranger, t0, query), false, "a live pid with another birth is not the owner");
+	assert.equal(await ownerAlive(owner), true, "the recorded birth is the owner");
+	assert.equal(await ownerAlive(stranger), false, "a live pid with another birth is not the owner");
 	child.kill("SIGKILL");
 	await exited;
-	assert.equal((await processInfo(info.process.pid, 0)).kind, "absent", "a gone pid needs no helper and no time");
+	assert.equal((await processInfo(info.process.pid)).kind, "absent", "a gone pid is absent");
 	const seen = new Map<string, number>();
 	await reapDeadJobs(jobs, seen, t0 + 31_000);
 	await reapDeadJobs(jobs, seen, t0 + 91_000);

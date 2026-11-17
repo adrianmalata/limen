@@ -74,7 +74,7 @@ These are operational facts that keep a seat alive. They are not Limen features.
 
 ## Linux process identity
 
-Linux reads process identity from `/proc/<pid>/stat` start ticks; macOS reads `proc_pidinfo` birth timestamps. `limen stop` and detached process containment use the same code on both. A restricted or unreadable process table leaves an advisory rather than proof of an owned child. Hosted tabs remain Herdr-owned. Hosted observation does not stop quiet tools, even with verified ownership; explicit stops and configured group deadlines still apply. Linux Pi attribution uses an exclusive job/session and PID/birth/boot binding rather than mutable launch arguments. Unavailable engine or child observations remain visible and produce bounded, idle-only uncertainty wakes after one minute. OMP and Darwin attribution remain fail-closed; their adapter proof is not established.
+Limen reads process identity from `/proc/<pid>/stat` start ticks; `limen stop` and detached process containment use it. A restricted or unreadable process table leaves an advisory rather than proof of an owned child. Hosted tabs remain Herdr-owned. Hosted observation does not stop quiet tools, even with verified ownership; explicit stops and configured group deadlines still apply. Linux Pi attribution uses an exclusive job/session and PID/birth/boot binding rather than mutable launch arguments. Unavailable engine or child observations remain visible and produce bounded, idle-only uncertainty wakes after one minute. OMP attribution remains fail-closed; its adapter proof is not established.
 
 ## Traps (will bite on day one)
 

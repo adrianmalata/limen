@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { cpus } from "node:os";
@@ -117,17 +116,11 @@ export async function readLoad(signal?: AbortSignal): Promise<Reading> {
 	});
 	return { cpuIdle: total > 0 ? (100 * idle) / total : undefined, memoryFree: await memoryFree() };
 }
-/** macOS: the `memory_pressure` free percentage, as the Alice board rule read it. Linux: MemAvailable over MemTotal. */
+/** MemAvailable over MemTotal in `/proc/meminfo`. */
 async function memoryFree(): Promise<number | undefined> {
-	if (process.platform === "linux") {
-		const info = readOptional("/proc/meminfo") ?? "";
-		const kib = (name: string) => Number(new RegExp(`^${name}:\\s+(\\d+)`, "m").exec(info)?.[1]);
-		return percent((100 * kib("MemAvailable")) / kib("MemTotal"));
-	}
-	const said = await new Promise<string>((resolve) =>
-		execFile("/usr/bin/memory_pressure", { encoding: "utf8", timeout: 5_000 }, (_error, stdout) => resolve(stdout)),
-	);
-	return percent(Number(/memory free percentage:\s*(\d+)%/i.exec(said)?.[1]));
+	const info = readOptional("/proc/meminfo") ?? "";
+	const kib = (name: string) => Number(new RegExp(`^${name}:\\s+(\\d+)`, "m").exec(info)?.[1]);
+	return percent((100 * kib("MemAvailable")) / kib("MemTotal"));
 }
 function percent(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : undefined;

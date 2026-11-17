@@ -6,7 +6,7 @@ zapis narzędzi przez --out bez przekierowań, nocny przebieg tools/night.mjs z 
 niezacommitowanych zmian), fakty o silniku z pomiarem B.1 z seata,
 wymagania systemowe, 9 etapów z kosztem i efektem, 87 ticketów R-NNN, wdrożenie, pomiary, protokół subagentów
 i polecenia na allow-listę. Stan: etap 5 (przebudowa) w toku, etap planu 1; w nocy 17.11 R-001 zablokowany pytaniem
-Q-1 (limit linii testów), noc bierze R-008, R-010, R-011 i R-013. -->
+Q-1 (limit linii testów), R-008 zamknięty; noc bierze dalej R-010, R-011 i R-013. -->
 
 # Rebuild plan
 
@@ -582,7 +582,7 @@ Columns:
 | R-005 | Cut hosted `--tab` jobs; the GitHub module and groups run detached | 1 | G1.8, A-023 | R-001 | L | delegated | night | yes | herdr | 1.2, 1.3 | planned |
 | R-006 | Cut private planning, `highlight`, `ticket-author`, `wait`, `ticket series`, `continue --review` and `group status --json` | 1 | G1.12, T-18, T-37, A-079 | R-001 | M | delegated | night | yes | — | — | planned |
 | R-007 | Cut the Picture viewer and the map jobs | 1 | G1.4, §6, A-048 | R-001 | L | delegated | night | yes | — | — | planned |
-| R-008 | Cut the macOS branches | 1 | A-083 | — | S | delegated | night | — | — | — | planned |
+| R-008 | Cut the macOS branches | 1 | A-083 | — | S | delegated | night | — | — | — | done |
 | R-009 | Cut the scout role and the `jg` cue | 1 | T-33, T-36, A-081 | R-001 | S | delegated | night | yes | — | — | planned |
 | R-010 | The author's working history leaves the tree; Limen's own test-line cap goes | 1 | T-39, T-11, §6 | — | M | delegated | night | — | — | — | planned |
 | R-011 | The same-task runner and the gate-time tool | 1 | H-21, T-11, T-41, §2 | — | M | delegated | night | — | — | — | planned |
@@ -1191,7 +1191,12 @@ new session started in the repository root, by day or as a night run that Adrian
 Night run of 2026-11-17 (until 07:00): R-001 is `blocked`: Q-1 in `adrian-rebuild/.night/questions.md` (the 3,500-line
 cap of `test/` leaves one line, and R-010 removes it; recommended: R-001 depends on R-010); R-001's ticket is written,
 nothing is implemented. R-002–R-007 and R-009 depend on R-001, R-012 on R-002, so they wait for the answer. The night
-takes R-008, R-010, R-011 and R-013 in that order. Active ticket: none.
+takes R-008, R-010, R-011 and R-013 in that order.
+- R-008 `done` (review PASS in one round). For Adrian to confirm: R-008 leaves the LaunchAgent installer (`limen sweep
+  --install`, `--uninstall`) to R-032, which replaces it with the systemd installer, because R-008 has `Mig. —` and
+  cutting the installer would change the CLI (R-008 → `ticket.md` → `## Decisions`).
+
+Active ticket: none.
 
 Open questions for Adrian: none (Q7 → D-018).
 

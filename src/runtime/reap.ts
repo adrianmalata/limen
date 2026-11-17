@@ -15,7 +15,7 @@ export async function liveJob(jobDir: string, now = Date.now()): Promise<boolean
 	if (
 		recorded !== undefined &&
 		processGroupAlive(recorded) &&
-		(await sameBirth(recorded, await textFile(`${jobDir}/born`), now))
+		(await sameBirth(recorded, await textFile(`${jobDir}/born`)))
 	) {
 		return true;
 	}
@@ -37,43 +37,36 @@ export async function startingJob(jobDir: string): Promise<boolean> {
 	const pid = Number(await textFile(`${jobDir}/starting`));
 	return Number.isSafeInteger(pid) && pid > 0 && processAlive(pid);
 }
-export async function ownerAlive(jobDir: string, now = Date.now(), query = processInfo): Promise<boolean> {
+export async function ownerAlive(jobDir: string, query = processInfo): Promise<boolean> {
 	const pid = Number(await textFile(`${jobDir}/pid`));
 	if (!Number.isSafeInteger(pid) || pid <= 0 || !processAlive(pid)) {
 		return false;
 	}
-	return sameBirth(pid, await textFile(`${jobDir}/born`), now, query);
+	return sameBirth(pid, await textFile(`${jobDir}/born`), query);
 }
-// On macOS a start-time check starts a Ruby helper, and every coordinator sweep asks about every running job.
-// Linux reads /proc and checks every time.
-const BIRTH_RECHECK_MS = process.platform === "linux" ? 0 : 30_000;
-const DEAD = -1;
-/** `pid born` → when a check last matched, or DEAD: that process is gone for good, since a pid and start time never return. */
-const births = new Map<string, number>();
-/** The live pid is still the recorded process. A match is trusted for a while; it can only delay a reap, never cause one. */
+/** `pid born` of each process a check found gone: it is gone for good, since a pid and start time never return. */
+const gone = new Set<string>();
+/** The live pid is still the recorded process. Every check reads the process again, except one already found gone. */
 async function sameBirth(
 	pid: number,
 	born: string,
-	now: number,
 	query: (pid: number) => Promise<ProcessQueryOutcome> = processInfo,
 ): Promise<boolean> {
 	if (!born) {
 		return true;
 	}
 	const key = `${pid} ${born}`;
-	const matched = births.get(key);
-	if (matched === DEAD) {
+	if (gone.has(key)) {
 		return false;
-	}
-	if (matched !== undefined && now - matched < BIRTH_RECHECK_MS) {
-		return true;
 	}
 	const outcome = await query(pid);
 	if (outcome.kind === "unavailable") {
 		return true;
 	}
 	const alive = outcome.kind === "present" && outcome.process.born === born;
-	births.set(key, alive ? now : DEAD);
+	if (!alive) {
+		gone.add(key);
+	}
 	return alive;
 }
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: split pending: dead job reaping
@@ -101,10 +94,7 @@ export async function reapDeadJobs(
 		const startedAt = Date.parse(await textFile(`${jobDir}/started-at`));
 		const pid = Number(await textFile(`${jobDir}/pid`));
 		const validPid = Number.isSafeInteger(pid) && pid > 0;
-		if (
-			(await ownerAlive(jobDir, now)) ||
-			(!validPid && Number.isFinite(startedAt) && now - startedAt < STARTUP_GRACE_MS)
-		) {
+		if ((await ownerAlive(jobDir)) || (!validPid && Number.isFinite(startedAt) && now - startedAt < STARTUP_GRACE_MS)) {
 			seen.delete(id);
 			continue;
 		}
@@ -123,7 +113,7 @@ export async function reapDeadJobs(
 			}
 			if (target !== "missing") {
 				await recoverHostedOwner(jobDir);
-				if (await ownerAlive(jobDir, now)) {
+				if (await ownerAlive(jobDir)) {
 					seen.delete(id);
 				}
 				continue;
@@ -134,7 +124,7 @@ export async function reapDeadJobs(
 			continue;
 		}
 		try {
-			if ((await textFile(`${jobDir}/state`)) !== "running" || (await ownerAlive(jobDir, now))) {
+			if ((await textFile(`${jobDir}/state`)) !== "running" || (await ownerAlive(jobDir))) {
 				continue;
 			}
 			const hosted = await textFile(`${jobDir}/hosted`);

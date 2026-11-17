@@ -8,7 +8,7 @@ Mechanism stays small. Judgment stays in templates.
 npm run check
 ```
 
-That is typecheck, Biome format and lint check, and the real-Git test suite. Each test has a 30s timeout so a leaked watcher fails instead of hanging. CI runs the same command on Linux and macOS.
+That is typecheck, Biome format and lint check, and the real-Git test suite. Each test has a 30s timeout so a leaked watcher fails instead of hanging. CI runs the same command on Linux.
 
 ## What belongs in source
 
