@@ -1,7 +1,7 @@
 <!-- PL: Rubryka taste przebudowy: część A to jawny inwentarz opinii autora Limena wbudowanych w system, część B to
 zasady Adriana (T-NN) z regułą, uzasadnieniem i sposobem sprawdzenia. Po bramce 3 plik jest rubryką obok zasad
 z input/, a nowe decyzje taste dopisuje się tu z datą i źródłem. Stan: część A gotowa (80 opinii autora, 40 już
-rozstrzygniętych bramką 2, 40 otwartych do wywiadu); część B powstaje w wywiadzie z Adrianem (rundy 1–7: T-01–T-28). -->
+rozstrzygniętych bramką 2, 40 otwartych do wywiadu); część B powstaje w wywiadzie z Adrianem (rundy 1–7: T-01–T-32). -->
 
 # Taste
 
@@ -1198,7 +1198,7 @@ the author's choice. Taste decisions taken after this interview are added here w
   reads of job files. (2) Code without a policy (a pure function with no I/O and no error handling) may stay local;
   when a second module needs it, it moves to the module that owns the concept (z. 38). (3) No grab-bag modules
   (`utils`, `helpers`). The sentence at `.agents/limen/styleguide.md:36` gives way to the judgment rule of (2); the
-  deterministic part lives in the scans (z. 14, z. 21).
+  deterministic part lives in the scans (A-031 (6), A-041).
 - Why: the author copies short functions instead of sharing them ("Duplicating a short function is cheaper than a
   helper bag"), and the copies of policy code drifted apart (AU-216).
 - Check: scans in `npm run check`: writes and `rename` on `spec/` and job paths only in the atomic-write module
@@ -1232,7 +1232,7 @@ the author's choice. Taste decisions taken after this interview are added here w
 ### T-27 Lint debt goes to zero; data from outside goes through validators
 - Rule: The author's Biome limits stay (tabs, 120 columns, cognitive complexity ≤ 25, ≤ 70 lines per function), and
   `tsconfig` stays as it is (already strict). Rules written today only as prose become scans in `npm run check` (z. 14,
-  z. 21). (1) A `biome-ignore` only with the reason why the rule is wrong at that place (`CONTRIBUTING.md:35`); the
+  A-031 (6), A-041). (1) A `biome-ignore` only with the reason why the rule is wrong at that place (`CONTRIBUTING.md:35`); the
   scan rejects a missing reason and debt words (its own list: pending, TODO, split, and the postponement words of
   T-17). A ratchet: the number of suppressions stays ≤ a baseline file; a ticket that changes a function with a debt
   suppression removes it in the same ticket; a stage 6 condition: zero debt suppressions, the rest removed by a ticket
@@ -1268,6 +1268,78 @@ the author's choice. Taste decisions taken after this interview are added here w
   irreversible in the registry have tests for running again and for losing nothing; `check.mjs`: every ticket that
   touches the API of Pi, the bridge, Herdr or systemd has a verification step in `## Deployment`.
 - Source: interview round 7, AU-229; departs from the author.
+
+### T-29 A test file is named after its subject; a test checks one mechanism
+- Rule: (1) A test file is named after what it tests: unit tests in `test/<area>/<module>.test.ts`, mirroring `src/`;
+  CLI scenarios in `test/cli/<command>.test.ts`, named from the registry (z. 24); no `sN-`/`uN-` numbers. (2) A test's
+  name is a full sentence about behaviour, as the author writes them; a test that is a rule's `Check` or the proof of a
+  refusal starts with its identifier, e.g. "T-22: ticket commit commits only the ticket folder", "LAND_NOT_DONE: land
+  refuses a job that is not done"; at most one identifier per test, because the scans of T-28 read it. (3) One test,
+  one mechanism; tests that combine several mechanisms are split. (4) The commit that broke a behaviour goes at most
+  into a comment above the test (`// regression: <sha>`), never into its name. (5) A file opens with one line on what
+  it tests instead of a thesis paragraph (A-085). (6) Renaming happens in the ticket that rewrites the module; a stage 6
+  condition: no `test/s<N>-` or `test/u<N>-` files.
+- Why: the author numbers test files with gaps and puts several mechanisms and the breaking commit into one test name
+  (AU-226).
+- Check: a scan: test files only under paths that mirror `src/` or as `test/cli/<registry command>.test.ts`; no
+  `[su]<N>-` files; at most one identifier (T-NN, A-NNN, refusal ID) per test name; the scans of T-28 look for the
+  identifiers in test names; a reviewer question: "does this test fail for exactly one reason?".
+- Source: interview round 7, AU-226; keeps the author's sentence names, departs on files and scope.
+
+### T-30 A comment says why, and every identifier in it resolves
+- Rule: A comment says why in a full sentence, as the author writes them, and every identifier in it must resolve.
+  (1) A comment is the local reason in one or two sentences and a pointer to the source; it does not copy the content
+  of a decision (A-085). (2) Identifiers resolve in index files of the same tree: A-NNN in `audit.md`, T-NN in
+  `taste.md`, R-NNN and D-NNN in `plan.md`; the list of indexes is one and belongs to the scan (a new decision index
+  after the rebuild, e.g. ADRs per z. 36, is one more entry in that list). (3) No commit SHAs in code comments; the
+  exception is `// regression: <sha>` in tests (T-29). (4) No debt markers (the T-17 list and TODO, FIXME, pending)
+  and no names of people (T-21). Comments that cite another person's decision (e.g. `src/runtime/start-queue.ts:16`)
+  are rewritten per T-21 (3).
+- Why: the author's comments cite decisions such as "Adam's decision 85 (a)" that have no index in the repo (AU-218).
+- Check: a comment scan in `src/`, `hook/` and `test/`: every A-, T-, R- or D- identifier exists in its index (an
+  error with `file:line`); no hex strings of 7–40 characters outside regression comments in tests; no debt markers or
+  names from the lists of T-17 and T-21; a reviewer question: "does the comment say why, not what?".
+- Source: interview round 7, AU-218; keeps the author's why-comments, departs on references.
+
+### T-31 The fake engine shows what the model sees
+- Rule: The author's suite stays (the real `bin/limen`, git and processes, a deterministic fake with no waiting,
+  z. 41). Two layers close the gap of A-086. (1) The fake engine's bridge mode reproduces the engine facts (E-1–E-14,
+  with references to the source lines of bridge 5.0.3): it ignores appends to Pi's system prompt, turns custom messages
+  into the `user` role, and gives another role only to tool results; it records the model's view, and golden tests
+  check that view (the context message whole and first, a wake as a header, a short turn cue); a negative test: text
+  that Limen needs and puts only in the system prompt fails the test. (2) A contract on the seat: a script compares
+  the bridge log (`CLAUDE_BRIDGE_DEBUG=1`) of one coordinator turn and one job turn with the fake's model view for the
+  same scenario; a step in `plan.md` → `## Deployment` at every tag and after a change of the Pi or bridge version
+  (z. 18; a generalisation of §9 step 12). (3) Fake scenarios for every failure kind of A-016 (a limit with its reset
+  hour in a synthetic copy of the format of fact Q1, timeout, stall, exit, signal, oom) on an artificial clock. (4) A
+  scan: no real waiting in tests. (5) Model behaviour is measured by the H-21 runs on the seat, not by the fake (z. 40).
+- Why: the fake engine reads the system prompt where the bridge does not, so A-086 went unseen by every test
+  (AU-225); recorded sessions cannot serve as fixtures, because they hold project data and the repo is public.
+- Check: golden tests of the model view in bridge mode; the negative test for text only in the system prompt; a test
+  per failure kind of A-016; a scan for waiting in `test/`; the contract script with a test on a recorded bridge log
+  (a synthetic fixture).
+- Source: interview round 7, AU-225; keeps the author's suite, adds two layers.
+
+### T-32 One adapter declares the Pi API, checked against Pi's real types
+- Rule: (1) The Pi API that Limen uses is declared only in the adapter of T-27; hooks import it from there, with no
+  local declarations. (2) A type contract: a script compiles a file that assigns Pi's real types to the adapter's
+  interface and fails on a mismatch; the path to the types is an argument (no seat paths in the repo); it is a step in
+  `plan.md` → `## Deployment` together with the bridge contract of T-31, at every tag and after an update of Pi or the
+  bridge (z. 18). In the rebuild it runs once on the local copy in `adrian-rebuild/input/vendor/` as evidence, outside
+  `npm run check`; that directory does not exist yet: the Pi 1.5.1 and bridge 5.0.3 tarballs of the §7 B read lived in
+  the session scratchpad, which is gone, so the ticket fetches them there first (untracked, as all of `input/`). Pi
+  does not become a dependency of the repo (a hard constraint of the rebuild prompt). (3) The system requirements
+  (T-12) declare the supported versions of Pi and the bridge; the root-owned coordinator start script and spawn refuse
+  any other version with exit code 4, naming both versions; an update of Pi is a ticket that changes the declaration
+  after both contracts pass. (4) The adapter's type guards reject an event of unexpected shape with a typed error: in a
+  job, `failed` with kind `engine-error` (A-016); in the coordinator's session, a warning in `limen status`; never a
+  silent skip.
+- Why: each of the author's hooks declares the part of the Pi API it uses as local types, so the types can drift from
+  Pi with no failing check; the change from Pi 1.2.0 to 1.5.1 and the bridge showed only on the seat (AU-220).
+- Check: a scan: Pi API type declarations only in the adapter; a test of the contract script on fixtures of matching
+  and mismatching types; a test that start and spawn refuse another version (exit code 4); a type-guard test on an
+  event of the wrong shape.
+- Source: interview round 7, AU-220; departs from the author.
 
 ### Part A items settled by earlier rules
 - AU-129 (ticket shape): the sections come from T-07 (the task takes Outcome, Scope and Out of scope), the budgets are
