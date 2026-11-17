@@ -1,9 +1,10 @@
 /* PL: Walidator plików przebudowy (Node, bez zależności). Sprawdza, że każda referencja `plik:linia` w audit.md
    i taste.md istnieje przy tagu rebuild-base, że każde znalezisko A-NNN ma wymagane pola z dozwolonymi wartościami
    (od bramki 2 także decyzję Adriana), że decyzja „fix (via X)” wskazuje znalezisko z decyzją fix albo pozycję
-   sekcji Gate 2: decisions, oraz (T-17), że taste.md i plan.md nie mają słów-zapchajdziur ani pustego pola
-   „Revisit when:”. W etapie 4 dojdzie sprawdzenie planu, a w etapie 6 struktury folderów ticketów i streszczeń PL.
-   Stan: działa; kończy się kodem 1 i listą błędów, gdy coś się nie zgadza. */
+   sekcji Gate 2: decisions, że każda reguła T-NN w taste.md ma pola Rule, Why, Check i Source, oraz (T-17), że
+   taste.md i plan.md nie mają słów-zapchajdziur ani pustego pola „Revisit when:”. W etapie 4 dojdzie sprawdzenie
+   planu, a w etapie 6 struktury folderów ticketów i streszczeń PL. Stan: działa; kończy się kodem 1 i listą błędów,
+   gdy coś się nie zgadza. */
 // Usage: node adrian-rebuild/tools/check.mjs   (run from the repository root)
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -163,8 +164,27 @@ function checkWording(file) {
 	return revisits;
 }
 
+/** Every taste rule `### T-NN` has the fields Rule, Why, Check and Source; IDs are unique (stage 3 rubric). */
+function checkTasteRules() {
+	const text = readFileSync(TASTE, "utf8");
+	const rules = text.split(/^### /m).filter((block) => /^T-\d{2}\b/.test(block));
+	const ids = rules.map((block) => block.slice(0, 4));
+	for (const id of ids.filter((value, index) => ids.indexOf(value) !== index)) {
+		errors.push(`${TASTE}: ${id} appears more than once`);
+	}
+	for (const block of rules) {
+		for (const field of ["Rule", "Why", "Check", "Source"]) {
+			if (!new RegExp(`^- ${field}: \\S`, "m").test(block)) {
+				errors.push(`${TASTE}: ${block.slice(0, 4)}: missing field ${field}`);
+			}
+		}
+	}
+	return rules.length;
+}
+
 const summary = [
 	checkAudit(),
+	`taste rules: ${checkTasteRules()}`,
 	`taste: ${checkReferences(readFileSync(TASTE, "utf8"), TASTE)} references, ${checkWording(TASTE)} revisit signals`,
 	`plan: ${checkWording(PLAN)} revisit signals`,
 ];

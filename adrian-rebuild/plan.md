@@ -202,7 +202,8 @@ Open questions for Adrian: none.
 Notes for the next session:
 - Progress lives in this section; the Claude Code task list mirrors the open steps when the tool is available.
 - After moving or re-cloning the repo, run `sh adrian-rebuild/tools/install-hooks.sh` again.
-- Run the gate as `sh adrian-rebuild/tools/gate.sh` (D-001). Run `node adrian-rebuild/tools/check.mjs` after editing
-  `audit.md`.
+- Run the gate as `sh adrian-rebuild/tools/gate.sh` (D-001). Before every commit run `node adrian-rebuild/tools/check.mjs`
+  and `npx biome check --error-on-warnings adrian-rebuild` (an unformatted draft in `5029af0` left the branch red under
+  Biome until the next commit).
 - Tracked files must not carry home or scratchpad paths; experiments live in the session scratchpad only.
 - Adrian's gate-2 file lives only in `input/` (not tracked); everything in it is now copied into tracked files.

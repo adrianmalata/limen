@@ -1,7 +1,7 @@
 <!-- PL: Rubryka taste przebudowy: część A to jawny inwentarz opinii autora Limena wbudowanych w system, część B to
 zasady Adriana (T-NN) z regułą, uzasadnieniem i sposobem sprawdzenia. Po bramce 3 plik jest rubryką obok zasad
 z input/, a nowe decyzje taste dopisuje się tu z datą i źródłem. Stan: część A gotowa (80 opinii autora, 40 już
-rozstrzygniętych bramką 2, 40 otwartych do wywiadu); część B powstaje w wywiadzie z Adrianem (rundy 1–8: T-01–T-36). -->
+rozstrzygniętych bramką 2, 40 otwartych do wywiadu); część B powstaje w wywiadzie z Adrianem (rundy 1–8: T-01–T-39). -->
 
 # Taste
 
@@ -1416,7 +1416,58 @@ the author's choice. Taste decisions taken after this interview are added here w
   4 at start.
 - Source: interview round 8, AU-140 (seat fact: no `jg`); departs from the author.
 
+### T-37 Three machine interfaces, no general `--json`
+- Rule: No general `--json` (a second contract and a second set of golden tests with no consumer, YAGNI). Machines
+  use exactly three interfaces: (1) records with a schema and a version (S1+), read through the boundary parsing
+  module (T-27) by the bell, the owner channel and the measurement scripts; (2) the final JSON line `{class, code,
+  next}` for every process that calls the CLI (the poller, `src/integrations/github-poller.ts:567`; timers; hooks that
+  run actions), read by one client function (T-26); (3) domain modules in the process for hooks that need data (the
+  footer and the board digest come from the same function as `limen status`, T-15). Text for people and models stays
+  one form. `group status --json` is cut (no consumer in the code, `src/commands/group.ts:483-497`); the Picture data
+  (`/activity.json`, `/events`) stays as the module's data interface (G1.4). A general `--json` is `rejected`. Revisit
+  when: a consumer outside Limen needs a command's data and cannot read the records, in at least two cases (z. 38).
+- Why: the author's output is plain text for both readers, JSON exists in two commands, and internal callers parse
+  prose (AU-210).
+- Check: a scan: Limen's stdout is parsed only in the client function of the final JSON line; a test that every
+  registry command ends with a valid JSON line (on success and on refusal); a test that the footer and `limen status`
+  use the same function (T-15).
+- Source: interview round 8, AU-210; departs from the author.
+
+### T-38 A refusal leaves no trace, by construction
+- Rule: Every `change` command follows one shape. (1) A domain operation is `validate(): Plan | Refusal`, then
+  `apply(plan)`; `validate` gets only a read interface of the state (no write methods), so the type gives the guarantee
+  (z. 14); a refusal (exit code 1) and a usage error (exit code 2) arise only in `validate`. (2) `apply` repeats the
+  conditions under the shared lock (A-018) and writes by compare-and-swap (A-019); a state that changed since
+  `validate` ends the command before the first write with exit code 3. (3) Failures after the first write (exit codes
+  3, 4, 5): a single effect is atomic (A-022); several effects are steps in the record, continued when the command
+  runs again (the pattern of A-021). (4) The refusal tests of T-28 (1) use one shared state-snapshot function (git refs,
+  the worktree list, the tree status, a digest of `.limen/` and `spec/`): a refusal leaves the snapshot identical;
+  `test/s1-spawn.test.ts:37-62` is a special case of this.
+- Why: the author's spawn refuses before its first write and leaves no trace, but other commands do not (land moved
+  ticket folders before its commit, A-021) (AU-212).
+- Check: a type test: `validate` has no access to write methods (a test file that tries to write in `validate` does not
+  compile); every refusal test of T-28 (1) compares the snapshots before and after; a race test: a state change between
+  `validate` and `apply` gives exit code 3 with no write; the rerun tests of T-28 (3) for commands with steps.
+- Source: interview round 8, AU-212; generalises the author's spawn.
+
+### T-39 The author's working history leaves the tree, with a pointer
+- Rule: The author's `spec/` (865 files, 38 MB) leaves the tree in one ticket, with a pointer in the docs: "working
+  history of the original author up to 3b5edd7: git history of this branch at that commit, and the upstream
+  overment/limen" (z. 23). The content stays in git history and upstream; the `path:line` references of `audit.md` stay
+  valid, because `check.mjs` resolves them at `rebuild-base`; the Limen repo is not a project run by Limen, so the
+  author's tickets have no one to carry them out; 865 files of decisions that no longer bind are noise for search. The
+  same rule applies to `templates/.history/` after stage 3. The ticket checks whether code or tests read the Limen
+  repo's `spec/`; if they do, they move to synthetic fixtures. Revisit when: Adrian decides that Limen is developed by
+  Limen (then a new `spec/` from scratch).
+- Why: the repo carries the author's working history (tickets, research, reviews) next to the product (AU-230).
+- Check: `npm run check` green after the removal; the T-30 comment scan finds no references to the removed tickets;
+  `check.mjs` still resolves the references of `audit.md` at `rebuild-base`; the docs hold the pointer.
+- Source: interview round 8, AU-230; departs from the author.
+
 ### Part A items settled by earlier rules
 - AU-129 (ticket shape): the sections come from T-07 (the task takes Outcome, Scope and Out of scope), the budgets are
   enforced by code (T-10, T-22), the front matter is a strict subset (T-12), `needs-adam` goes (T-21), Acceptance is
   typed (A-031), and `touches` is optional (A-048).
+- AU-236 (optional tools found on PATH): settings never come from the environment (T-03), system tools are declared
+  and checked at start (T-12), a prompt names only declared tools (T-36), and agents run code only from root-owned
+  paths (A-025).
