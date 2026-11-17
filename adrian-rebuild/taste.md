@@ -967,13 +967,26 @@ the author's choice. Taste decisions taken after this interview are added here w
   <id>` shows one job, with `--result` (A-008).
 - Migration: an old name exits with code 2 (T-02) and names the new one in `next`; a ticket in the last stage of the
   plan removes the table of old names.
-- Open: the command structure, variant A or B (round 5 follow-up, `pair` mode).
+- Structure (variant B, corrected): a top-level command acts on one of three objects. (1) One job: `spawn` creates
+  it; `continue`, `steer`, `stop`, `abandon`, `land`, `wait`, `diff`, `show` and `open` take its id. (2) The
+  conversation with the owner: `ask`, `answer`, `decide`, `escalate` (the names of A-015, A-034 and T-05, unchanged).
+  (3) This project: `init` and the reads `status`, `stats`, `board`. Everything about another or a wider object is a
+  group: `ticket`, `spec`, `group`, `github`, `handoff`, and a new group `seat` (`seat queue`, `seat sweep`), because
+  those commands act on the whole machine and every project. There is no group `owner`: in gate 2 "owner" names what
+  is reserved for Adrian (owner files, the owner channel, `land --owner`), so a coordinator running `limen owner
+  decide` would be ambiguous (z. 13). `init` stays at the top, as in `git init` and `npm init`. Prune and retire are
+  steps of `seat sweep` (A-024), with no command of their own. `wait` has its own kind `wait` (it neither writes nor
+  returns at once, so T-04 does not cover it) and refuses the registered coordinator, which must never block its
+  conversation. Built in `pair` mode.
 - Why: the author's 30 flat commands use private metaphors, and some names mislead (`close` closes Herdr tabs,
   `ticket-author` sits beside the `ticket` group, `jobs` and `status` overlap) (AU-206); z. 13.
-- Check: a golden test of `limen --help`; the T-14 script rejects plant, pulse, cabinet, doorbell, bell and keeper in
-  user-facing text and in identifiers; the glossary holds seat, land and wake; a reviewer question: every help line
-  is a usage criterion (z. 13).
-- Source: interview round 5, AU-206; departs from the author.
+- Check: in the registry of T-19 every top-level command declares its object `job`, `owner` or `project`; a test that
+  object `job` means a required argument of type job (the resolver of T-20), except the one entry that creates the job
+  (`spawn`); a golden test of `limen --help` in variant B; the T-14 script rejects plant, pulse, cabinet, doorbell,
+  bell and keeper in user-facing text and in identifiers; the glossary holds seat, land and wake; a reviewer question:
+  every help line is a usage criterion (z. 13).
+- Source: interview round 5, AU-206 and its follow-up (variants A and B on the help after the gate-2 cuts); departs
+  from the author.
 
 ### T-19 One command registry is the only source
 - Rule: One registry of commands is the only source (z. 22, A-084). An entry holds the name (T-18), the kind `read` or
@@ -986,15 +999,25 @@ the author's choice. Taste decisions taken after this interview are added here w
   (A-084); (5) the command list in the coordinator manual, if it stays, also from the registry (A-085). Internal
   commands stay out of `limen --help`, in their own section of the docs. The advice to the coordinator at the end of
   the help goes: code enforces it (T-07).
-- Open: the `limen --help` variant (groups with summaries, or the same with a read/change column; round 5 follow-up,
-  `pair` mode).
+- Help variant: groups with summaries, with `limen` at the start of every line; no read/change column (it did not
+  align and repeats the kind that `limen <cmd> --help` shows). (1) Groups follow T-18; each group header says what its
+  commands act on (e.g. "Jobs: one job; spawn creates it, every other command takes its id", "Seat: all projects on
+  this machine"). (2) Summaries are usage criteria (z. 13), lines at most 100 characters; Adrian's wording: stop "stop a
+  running job; --done "reason" to declare it done", abandon "give up on a job and keep its work on a branch", land
+  "merge a finished job; refuses until its conditions hold", status "what runs, what landed, what waits for the
+  owner". (3) The exit codes take one line, followed by "The last output line is JSON {class, code, next}." (T-02,
+  z. 11). (4) The `spawn` line follows the schema of T-07. Each group aligns its own summary column, capped at 35
+  characters of usage; a longer usage puts its summary on the next line. The draft registry and its generator, with
+  the real output, are `evidence/taste/help-registry.mjs` (it exits 1 when a line is wider than 100 characters).
 - Why: the author's help is one wide string (64 lines, the widest 356 characters) that lists internal commands and
   ends with advice to the coordinator; only 10 of 31 command files use the shared flag parser (AU-207).
-- Check: a test that every command file is in the registry and has a flag schema; a scan finds no hand-made argument
+- Check: a golden test of the full `limen --help`; a test that every group has a header naming its object from the
+  registry (`job`, `owner`, `project` or the group); a test that every command file is in the registry and has a flag
+  schema; a scan finds no hand-made argument
   parsing (`process.argv`, own loops over `args`) outside the shared parser; a test of the help line width; golden
   tests of `limen --help` and of one `limen <cmd> --help`; the staleness test of `docs/commands.md`; a test that an
   internal command does not appear in `limen --help`.
-- Source: interview round 5, AU-207; departs from the author.
+- Source: interview round 5, AU-207 and its follow-up (the generator's real output); departs from the author.
 
 ### T-20 A job reference is always exact
 - Rule: A reference to a job is always exact; an approximate match appears only as a hint in an error, never in an
