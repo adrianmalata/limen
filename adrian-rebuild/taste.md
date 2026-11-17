@@ -1,7 +1,7 @@
 <!-- PL: Rubryka taste przebudowy: część A to jawny inwentarz opinii autora Limena wbudowanych w system, część B to
 zasady Adriana (T-NN) z regułą, uzasadnieniem i sposobem sprawdzenia. Po bramce 3 plik jest rubryką obok zasad
 z input/, a nowe decyzje taste dopisuje się tu z datą i źródłem. Stan: część A gotowa (80 opinii autora, 40 już
-rozstrzygniętych bramką 2, 40 otwartych do wywiadu); część B powstaje w wywiadzie z Adrianem (rundy 1–8 i pytania otwarte: T-01–T-41). -->
+rozstrzygniętych bramką 2, 40 otwartych do wywiadu); część B powstaje w wywiadzie z Adrianem (rundy 1–8 i pytania otwarte: T-01–T-42). -->
 
 # Taste
 
@@ -1490,13 +1490,33 @@ the author's choice. Taste decisions taken after this interview are added here w
   target 0 outside owner-channel actions.
 - Source: stage 3 open questions (Adrian, 2026-11-17); keeps the author's single owner of the conversation (AU-106).
 
+### T-42 A standing instruction from a plain description is `limen decide`; agents create no timers
+- Rule: What Adrian values in `limen rule` (an instruction the coordinator creates from his plain description) is
+  provided by `limen decide`. A-010 removes the command, not its functions: (1) its only use on the seat (2026-11-10,
+  `claude-quota-reset`) is covered in code by A-016; (2) a time-bound instruction from Adrian's plain words is `limen
+  decide --quote "<his words>" "<decision>" --scope project --until <date>` (A-034): delivered to the coordinator every
+  turn, it expires by itself; unlike `limen rule` it needs Adrian's verified words and works in one project (which is
+  why A-010 cut the version in which an agent set a rule for every coordinator); (3) standing rules for every project
+  are package text (A-038) or a project's owner files, through the owner channel. No new mechanism for reminders or
+  time-based automations: Adrian does not want them, so E-5 (Claude Code's scheduling tools are denied) does not
+  matter. Security: a lasting timer that an agent creates with Bash bypasses A-025 and z. 16, so a hook refuses
+  `crontab`, `at` and `systemd-run --on-calendar` in coordinator and job sessions (a mistake guard, z. 14), and `seat
+  sweep` reports timers, crontabs and `at` jobs on the agents' account that Limen did not create, deleting nothing
+  (as A-029).
+- Why: Adrian values that the coordinator turns a plain description into an instruction (stage 3, open questions);
+  under the bridge the coordinator's only other way to schedule anything is Bash, which A-025 and z. 16 rule out.
+- Check: a hook test for `crontab`, `at` and `systemd-run --on-calendar` (refused in both kinds of session); a test
+  that `seat sweep` reports a foreign timer on a fixture and deletes nothing.
+- Source: stage 3 open questions, Adrian's correction of the same day (`limen rule` has replacements, A-010).
+
 ### Facts from the open questions (stage 3, 2026-11-17)
 - Slowing Adrian down today: the long time spent in one ticket; the token cost (the 5-hour limit stops work often, and
   he waits); the load on the machine (reviews in one ticket started many CPU- and memory-heavy processes, so the two
   projects could not work at the same time on the shared seat); frequent requests for permission to change `docs/`,
   to land and to push.
 - Valued: autonomy compared with his earlier systems; a human conversation with one session that drives the whole
-  workflow with its tools; that this session can set up automations and reminders from a plain description.
+  workflow with its tools; that this session turns a plain description into a standing instruction (today `limen
+  rule`; after the rebuild `limen decide`, T-42). Adrian does not want time-based reminders or automations.
 - Nothing else that no round touched (answer to the third question: "nothing for now").
 - Measurements these facts add to `plan.md` → `## Measurement`: lead time per ticket (spawn to land, split into queue,
   job runs, checks, review and waiting for the owner); tokens per landed ticket; owner touchpoints per landed ticket
