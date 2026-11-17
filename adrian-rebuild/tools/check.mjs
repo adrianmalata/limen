@@ -2,7 +2,7 @@
    i plan.md przy tagu rebuild-base, pola znalezisk A-NNN (z decyzją Adriana) i reguł T-NN, słowa-zapchajdziury (T-17)
    oraz plan: etapy z tagami, tickety (źródła, zależności, rozmiar, tryb, kroki weryfikacji na seacie), pokrycie
    każdego znaleziska `fix` i każdej reguły T-NN ticketem, zgodność kopii §2 z audit.md, wywołanie skryptu wdrożenia
-   w każdym etapie (D-008) i definicje pomiarów M-NN. Sprawdza też polskie streszczenia plików w adrian-rebuild/
+   w każdym etapie (D-008), brak przekierowań `>` w poleceniach narzędzi (D-018) i definicje pomiarów M-NN. Sprawdza też polskie streszczenia plików w adrian-rebuild/
    i .claude/agents/, a od etapu 5 foldery ticketów (szablon ticket.md) i wpisy changes.md według D-009
    (changes-entries.mjs). Stan: działa; kończy się kodem 1 i listą błędów. */
 // Usage: node adrian-rebuild/tools/check.mjs   (run from the repository root)
@@ -90,8 +90,23 @@ function checkReferences(text, file) {
 
 /** The body of the level-2 section `## <name>`, up to the next level-2 heading. */
 function section(text, name) {
-	const part = text.split(/^## /m).find((block) => block.startsWith(`${name}\n`));
-	return part === undefined ? "" : part.slice(name.length + 1);
+	// A `## ` line inside a fenced code block (the ticket.md template, a reply format) is not a heading.
+	const lines = text.split("\n");
+	let fenced = false;
+	let inside = false;
+	const body = [];
+	for (const line of lines) {
+		if (line.startsWith("```")) {
+			fenced = !fenced;
+		}
+		const heading = !fenced && line.startsWith("## ");
+		if (heading) {
+			inside = line === `## ${name}`;
+		} else if (inside) {
+			body.push(line);
+		}
+	}
+	return body.length === 0 ? "" : `${body.join("\n")}\n`;
 }
 
 /** Splits audit.md into findings: a `### A-NNN <title>` heading followed by `- Field: value` lines. */
@@ -423,6 +438,29 @@ function checkDeployCalls(planText, stages) {
 	}
 }
 
+/** D-018: no command of a tool in tools/ uses a redirection; the tools write files with `--out <file>`. */
+function checkRedirections(planText) {
+	const sources = [
+		[`${PLAN} → ## Agents`, section(planText, "Agents")],
+		[`${PLAN} → ## Commands`, section(planText, "Commands")],
+		...readdirSync(AGENTS).map((name) => [`${AGENTS}/${name}`, readFileSync(`${AGENTS}/${name}`, "utf8")]),
+	];
+	let commands = 0;
+	for (const [where, text] of sources) {
+		const spans = text.replace(/^```[\s\S]*?^```/gm, "").matchAll(/`([^`]+)`/g);
+		for (const [, span] of spans) {
+			if (span.includes("adrian-rebuild/tools/")) {
+				commands += 1;
+				// A redirection starts a token (` > file`, ` 2>file`); a placeholder such as `<file>` ends one.
+				if (/(^|\s)\d?>/.test(span)) {
+					errors.push(`${where}: \`${span.replace(/\s+/g, " ")}\` uses a redirection; use --out <file> (D-018)`);
+				}
+			}
+		}
+	}
+	return commands;
+}
+
 /** Every M-NN named in the plan is a row of `## Measurement`. */
 function checkMeasurements(planText) {
 	const defined = new Set([...section(planText, "Measurement").matchAll(/^\| (M-\d{2}) \|/gm)].map(([, id]) => id));
@@ -459,8 +497,9 @@ function checkPlan(planText, auditText, list, tasteIds) {
 	checkCoverage(tickets, list, tasteIds, section(planText, "Tickets"));
 	checkGateCopy(planText, auditText);
 	checkDeployCalls(planText, stages);
+	const toolCommands = checkRedirections(planText);
 	const metrics = checkMeasurements(planText);
-	const summary = `plan: ${stages.size} stages, ${tickets.length} tickets, ${steps.size} deployment steps, ${metrics}`;
+	const summary = `plan: ${stages.size} stages, ${tickets.length} tickets, ${steps.size} deployment steps, ${toolCommands} tool commands, ${metrics}`;
 	return { tickets, summary: `${summary} metrics, ${references} references, ${checkWording(PLAN)} revisit signals` };
 }
 

@@ -1,11 +1,11 @@
 /* PL: Skrypt pomiaru rozmiarów Limena przy dowolnym refie gita (bez checkoutu): linie i bajty na moduł oraz bajty
    i ≈tokeny (bajty/4) kontekstu każdej roli na każdy request, na prompt i raz na sesję (moduł role-context.mjs).
    Służy do mapy w etapie 1 i do porównań przed/po w etapach 4–5; z --project mierzy też pliki prawdziwego projektu
-   (np. na seacie), niczego w nim nie zapisując. Stan: działa. */
+   (np. na seacie), niczego w nim nie zapisując. Wynik zapisuje atomowo (atomic-write.mjs, D-018). Stan: działa. */
 // Usage: node adrian-rebuild/tools/context-size.mjs [ref] [--project <path>] [--out <file>]   (from the repo root)
 import { spawnSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
+import { writeAtomic } from "./atomic-write.mjs";
 import { GROUP_ROLES, JOB_ROLES, measureRoles, sections } from "./role-context.mjs";
 
 const { values, positionals } = parseArgs({
@@ -188,5 +188,5 @@ const text = [
 	...moduleSection(blobs),
 	...fileSection(blobs),
 ].join("\n");
-writeFileSync(output, text);
+writeAtomic(output, text);
 console.log(`wrote ${output}: ${blobs.size} files`);

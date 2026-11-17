@@ -3,11 +3,12 @@
    zawiera plik nieśledzony. Tryb --git: edycja drzewa, git rm i git mv ścieżek z ## Change oraz edycja wymienionego
    pliku tools/ przechodzą; git rm innej ścieżki, zmiana treści w indeksie, commit, zmiana refu, edycja plików sesji
    głównej, innego pliku tools/, hooka w .git/hooks, .git/info/exclude, .claude/settings.local.json i pliku input/
-   unieważniają pracę; edycja .claude/settings.local.json unieważnia też recenzję. Stan: działa. */
+   unieważniają pracę; edycja .claude/settings.local.json unieważnia też recenzję. --out zapisuje to samo co stdout,
+   atomowo, w nowym katalogu (D-018). Stan: działa. */
 // Usage: node --test adrian-rebuild/tools/test-review-guard.mjs
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, beforeEach, describe, test } from "node:test";
@@ -93,6 +94,36 @@ describe("review mode", () => {
 		git("commit", "-q", "-am", "change");
 		assert.equal(compare(), 1);
 		git("reset", "-q", "--hard", "HEAD~1");
+	});
+});
+
+describe("--out (D-018)", () => {
+	const outDir = join(dirname(snap), "out", "nested");
+	beforeEach(() => {
+		git("reset", "-q", "--hard", "HEAD");
+		write("a.txt", "changed once\n");
+		rmSync(join(dirname(snap), "out"), { recursive: true, force: true });
+	});
+	for (const args of [["snapshot"], ["snapshot", "--git"], ["diff"]]) {
+		test(`D-018: ${args.join(" ")} --out writes what stdout would carry, in a new directory, atomically`, () => {
+			const file = join(outDir, args.join("-"));
+			const viaStdout = guardRun(...args);
+			const viaOut = guardRun(...args, "--out", file);
+			assert.equal(viaOut.status, 0, viaOut.stderr);
+			assert.match(viaOut.stdout, /review-guard: wrote /);
+			assert.equal(readFileSync(file, "utf8"), viaStdout.stdout);
+			assert.deepEqual(readdirSync(outDir), [args.join("-")]);
+		});
+	}
+	test("D-018: --out replaces an existing file", () => {
+		const file = join(outDir, "snapshot");
+		mkdirSync(outDir, { recursive: true });
+		writeFileSync(file, "stale\n");
+		assert.equal(guardRun("snapshot", "--out", file).status, 0);
+		assert.equal(readFileSync(file, "utf8"), guardRun("snapshot").stdout);
+	});
+	test("D-018: --out without a file fails", () => {
+		assert.notEqual(guardRun("snapshot", "--out").status, 0);
 	});
 });
 

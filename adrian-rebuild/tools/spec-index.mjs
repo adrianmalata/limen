@@ -1,9 +1,10 @@
 /* PL: Generator indeksu katalogu spec/ autora Limena (etap 1). Czyta wyłącznie listę ścieżek i rozmiary plików
    z drzewa gita dla podanego refa (domyślnie rebuild-base), bez otwierania ich treści, i zapisuje tabelę
-   feature'ów według statusu oraz listę plików badań do evidence/spec-index.md. Stan: działający. */
+   feature'ów według statusu oraz listę plików badań do evidence/spec-index.md, atomowo (atomic-write.mjs, D-018).
+   Stan: działający. */
 // Usage: node adrian-rebuild/tools/spec-index.mjs [ref] [output]
 import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { writeAtomic } from "./atomic-write.mjs";
 
 const ref = process.argv[2] ?? "rebuild-base";
 const output = process.argv[3] ?? "adrian-rebuild/evidence/spec-index.md";
@@ -94,7 +95,7 @@ const text = [
 	...fileTable("Research", research),
 	...fileTable("Other spec files", other),
 ].join("\n");
-writeFileSync(output, text);
+writeAtomic(output, text);
 console.log(
 	`wrote ${output}: ${blobs.length} files, ${featureCount} feature folders, ${research.length} research files`,
 );

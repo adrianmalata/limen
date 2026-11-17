@@ -1,7 +1,8 @@
 <!-- PL: Plan przebudowy Limena i punkt wznowienia każdej sesji: wizja, słownik, decyzje Adriana (kopia §2 bramki 2,
-D-008–D-017 z bramki 4 i po niej: wdrożenie po SHA, format changes.md, narzędzia seata w TypeScript, praca nocna,
+D-008–D-018 z bramki 4 i po niej: wdrożenie po SHA, format changes.md, narzędzia seata w TypeScript, praca nocna,
 wznowienie projektów po a0.3.0 jako ryzyko z terminem 21.11.2026, limit tygodniowy, akceptacja planu i definicji,
-uprawnienia w settings.local.json, Claude Code instalowany przez roota), fakty o silniku z pomiarem B.1 z seata,
+uprawnienia w settings.local.json, Claude Code instalowany przez roota,
+zapis narzędzi przez --out bez przekierowań), fakty o silniku z pomiarem B.1 z seata,
 wymagania systemowe, 9 etapów z kosztem i efektem, 87 ticketów R-NNN, wdrożenie, pomiary, protokół subagentów
 i polecenia na allow-listę. Stan: bramka 4 zamknięta; następny jest etap 5 w nowej sesji, od R-001. -->
 
@@ -202,6 +203,15 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   owner (z. 14). The copy in the agents' directory is removed after the migration. Tickets: R-049 (install, version,
   refusal), R-048 (explicit path), R-087 (`DISABLE_UPDATES` in the job allow-list), R-050 (the start script sets it for
   the coordinator); steps 3.10, 5.3, 5.9 and 5.20.
+- 2026-11-17 D-018 (Adrian, Q7): the tools of `tools/` that wrote their result through `>` take `--out <file>` and
+  write it atomically, as in A-022 (`atomic-write.mjs`: a temporary file, fsync, rename, fsync of the directory, the
+  directory created); stdout stays for the result. Reason: per the Claude Code docs the target of a `>` is checked on
+  its own against the Edit rules (with `Edit(/**)` a write to `node_modules/.rebuild-review/` would pass), but that
+  analysis changes between versions, so the protocol must not rely on it; it uses no `>` in the guard's commands.
+  `context-size.mjs` and `spec-index.mjs`, which write their files themselves, use the same atomic write. Checks: a
+  scan in `check.mjs` (no `>` in a command of a `tools/` tool in `## Agents`, `## Commands` and the subagent
+  definitions); the `--out` tests in `tools/test-review-guard.mjs`. The scan exposed that `check.mjs` read `## Agents`
+  only up to the template's first `## ` line inside a code block; `section()` now skips headings inside code fences.
 
 ### Gate 2 §2, copied
 
@@ -1022,8 +1032,8 @@ Protocol per ticket (rebuild stage 5):
 1. The next ticket is the lowest `planned` ID of the current stage whose dependencies are all `done`: in a night run
    only among the `night` tickets; by day among the `day` and `day-after` tickets as well (D-011).
 2. The main session writes `adrian-rebuild/R-NNN-<slug>/ticket.md` and sets the ticket's status to `active`.
-3. `delegated`: the main session runs `mkdir -p node_modules/.rebuild-review` and `node
-   adrian-rebuild/tools/review-guard.mjs snapshot --git > node_modules/.rebuild-review/R-NNN.git`, starts
+3. `delegated`: the main session runs `node adrian-rebuild/tools/review-guard.mjs snapshot --git --out
+   node_modules/.rebuild-review/R-NNN.git`, starts
    `rebuild-implementer` by its name (not a fork) with the ticket folder's path, changes nothing in the working tree
    while it runs, and afterwards runs `node adrian-rebuild/tools/review-guard.mjs compare --git
    node_modules/.rebuild-review/R-NNN.git <ticket.md>`. It exits 1 when HEAD, a ref, git's config, hooks or
@@ -1037,10 +1047,10 @@ Protocol per ticket (rebuild stage 5):
    changed tests fail at HEAD), and puts its output into the draft `outcome.md` under `## Fails before`. When either
    fails after `DONE`, the main session resumes the implementer with the output; a second failure of the same step goes
    to Adrian (z. 1).
-5. Review: `mkdir -p node_modules/.rebuild-review`, then `node adrian-rebuild/tools/review-guard.mjs snapshot >
-   node_modules/.rebuild-review/R-NNN.before` and `node adrian-rebuild/tools/review-guard.mjs diff >
-   node_modules/.rebuild-review/R-NNN.diff` (an ignored directory, like the gate's helper, so the guard does not see
-   the files), then `rebuild-reviewer` with the three paths, then `node adrian-rebuild/tools/review-guard.mjs compare
+5. Review: `node adrian-rebuild/tools/review-guard.mjs snapshot --out node_modules/.rebuild-review/R-NNN.before` and
+   `node adrian-rebuild/tools/review-guard.mjs diff --out node_modules/.rebuild-review/R-NNN.diff` (an ignored
+   directory, like the gate's helper, so the guard does not see the files; `--out` creates it and writes atomically,
+   D-018), then `rebuild-reviewer` with the three paths, then `node adrian-rebuild/tools/review-guard.mjs compare
    node_modules/.rebuild-review/R-NNN.before`. Exit 1 voids the review: for each path the guard names, the main
    session runs `git restore --source=HEAD -- <path>` and `git apply --include=<path>
    node_modules/.rebuild-review/R-NNN.diff`; a file the reviewer created is removed by Adrian himself, because `rm` is
@@ -1076,6 +1086,9 @@ Rules of form (D-016):
   `cd`, and pipe only into commands on the list.
 - No variable assignment before a command (`TMPDIR=… node …` breaks the match of an allow rule); a tool sets its own
   environment, as `gate.mjs` and `fails-before.mjs` do through `gate-env.mjs`.
+- No redirection: a tool of `tools/` writes its file with `--out <file>`, atomically and creating the directory
+  (`atomic-write.mjs`), and keeps stdout for its result; `check.mjs` rejects a `>` in their commands in this section,
+  in `## Agents` and in the subagent definitions (D-018).
 - Night runs go through `tools/night.mjs`, which runs `claude -p` with `--permission-mode dontAsk`: a command off the
   list is refused and a write to a protected path is denied.
 
@@ -1091,7 +1104,7 @@ Every stage:
 | reviewer: checks | `node --test <test file>`, `node bin/limen <args>` on a test fixture (never the full gate, D-015) |
 | main session, implementer: checks | `node adrian-rebuild/tools/gate.mjs`, `npm run check`, `npm run typecheck`, `npx tsc --noEmit`, `npx biome check --error-on-warnings <path>`, `node --test <test file>`, `node adrian-rebuild/tools/check.mjs`, `node --test adrian-rebuild/tools/test-changes-entries.mjs`, `node --test adrian-rebuild/tools/test-review-guard.mjs`, `node --test adrian-rebuild/tools/test-fails-before.mjs`, `node --test adrian-rebuild/tools/test-review-verdict.mjs`, `sh adrian-rebuild/tools/test-pre-push.sh`, `node bin/limen <args>` on a test fixture |
 | main session, implementer: changes | `npx biome format --write <path>`, `npm ci`; `git rm <path>`, `git rm -r <path>` and `git mv <old> <new>` on the paths a ticket's `## Change` names (the cuts of stage 1, R-042 and R-059 replace files, R-083 renames test files, and others); every deletion and move goes through them, so the list stays the same every night (D-014) |
-| main session only | `mkdir -p node_modules/.rebuild-review`; `node adrian-rebuild/tools/review-guard.mjs snapshot`, `snapshot --git`, `diff`, `compare <file>` and `compare --git <file> <ticket.md>`; `node adrian-rebuild/tools/fails-before.mjs`; `node adrian-rebuild/tools/review-verdict.mjs <reply> <ticket.md>`; `git restore --source=HEAD -- <path>` and `git apply --include=<path> <diff>` (after a void review); `git add <paths>` (`git add -A -- <paths>` for deletions and renames), `git commit`, `git push origin adrian-rebuild`; `sh adrian-rebuild/tools/install-hooks.sh` (after a move or a new clone); at the close of a stage `git tag <tag> <sha>` (local), the gate-time tool of R-011 and, from stage 4, `node adrian-rebuild/tools/context-size.mjs <ref>` |
+| main session only | `node adrian-rebuild/tools/review-guard.mjs snapshot --out <file>`, `snapshot --git --out <file>`, `diff --out <file>`, `compare <file>` and `compare --git <file> <ticket.md>`; `node adrian-rebuild/tools/fails-before.mjs`; `node adrian-rebuild/tools/review-verdict.mjs <reply> <ticket.md>`; `git restore --source=HEAD -- <path>` and `git apply --include=<path> <diff>` (after a void review); `git add <paths>` (`git add -A -- <paths>` for deletions and renames), `git commit`, `git push origin adrian-rebuild`; `sh adrian-rebuild/tools/install-hooks.sh` (after a move or a new clone); at the close of a stage `git tag <tag> <sha>` (local), the gate-time tool of R-011 and, from stage 4, `node adrian-rebuild/tools/context-size.mjs <ref>` |
 
 In addition, per stage:
 
@@ -1140,10 +1153,7 @@ writes `.claude/settings.local.json` from `## Commands` (D-016); B.2 runs on the
 was done on 2026-11-17). The first task of rebuild stage 5, before any night run, is `tools/night.mjs` with a test, built to the
 night mode and to D-016 (1).
 
-Open questions for Adrian:
-- Q7 The protocol writes the guard's files with a redirection (`review-guard.mjs snapshot > <file>`); whether an allow
-  rule matches a command with `>` is unknown. Recommendation: an `--out <file>` option in `review-guard.mjs`, so that
-  no command of the protocol needs a redirection under `--permission-mode dontAsk`.
+Open questions for Adrian: none (Q7 → D-018).
 
 Notes for the next session:
 - Start Claude Code in the repository root, so that it loads `.claude/agents/`.

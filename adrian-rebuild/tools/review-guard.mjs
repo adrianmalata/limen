@@ -4,17 +4,20 @@
    `.git/info/`, `.claude/settings.local.json` i pliki `adrian-rebuild/input/` bez zmian (pliki chronione sprawdza też
    tryb recenzji); w indeksie wyłącznie usunięcia i przeniesienia ścieżek z `## Change`
    ticketu; żadna zmieniona ścieżka z listy zakazanej (pliki sesji głównej, `.claude/agents/`, `tools/` poza ścieżkami
-   z `## Change`). `diff` wypisuje diff ticketu dla recenzenta. Stan: działa; test w tools/test-review-guard.mjs. */
-// Usage (from the repository root; keep snapshot files in the ignored node_modules/.rebuild-review/):
-//   node adrian-rebuild/tools/review-guard.mjs snapshot > <file>                 before the review
+   z `## Change`). `diff` wypisuje diff ticketu dla recenzenta. Wyniki zapisuje atomowo przez `--out <plik>` (D-018).
+   Stan: działa; test w tools/test-review-guard.mjs. */
+// Usage (from the repository root; keep the files in the ignored node_modules/.rebuild-review/):
+//   node adrian-rebuild/tools/review-guard.mjs snapshot --out <file>             before the review
 //   node adrian-rebuild/tools/review-guard.mjs compare <file>                    after it; exit 1 when anything changed
-//   node adrian-rebuild/tools/review-guard.mjs snapshot --git > <file>           before the implementer's run
+//   node adrian-rebuild/tools/review-guard.mjs snapshot --git --out <file>       before the implementer's run
 //   node adrian-rebuild/tools/review-guard.mjs compare --git <file> <ticket.md>  after it; exit 1 on a violation
-//   node adrian-rebuild/tools/review-guard.mjs diff > <file>                     the ticket's diff for the reviewer
+//   node adrian-rebuild/tools/review-guard.mjs diff --out <file>                 the ticket's diff for the reviewer
+// `--out` writes atomically and creates the directory (D-018); without it the data goes to stdout.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { takeOut, writeAtomic } from "./atomic-write.mjs";
 
 // Paths only the main session changes (plan.md → ## Agents, protocol step 3).
 const FORBIDDEN = [
@@ -191,29 +194,41 @@ function compare(file, gitOnly, ticketFile) {
 	return 1;
 }
 
+/** The ticket's diff against HEAD, untracked files included. */
 function diff() {
-	process.stdout.write(git(["diff", "HEAD", "--binary"]));
+	const parts = [git(["diff", "HEAD", "--binary"])];
 	const untracked = git(["ls-files", "--others", "--exclude-standard", "-z"]).toString("utf8").split("\0");
 	for (const path of untracked.filter(Boolean)) {
 		// `--no-index` exits 1 when the files differ, which is always the case against /dev/null.
-		process.stdout.write(git(["diff", "--no-index", "--binary", "/dev/null", path], { allowExit: [1] }));
+		parts.push(git(["diff", "--no-index", "--binary", "/dev/null", path], { allowExit: [1] }));
 	}
-	return 0;
+	return Buffer.concat(parts);
+}
+
+/** D-018: data goes to `--out <file>` (atomic) with a result line on stdout, or to stdout without `--out`. */
+function emit(data, out) {
+	if (out === undefined) {
+		process.stdout.write(data);
+	} else {
+		writeAtomic(out, data);
+		console.log(`review-guard: wrote ${out}`);
+	}
 }
 
 if (import.meta.main) {
-	const [command, ...rest] = process.argv.slice(2);
+	const [command, ...args] = process.argv.slice(2);
+	const { file: out, rest } = takeOut(args);
 	const gitOnly = rest.includes("--git");
 	const [file, ticketFile] = rest.filter((arg) => arg !== "--git");
 	if (command === "snapshot") {
-		process.stdout.write(snapshot(gitOnly));
+		emit(snapshot(gitOnly), out);
 	} else if (command === "compare" && file && (!gitOnly || ticketFile)) {
 		process.exitCode = compare(file, gitOnly, ticketFile);
 	} else if (command === "diff") {
-		process.exitCode = diff();
+		emit(diff(), out);
 	} else {
 		console.error(
-			"usage: review-guard.mjs snapshot [--git] | compare <file> | compare --git <file> <ticket.md> | diff",
+			"usage: review-guard.mjs snapshot [--git] [--out <file>] | compare [--git] <file> [<ticket.md>] | diff [--out <file>]",
 		);
 		process.exitCode = 2;
 	}
