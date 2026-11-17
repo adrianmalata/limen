@@ -1,7 +1,7 @@
 <!-- PL: Rubryka taste przebudowy: część A to jawny inwentarz opinii autora Limena wbudowanych w system, część B to
 zasady Adriana (T-NN) z regułą, uzasadnieniem i sposobem sprawdzenia. Po bramce 3 plik jest rubryką obok zasad
 z input/, a nowe decyzje taste dopisuje się tu z datą i źródłem. Stan: część A gotowa (80 opinii autora, 40 już
-rozstrzygniętych bramką 2, 40 otwartych do wywiadu); część B powstaje w wywiadzie z Adrianem (rundy 1–6: T-01–T-24). -->
+rozstrzygniętych bramką 2, 40 otwartych do wywiadu); część B powstaje w wywiadzie z Adrianem (rundy 1–7: T-01–T-28). -->
 
 # Taste
 
@@ -1186,6 +1186,88 @@ the author's choice. Taste decisions taken after this interview are added here w
   that spawn with `--label` exits with code 2; a test that `status --ticket` filters by the record field; the
   coordinator manual's tokens measured before and after with the stage 1 script.
 - Source: interview round 6, AU-128; departs from the author.
+
+### T-25 Code with a guarantee or a policy has exactly one module
+- Rule: What the code carries decides whether it gets one module, not its length. (1) Code with a guarantee or a
+  policy (atomic write with `fsync`, lock, error handling, configuration, argument parsing, reference resolution,
+  record reading) has exactly one module from its first use, named after its responsibility; its primitive is banned
+  outside it by a scan in `npm run check` (the pattern of A-022). Evidence: the copies of `text(path)` carry an
+  error policy that contradicts T-01 and differ from each other (`src/job/wake-text.ts:8-12` and
+  `src/commands/land.ts:389-393` swallow every error, `src/job/wake-delivery.ts:335-339` only a missing file); `fsync`
+  diverged between `record.ts` and `series.ts`/`seat-rules.ts`. After S1+, a typed read of `record.json` replaces the
+  reads of job files. (2) Code without a policy (a pure function with no I/O and no error handling) may stay local;
+  when a second module needs it, it moves to the module that owns the concept (z. 38). (3) No grab-bag modules
+  (`utils`, `helpers`). The sentence at `.agents/limen/styleguide.md:36` gives way to the judgment rule of (2); the
+  deterministic part lives in the scans (z. 14, z. 21).
+- Why: the author copies short functions instead of sharing them ("Duplicating a short function is cheaper than a
+  helper bag"), and the copies of policy code drifted apart (AU-216).
+- Check: scans in `npm run check`: writes and `rename` on `spec/` and job paths only in the atomic-write module
+  (A-022); a `catch` that returns a default value only in `bestEffort` and in an explicit missing-file check (T-01);
+  `process.env.LIMEN_*` only in the configuration module (T-03); `process.argv` and hand-made argument parsing only in
+  the shared parser (T-19); an argument of type job only through the one resolver (T-20); the lock-file primitive only
+  in the lock module (A-018); the same function name defined in more than one file only from an explicit list of
+  exceptions; no `utils*` or `helpers*` files.
+- Source: interview round 7, AU-216; departs from the author.
+
+### T-26 Commands are thin adapters; logic lives in domain modules
+- Rule: Commands are thin adapters; the logic lives in domain modules as typed functions; within a process no command
+  calls another, neither through argv nor through an import. (1) A registry command (T-19): parse with the shared
+  parser, call a domain operation, pass the result to the shared wrapper, which turns a typed result or error (T-01,
+  T-03) into the exit code, the text and the final JSON line (T-02); `next` is a field of the domain error. (2) The
+  operations live in the existing domain modules: `src/job/` (spawn, continue, land, abandon, stop), `src/spec/`
+  (A-048: tickets, the board, `spec fix`), and the seat module (reaper, resume, prune, retire, queue); `group land`,
+  `resume --quota` and `seat sweep` call the same operations. (3) Dependencies point one way: commands → domain; the
+  domain imports nothing from `src/commands`, and no command imports another. (4) At a process boundary (Pi hooks,
+  systemd timers calling `limen` by an absolute path, A-025) only the final JSON line is read, through one client
+  function, never the text meant for a person. (5) Operations are tested directly; commands by golden tests through
+  the registry and the wrapper.
+- Why: the author's commands call each other by building argv and reading the last stdout line, so `src/commands` is
+  also a library (keeper imports land and spawn, land imports prune) (AU-217).
+- Check: an import scan: a file in `src/commands` imports nothing from `src/commands` (except the registry's types),
+  and domain modules import nothing from `src/commands` or `bin/`; a scan finds no launch of Limen's own CLI (spawn or
+  exec of `limen`) in `src/`; hooks call the CLI only through the client function that reads the final JSON line (a
+  test with output that has text before the JSON line).
+- Source: interview round 7, AU-217; departs from the author.
+
+### T-27 Lint debt goes to zero; data from outside goes through validators
+- Rule: The author's Biome limits stay (tabs, 120 columns, cognitive complexity ≤ 25, ≤ 70 lines per function), and
+  `tsconfig` stays as it is (already strict). Rules written today only as prose become scans in `npm run check` (z. 14,
+  z. 21). (1) A `biome-ignore` only with the reason why the rule is wrong at that place (`CONTRIBUTING.md:35`); the
+  scan rejects a missing reason and debt words (its own list: pending, TODO, split, and the postponement words of
+  T-17). A ratchet: the number of suppressions stays ≤ a baseline file; a ticket that changes a function with a debt
+  suppression removes it in the same ticket; a stage 6 condition: zero debt suppressions, the rest removed by a ticket
+  in the last stage of the plan. (2) Casts: data from outside (`record.json` of S1+, `limits.json`, `routes.json`, the
+  inbox envelopes of A-028, the client's JSON line of T-26) goes only through one boundary parsing module with
+  hand-written validators per schema (zero dependencies, T-12); the result is a typed value or a typed error with the
+  file, the field and the expectation (T-01, z. 12). Pi API events go through one adapter with type guards. Only
+  `as const` is free; any other `as` only from a list of exceptions with a reason, under the same ratchet; `as unknown
+  as` never; test fixtures use `satisfies`. The sentence "never a cast" in the styleguide stays as the reason; the scan
+  enforces it.
+- Why: 40 of the author's 41 `biome-ignore` comments say "split pending", against `CONTRIBUTING.md:35`, and about 80
+  casts remain, 18 of them `JSON.parse(…) as T` without validation, against "never a cast" (AU-215).
+- Check: a `biome-ignore` scan (reason present, no debt words, count ≤ baseline); a `check.mjs` condition for stage 6:
+  zero debt suppressions; a cast scan (beyond `as const` only from the exception list, count ≤ baseline, `as unknown
+  as` banned); a scan: `JSON.parse` only in the boundary parsing module; validator tests: a damaged record and a
+  damaged configuration give a typed error with the file and the field.
+- Source: interview round 7, AU-215; keeps the author's limits, departs on the debt.
+
+### T-28 Test coverage is derived from the registry
+- Rule: No coverage percentage (z. 37); coverage follows from the registry (T-19), not from incidents. (1) A `change`
+  command: a test of its effect on success and a test of every refusal it declares; refusals are typed errors with an
+  ID (T-01, T-03), declared in the registry entry. (2) A `read` command: a golden test of its output, and one
+  parameterised test over every read command of the registry that it changes neither the tree nor the records (T-04).
+  (3) Operations that cannot be undone or that move data (retire as a step of `seat sweep`, `abandon`, `hold` and
+  `replay`, migrations, the closing commit of land, `ticket done`): also a test of running them again and a test that
+  nothing is lost (z. 29, A-002). (4) A bug fix comes with a test that fails before it (stage 5). (5) Behaviour that
+  depends on Pi, the bridge, Herdr or systemd: a test on the fake engine and a verification step in `plan.md` →
+  `## Deployment`.
+- Why: the author writes a test only where a mechanism broke, so commands with no incident have none, including
+  `ticket done`, which commits, and `prune --retire`, which deletes (AU-229, A-002).
+- Check: a script in `npm run check`: every registry command has a success test; every refusal ID in the registry
+  appears in a test; the parameterised "a read does not write" test covers every read command; operations marked
+  irreversible in the registry have tests for running again and for losing nothing; `check.mjs`: every ticket that
+  touches the API of Pi, the bridge, Herdr or systemd has a verification step in `## Deployment`.
+- Source: interview round 7, AU-229; departs from the author.
 
 ### Part A items settled by earlier rules
 - AU-129 (ticket shape): the sections come from T-07 (the task takes Outcome, Scope and Out of scope), the budgets are
