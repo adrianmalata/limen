@@ -1,18 +1,20 @@
-/* PL: Walidator plików przebudowy (Node, bez zależności). Sprawdza, że każda referencja `plik:linia` w audit.md
-   i taste.md istnieje przy tagu rebuild-base, że każde znalezisko A-NNN ma wymagane pola z dozwolonymi wartościami
-   (od bramki 2 także decyzję Adriana), że decyzja „fix (via X)” wskazuje znalezisko z decyzją fix albo pozycję
-   sekcji Gate 2: decisions, że każda reguła T-NN w taste.md ma pola Rule, Why, Check i Source, oraz (T-17), że
-   taste.md i plan.md nie mają słów-zapchajdziur ani pustego pola „Revisit when:”. W etapie 4 dojdzie sprawdzenie
-   planu, a w etapie 6 struktury folderów ticketów i streszczeń PL. Stan: działa; kończy się kodem 1 i listą błędów,
-   gdy coś się nie zgadza. */
+/* PL: Walidator plików przebudowy (Node, bez zależności). Sprawdza referencje `plik:linia` w audit.md, taste.md
+   i plan.md przy tagu rebuild-base, pola znalezisk A-NNN (z decyzją Adriana) i reguł T-NN, słowa-zapchajdziury (T-17)
+   oraz plan: etapy z tagami, tickety (źródła, zależności, rozmiar, tryb, kroki weryfikacji na seacie), pokrycie
+   każdego znaleziska `fix` i każdej reguły T-NN ticketem, zgodność kopii §2 z audit.md i definicje pomiarów M-NN.
+   Sprawdza też polskie streszczenia plików w adrian-rebuild/ i .claude/agents/, a od etapu 5 foldery ticketów (z
+   tytułem i sekcjami szablonu ticket.md) i wpisy changes.md. Stan: działa; kończy się kodem 1 i listą błędów. */
 // Usage: node adrian-rebuild/tools/check.mjs   (run from the repository root)
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 
 const BASE = "rebuild-base";
-const AUDIT = "adrian-rebuild/audit.md";
-const TASTE = "adrian-rebuild/taste.md";
-const PLAN = "adrian-rebuild/plan.md";
+const DIR = "adrian-rebuild";
+const AUDIT = `${DIR}/audit.md`;
+const TASTE = `${DIR}/taste.md`;
+const PLAN = `${DIR}/plan.md`;
+const CHANGES = `${DIR}/changes.md`;
+const AGENTS = ".claude/agents";
 // T-17: the rebuild parks nothing; "not now" is `rejected` with a non-empty `Revisit when:`.
 const FILLER = /\b(backlog|deferred|later|tbd)\b|do ustalenia/i;
 
@@ -33,14 +35,35 @@ const OPTIONAL = {
 	Status: /^(new|known \(.+\))$/,
 	Final: /^(fixed \(R-\d{3}(, R-\d{3})*\)|accepted-risk \(.+\)|rejected \(.+\))$/,
 };
+// Plan tickets (stage 4): one row of `## Tickets` per ticket, columns in this order.
+const COLUMNS = ["ID", "Title", "Stage", "Sources", "Depends", "Size", "Mode", "Mig.", "API", "Seat", "Status"];
+const SOURCE = /^(A-\d{3}|T-\d{2}|G1\.\d+|G[2-4]|§\d|S1\+|H-\d{2}|E-\d+|D-\d{3})$/;
+const ENGINE_APIS = new Set(["pi", "bridge", "herdr", "systemd"]);
+const STATUS = /^(planned|active|done|dropped \(.+\))$/;
+const CHANGE_FIELDS = ["What", "Why", "Proof", "Measurement", "Commit", "Rollback"];
+// The template of `ticket.md` in plan.md → `## Agents`.
+const TICKET_SECTIONS = [
+	"Problem",
+	"Change",
+	"Out of scope",
+	"Acceptance",
+	"Migration",
+	"Risk",
+	"Rollback",
+	"Decisions",
+];
 
 const errors = [];
 const lineCache = new Map();
 
+function git(args) {
+	return spawnSync("git", args, { maxBuffer: 1 << 28 });
+}
+
 /** Number of lines of `path` at the base tag, or undefined when the file does not exist there. */
 function linesAtBase(path) {
 	if (!lineCache.has(path)) {
-		const result = spawnSync("git", ["cat-file", "blob", `${BASE}:${path}`], { maxBuffer: 1 << 28 });
+		const result = git(["cat-file", "blob", `${BASE}:${path}`]);
 		const text = result.stdout.toString("utf8");
 		const lines = result.status === 0 ? text.split("\n").length - (text.endsWith("\n") ? 1 : 0) : undefined;
 		lineCache.set(path, lines);
@@ -63,6 +86,12 @@ function checkReferences(text, file) {
 		}
 	}
 	return count;
+}
+
+/** The body of the level-2 section `## <name>`, up to the next level-2 heading. */
+function section(text, name) {
+	const part = text.split(/^## /m).find((block) => block.startsWith(`${name}\n`));
+	return part === undefined ? "" : part.slice(name.length + 1);
 }
 
 /** Splits audit.md into findings: a `### A-NNN <title>` heading followed by `- Field: value` lines. */
@@ -110,7 +139,7 @@ function checkFinding({ id, fields }) {
 /** A `fix (via X)` decision names a finding whose own decision is a fix, or an item of `## Gate 2: decisions`. */
 function checkVia(list, text) {
 	const decided = new Map(list.map(({ id, fields }) => [id, fields.get("Decision") ?? ""]));
-	const gate = text.match(/^## Gate 2: decisions\n([\s\S]*?)^## /m)?.[1] ?? "";
+	const gate = section(text, "Gate 2: decisions");
 	for (const [id, decision] of decided) {
 		const via = decision.match(/^fix \(via ([^()]+)\)/)?.[1];
 		if (via === undefined) {
@@ -127,10 +156,8 @@ function checkVia(list, text) {
 	}
 }
 
-function checkAudit() {
-	const text = readFileSync(AUDIT, "utf8");
+function checkAudit(text, list) {
 	const references = checkReferences(text, AUDIT);
-	const list = findings(text);
 	const ids = list.map(({ id }) => id);
 	for (const id of ids.filter((value, index) => ids.indexOf(value) !== index)) {
 		errors.push(`${AUDIT}: ${id} appears more than once`);
@@ -164,9 +191,8 @@ function checkWording(file) {
 	return revisits;
 }
 
-/** Every taste rule `### T-NN` has the fields Rule, Why, Check and Source; IDs are unique (stage 3 rubric). */
-function checkTasteRules() {
-	const text = readFileSync(TASTE, "utf8");
+/** Every taste rule `### T-NN` has the fields Rule, Why, Check and Source; IDs are unique. Returns the IDs. */
+function checkTasteRules(text) {
 	const rules = text.split(/^### /m).filter((block) => /^T-\d{2}\b/.test(block));
 	const ids = rules.map((block) => block.slice(0, 4));
 	for (const id of ids.filter((value, index) => ids.indexOf(value) !== index)) {
@@ -179,14 +205,326 @@ function checkTasteRules() {
 			}
 		}
 	}
-	return rules.length;
+	return ids;
 }
 
+/** `## Stages`: `### Stage N — <title> (aX.Y.Z)`, numbered 1, 2, … with unique tags. */
+function planStages(text) {
+	const stages = new Map();
+	for (const [, number, tag] of section(text, "Stages").matchAll(/^### Stage (\d+) — .+ \((a\d+\.\d+\.\d+)\)$/gm)) {
+		if ([...stages.values()].includes(tag)) {
+			errors.push(`${PLAN}: tag ${tag} is used by two stages`);
+		}
+		stages.set(Number(number), tag);
+	}
+	[...stages.keys()].forEach((number, index) => {
+		if (number !== index + 1) {
+			errors.push(`${PLAN}: stage ${number} is out of order (expected ${index + 1})`);
+		}
+	});
+	return stages;
+}
+
+/** `## Deployment` steps: `- **N.k** text`, continued by indented lines. */
+function planSteps(text) {
+	const steps = new Map();
+	let current;
+	for (const line of section(text, "Deployment").split("\n")) {
+		const start = line.match(/^- \*\*([0-9B]+\.\d+)\*\* (.*)$/);
+		if (start) {
+			current = start[1];
+			if (steps.has(current)) {
+				errors.push(`${PLAN}: deployment step ${current} appears more than once`);
+			}
+			steps.set(current, start[2]);
+		} else if (current && /^ {2}\S/.test(line)) {
+			steps.set(current, `${steps.get(current)} ${line.trim()}`);
+		} else {
+			current = undefined;
+		}
+	}
+	return steps;
+}
+
+/** The rows of `## Tickets` as objects keyed by `COLUMNS`. */
+function planTickets(text) {
+	return section(text, "Tickets")
+		.split("\n")
+		.filter((line) => /^\| R-/.test(line))
+		.map((line) => {
+			const cells = line.split(" | ").map((cell) => cell.replace(/^\| |\s*\|$/g, "").trim());
+			if (cells.length !== COLUMNS.length) {
+				errors.push(`${PLAN}: ticket row has ${cells.length} cells, expected ${COLUMNS.length}: ${line}`);
+			}
+			return Object.fromEntries(COLUMNS.map((name, index) => [name, cells[index] ?? ""]));
+		});
+}
+
+/** Does the gate-2 or plan text define the source token? */
+function sourceExists(token, context) {
+	const { findingIds, tasteIds, auditText, planText } = context;
+	if (token.startsWith("A-")) {
+		return findingIds.has(token);
+	}
+	if (token.startsWith("T-")) {
+		return tasteIds.has(token);
+	}
+	if (token.startsWith("E-")) {
+		return section(planText, "Engine facts").includes(`| ${token} |`);
+	}
+	if (token.startsWith("D-")) {
+		return section(planText, "Decisions").includes(` ${token} `);
+	}
+	if (token.startsWith("§")) {
+		return auditText.includes(`### ${token} `);
+	}
+	return new RegExp(`(^|[^\\w.])${token.replace(/[.+]/g, "\\$&")}([^\\w.]|$)`).test(auditText);
+}
+
+function checkTicket(ticket, index, all, context) {
+	const { stages, steps } = context;
+	const where = `${PLAN}: ${ticket.ID}`;
+	if (!/^R-\d{3}$/.test(ticket.ID) || all.findIndex(({ ID }) => ID === ticket.ID) !== index) {
+		errors.push(`${where}: the ID is malformed or not unique`);
+	}
+	if (!stages.has(Number(ticket.Stage))) {
+		errors.push(`${where}: stage ${ticket.Stage} is not in ## Stages`);
+	}
+	const sources = ticket.Sources.split(", ").filter(Boolean);
+	if (sources.length === 0) {
+		errors.push(`${where}: no source`);
+	}
+	for (const token of sources) {
+		if (!SOURCE.test(token) || !sourceExists(token, context)) {
+			errors.push(`${where}: source ${token} is malformed or defined nowhere`);
+		}
+	}
+	for (const dependency of ticket.Depends === "—" ? [] : ticket.Depends.split(", ")) {
+		const target = all.findIndex(({ ID }) => ID === dependency);
+		if (target < 0 || target >= index || Number(all[target].Stage) > Number(ticket.Stage)) {
+			errors.push(`${where}: dependency ${dependency} is not an earlier ticket of this or an earlier stage`);
+		}
+	}
+	const formats = { Size: /^(S|M|L)$/, Mode: /^(delegated|pair)$/, "Mig.": /^(yes|—)$/, Status: STATUS };
+	for (const [column, pattern] of Object.entries(formats)) {
+		if (!pattern.test(ticket[column])) {
+			errors.push(`${where}: ${column} "${ticket[column]}" is outside ${pattern}`);
+		}
+	}
+	checkSeatSteps(ticket, steps, where);
+}
+
+/** T-28 (5): behaviour that depends on Pi, the bridge, Herdr or systemd has a verification step on the seat. */
+function checkSeatSteps(ticket, steps, where) {
+	const apis = ticket.API === "—" ? [] : ticket.API.split(", ");
+	const seat = ticket.Seat === "—" ? [] : ticket.Seat.split(", ");
+	if (apis.some((api) => !ENGINE_APIS.has(api))) {
+		errors.push(`${where}: API "${ticket.API}" names something other than ${[...ENGINE_APIS].join(", ")}`);
+	}
+	if (apis.length > 0 && seat.length === 0) {
+		errors.push(`${where}: touches ${ticket.API} but names no step of ## Deployment`);
+	}
+	for (const step of seat) {
+		if (!steps.has(step)) {
+			errors.push(`${where}: deployment step ${step} does not exist`);
+		} else if (!steps.get(step).includes(ticket.ID)) {
+			errors.push(`${where}: deployment step ${step} does not name ${ticket.ID}`);
+		}
+	}
+}
+
+/** Every `fix` finding and every taste rule is a source of a ticket (taste rules may be listed as without one). */
+function checkCoverage(tickets, list, tasteIds, ticketsText) {
+	const sourced = new Set(tickets.flatMap(({ Sources }) => Sources.split(", ")));
+	for (const { id, fields } of list) {
+		if (/^(fix|rejected \/ fix)\b/.test(fields.get("Decision") ?? "") && !sourced.has(id)) {
+			errors.push(`${PLAN}: finding ${id} is decided "fix" but no ticket names it`);
+		}
+	}
+	const exempt = new Set([...ticketsText.matchAll(/^- (T-\d{2}): \S/gm)].map(([, id]) => id));
+	for (const id of tasteIds) {
+		if (!sourced.has(id) && !exempt.has(id)) {
+			errors.push(`${PLAN}: taste rule ${id} is neither a ticket source nor listed as without a ticket`);
+		}
+		if (sourced.has(id) && exempt.has(id)) {
+			errors.push(`${PLAN}: taste rule ${id} is a ticket source and also listed as without a ticket`);
+		}
+	}
+}
+
+/** D-003: the plan holds a verbatim copy of gate 2 §2 between its markers. */
+function checkGateCopy(planText, auditText) {
+	const copy = planText.match(/<!-- gate2-s2:begin -->\n([\s\S]*?)\n<!-- gate2-s2:end -->/)?.[1];
+	const original = auditText.match(/^### §2 Cross-cutting decisions\n\n([\s\S]*?)\n+### §4 /m)?.[1];
+	if (copy === undefined || original === undefined || copy.trim() !== original.trim()) {
+		errors.push(`${PLAN}: the copy of gate 2 §2 differs from ${AUDIT} (or a marker is missing)`);
+	}
+}
+
+/** Every M-NN named in the plan is a row of `## Measurement`. */
+function checkMeasurements(planText) {
+	const defined = new Set([...section(planText, "Measurement").matchAll(/^\| (M-\d{2}) \|/gm)].map(([, id]) => id));
+	for (const [id] of planText.matchAll(/\bM-\d{2}\b/g)) {
+		if (!defined.has(id)) {
+			errors.push(`${PLAN}: ${id} is not defined in ## Measurement`);
+		}
+	}
+	return defined.size;
+}
+
+function checkPlan(planText, auditText, list, tasteIds) {
+	const references = checkReferences(planText, PLAN);
+	const stages = planStages(planText);
+	const steps = planSteps(planText);
+	const tickets = planTickets(planText);
+	const context = {
+		stages,
+		steps,
+		findingIds: new Set(list.map(({ id }) => id)),
+		tasteIds: new Set(tasteIds),
+		auditText,
+		planText,
+	};
+	for (const [index, ticket] of tickets.entries()) {
+		checkTicket(ticket, index, tickets, context);
+	}
+	for (const number of stages.keys()) {
+		if (!tickets.some(({ Stage }) => Number(Stage) === number)) {
+			errors.push(`${PLAN}: stage ${number} has no ticket`);
+		}
+	}
+	checkCoverage(tickets, list, tasteIds, section(planText, "Tickets"));
+	checkGateCopy(planText, auditText);
+	const metrics = checkMeasurements(planText);
+	const summary = `plan: ${stages.size} stages, ${tickets.length} tickets, ${steps.size} deployment steps, ${metrics}`;
+	return { tickets, summary: `${summary} metrics, ${references} references, ${checkWording(PLAN)} revisit signals` };
+}
+
+/** Rebuild prompt: every file in adrian-rebuild/ and .claude/agents/ opens with a Polish summary comment. */
+function checkSummaries() {
+	const listed = (args) =>
+		git(["ls-files", "-z", ...args, "--", DIR, AGENTS])
+			.stdout.toString("utf8")
+			.split("\0");
+	const files = [...new Set([...listed([]), ...listed(["--others", "--exclude-standard"])])].filter(
+		(file) => file && existsSync(file) && !file.startsWith(`${DIR}/input/`),
+	);
+	for (const file of files) {
+		if (file.endsWith(".json")) {
+			errors.push(`${file}: a JSON file has no comment syntax for the PL summary`);
+			continue;
+		}
+		const lines = readFileSync(file, "utf8").split("\n");
+		// A shebang stays first; an agent definition opens with its YAML front matter, so its summary is a YAML comment.
+		const skip = lines[0].startsWith("#!") || (file.startsWith(`${AGENTS}/`) && lines[0] === "---") ? 1 : 0;
+		const opener =
+			/\.md$/.test(file) && !file.startsWith(`${AGENTS}/`)
+				? "<!-- PL: "
+				: /\.[mc]?[jt]s$/.test(file)
+					? "/* PL: "
+					: "# PL: ";
+		if (!lines[skip].startsWith(opener)) {
+			errors.push(`${file}: does not open with the Polish summary "${opener.trim()} …"`);
+		}
+	}
+	return files.length;
+}
+
+/** `ticket.md` has the title `# R-NNN …` and every section of the template, in order. */
+function checkTicketFile(file, id) {
+	if (!existsSync(file)) {
+		return;
+	}
+	const text = readFileSync(file, "utf8");
+	if (!new RegExp(`^# ${id} \\S`, "m").test(text)) {
+		errors.push(`${file}: no title "# ${id} <title>"`);
+	}
+	const headings = [...text.matchAll(/^## (.+)$/gm)].map(([, name]) => name);
+	const present = TICKET_SECTIONS.filter((name) => headings.includes(name));
+	if (
+		present.length !== TICKET_SECTIONS.length ||
+		present.some((name, index) => headings.indexOf(name) < headings.indexOf(present[index - 1] ?? name))
+	) {
+		errors.push(`${file}: sections must be ${TICKET_SECTIONS.map((name) => `## ${name}`).join(", ")}, in this order`);
+	}
+}
+
+/** Stage 5 on: every ticket folder has its files, and every done ticket has a folder. */
+function checkTicketFolders(tickets) {
+	const folders = readdirSync(DIR, { withFileTypes: true })
+		.filter((entry) => entry.isDirectory() && /^R-\d{3}-/.test(entry.name))
+		.map((entry) => entry.name);
+	for (const folder of folders) {
+		const ticket = tickets.find(({ ID }) => ID === folder.slice(0, 5));
+		const needed = ticket?.Status === "done" ? ["ticket.md", "review.md", "outcome.md"] : ["ticket.md"];
+		if (ticket === undefined) {
+			errors.push(`${DIR}/${folder}: no ticket ${folder.slice(0, 5)} in ${PLAN}`);
+		}
+		for (const name of needed.filter((file) => !existsSync(`${DIR}/${folder}/${file}`))) {
+			errors.push(`${DIR}/${folder}: missing ${name}`);
+		}
+		checkTicketFile(`${DIR}/${folder}/ticket.md`, folder.slice(0, 5));
+	}
+	for (const { ID } of tickets.filter(({ Status }) => Status === "done")) {
+		if (!folders.some((folder) => folder.startsWith(`${ID}-`))) {
+			errors.push(`${PLAN}: ${ID} is done but ${DIR}/${ID}-<slug>/ does not exist`);
+		}
+	}
+	return folders.length;
+}
+
+/** Stage 5 on: every changes.md entry has its fields and points at a done ticket and at that ticket's commit. */
+function checkChanges(tickets) {
+	const text = readFileSync(CHANGES, "utf8").replace(/^```[\s\S]*?^```/gm, "");
+	const entries = text.split(/^## /m).slice(1);
+	for (const entry of entries) {
+		const heading = entry.slice(0, entry.indexOf("\n"));
+		const id = heading.match(/^\d{4}-\d{2}-\d{2} (R-\d{3}) \S/)?.[1];
+		if (id === undefined) {
+			errors.push(`${CHANGES}: heading "${heading}" is not "YYYY-MM-DD R-NNN <title>"`);
+			continue;
+		}
+		const fields = Object.fromEntries([...entry.matchAll(/^- (\w+): (.+)$/gm)].map(([, name, value]) => [name, value]));
+		for (const name of CHANGE_FIELDS.filter((field) => !fields[field])) {
+			errors.push(`${CHANGES}: ${id}: missing field ${name}`);
+		}
+		if (tickets.find(({ ID }) => ID === id)?.Status !== "done") {
+			errors.push(`${CHANGES}: ${id} is not a done ticket of ${PLAN}`);
+		}
+		if (
+			fields.Measurement &&
+			!/^(measured|unmeasured \(plan\.md → Measurement: M-\d{2}.*\))$/.test(fields.Measurement)
+		) {
+			errors.push(`${CHANGES}: ${id}: Measurement is not "measured" or "unmeasured (plan.md → Measurement: M-NN)"`);
+		}
+		const sha = fields.Commit ?? "";
+		const subject = git(["log", "-1", "--format=%s", `${sha}^{commit}`]);
+		if (!/^[0-9a-f]{7,40}$/.test(sha) || subject.status !== 0) {
+			errors.push(`${CHANGES}: ${id}: Commit "${sha}" is not a commit of this repository`);
+		} else if (!subject.stdout.toString("utf8").startsWith(`${id}:`)) {
+			errors.push(`${CHANGES}: ${id}: commit ${sha} is not "${id}: …"`);
+		}
+		if (fields.Rollback && !fields.Rollback.includes(`git revert ${sha}`)) {
+			errors.push(`${CHANGES}: ${id}: Rollback does not say "git revert ${sha}"`);
+		}
+	}
+	return entries.length;
+}
+
+const auditText = readFileSync(AUDIT, "utf8");
+const tasteText = readFileSync(TASTE, "utf8");
+const planText = readFileSync(PLAN, "utf8");
+const findingList = findings(auditText);
+const tasteIds = checkTasteRules(tasteText);
+const plan = checkPlan(planText, auditText, findingList, tasteIds);
 const summary = [
-	checkAudit(),
-	`taste rules: ${checkTasteRules()}`,
-	`taste: ${checkReferences(readFileSync(TASTE, "utf8"), TASTE)} references, ${checkWording(TASTE)} revisit signals`,
-	`plan: ${checkWording(PLAN)} revisit signals`,
+	checkAudit(auditText, findingList),
+	`taste rules: ${tasteIds.length}`,
+	`taste: ${checkReferences(tasteText, TASTE)} references, ${checkWording(TASTE)} revisit signals`,
+	plan.summary,
+	`PL summaries: ${checkSummaries()} files`,
+	`ticket folders: ${checkTicketFolders(plan.tickets)}`,
+	`changes: ${checkChanges(plan.tickets)} entries`,
 ];
 for (const error of errors) {
 	console.error(error);
