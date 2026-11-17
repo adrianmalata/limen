@@ -1,6 +1,6 @@
 <!-- PL: Plan przebudowy Limena i punkt wznowienia każdej sesji: wizja, słownik, decyzje Adriana (kopia §2 bramki 2,
-D-008–D-015 z bramki 4: wdrożenie po SHA, format changes.md, narzędzia seata w TypeScript, praca nocna, wznowienie
-projektów po a0.3.0 jako ryzyko z terminem 21.11.2026, limit tygodniowy, akceptacja planu i definicji subagentów),
+D-008–D-016 z bramki 4 i po niej: wdrożenie po SHA, format changes.md, narzędzia seata w TypeScript, praca nocna, wznowienie
+projektów po a0.3.0 jako ryzyko z terminem 21.11.2026, limit tygodniowy, akceptacja planu i definicji subagentów, uprawnienia w settings.local.json),
 fakty o silniku, 9 etapów z kosztem i efektem, 87 ticketów R-NNN z kolumną Run, wdrożenie na seat, pomiary, protokół
 subagentów i polecenia na allow-listę. Stan: bramka 4 zamknięta; następny jest etap 5 w nowej sesji, od R-001. -->
 
@@ -179,6 +179,19 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   full gate. The gate itself moves from `gate.sh` to `node adrian-rebuild/tools/gate.mjs` with the same behaviour
   (D-001's command changes; no shell where Node does, D-010). Checks: `tools/test-review-guard.mjs`,
   `tools/test-fails-before.mjs`, `tools/test-review-verdict.mjs`.
+- 2026-11-17 D-016 (Adrian, after gate 4): the permissions of rebuild stage 5 live in `.claude/settings.local.json`,
+  untracked and excluded in `.git/info/exclude`, not in `.claude/settings.json`: per the Claude Code docs, `claude -p`
+  does not apply the allow rules of a project's `.claude/settings.json` in a folder without trust, but it applies the
+  untracked `settings.local.json`. The file sets `disableBypassPermissionsMode` to `disable`; its allow rules follow
+  `## Commands` → "Every stage" (a push only as `git push origin adrian-rebuild`), its deny rules the "never" list
+  there, plus Edit on `.claude/**` and `adrian-rebuild/input/**`. Adrian writes the file and adds the commands of R-011
+  and R-017 after their `outcome.md`, and the stage-2 commands at the start of stage 2. Requirements: (1)
+  `tools/night.mjs` runs `claude -p` with `--permission-mode dontAsk`, so a command off the list is refused and a write
+  to a protected path is denied, whatever the mode would otherwise do; (2) every part of a compound command (`&&`, `;`,
+  `|`) must match a rule, so no `cd` and no uncovered command in a pipe; (3) a variable assignment before a command
+  (e.g. `TMPDIR=… node …`) breaks the match of an allow rule, so the tools set their environment themselves. The file
+  joins the implementer's reserved paths, and `review-guard.mjs` checks its digest in both modes (with
+  `.git/info/`).
 
 ### Gate 2 §2, copied
 
@@ -977,8 +990,8 @@ Protocol per ticket (rebuild stage 5):
    adrian-rebuild/tools/review-guard.mjs snapshot --git > node_modules/.rebuild-review/R-NNN.git`, starts
    `rebuild-implementer` by its name (not a fork) with the ticket folder's path, changes nothing in the working tree
    while it runs, and afterwards runs `node adrian-rebuild/tools/review-guard.mjs compare --git
-   node_modules/.rebuild-review/R-NNN.git <ticket.md>`. It exits 1 when HEAD, a ref, git's config or hooks, a file in
-   `input/` or a reserved path changed, or when the index holds anything but deletions and moves of the paths
+   node_modules/.rebuild-review/R-NNN.git <ticket.md>`. It exits 1 when HEAD, a ref, git's config, hooks or
+   `info/`, `.claude/settings.local.json`, a file in `input/` or a reserved path changed, or when the index holds anything but deletions and moves of the paths
    `## Change` names; that voids the run (z. 14), and Adrian decides. The allow-list cannot tell the two sessions
    apart, so this check is the guarantee. On `BLOCKED: …` the main session asks Adrian, adds the answer to `ticket.md`
    → `## Decisions`, and resumes the same agent with `SendMessage` to its ID. `pair`: the main session implements with
@@ -994,8 +1007,8 @@ Protocol per ticket (rebuild stage 5):
    the files), then `rebuild-reviewer` with the three paths, then `node adrian-rebuild/tools/review-guard.mjs compare
    node_modules/.rebuild-review/R-NNN.before`. Exit 1 voids the review: for each path the guard names, the main
    session runs `git restore --source=HEAD -- <path>` and `git apply --include=<path>
-   node_modules/.rebuild-review/R-NNN.diff`; a file the reviewer created is removed with Adrian's approval of
-   `rm <path>`, which is on no list. Then `compare` must exit 0, and the review runs again. The guard compares HEAD,
+   node_modules/.rebuild-review/R-NNN.diff`; a file the reviewer created is removed by Adrian himself, because `rm` is
+   denied to the sessions. Then `compare` must exit 0, and the review runs again. The guard compares HEAD,
    every ref, the index, `git status --porcelain` and a SHA-256 of every changed and untracked file, so a second edit
    of an already modified file is caught, which the status alone would miss (`tools/test-review-guard.mjs`). The main
    session saves the reviewer's reply to `node_modules/.rebuild-review/R-NNN.reply` and runs `node
@@ -1015,16 +1028,24 @@ Protocol per ticket (rebuild stage 5):
 
 ## Commands
 
-The Bash commands rebuild stage 5 runs, for the allow-list in the repo's `.claude/settings.json` (no
-skip-permissions). The rules there apply to the main session and to both subagents alike: the reviewer's read-only
+The Bash commands rebuild stage 5 runs, for the allow-list in `.claude/settings.local.json` (D-016; untracked, excluded
+in `.git/info/exclude`; `disableBypassPermissionsMode` set to `disable`). The rules there apply to the main session and to both subagents alike: the reviewer's read-only
 limit comes from its definition and from `review-guard.mjs` (a change voids the review), and the implementer's from
 its definition and from `compare --git` (protocol step 3), not from the list; the rows below name who runs what, which
 the definitions follow. Commands run from the repository root,
 with relative paths, never through `cd`.
 
-Adrian writes `.claude/settings.json`; the rebuild session never changes its own permissions. The command strings of
-the gate-time tool (R-011) and of the contract script (R-017) are named in those tickets' outcomes and added to the
-list then.
+Rules of form (D-016):
+- Every part of a compound command (`&&`, `;`, `|`) must match a rule, so the sessions run single commands, use no
+  `cd`, and pipe only into commands on the list.
+- No variable assignment before a command (`TMPDIR=… node …` breaks the match of an allow rule); a tool sets its own
+  environment, as `gate.mjs` and `fails-before.mjs` do through `gate-env.mjs`.
+- Night runs go through `tools/night.mjs`, which runs `claude -p` with `--permission-mode dontAsk`: a command off the
+  list is refused and a write to a protected path is denied.
+
+Adrian writes `.claude/settings.local.json`; the rebuild session never changes its own permissions. He adds the
+command strings of the gate-time tool (R-011) and of the contract script (R-017) after those tickets' `outcome.md`,
+and the stage-2 rows at the start of stage 2.
 
 Every stage:
 
@@ -1045,7 +1066,8 @@ In addition, per stage:
 | 4 | `node adrian-rebuild/tools/context-size.mjs <ref>` for the implementer too | R-039 |
 | 5–8 | none: `nft`, `systemd-analyze`, `ssh` and account setup are seat steps | — |
 
-Never in the list: `git push` of any other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, `git rebase`,
+Deny rules (never on the allow list): Edit and Write on `.claude/**` and `adrian-rebuild/input/**`; `git push` of any
+other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, `git rebase`,
 `git tag -d`, `git branch -d` or `-D`, `git checkout` or `git switch` of another branch, `git stash`, `git clean`,
 `--no-verify`, `npm install` (only `npm ci`) and `npm install -g`, `sudo`, `curl`, `wget`, `ssh`, `python3`,
 `systemctl`, and `rm` and `mv` (deletions and moves go through `git rm` and `git mv`).
@@ -1078,7 +1100,9 @@ Done:
 
 Next: rebuild stage 5 starts with plan stage 1 ("Cut, then one error type and one command registry") in a new session,
 started in the repository root, with R-001. Before it: Adrian adds the night mode to the rebuild prompt (D-011) and
-writes `.claude/settings.json` from `## Commands`; B.1 and B.2 run on the seat before a0.1.0 is deployed.
+writes `.claude/settings.local.json` from `## Commands` (D-016); B.1 and B.2 run on the seat before a0.1.0 is
+deployed. The first task of rebuild stage 5, before any night run, is `tools/night.mjs` with a test, built to the
+night mode and to D-016 (1).
 
 Open questions for Adrian: none.
 

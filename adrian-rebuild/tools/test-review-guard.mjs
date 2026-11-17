@@ -2,7 +2,8 @@
    zmienionego pliku, nowy plik, zmiana indeksu i commit unieważniają recenzję, a drzewo bez zmian przechodzi; diff
    zawiera plik nieśledzony. Tryb --git: edycja drzewa, git rm i git mv ścieżek z ## Change oraz edycja wymienionego
    pliku tools/ przechodzą; git rm innej ścieżki, zmiana treści w indeksie, commit, zmiana refu, edycja plików sesji
-   głównej, innego pliku tools/, hooka w .git/hooks i pliku input/ unieważniają pracę. Stan: działa. */
+   głównej, innego pliku tools/, hooka w .git/hooks, .git/info/exclude, .claude/settings.local.json i pliku input/
+   unieważniają pracę; edycja .claude/settings.local.json unieważnia też recenzję. Stan: działa. */
 // Usage: node --test adrian-rebuild/tools/test-review-guard.mjs
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -55,6 +56,8 @@ git("add", "-A");
 git("commit", "-q", "-m", "base");
 write(".git/hooks/pre-push", "#!/bin/sh\nexit 0\n");
 write("adrian-rebuild/input/prompt.md", "prompt\n");
+write(".git/info/exclude", ".claude/settings.local.json\n");
+write(".claude/settings.local.json", '{"permissions": {}}\n');
 write(
 	ticket,
 	"# R-001 Cut\n## Change\nDelete `a.txt` and `old/`, move to `moved/`, edit `adrian-rebuild/tools/tool.mjs`.\n",
@@ -80,6 +83,11 @@ describe("review mode", () => {
 	test("a staged change voids the review", () => {
 		git("add", "a.txt");
 		assert.equal(compare(), 1);
+	});
+	test("D-016: an edit of the ignored permissions file voids the review", () => {
+		write(".claude/settings.local.json", '{"permissions": {"allow": ["Bash"]}}\n');
+		assert.equal(compare(), 1);
+		write(".claude/settings.local.json", '{"permissions": {}}\n');
 	});
 	test("a commit voids the review", () => {
 		git("commit", "-q", "-am", "change");
@@ -141,6 +149,14 @@ describe("implementer mode (--git)", () => {
 		assert.equal(compareGit(), 0);
 		write("adrian-rebuild/tools/other.mjs", "edited\n");
 		assert.equal(compareGit(), 1);
+	});
+	test("D-016: an edit of the ignored permissions file or of .git/info/exclude voids the run", () => {
+		write(".claude/settings.local.json", '{"permissions": {"allow": ["Bash"]}}\n');
+		assert.equal(compareGit(), 1);
+		write(".claude/settings.local.json", '{"permissions": {}}\n');
+		write(".git/info/exclude", "\n");
+		assert.equal(compareGit(), 1);
+		write(".git/info/exclude", ".claude/settings.local.json\n");
 	});
 	test("D-015: an edit of a git hook or of a file in input/ voids the run", () => {
 		write(".git/hooks/pre-push", "#!/bin/sh\nexit 0 # changed\n");

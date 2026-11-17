@@ -1,7 +1,8 @@
 /* PL: Strażnik etapu 5 (Node, bez zależności). `snapshot`/`compare` wokół recenzji: HEAD, refy, indeks, `git status`
    i skrót SHA-256 każdego zmienionego i nieśledzonego pliku; każda zmiana unieważnia recenzję. `snapshot --git` /
-   `compare --git <plik> <ticket.md>` wokół pracy implementera (D-015): HEAD, refy, `.git/config`, `.git/hooks/`
-   i pliki `adrian-rebuild/input/` bez zmian; w indeksie wyłącznie usunięcia i przeniesienia ścieżek z `## Change`
+   `compare --git <plik> <ticket.md>` wokół pracy implementera (D-015): HEAD, refy, `.git/config`, `.git/hooks/`,
+   `.git/info/`, `.claude/settings.local.json` i pliki `adrian-rebuild/input/` bez zmian (pliki chronione sprawdza też
+   tryb recenzji); w indeksie wyłącznie usunięcia i przeniesienia ścieżek z `## Change`
    ticketu; żadna zmieniona ścieżka z listy zakazanej (pliki sesji głównej, `.claude/agents/`, `tools/` poza ścieżkami
    z `## Change`). `diff` wypisuje diff ticketu dla recenzenta. Stan: działa; test w tools/test-review-guard.mjs. */
 // Usage (from the repository root; keep snapshot files in the ignored node_modules/.rebuild-review/):
@@ -20,8 +21,11 @@ const FORBIDDEN = [
 	/^adrian-rebuild\/(plan|changes|audit|taste)\.md$/,
 	/^adrian-rebuild\/R-\d{3}-[^/]+\/(ticket|review)\.md$/,
 	/^\.claude\/agents\//,
+	/^\.claude\/settings\.local\.json$/,
 	/^adrian-rebuild\/input\//,
 ];
+// Files git does not show (ignored or inside .git) that no session run may change (D-015, D-016).
+const PERMISSIONS = ".claude/settings.local.json";
 const TOOLS = "adrian-rebuild/tools/";
 
 function git(args, { allowExit = [0] } = {}) {
@@ -99,10 +103,16 @@ function refs() {
 	];
 }
 
-/** Files outside git's view that the implementer must not touch: git's config and hooks, and the local inputs. */
+/** Files outside git's view that no run may touch: git's config, hooks and excludes, the permissions, the inputs. */
 function protectedFiles() {
 	const gitDir = git(["rev-parse", "--git-dir"]).toString("utf8").trim();
-	const paths = [join(gitDir, "config"), ...filesBelow(join(gitDir, "hooks")), ...filesBelow("adrian-rebuild/input")];
+	const paths = [
+		join(gitDir, "config"),
+		...filesBelow(join(gitDir, "hooks")),
+		...filesBelow(join(gitDir, "info")),
+		PERMISSIONS,
+		...filesBelow("adrian-rebuild/input"),
+	];
 	return paths.map((path) => `protected ${digest(path)} ${path}`);
 }
 
@@ -118,6 +128,7 @@ function snapshot(gitOnly) {
 		.digest("hex");
 	const lines = [
 		...refs(),
+		...protectedFiles(),
 		`index ${index}`,
 		...status.map(([code, path, source]) => `status ${code} ${path}${source ? ` <- ${source}` : ""}`),
 		...paths.map((path) => `file ${digest(path)} ${path}`),
