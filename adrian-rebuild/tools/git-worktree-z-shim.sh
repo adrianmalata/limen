@@ -1,5 +1,5 @@
 #!/bin/bash
-# PL: Shim gita używany wyłącznie przez gate.sh, gdy lokalny git jest starszy niż 2.36 i nie zna
+# PL: Shim gita używany wyłącznie przez bramkę (gate-env.mjs), gdy lokalny git jest starszy niż 2.36 i nie zna
 # PL: `git worktree list --porcelain -z`. Emuluje tę jedną flagę (zamienia znaki nowej linii na NUL),
 # PL: a każde inne wywołanie przekazuje bez zmian do prawdziwego gita. Seat ma nowszego gita i shima nie potrzebuje.
 #

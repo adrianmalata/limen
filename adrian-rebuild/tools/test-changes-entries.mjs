@@ -29,7 +29,7 @@ const entry = `
 ## 2026-11-18 R-001 Leftover files
 - What: src/
 - Why: A-042
-- Proof: sh adrian-rebuild/tools/gate.sh → exit 0
+- Proof: node adrian-rebuild/tools/gate.mjs → exit 0
 - Measurement: measured
 - Commit: R-001
 - Rollback: ${rollbackCommand("R-001")}

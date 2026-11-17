@@ -1,7 +1,8 @@
 <!-- PL: Wynik bramki bazowej na tagu rebuild-base (etap 0, krok 4): czas i wynik `npm run check`, klasyfikacja każdego
 błędu jako platformowy albo defekt oraz proponowana bramka `tools/gate.sh`. Wszystkie 37 czerwonych testów mają dwie
 przyczyny platformowe (git 2.34 bez `worktree list -z` i /tmp z prawami 1777); defektów produktu nie znaleziono.
-Stan: bramka z obejściami jest zielona w dwóch przebiegach (83/83) i została przyjęta 2026-11-16 (plan.md, D-001). -->
+Stan: bramka z obejściami jest zielona w dwóch przebiegach (83/83) i została przyjęta 2026-11-16 (plan.md, D-001);
+od bramki 4 (D-015) działa jako tools/gate.mjs zamiast gate.sh. -->
 
 # Baseline gate at `rebuild-base` (stage 0)
 
@@ -39,7 +40,8 @@ No failure is a product defect. Two observations go to the stage 2 audit as ques
 
 ## Gate
 
-Accepted at gate 0 (`plan.md` → Decisions, D-001). `sh adrian-rebuild/tools/gate.sh` runs `npm run check` with:
+Accepted at gate 0 (`plan.md` → Decisions, D-001). Since gate 4 (D-015) the same gate runs as `node
+adrian-rebuild/tools/gate.mjs`, with the same two workarounds in `tools/gate-env.mjs`. `sh adrian-rebuild/tools/gate.sh` runs `npm run check` with:
 - `TMPDIR` set to a private directory (mode 700) in the user cache directory (fixes P2);
 - only when `git worktree list -z` fails: `tools/git-worktree-z-shim.sh` as `git`, next to a hard link of `node` in
   `node_modules/.rebuild-gate/`, because test plants put the node binary's directory before `/usr/bin` on `PATH`

@@ -1,8 +1,8 @@
 <!-- PL: Plan przebudowy Limena i punkt wznowienia każdej sesji: wizja, słownik, decyzje Adriana (kopia §2 bramki 2,
-D-008–D-014 z bramki 4: wdrożenie po SHA, format changes.md, narzędzia seata w TypeScript, praca nocna, wznowienie
-projektów po a0.3.0 jako ryzyko z terminem, limit tygodniowy, akceptacja planu), fakty o silniku, 9 etapów z kosztem
-i efektem, 87 ticketów R-NNN z kolumną Run, wdrożenie na seat, pomiary M-01–M-13, protokół subagentów i polecenia
-na allow-listę. Stan: plan przyjęty; czeka na datę z Q6 i akceptację definicji subagentów (bramka 4). -->
+D-008–D-015 z bramki 4: wdrożenie po SHA, format changes.md, narzędzia seata w TypeScript, praca nocna, wznowienie
+projektów po a0.3.0 jako ryzyko z terminem 21.11.2026, limit tygodniowy, akceptacja planu i definicji subagentów),
+fakty o silniku, 9 etapów z kosztem i efektem, 87 ticketów R-NNN z kolumną Run, wdrożenie na seat, pomiary, protokół
+subagentów i polecenia na allow-listę. Stan: bramka 4 zamknięta; następny jest etap 5 w nowej sesji, od R-001. -->
 
 # Rebuild plan
 
@@ -154,8 +154,8 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
 - 2026-11-17 D-012 (gate 4, Q4): the projects resume on the seat after a0.3.0. Until a0.5.0 the risks that stage 5
   closes stay open (the agents' account holds the GitHub token and has an open network; harness code loads from
   worker-writable places; GitHub text and worker-writable files reach the coordinator; A-006, A-007, A-009, A-025,
-  A-028): `accepted-risk` with a deadline. If a0.5.0 is not deployed by the date of open question Q6 in `## State`,
-  Adrian takes the decision again (z. 26). What narrows the risk: T1 of A-004 (the job environment as an allow-list;
+  A-028): `accepted-risk` with a deadline. If a0.5.0 is not deployed by 2026-11-21 (Adrian, gate 4), Adrian
+  takes the decision again (z. 26). What narrows the risk: T1 of A-004 (the job environment as an allow-list;
   git and gh in a job without a credential) moves to stage 3 as R-087, split from R-048 without a change of scope;
   before the projects resume, a GitHub ruleset on `main` of both projects forbids force pushes and deletion (part of
   §7 D1, step 3.11); the seat's GitHub token is fine-grained, with Contents read and write on `synchronizer` and
@@ -166,6 +166,19 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   states the land rule of stages 3–6, and files are deleted and moved with `git rm` and `git mv`, so the allow-list of
   `## Commands` does not change every night. He accepts the subagent definitions separately, after reading them in
   full.
+- 2026-11-17 D-015 (gate 4): Adrian accepts the subagent definitions after these corrections, each guaranteed by a tool
+  with a test (z. 14). Implementer: HEAD and refs stay unchanged, and the index holds only deletions and moves of the
+  paths the ticket's `## Change` names (`review-guard.mjs compare --git`, which also compares git's config and hooks,
+  `input/` and the reserved paths: `plan.md`, `changes.md`, `audit.md`, `taste.md`, every `ticket.md` and
+  `review.md`, `.claude/agents/`, and `tools/` beyond the paths `## Change` names; a violation voids the work); it
+  reads `taste.md` → Part B in full (A-085); network only as the stage's allow-list permits. Reviewer: the main
+  session's `fails-before.mjs` shows that new and changed tests fail at HEAD (a copy of HEAD from `git archive` with
+  the tests laid over it), and the reviewer judges only whether a test checks its mechanism and fails for one reason;
+  it answers the reviewer questions in the `Check` of every rule the diff touches (A-085); `review-verdict.mjs`
+  rejects a reply whose verdict is inconsistent, and the review runs again (AU-126); it runs single tests, never the
+  full gate. The gate itself moves from `gate.sh` to `node adrian-rebuild/tools/gate.mjs` with the same behaviour
+  (D-001's command changes; no shell where Node does, D-010). Checks: `tools/test-review-guard.mjs`,
+  `tools/test-fails-before.mjs`, `tools/test-review-verdict.mjs`.
 
 ### Gate 2 §2, copied
 
@@ -918,19 +931,19 @@ summary of each is a YAML comment inside the front matter, because Claude Code r
 first line; `check.mjs` accepts that form for these two files.
 
 - **rebuild-implementer**: tools `Read`, `Grep`, `Glob`, `Edit`, `Write`, `Bash`; `disallowedTools`: `Agent`. Reads
-  `ticket.md`, `taste.md`, the harness principles in `input/`, the plan's Decisions and Engine facts, and the findings
-  the ticket names. Writes the failing test first, then the change; runs the gate, `check.mjs` and Biome; drafts
-  `outcome.md`. Changes no git state other than `git rm` and `git mv` on its ticket's paths, edits none of the main session's files and none of the checks that judge it. On
-  a question it stops and replies `BLOCKED: <question>` with options and a recommendation; two failures of the same
-  step also end in `BLOCKED`.
+  `ticket.md`, `taste.md` → Part B in full, the harness principles in `input/`, the plan's Decisions and Engine facts,
+  and the findings the ticket names. Writes the failing test first, then the change; runs the gate, `check.mjs` and
+  Biome; drafts `outcome.md`. Leaves HEAD and refs unchanged, stages only `git rm` and `git mv` of the paths that
+  `## Change` names, and changes no reserved path (D-015). On a question it stops and replies `BLOCKED: <question>`
+  with options and a recommendation; two failures of the same step also end in `BLOCKED`.
 - **rebuild-reviewer**: tools `Read`, `Grep`, `Glob`, `Bash`; `disallowedTools`: `Write`, `Edit`, `Agent`. Gets only
   the paths of `ticket.md`, the diff file and `taste.md`; `ticket.md` quotes every decision and engine fact the change
   relies on, so the reviewer checks against them without other inputs. Replies with `PASS` or `FAIL` on line 1, one
   `<ID>: met | not met | unknown: <evidence>` line per criterion, findings as
-  `blocking|note · proven|observed|guessed · <finding> · <evidence>` (T-08), and answers to the per-ticket taste
-  questions (T-40, T-41, T-13, T-14, T-19, T-30). Verdict rule: `PASS` when every criterion is met and no finding is
+  `blocking|note · proven|observed|guessed · <finding> · <evidence>` (T-08), and answers to the reviewer questions in
+  the `Check` of every rule the diff touches. Verdict rule: `PASS` when every criterion is met and no finding is
   blocking, otherwise `FAIL`; a blocking finding is always `proven`, and a suspicion the reviewer cannot prove is a
-  note.
+  note. It runs single tests, never the full gate (D-015).
 
 Mode criterion: `pair` when the ticket's substance is taste (CLI UX, names, messages, the tone of role prompts, the
 shape of a ticket or the board) or when its acceptance cannot be checked by a command; `delegated` otherwise.
@@ -943,6 +956,7 @@ Template of `ticket.md` (`check.mjs` requires these headings in every ticket fol
 ## Problem
 <what is wrong; the sources, quoting each finding's Decision and every plan decision and engine fact the change relies on>
 ## Change
+<what changes; every path that is deleted or moved, and every file of adrian-rebuild/tools/ that changes, in backticks>
 ## Out of scope
 ## Acceptance
 - AC-1: `<command>` → <expected result>
@@ -959,16 +973,21 @@ Protocol per ticket (rebuild stage 5):
 1. The next ticket is the lowest `planned` ID of the current stage whose dependencies are all `done`: in a night run
    only among the `night` tickets; by day among the `day` and `day-after` tickets as well (D-011).
 2. The main session writes `adrian-rebuild/R-NNN-<slug>/ticket.md` and sets the ticket's status to `active`.
-3. `delegated`: the main session runs `node adrian-rebuild/tools/review-guard.mjs snapshot --git >
-   node_modules/.rebuild-review/R-NNN.git`, starts `rebuild-implementer` by its name (not a fork) with the ticket
-   folder's path, changes nothing in the working tree while it runs, and afterwards runs `compare --git` on that file.
-   Exit 1 (a commit or a push by the implementer; the allow-list cannot tell the two sessions apart) voids the run, and
-   Adrian decides. `git rm` and `git mv` stage changes, which the implementer may do on its ticket's paths. On `BLOCKED: …` it asks Adrian, adds the answer to
-   `ticket.md` → `## Decisions`, and resumes the same agent with `SendMessage` to its ID. `pair`: the main session
-   implements with Adrian.
-4. The main session runs `sh adrian-rebuild/tools/gate.sh` itself; its run counts, not a subagent's report. When it
-   fails after `DONE`, the main session resumes the implementer with the output; a second failure of the same step
-   goes to Adrian (z. 1).
+3. `delegated`: the main session runs `mkdir -p node_modules/.rebuild-review` and `node
+   adrian-rebuild/tools/review-guard.mjs snapshot --git > node_modules/.rebuild-review/R-NNN.git`, starts
+   `rebuild-implementer` by its name (not a fork) with the ticket folder's path, changes nothing in the working tree
+   while it runs, and afterwards runs `node adrian-rebuild/tools/review-guard.mjs compare --git
+   node_modules/.rebuild-review/R-NNN.git <ticket.md>`. It exits 1 when HEAD, a ref, git's config or hooks, a file in
+   `input/` or a reserved path changed, or when the index holds anything but deletions and moves of the paths
+   `## Change` names; that voids the run (z. 14), and Adrian decides. The allow-list cannot tell the two sessions
+   apart, so this check is the guarantee. On `BLOCKED: …` the main session asks Adrian, adds the answer to `ticket.md`
+   → `## Decisions`, and resumes the same agent with `SendMessage` to its ID. `pair`: the main session implements with
+   Adrian.
+4. The main session runs `node adrian-rebuild/tools/gate.mjs` itself; its run counts, not a subagent's report. For a
+   change of mechanism it also runs `node adrian-rebuild/tools/fails-before.mjs`, which must exit 0 (the new and
+   changed tests fail at HEAD), and puts its output into the draft `outcome.md` under `## Fails before`. When either
+   fails after `DONE`, the main session resumes the implementer with the output; a second failure of the same step goes
+   to Adrian (z. 1).
 5. Review: `mkdir -p node_modules/.rebuild-review`, then `node adrian-rebuild/tools/review-guard.mjs snapshot >
    node_modules/.rebuild-review/R-NNN.before` and `node adrian-rebuild/tools/review-guard.mjs diff >
    node_modules/.rebuild-review/R-NNN.diff` (an ignored directory, like the gate's helper, so the guard does not see
@@ -976,9 +995,13 @@ Protocol per ticket (rebuild stage 5):
    node_modules/.rebuild-review/R-NNN.before`. Exit 1 voids the review: for each path the guard names, the main
    session runs `git restore --source=HEAD -- <path>` and `git apply --include=<path>
    node_modules/.rebuild-review/R-NNN.diff`; a file the reviewer created is removed with Adrian's approval of
-   `rm <path>`, which is on no list. Then `compare` must exit 0, and the review runs again. The guard compares HEAD, every ref, `git status --porcelain` and a
-   SHA-256 of every changed and untracked file, so a second edit of an already modified file is caught, which the
-   status alone would miss (`tools/test-review-guard.sh`).
+   `rm <path>`, which is on no list. Then `compare` must exit 0, and the review runs again. The guard compares HEAD,
+   every ref, the index, `git status --porcelain` and a SHA-256 of every changed and untracked file, so a second edit
+   of an already modified file is caught, which the status alone would miss (`tools/test-review-guard.mjs`). The main
+   session saves the reviewer's reply to `node_modules/.rebuild-review/R-NNN.reply` and runs `node
+   adrian-rebuild/tools/review-verdict.mjs node_modules/.rebuild-review/R-NNN.reply <ticket.md>`; exit 1 (an
+   inconsistent verdict, AU-126) rejects the reply, and the review runs again; a second rejected reply goes to Adrian
+   (z. 1).
 6. The main session writes the round into `review.md`. It records why it rejects a finding, or adds the findings to fix
    to `ticket.md` → `## Decisions`; the fixes are made by the resumed implementer (`delegated`) or by the main session
    (`pair`), and the review runs again on the new diff. At most two rounds of fixes; then Adrian decides, and his
@@ -995,7 +1018,8 @@ Protocol per ticket (rebuild stage 5):
 The Bash commands rebuild stage 5 runs, for the allow-list in the repo's `.claude/settings.json` (no
 skip-permissions). The rules there apply to the main session and to both subagents alike: the reviewer's read-only
 limit comes from its definition and from `review-guard.mjs` (a change voids the review), and the implementer's from
-its definition and from `compare --git` (protocol step 3), not from the list. Commands run from the repository root,
+its definition and from `compare --git` (protocol step 3), not from the list; the rows below name who runs what, which
+the definitions follow. Commands run from the repository root,
 with relative paths, never through `cd`.
 
 Adrian writes `.claude/settings.json`; the rebuild session never changes its own permissions. The command strings of
@@ -1006,10 +1030,11 @@ Every stage:
 
 | Who | Commands |
 |---|---|
-| main session, implementer, reviewer: reading | `git status`, `git diff`, `git log`, `git show`, `git ls-files`, `git rev-parse`, `git cat-file`, `git grep`, `git for-each-ref`, `ls`, `cat`, `head`, `tail`, `wc`, `grep`, `find` (without `-delete` and `-exec`), `sed -n`, `sort`, `uniq`, `cmp`, `diff`, `file`, `command -v` |
-| main session, implementer, reviewer: checks | `sh adrian-rebuild/tools/gate.sh`, `npm run check`, `npm run typecheck`, `npx tsc --noEmit`, `npx biome check --error-on-warnings <path>`, `node --test <test file>`, `node adrian-rebuild/tools/check.mjs`, `node --test adrian-rebuild/tools/test-changes-entries.mjs`, `sh adrian-rebuild/tools/test-review-guard.sh`, `sh adrian-rebuild/tools/test-pre-push.sh`, `node bin/limen <args>` on a test fixture |
+| everyone: reading | `git status`, `git diff`, `git log`, `git show`, `git ls-files`, `git rev-parse`, `git cat-file`, `git grep`, `git for-each-ref`, `ls`, `cat`, `head`, `tail`, `wc`, `grep`, `find` (without `-delete` and `-exec`), `sed -n`, `sort`, `uniq`, `cmp`, `diff`, `file`, `command -v` |
+| reviewer: checks | `node --test <test file>`, `node bin/limen <args>` on a test fixture (never the full gate, D-015) |
+| main session, implementer: checks | `node adrian-rebuild/tools/gate.mjs`, `npm run check`, `npm run typecheck`, `npx tsc --noEmit`, `npx biome check --error-on-warnings <path>`, `node --test <test file>`, `node adrian-rebuild/tools/check.mjs`, `node --test adrian-rebuild/tools/test-changes-entries.mjs`, `node --test adrian-rebuild/tools/test-review-guard.mjs`, `node --test adrian-rebuild/tools/test-fails-before.mjs`, `node --test adrian-rebuild/tools/test-review-verdict.mjs`, `sh adrian-rebuild/tools/test-pre-push.sh`, `node bin/limen <args>` on a test fixture |
 | main session, implementer: changes | `npx biome format --write <path>`, `npm ci`; `git rm <path>`, `git rm -r <path>` and `git mv <old> <new>` on the paths a ticket's `## Change` names (the cuts of stage 1, R-042 and R-059 replace files, R-083 renames test files, and others); every deletion and move goes through them, so the list stays the same every night (D-014) |
-| main session only | `mkdir -p node_modules/.rebuild-review`; `node adrian-rebuild/tools/review-guard.mjs snapshot`, `snapshot --git`, `diff`, `compare <file>` and `compare --git <file>`; `git restore --source=HEAD -- <path>` and `git apply --include=<path> <diff>` (after a void review); `git add <paths>` (`git add -A -- <paths>` for deletions and renames), `git commit`, `git push origin adrian-rebuild`; `sh adrian-rebuild/tools/install-hooks.sh` (after a move or a new clone); at the close of a stage `git tag <tag> <sha>` (local), the gate-time tool of R-011 and, from stage 4, `node adrian-rebuild/tools/context-size.mjs <ref>` |
+| main session only | `mkdir -p node_modules/.rebuild-review`; `node adrian-rebuild/tools/review-guard.mjs snapshot`, `snapshot --git`, `diff`, `compare <file>` and `compare --git <file> <ticket.md>`; `node adrian-rebuild/tools/fails-before.mjs`; `node adrian-rebuild/tools/review-verdict.mjs <reply> <ticket.md>`; `git restore --source=HEAD -- <path>` and `git apply --include=<path> <diff>` (after a void review); `git add <paths>` (`git add -A -- <paths>` for deletions and renames), `git commit`, `git push origin adrian-rebuild`; `sh adrian-rebuild/tools/install-hooks.sh` (after a move or a new clone); at the close of a stage `git tag <tag> <sha>` (local), the gate-time tool of R-011 and, from stage 4, `node adrian-rebuild/tools/context-size.mjs <ref>` |
 
 In addition, per stage:
 
@@ -1027,8 +1052,8 @@ Never in the list: `git push` of any other ref, `git push --force` or `-f`, `git
 
 ## State
 
-Updated 2026-11-17, rebuild stage 4 (plan) done; the plan is accepted (D-014); gate 4 waits for the date of Q6 and
-for the acceptance of the subagent definitions.
+Updated 2026-11-17, rebuild stage 4 (plan) done; gate 4 closed: the plan accepted (D-014), the subagent definitions
+accepted after corrections (D-015).
 
 Done:
 - Rebuild stages 0–3 with gates 0, 2 and 3 (D-001–D-007); rebuild stage 1 has no gate.
@@ -1046,22 +1071,22 @@ Done:
   cost and effect per stage; the resumption; `## Commands`; two exposed dependencies: R-067 on R-069, R-081 on
   R-082–R-086). Q4 and Q5 → D-012 and D-013 (the projects resume after a0.3.0 as an accepted risk with a deadline; T1
   as R-087 in stage 3, split from R-048; step 3.11; the weekly limit). The plan accepted after two corrections → D-014
-  (the land rule of stages 3–6; `git rm` and `git mv`).
+  (the land rule of stages 3–6; `git rm` and `git mv`). Q6 → the date 2026-11-21 in D-012. The definitions accepted
+  after corrections → D-015 (`review-guard.mjs compare --git`, `fails-before.mjs`, `review-verdict.mjs`, `gate.mjs`,
+  each with a test).
 - The old `limen-prune` timers on the seat were disabled on 2026-11-17 (Adrian); step 3.1 checks it.
 
-Next: once the definitions are accepted, rebuild stage 5 starts with plan stage 1 ("Cut, then one error type and one
-command registry") in a new session, with R-001.
+Next: rebuild stage 5 starts with plan stage 1 ("Cut, then one error type and one command registry") in a new session,
+started in the repository root, with R-001. Before it: Adrian adds the night mode to the rebuild prompt (D-011) and
+writes `.claude/settings.json` from `## Commands`; B.1 and B.2 run on the seat before a0.1.0 is deployed.
 
-Open questions for Adrian:
-- Q6 The date in D-012: by when a0.5.0 must be deployed, after which Adrian takes the decision on the resumption risk
-  again.
-- The acceptance of the subagent definitions, after he reads them in full.
+Open questions for Adrian: none.
 
 Notes for the next session:
 - Start Claude Code in the repository root, so that it loads `.claude/agents/`.
 - Progress lives in this section; the Claude Code task list mirrors the open steps when the tool is available.
 - After moving or re-cloning the repo, run `sh adrian-rebuild/tools/install-hooks.sh` again.
-- Run the gate as `sh adrian-rebuild/tools/gate.sh` (D-001). Before every commit run `node adrian-rebuild/tools/check.mjs`
+- Run the gate as `node adrian-rebuild/tools/gate.mjs` (D-001, D-015). Before every commit run `node adrian-rebuild/tools/check.mjs`
   and `npx biome check --error-on-warnings adrian-rebuild`.
 - Tracked files must not carry home or scratchpad paths; experiments live in the session scratchpad only.
 - Adrian's gate-2 file lives only in `input/` (not tracked); everything in it is now copied into tracked files.
