@@ -156,7 +156,10 @@ Pending (stage 4). Every before/after measurement of prompt-driven behaviour sta
 4: gate 2 §2 (Measurement) in `audit.md`; T-11
 (run time of `npm run check` at every stage tag against the stage 0 baseline); T-15 (share of model replies with
 their own Done / In progress / Waiting for you lines: target 0); T-34 (the number of `sleep` calls and of repeated
-`status` reads in coordinator turns, before and after).
+`status` reads in coordinator turns, before and after); from the stage 3 open questions (`taste.md` → Facts): lead
+time per ticket (spawn to land, split into queue, job runs, checks, review and waiting for the owner), tokens per
+landed ticket, owner touchpoints per landed ticket (T-40), peak CPU and memory per job scope, and the time two projects
+could not both run a job.
 
 ## Agents
 

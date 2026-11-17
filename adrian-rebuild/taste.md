@@ -1,7 +1,7 @@
 <!-- PL: Rubryka taste przebudowy: część A to jawny inwentarz opinii autora Limena wbudowanych w system, część B to
 zasady Adriana (T-NN) z regułą, uzasadnieniem i sposobem sprawdzenia. Po bramce 3 plik jest rubryką obok zasad
 z input/, a nowe decyzje taste dopisuje się tu z datą i źródłem. Stan: część A gotowa (80 opinii autora, 40 już
-rozstrzygniętych bramką 2, 40 otwartych do wywiadu); część B powstaje w wywiadzie z Adrianem (rundy 1–8: T-01–T-39). -->
+rozstrzygniętych bramką 2, 40 otwartych do wywiadu); część B powstaje w wywiadzie z Adrianem (rundy 1–8 i pytania otwarte: T-01–T-41). -->
 
 # Taste
 
@@ -1463,6 +1463,44 @@ the author's choice. Taste decisions taken after this interview are added here w
 - Check: `npm run check` green after the removal; the T-30 comment scan finds no references to the removed tickets;
   `check.mjs` still resolves the references of `audit.md` at `rebuild-base`; the docs hold the pointer.
 - Source: interview round 8, AU-230; departs from the author.
+
+### T-40 Autonomy is kept: an owner touchpoint is a condition or a question, never a permission
+- Rule: The rebuild adds no human gate. Every point where Limen needs Adrian is either a condition that code checks
+  (G3, A-012, A-013) or a `limen ask` with options and a recommendation (T-05, T-15); no step asks him for a
+  permission that code can decide (editing `docs/`, land, the push of `main`: gate 2 §2, A-006, A-012). `limen stats`
+  counts owner touchpoints per ticket by kind (decision, request, escalation) and by cause.
+- Why: what Adrian values most in Limen is its autonomy compared with his earlier systems, where he had to be present
+  all the time; what slows him down today includes frequent requests for permission to change `docs/`, to land and to
+  push (stage 3, open questions).
+- Check: a test that `limen stats` reports owner touchpoints per ticket by kind; a metric for `plan.md` →
+  `## Measurement`: owner touchpoints per landed ticket, before and after (same-task method, gate 2 §2); a reviewer
+  question for every ticket: "does this change add a step that waits for the owner without a `limen ask`?".
+- Source: stage 3 open questions (Adrian, 2026-11-17).
+
+### T-41 One conversational session drives the whole workflow
+- Rule: The owner talks to one coordinator session in his own language (T-13), and that session drives every stage
+  through Limen commands (spawn, land, `ticket commit`, `ask`, `decide`); Adrian never has to run a Limen command for
+  the normal flow of a ticket. His own commands are only the actions of the owner channel (gate 2 §2: `land --owner`,
+  one more round, `abandon` of an escalation, `hold`).
+- Why: Adrian values talking to one session in a human way, a session that has the tools and runs the whole workflow,
+  instead of calling the stages of the workflow by hand (stage 3, open questions); the author's single conversational
+  owner (AU-106) stays for this reason.
+- Check: a reviewer question for every ticket that adds a command: "can the coordinator run it, or is it an
+  owner-channel action by design?"; the same-task run on the seat (gate 2 §2) records the owner's commands per ticket,
+  target 0 outside owner-channel actions.
+- Source: stage 3 open questions (Adrian, 2026-11-17); keeps the author's single owner of the conversation (AU-106).
+
+### Facts from the open questions (stage 3, 2026-11-17)
+- Slowing Adrian down today: the long time spent in one ticket; the token cost (the 5-hour limit stops work often, and
+  he waits); the load on the machine (reviews in one ticket started many CPU- and memory-heavy processes, so the two
+  projects could not work at the same time on the shared seat); frequent requests for permission to change `docs/`,
+  to land and to push.
+- Valued: autonomy compared with his earlier systems; a human conversation with one session that drives the whole
+  workflow with its tools; that this session can set up automations and reminders from a plain description.
+- Nothing else that no round touched (answer to the third question: "nothing for now").
+- Measurements these facts add to `plan.md` → `## Measurement`: lead time per ticket (spawn to land, split into queue,
+  job runs, checks, review and waiting for the owner); tokens per landed ticket; owner touchpoints per landed ticket
+  (T-40); peak CPU and memory per job scope, and the time two projects could not both run a job.
 
 ### Part A items settled by earlier rules
 - AU-129 (ticket shape): the sections come from T-07 (the task takes Outcome, Scope and Out of scope), the budgets are
