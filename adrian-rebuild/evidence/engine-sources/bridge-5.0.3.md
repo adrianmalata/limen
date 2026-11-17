@@ -1,4 +1,4 @@
-<!-- PL: Ten plik to wynik lektury źródeł pakietu `@vanillagreen/pi-claude-bridge` 5.0.3 (wraz z typami Claude Agent SDK 0.3.326 i potrzebnymi fragmentami Pi 1.5.1), przygotowany jako materiał dowodowy do planu przebudowy Limena. Opisuje, jak most mapuje kontekst Pi na wywołania Claude Code, co robi z cache promptów, narzędziami, ustawieniami, oknem kontekstu, limitami subskrypcji, uwierzytelnianiem i poziomem effort. Każde twierdzenie ma odnośnik do linii źródła; rzeczy rozstrzygane wewnątrz samego Claude Code oznaczono jako nierozstrzygnięte, z eksperymentem na stanowisku, który je rozstrzygnie. Stan: lektura źródeł zakończona, eksperymenty na stanowisku jeszcze niewykonane. -->
+<!-- PL: Ten plik to wynik lektury źródeł pakietu `@vanillagreen/pi-claude-bridge` 5.0.3 (wraz z typami Claude Agent SDK 0.3.326 i potrzebnymi fragmentami Pi 1.5.1), przygotowany jako materiał dowodowy do planu przebudowy Limena. Opisuje, jak most mapuje kontekst Pi na wywołania Claude Code, co robi z cache promptów, narzędziami, ustawieniami, oknem kontekstu, limitami subskrypcji, uwierzytelnianiem i poziomem effort, a także co dzieje się z wznawianą sesją Claude Code przy kompakcji Pi (i jak hook powinien ponownie wysłać wiadomość kontekstową Limena) oraz czy wiadomości użytkownika docierają do Claude bez zmian. Każde twierdzenie ma odnośnik do linii źródła; rzeczy rozstrzygane wewnątrz samego Claude Code oznaczono jako nierozstrzygnięte, z eksperymentem na stanowisku, który je rozstrzygnie. Stan: lektura źródeł zakończona, eksperymenty na stanowisku jeszcze niewykonane. -->
 
 # Engine source read: `@vanillagreen/pi-claude-bridge` 5.0.3
 
@@ -299,6 +299,125 @@ Evidence:
 Open:
 - Which effort Claude Code uses when the bridge passes none, and whether the seat CLI accepts `xhigh` for this model. Engine; not settled. Experiment: one turn at each Pi level with `CLAUDE_BRIDGE_DEBUG=1`, then read the `effort=` field of the bridge's `provider: fresh query` debug line (`bridge@5.0.3/src/index.ts#L1180-L1186`) and the per-query CLI debug log.
 
+## 9. Compaction and the resumed session
+
+**Answer.** Every Pi compaction path writes the compaction entry, rebuilds Pi's context and emits `session_compact` before the next model call. The bridge listens to that event (and to `session_tree`). What it does depends on whether one of its queries is still running.
+
+**No bridge query running.** This covers compaction before a new prompt, after a run, overflow compaction, and manual `/compact` (which aborts the run first). The bridge only marks its session record `needsRebuild`, so the next query takes the REBUILD path and rewrites the session in place under the same session id.
+
+**A bridge query running.** This is compaction between turns inside a run, while Claude Code is blocked waiting for Pi's tool results. The bridge marks that query stale and the record `needsRebuild` + `forceRotate`. On Pi's next provider call it kills the child and restarts. The replacement call contains, in order:
+- Pi's post-compaction messages;
+- the user request(s) the killed query was answering, re-sent unless they sit in Pi's trailing user run (they can therefore appear twice if Pi's kept range still holds them);
+- Pi's trailing user run;
+- the bridge's notice `HISTORY_REPLACED_PROMPT` as a final user message.
+
+That call goes through REBUILD under a **new** session id. The bridge refuses to restart only when the child ran calls Pi cannot see (connectors or foreign MCP), which strict MCP with connectors off rules out.
+
+**What the rewritten Claude Code session contains.** It is the conversion of Pi's post-compaction messages before the trailing user run. After a compaction, Pi's projection is `[compaction's system snapshot, compaction summary, kept entries from firstKeptEntryId (system entries skipped), entries after the compaction]`.
+- The system snapshot is dropped, because the bridge drops every `system` message.
+- The summary arrives as a `user` message, `"The conversation history before this point was compacted into the following summary: <summary>…</summary>"`, and becomes one user record.
+- Kept entries are imported as in §1.
+- The old JSONL, including anything Claude Code itself recorded in it, is deleted. `cc-session-io` writes only user and assistant records.
+
+**Which event to use.** `session_compact` is the right hook. It is awaited, it fires after the compaction entry exists and Pi's context has been rebuilt, and in every path it fires before the next model call. `session_before_compact` fires before the compaction exists: the cut point has already been computed, and most messages sent then are only queued.
+
+**Which `sendMessage` options.** Every automatic trigger runs while Pi counts the run as active (`isStreaming`), so the right option depends on where the trigger sits:
+
+| Pi trigger | `reason` / `willRetry` | Next model call | default (`steer`) | `triggerTurn: false` | `deliverAs: "nextTurn"` |
+|---|---|---|---|---|---|
+| Before a new prompt | threshold or overflow / any | first request of the new run | lands, after the prompt | lands, before the prompt | lands, after the prompt |
+| Between turns inside a run | threshold / false | next request of the same run | **lands** | one request late | late (next user prompt) |
+| After a run (threshold, or overflow with a completed reply) | threshold or overflow / false | next user prompt | **starts an extra turn** | **lands** (appended when the run ends) | lands |
+| Overflow, retry the failed turn | overflow / true | the retry request | **lands** | late | late |
+| Manual `/compact` | manual / false | next user prompt | appended at once, no turn | appended at once | lands |
+
+No single option fits every row, and the "after a run" and "between turns" rows carry identical event fields. A hook must therefore track the agent lifecycle. Use `triggerTurn: false` when `agent_end` has fired for the current run and `agent_settled` has not, unless `willRetry` is true. Otherwise use the default steer. A plain call during manual `/compact` appends the message at once.
+
+In none of these rows does the bridge hold the message until a Claude Code turn ends. That deferral applies only to user messages arriving during a running query that is *not* being restarted, and the restart check runs first.
+
+**Can the message survive compaction instead?** Not simply:
+- A `session_before_compact` handler may return its own `{ compaction: { summary, firstKeptEntryId, … } }`. Pi, however, keeps one contiguous range from `firstKeptEntryId` to the compaction entry. Keeping a session-start message therefore means keeping everything after it, which is no compaction at all.
+- The only other carrier is the summary text. The hook would have to generate the summary itself (Pi exports `compact` and `generateSummary`) and prepend the context. Claude would then receive it inside the `<summary>` wrapper as one user record, and the next compaction feeds that summary back to the model as `<previous-summary>` to be rewritten.
+- Re-sending after `session_compact` is simpler.
+- A `context`-event injection is not a substitute with this bridge either. On REUSE only the trailing user run is sent, so content injected earlier in the array reaches Claude only on a REBUILD.
+
+**Does Claude Code compact on its own?**
+- The bridge sets `DISABLE_AUTO_COMPACT=1` and never sends `/compact`.
+- Other possible paths are engine-side and not settled by the sources: `autoCompactEnabled` or `autoCompactWindow` in settings files Claude Code loads (precedence against the env var is unknown), a user text that Claude Code parses as its `/compact` command (see §10), or reactive compaction on an over-long request.
+- The bridge would not notice any of these. A Claude Code compaction leaves Pi's history full, but the bridge's REUSE path keeps resuming Claude Code's compacted session.
+
+Evidence:
+- Bridge listeners: `pi.on("session_compact", … onPiHistoryReplaced("session_compact"))` (`bridge@5.0.3/src/index.ts#L1777-L1778`).
+- Running versus idle: `const running = queryCtx.activeQuery !== null;` → `queryCtx.piHistoryReplaced = true`, then `markSessionForRebuild({ forceRotate: restarts })` (`bridge@5.0.3/src/index.ts#L645-L661`). `markSessionForRebuild` sets `needsRebuild: true` (`bridge@5.0.3/src/bridge-state.ts#L142-L146`). Rebuild in place unless `forceRotate`: `const preserveId = previousSessionId !== undefined && !sharedSession?.forceRotate;` (`bridge@5.0.3/src/session-persistence.ts#L670`).
+- Restart on the next callback: `queryCtx.restartRequest = { model, context, options, stream }; … abortSdkQuery(queryCtx.activeQuery);` (`bridge@5.0.3/src/index.ts#L742-L779`). The refusal for child-side calls is at `#L761-L767`. Re-entry after teardown is at `#L1617-L1645`.
+- Replacement context: `messages: [...piMessages.slice(0, runStart), ...request, { role: "user", content: HISTORY_REPLACED_PROMPT, … }]`, where `request` is pending messages not held by the trailing run, followed by the trailing run (`bridge@5.0.3/src/index.ts#L612-L625`). Notice text: `#L590`.
+- The foreign-conversation guard is skipped when `needsRebuild` is set, so a moved first message after compaction does not turn into a historyless one-shot (`bridge@5.0.3/src/session-persistence.ts#L599-L604`).
+- Pi triggers:
+  - before prompt: `await this._checkCompaction(lastAssistant, false);` (`pi-coding-agent@1.5.1/dist/core/agent-session.js#L1547-L1550`);
+  - after a run: `if (await this._checkCompaction(message))` (`#L1623-L1624`);
+  - between turns: `const context = await this._compactBeforeNextAssistantResponse(turn.context);` (`#L594-L595`), which calls `_runAutoCompaction("threshold", false)` (`#L478-L487`);
+  - overflow and threshold dispatch: `#L2534-L2569`, `#L2602-L2603`;
+  - manual: `await this.abort();` first (`#L2326-L2329`), and `abort()` waits for idle (`#L2073-L2084`).
+- Event order: `appendCompaction(…)` → `_refreshFinalizedContext()` → `await this._extensionRunner.emit({ type: "session_compact", … })` → `compaction_end` (`pi-coding-agent@1.5.1/dist/core/agent-session.js#L2682-L2705`; manual `#L2393-L2424`). After an auto compaction: `if (willRetry) return true; … return this.agent.hasQueuedMessages();` (`#L2706-L2710`). Event fields: `reason: "manual" | "threshold" | "overflow"` and `willRetry` (`pi-coding-agent@1.5.1/dist/core/extensions/types.d.ts#L633-L641`).
+- `sendMessage` options: `triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn"` (`pi-coding-agent@1.5.1/dist/core/extensions/types.d.ts#L350-L353`). Dispatch:
+  - `nextTurn` → `_pendingNextTurnMessages`;
+  - streaming + `triggerTurn !== false` → `agent.steer` or `followUp`;
+  - streaming + `triggerTurn: false` → `_pendingCustomMessages`;
+  - idle → appended at once (`pi-coding-agent@1.5.1/dist/core/agent-session.js#L1946-L1984`).
+  - `isStreaming` returns `this._isAgentRunActive` (`#L1127-L1129`), which is set at run start (`#L1487-L1488`) and cleared in the run's `finally` (`#L1528-L1535`).
+- Queue drain points:
+  - pending custom messages are flushed at `turn_end` (`pi-coding-agent@1.5.1/dist/core/agent-session.js#L849-L856`), before `agent.prompt` (`#L1501-L1504`) and at run end (`#L1533-L1534`);
+  - next-turn messages are consumed in `_prepareRun` after its compaction check (`#L1575-L1577`);
+  - steering is polled at loop start (`pi-agent-core@1.5.1/dist/agent-loop.js#L89-L90`), again after `prepareNextTurn` ("Pick up steering queued while it ran", `#L112-L117`), and pushed before the request (`#L120-L127`). The re-poll runs only if the `turn_end` poll (`#L191`) returned nothing. So if another steer was already queued at that boundary, the context message moves one turn later;
+  - `continue()` from an assistant tail turns queued steering into a new run (`pi-agent-core@1.5.1/dist/agent.js#L262-L267`), which is the extra turn;
+  - queued custom messages are persisted at `message_end` (`pi-coding-agent@1.5.1/dist/core/agent-session.js#L814-L820`), and each request is built from the session projection (`#L494-L500`).
+- Lifecycle markers: `agent_start` and `agent_end` (`pi-coding-agent@1.5.1/dist/core/extensions/types.d.ts#L764-L771`), and `agent_settled` "after an agent run has fully settled" (`#L820-L825`). `agent_end` is emitted at loop end (`pi-agent-core@1.5.1/dist/agent-loop.js#L212`), before Pi's post-run compaction check (`pi-coding-agent@1.5.1/dist/core/agent-session.js#L1513-L1515`).
+- Post-compaction projection: a compaction entry becomes `[entry.systemMessage, summary]` (`pi-coding-agent@1.5.1/dist/core/session-manager.js#L187-L190`). The kept range runs contiguously from `firstKeptEntryId` and skips system entries (`#L216-L227`). Summary → user: `case "compactionSummary": return { role: "user", … COMPACTION_SUMMARY_PREFIX + m.summary + … }` (`pi-coding-agent@1.5.1/dist/core/messages.js#L103-L110`). The prefix text is at `#L7-L12`.
+- Bridge conversion has no branch for `system`, so those messages are dropped (`bridge@5.0.3/src/convert.ts#L141-L202`). The comment states "`system` entries are dropped by convertPiMessages" (`bridge@5.0.3/src/session-persistence.ts#L646-L653`). `cc-session-io` writes only `type: "user"` and `type: "assistant"` records (`bridge@5.0.3/bundle/index.js#L39727-L39763`), and `deleteSession` removes the JSONL plus its companion directory (`#L39869-L39878`).
+- Custom compaction: `SessionBeforeCompactResult { cancel?; compaction?: CompactionResult }` (`pi-coding-agent@1.5.1/dist/core/extensions/types.d.ts#L1157-L1160`), whose fields are `summary` and `firstKeptEntryId: string` (`pi-coding-agent@1.5.1/dist/core/compaction/compaction.d.ts#L18-L27`). Pi exports `compact` and `generateSummary` (`pi-coding-agent@1.5.1/dist/index.d.ts#L6`). The previous summary is fed back as `<previous-summary>` (`pi-coding-agent@1.5.1/dist/core/compaction/compaction.js#L517-L530`).
+- Pi's summary request also goes through the bridge, as a one-shot: `cacheRetention: "none", sessionId: options.sessionId ?? uuidv7()` (`pi-coding-agent@1.5.1/dist/core/compaction/compaction.js#L477-L484`), run by the bridge in its own lane with no tools (`bridge@5.0.3/src/index.ts#L684-L689`; `bridge@5.0.3/src/query-options.ts#L93-L98`). Its `SUMMARIZATION_SYSTEM_PROMPT` (`compaction.js#L500-L508`) is not forwarded (§1); the instructions that sit in the user text are.
+- Auto threshold: `contextTokens > contextWindow - settings.reserveTokens`, with defaults `reserveTokens: 16384` and `keepRecentTokens: 20000` (`pi-coding-agent@1.5.1/dist/core/compaction/compaction.js#L53-L57`, `#L173-L177`). Against the registered 1,000,000 window this fires near 983,616 tokens, which assumes Claude Code really has 1M (§5).
+- Claude Code compaction: `DISABLE_AUTO_COMPACT: "1"` and "Manual /compact in CC still works (we never invoke it)" (`bridge@5.0.3/src/query-options.ts#L141-L152`). The bridge's `system` case handles only `init` and `model_refusal_fallback` (`bridge@5.0.3/src/consume-query.ts#L212-L262`), so `compact_boundary` (`agent-sdk@0.3.326/sdk.d.ts#L4032-L4038`) is ignored. Settings keys: `autoCompactEnabled` (`agent-sdk@0.3.326/sdk.d.ts#L10040-L10043`) and `autoCompactWindow` (`#L9800-L9802`).
+
+Open:
+- End-to-end ordering on the seat (the table above is derived from code). Experiment: a scratch session with `CLAUDE_BRIDGE_DEBUG=1` and a Pi `compaction.reserveTokens` setting large enough to force auto compaction. Run one manual `/compact` and one auto compaction during a tool loop, then grep the bridge log for `session_compact: marking needsRebuild`, `restarting query on replaced history` and `syncResult: path=rebuild`, and check that the context message appears in the next Claude Code JSONL user record.
+- Whether Claude Code ever compacts on its own despite `DISABLE_AUTO_COMPACT=1`. Not settled. Experiment: after a long job, grep that job's Claude Code session JSONL (Claude config directory, `projects/<cwd>/`) for `compact_boundary`.
+
+## 10. Message integrity
+
+**Answer.** The bridge passes Pi user-message text through **verbatim**: no truncation, no length cap, no escaping and no rewriting. Markdown and XML-like tags are untouched. The bridge does have rewrites, but none of them touch user text:
+- the AGENTS file's `pi`→`environment` and `.pi`→`.claude`;
+- the skills block's read-tool hint;
+- tool names (`mcp__custom-tools__` prefix) and tool argument keys;
+- XML escaping inside the opt-in prompt-context blocks only.
+
+Pi itself turns a string custom message into one text block.
+
+**REUSE, text-only run.** Content changes shape, not text. Each message is flattened: its text blocks are joined with `"\n"`, a non-text, non-image block becomes `"[type]"`, and a message with no text block contributes `""`. The messages are then joined **in Pi order with `"\n\n"`**, and the SDK sends that string as one text block of one user message. Two consecutive custom messages A and B become `A + "\n\n" + B`; with the user prompt after them, `A\n\nB\n\nPrompt`. Nothing is trimmed (the text is only tested for emptiness), and an entirely empty prompt is replaced by `"[continue]"`.
+
+**REUSE, run containing an image.** The bridge sends a content-block array instead: every non-empty text block stays its own block, images are base64 blocks, and a `{type:"text", text:"\n\n"}` block separates messages. Other block types are dropped.
+
+**REBUILD.** **Each Pi user or custom message is its own record.** String content is kept as-is (`"[empty]"` if empty). For array content, non-empty text and image blocks are kept unjoined, other types are dropped, and `"[image]"` stands in when nothing remains. `cc-session-io` stores string content unchanged. For array content it moves `tool_result` blocks into a separate record and puts the remaining blocks in one user record. It serialises with `JSON.stringify`, and its pairing repair only touches messages next to an unpaired `tool_use`.
+
+Deferred steers use the same join, and the restart notice is joined on as one more `"\n\n"` part.
+
+**Size.** The bridge has no limit. pi-ai's model metadata carries `maxRequestBytes: 33554432`, but the bridge never consults it. A Claude Code CLI or SDK limit on one prompt is not settled by the sources. How Claude Code itself treats the text is also engine-side, for example whether a leading `/` is parsed as a slash command and what context Claude Code adds around the turn.
+
+Evidence:
+- Pi: `case "custom": { const content = typeof m.content === "string" ? [{ type: "text", text: m.content }] : m.content; return { role: "user", … } }` (`pi-coding-agent@1.5.1/dist/core/messages.js#L89-L96`).
+- REUSE string path: `messages.map((message) => typeof message.content === "string" ? message.content : messageContentToText(message.content) || "").join("\n\n")` (`bridge@5.0.3/src/index.ts#L202-L207`). Flattening: `parts.push(block.text)` / `` parts.push(`[${block.type}]`) `` / `return hasText ? parts.join("\n") : ""` (`bridge@5.0.3/src/convert.ts#L47-L59`).
+- REUSE block path: `if (messageIndex > 0) blocks.push({ type: "text", text: "\n\n" });`, with text blocks kept and images as base64 (`bridge@5.0.3/src/index.ts#L212-L247`), sent through `wrapPromptStream` (`#L284-L290`) when there are images (`#L1158-L1160`).
+- SDK send: a string prompt is written as `{ type: "user", … message: { role: "user", content: [{ type: "text", text: n }] } }` (`bridge@5.0.3/bundle/index.js#L73344`), over `--input-format stream-json` (`#L65522`).
+- Empty-only substitution: `promptText = "[continue]"` (`bridge@5.0.3/src/index.ts#L1138-L1156`). Deferred replay keeps the untrimmed text: `prompt: prompt?.trim() ? prompt : null` (`#L276-L281`).
+- REBUILD: "Rebuild imports each pi user message as its OWN record" (`bridge@5.0.3/src/convert.ts#L143-L148`), using `userMessageToAnthropic` (`#L97-L109`).
+- `cc-session-io`: `if (typeof msg.content === "string") { this.addUserMessage(msg.content); }`, and otherwise `tool_result` blocks go to `addToolResults` and the rest to `addUserMessage(rest)` (`bridge@5.0.3/bundle/index.js#L39811-L39838`). Serialisation is `JSON.stringify(record2)` (`#L39489-L39491`). Repair touches only messages after an assistant with unpaired `tool_use` ids (`#L39517-L39576`). The bridge inserts its own placeholders first (`bridge@5.0.3/src/session-persistence.ts#L363-L370`).
+- Rewrites live elsewhere: AGENTS (`bridge@5.0.3/src/agents-md.ts#L110-L117`), skills hint (`bridge@5.0.3/src/skills.ts#L19-L24`), tool names and keys (`bridge@5.0.3/src/tool-mapping.ts#L46-L85`), escaping only in opt-in blocks (`bridge@5.0.3/src/prompt-context.ts#L147-L168`).
+- Size metadata: `"maxRequestBytes":33554432` in the `chat:claude-opus-5-5` entry (`pi-ai@1.5.1/dist/providers/data/anthropic.json#L1`). The bridge's model re-homing (`bridge@5.0.3/src/native-provider.ts#L80`) does not use it.
+
+Open:
+- The end-to-end size limit and verbatim delivery. Not settled. Experiment: in a scratch session, send one custom message of about 100 KB of Markdown with unique sentinels at its start, middle and end plus XML-like tags. Ask the model to quote the three sentinels, then compare the text of the Claude Code JSONL user record with the Pi session entry.
+- Slash-command parsing of a leading `/`. Engine; not settled. Same scratch session: send a message whose first line starts with `/` and check the CLI debug log (`CLAUDE_BRIDGE_DEBUG=1`) for command handling. Until then, Limen's context message should not start with `/`.
+
 ---
 
 ## Summary
@@ -313,3 +432,5 @@ Open:
 | 6. Limits/errors | `stopReason "error"` + CLI text; reset time only on `kendex:rate-limit` event (legacy). | partly |
 | 7. Auth/env | Whole `process.env` forwarded; cwd AGENTS, trusted `.pi` config, Claude Code project settings. | partly |
 | 8. Effort | Model map then fallback; `xhigh→xhigh` for Opus 5.5; `--effort` plus summarized display. | yes |
+| 9. Compaction | REBUILD (mid-run: restart, notice, new id); re-send on `session_compact`, option per trigger. | partly |
+| 10. Message integrity | User text verbatim, no cap; REUSE joins run with `"\n\n"`; REBUILD per-message records. | partly |

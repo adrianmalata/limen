@@ -1,7 +1,8 @@
 <!-- PL: Audyt Limena przy tagu rebuild-base: mapa systemu (etap 1), znaleziska A-NNN z dowodami i werdyktami
 względem rubryki (etap 2) oraz decyzje Adriana z bramki 2 (pole Decision w każdym znalezisku i sekcja Gate 2:
 decisions z faktami z seata, decyzjami przekrojowymi G1–G4, S, S1+ i rozstrzygnięciami pytań). Twierdzenia bez dowodu
-trafiają do sekcji To verify. Stan: bramka 2 zamknięta (fix 75, rejected 9, rejected / fix 1); pole Final dojdzie w etapie 6. -->
+trafiają do sekcji To verify. Stan: bramka 2 zamknięta w rewizji 3 decyzji Adriana (86 znalezisk, w tym A-086 o promptach
+ról, które nie docierają przez bridge; fix 76, rejected 9, rejected / fix 1); pole Final dojdzie w etapie 6. -->
 
 # Audit of Limen at `rebuild-base`
 
@@ -97,18 +98,21 @@ base prompt, built-in tools, skills and `AGENTS.md` loading are outside the repo
 ## Gate 2: decisions
 
 Adrian's decisions at gate 2, 2026-11-16/17, taken on this audit as it stood on 2026-11-16 (85 findings, 22
-hypotheses, Q1–Q11). Source: Adrian's gate-2 decisions file (local input, not published); this section copies its §1,
-§2 and §4–§7, and keeps its § numbers so that references such as "§2" or "§7 D1" resolve. §3 (one decision per
+hypotheses, Q1–Q11), in their final form (revision 3 of 2026-11-17). Revision 2 added A-086, found by the rebuild
+session in the bridge 5.0.3 source during the §7 B task; revision 3 moved job text and the handoff note to tool results
+(A-008, A-009, A-078). Source: Adrian's gate-2 decisions file (local input, not published); this section copies its
+§1, §2 and §4–§7 and keeps its § numbers so that references such as "§2" or "§7 D1" resolve. §3 (one decision per
 finding) is the `Decision` field of every finding below; §8 (corrections to the target environment) is `plan.md` →
 `## Decisions` D-004; §9 (owner actions on the seat) is `plan.md` → `## Deployment`. The main session's
 recommendations that these decisions replace are in commit `26fcd13`.
 
-Counts: fix 75, rejected 9, rejected / fix 1 (A-046); no finding is wholly `accepted-risk`. Accepted risks sit inside
+Counts: fix 76, rejected 9, rejected / fix 1 (A-046); no finding is wholly `accepted-risk`. Accepted risks sit inside
 the decisions where they apply (marked `accepted-risk`) and in §2 (G2). Vocabulary: `fix` = a ticket in this rebuild;
 `fix (via X)` = closed by decision X; `rejected` = untrue, not applicable or compliant; `accepted-risk` = stays, with a
 reason; there is no `deferred`. "Agents' account" = the Unix account that runs the coordinator and every job today;
-"owner channel" = a separate account reached only by Adrian's own key with a forced command (§2, B1″). First person
-("I", "my") in the sections below is Adrian.
+"owner channel" = a separate account reached only by Adrian's own key with a forced command (§2, B1″); "Limen context
+message" = the user-role message that carries Limen's standing instructions (A-086). First person ("I", "my") in the
+sections below is Adrian.
 
 ### §1 Facts established at gate 2 (seat data, 2026-11-16/17)
 
@@ -132,6 +136,16 @@ reason; there is no `deferred`. "Agents' account" = the Unix account that runs t
 - Real ledger data is not on the seat.
 - Synchronizer commits per path: `docs/` 41, `CLAUDE.md` 1, `spec/vision.md` 1, `.agents/limen/` 6.
 - Pi on the seat is **1.5.1**, in use (not 1.2.0). Bridge `@vanillagreen/pi-claude-bridge` 5.0.3.
+- Bridge 5.0.3 sends Claude Code the `claude_code` preset plus an append made only of the nearest
+  `AGENTS.override.md`/`AGENTS.md`, Pi's skills block and, if enabled in bridge settings (off by default),
+  `APPEND_SYSTEM.md` and three named extension blocks (`src/query-options.ts:109-113, 167-169`,
+  `src/prompt-context.ts`, `src/agents-md.ts`). Claude Code loads `CLAUDE.md` itself. Everything Limen adds to Pi's
+  system prompt (role preamble, coordinator manual, register, capability frame, vision, styleguide, board digest)
+  never reaches the model. Messages (task, cues, wakes, steers) and tool results do.
+- Consequence: M1 of both projects ran without any of Limen's prose. Today's seat behaviour is the baseline
+  "without Limen prose".
+- Under the bridge every message Limen injects reaches the model as `user`; only tool results have another role.
+  Text written by a job model therefore reaches the coordinator as data only through a tool result.
 - An extra full checkout of the Limen package exists in the agents' home directory; nothing found loads it. To be
   confirmed at deployment (§9).
 - Limen will probably run on macOS in the future (not in this rebuild, see A-083).
@@ -207,6 +221,8 @@ Environment variables (`LIMEN_JOB`, `LIMEN_COORDINATOR`, `HERDR_PANE_ID`) no lon
 a coordinator command.
 
 **Measurement (for `plan.md` → `## Measurement`).**
+- Baseline caveat (A-086): today's seat runs without Limen's prose, so a before/after comparison of prompt-driven
+  behaviour compares "no Limen prose" with "Limen prose delivered"; record this in every such measurement.
 - Method (z. 40, z. 41): compare Limen before and after the rebuild on the **same task** (identical input: commit and
   task file; same model and reasoning; clean state), several attempts (z. 17), result as pass^k. Candidate: a closed
   synchronizer M1 ticket that went through several review rounds, replayed from its parent commit, the merged change
@@ -270,7 +286,10 @@ in Herdr's cgroup (A-029); session-ID changes (A-033); compaction and owner deci
 - how the bridge passes tool restrictions to Claude Code (A-081) and the name of the subagent tool as Pi's
   `tool_call` hook sees it (A-029);
 - whether `CLAUDE.md` from the worktree is loaded under the bridge (A-042);
-- the context window the bridge reports for Opus 5.5 (cost 8; A-034 thresholds).
+- the context window the bridge reports for Opus 5.5 (cost 8; A-034 thresholds);
+- how Pi's compaction interacts with the Claude Code session the bridge resumes between Pi turns, so that the hook
+  re-sends the Limen context message at the right moment (A-086);
+- whether the bridge keeps each Pi user message intact in the request (A-086: the context message must arrive whole).
 Every decision that depends on an answer already has its fallback (e.g. A-042: inject when not loaded). Where the
 sources do not settle a point, add a seat verification step to `## Deployment`.
 
@@ -296,7 +315,9 @@ from a merged candidate), checked every reference with `tools/check.mjs`, and ve
 and high finding against `rebuild-base` by hand. A cold read by a fresh subagent (`evidence/audit-pass2/cold-read.md`,
 41 remarks) led to the definitions below, the `Note` fields and the merged questions in `## To verify`.
 
-Counts: critical 4, high 12, medium 35, low 34. Low findings with verdict `compliant` record mechanisms that hold.
+Counts: critical 5, high 12, medium 35, low 34 (86 findings). A-086 was added after gate 2, on 2026-11-17, from the
+source read of Pi 1.5.1 and bridge 5.0.3 (gate 2 §7 B); Adrian decided it in revision 2 of his gate-2 file. Low
+findings with verdict `compliant` record mechanisms that hold.
 
 Definitions:
 - **People.** Adrian is the owner and operator of the seat; "the human" is Adrian. Adam Gospodarczyk (overment) is
@@ -419,6 +440,7 @@ intents: `evidence/audit-pass2/history.md`.
 | A-083 | low | cross-cutting | n/a | macOS-only branches on a Linux-only seat | K-23 | new | fix |
 | A-084 | low | cross-cutting | non-compliant | Developer docs drift from the code | K-25 | new | fix |
 | A-085 | low | cost | n/a | Duplicated text across templates | K-27 | known | fix |
+| A-086 | critical | reliability | non-compliant | Limen's role prompts and coordinator manual never reach the model under the Claude bridge | none (gate 2 §7 B) | new | fix |
 
 ### A-001 Prune deletes the uncommitted work of every finished job, automatically
 - Area: reliability
@@ -538,7 +560,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Status: new
 - History: Related: the author wants the whole report in the final message (`spec/features/active/F954-a-private-assessment-combines-verified-collaboration-counts-from-both-session-stores/group/teams/team-1.md:9`; see A-078). No source discusses how it is framed or whether it is trusted.
 - Note: Missing framing means: the result goes into a user-role prompt after a plain `Final message:` header (`src/job/wake-text.ts:35-37`), with no delimiter marking it as job-authored data, no length bound, and the harness's own landing instruction after it (`src/job/wake-text.ts:94-98`).
-- Decision: fix — A wake has two separate parts: (1) Limen's header (id, state, check summary, first verdict line, path to the full `result`); (2) job data as a separate message in a non-user role, marked as data, length-limited (e.g. 40 lines or 4 KB) with a truncation note. Limen text never follows job data. No "land it" sentence. `accepted-risk` (G2): a job overwriting another job's `result`.
+- Decision: fix — A wake contains **only a header computed by Limen** (id, state, verdict, check and judgment results, failure kind, round, path to the full `result`), never text written by the job. The coordinator fetches the job's content with a command (e.g. `limen jobs <id> --result`), length-limited and with the path to the full file, so it arrives as a tool result (z. 15), the same pattern as `limen github show` (A-007). No "land it" sentence. Land is decided by code from record fields (G3), so the coordinator fetches content only when it needs it, e.g. for a repair brief from the reviewer's findings. `accepted-risk` (G2): a job overwriting another job's `result`.
 
 ### A-009 Coordinator-handoff turns a worker-writable file into the first user message of a fresh coordinator session
 - Area: security
@@ -553,7 +575,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Status: new
 - History: Related only: the retro saw that the "replacement authority" between shepherd notes was unclear (`spec/research/limen-ops-retro-2026-09-10.md:117`). No source names the handoff file.
 - Note: Severity assumes `coordinator-handoff.ts` is installed on the seat (Q7).
-- Decision: fix — The handoff note goes through a tool registered by the extension in the coordinator process (`handoff(note)`), with no trigger files in `.limen/`; the file is only an archive written by the extension. The new session gets the note wrapped as a previous session's note (data), never as instructions or owner decisions.
+- Decision: fix — The handoff note goes through a tool registered by the extension in the coordinator process (`handoff(note)`), with no trigger files in `.limen/`; the file is only an archive written by the extension. The new session's first message carries only a pointer; the session reads the note with a command (e.g. `limen handoff show`), so it arrives as a tool result, as a previous session's note (data), never as instructions or owner decisions.
 
 ### A-010 Any job can set seat-wide rules that every coordinator on the seat receives each turn and as a typed prompt
 - Area: security
@@ -978,7 +1000,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Status: new
 - History: The author's core keeps two system-prompt appends (`spec/features/active/F957-first-principles-cut-of-limen-architecture-new-graph-marks-unvaluable-parts/ticket.md:38`). No source discusses cache invalidation.
 - Note: Assumes the usual prompt-cache order (tools, then system, then messages); where the bridge places cache breakpoints is To verify (Q9).
-- Decision: fix — The system prompt is assembled once at `session_start` and never changes during the session (coordinator and jobs); rules stay in it, so they survive compaction. The board digest (NOW, NEXT) leaves the system prompt: the hook appends a compact version at the end of the context only when it differs from the last delivered one. A change to vision, styleguide or the manual during a session: one appended notice "changed <file>, new text from the next session" with the path. Measurement: cache-write tokens in the turn after a land, before and after (with A-078).
+- Decision: fix — The Limen context message (A-086) is assembled once at `session_start` and never changes during the session (coordinator and jobs). The board digest (NOW, NEXT) is not part of it: the hook appends a compact version at the end of the context only when it differs from the last delivered one. A change to vision, styleguide or the manual during a session: one appended notice "changed <file>, new text from the next session" with the path. Nothing Limen needs the model to read goes into Pi's system prompt (it does not reach the model under the bridge). Measurement: cache-write tokens in the turn after a land, before and after (with A-078).
 
 ### A-038 Job roles carry the human register, the ticket rules and maintainer notes
 - Area: cost
@@ -992,7 +1014,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: K-03
 - Status: new
 - History: Related: F952 measured the whole always-on context per role (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/revision-2/design.md:12`), not the register's share of it.
-- Decision: fix — One communication style for all of Limen (package only, same for every project), split by audience into three registers: **owner** (Human, reporting work; coordinator only), **agent** (Shared, Agent, Before you send; every role), **specs** (coordinator and keeper only). Maintainer notes (`templates/communication.md:3`, `:124-126`) move out of the injected text into documentation. A disabled module contributes no sections.
+- Decision: fix — One communication style for all of Limen (package only, same for every project), delivered in the Limen context message (A-086) and split by audience into three registers: **owner** (Human, reporting work; coordinator only), **agent** (Shared, Agent, Before you send; every role), **specs** (coordinator and keeper only). Maintainer notes (`templates/communication.md:3`, `:124-126`) move out of the injected text into documentation. A disabled module contributes no sections.
 
 ### A-039 One register file serves the coordinator and every job; the Polish override reaches all jobs
 - Area: cost
@@ -1048,7 +1070,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: K-08
 - Status: new
 - History: The owner lists drift detection as a strength (owner's analysis l. 34), not its repetition in every prompt.
-- Decision: fix — The coordinator manual and role prompts always come from the package; overrides by `AGENTS.md`, `.agents/limen/worker.md`, `.agents/limen/reviewer.md` are cut. Limen guarantees that the project's `CLAUDE.md` and `AGENTS.md` (if present) reach every role's context as project context, next to Limen's instructions, never instead of them: if the engine loads them, a test proves it; if not, Limen injects them into the frozen system prompt. Drift tracking and its prompt advisory are cut; `limen status` lists leftover template copies once; `limen init --drop-leftovers` removes them. Condition: real ledger data never sits on the agents' account; if it ever had to be on the seat, the boundary is a filesystem permission, not a rule in `CLAUDE.md`.
+- Decision: fix — The coordinator manual and role prompts always come from the package (delivered in the Limen context message, A-086); overrides by `AGENTS.md`, `.agents/limen/worker.md`, `.agents/limen/reviewer.md` are cut. Limen guarantees that the project's `CLAUDE.md` and `AGENTS.md` (if present) reach every role as project context, next to Limen's instructions, never instead of them: under the bridge, Claude Code loads `CLAUDE.md` and the bridge forwards the nearest `AGENTS.md`, so Limen does not duplicate them and a seat check proves it (§9); with an engine that loads neither, Limen includes them in the context message. Drift tracking and its prompt advisory are cut; `limen status` lists leftover template copies once; `limen init --drop-leftovers` removes them. Condition: real ledger data never sits on the agents' account; if it ever had to be on the seat, the boundary is a filesystem permission, not a rule in `CLAUDE.md`.
 
 ### A-043 The capability frame tells every agent that time is abundant, on a shared quota
 - Area: cost
@@ -1174,7 +1196,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: K-26
 - Status: new
 - History: Related: the owner says the fake-engine tests check mechanics, not behaviour that comes from prose (owner's analysis l. 35). F950 added 72 exact-wording checks (owner's analysis l. 110). Whether they cover the assembled prompt was not checked.
-- Decision: fix — A golden test per role and mode (detached, continuation): the exact system prompt and first message against a reference file. A second test: with unchanged files the system prompt is byte-identical across two prompts, and the board digest appears at the end of the context only after a change.
+- Decision: fix — A golden test per role and mode (detached, continuation): the exact Limen context message (A-086) and the first task message against a reference file. A second test: with unchanged files the context message is byte-identical across two prompts, it is re-sent after a compaction, and the board digest appears at the end of the context only after a change. A third check, on the seat: the bridge's per-query CLI log (`CLAUDE_BRIDGE_DEBUG=1`) shows the role text in the request, because a fake engine cannot show what the bridge drops (§9).
 
 ### A-052 An engine killed by a signal is recorded as a requested stop
 - Area: reliability
@@ -1556,7 +1578,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: K-14
 - Status: known (`spec/features/active/F954-a-private-assessment-combines-verified-collaboration-counts-from-both-session-stores/group/teams/team-1.md:9`)
 - History: DELIBERATE: "Call finish with the whole final report, not just its note check". A likely reason: some saved results held only note checks, and their drafts had to be recovered from transcripts (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/group/synthesis.md:35`).
-- Decision: fix (via A-008) — Measurement: coordinator cache-read tokens per landed ticket, before and after.
+- Decision: fix (via A-008) — Wakes carry no job text, so job reports no longer accumulate in the coordinator's history. Measurement: coordinator cache-read tokens per landed ticket, before and after.
 
 ### A-079 Continuations re-cache the whole transcript behind a changed prefix
 - Area: cost
@@ -1570,7 +1592,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: K-15
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
-- Decision: fix — The frozen system prompt (A-037) is saved in the job directory; `continue`, `resume --quota` and later group rounds reuse the parent's saved prompt, with one appended notice for files changed since. `continue --review` is cut; a re-review is always a new review job with the prior-findings file.
+- Decision: fix — The Limen context message of a session (A-037, A-086) is saved in the job directory; `continue`, `resume --quota` and later group rounds reuse the parent's saved message, with one appended notice for files changed since. `continue --review` is cut; a re-review is always a new review job with the prior-findings file.
 
 ### A-080 A group lead gets a model turn per peer batch
 - Area: cost
@@ -1655,6 +1677,21 @@ intents: `evidence/audit-pass2/history.md`.
 - Status: known (`spec/research/limen-ops-retro-2026-09-10.md:150`)
 - History: The retro: "Keep prompt policy in one place" and remove conflicting defaults. Its example: the worker's full-native-lane line competes with focused budgets.
 - Decision: fix — One copy of each fact, in the role that acts on it; the finish-ping paragraph goes (G1.3); a sentence-duplicate check over `templates/*.md` (the audit's script) joins `npm run check`.
+
+### A-086 Limen's role prompts and coordinator manual never reach the model under the Claude bridge
+- Area: reliability
+- Severity: critical
+- Location: `src/runtime/engine.ts:248`, `hook/communication.ts:102-105`, `test/fake-engine.mjs:120-121`, `templates/reviewer.md:20`, `templates/agents.md:157`, `docs/setup.md:123`
+- Evidence: Limen puts the role preamble and its whole system block into Pi's system prompt: `args.push("--append-system-prompt", slots.preamble);` (`src/runtime/engine.ts:248`) and ``systemPrompt: event.systemPrompt ? `${event.systemPrompt}\n\n${extra}` : extra,`` (`hook/communication.ts:104`). On the seat's only route (`docs/setup.md:123`: "A `pi-claude` model runs on the Claude Code bridge"), bridge 5.0.3 builds Claude Code's system prompt from the `claude_code` preset plus an append of `[agentsAppend, skillsAppend, promptContextAppend.text]` and nothing else (`bridge@5.0.3/src/query-options.ts#L109-L113`, `#L167-L170`; the same code is in `bridge@5.0.3/bundle/index.js`, which Pi loads). Pi's prompt is read only to cut out the skills block (`bridge@5.0.3/src/index.ts#L1086`, `bridge@5.0.3/src/skills.ts#L8-L17`). The bridge README names the only other forwarding: four opt-in blocks, each off by default (`bridge@5.0.3/README.md#L44`, `#L64`). The fake engine records the system prompt the hook returns (`test/fake-engine.mjs:120-121`), so every test sees text that the bridge drops. Detail: `evidence/engine-sources/bridge-5.0.3.md` §1.
+- Rule: z. 24, z. 18, z. 4
+- Verdict: non-compliant
+- Direction: Move every instruction Limen needs the model to read out of Pi's system prompt into a channel the engine delivers verbatim. Prove delivery with a test of what the model receives and a seat check of the request itself.
+- Scenario: A review job on the seat (Pi 1.5.1, bridge 5.0.3, Opus 5.5) gets the reviewer preamble through `--append-system-prompt`, and Claude Code never sees it. The verdict line `PASS <sha>` / `FAIL <sha>` (`templates/reviewer.md:20`) and the blocking-finding rules are absent, the job ends `done`, and Limen reports nothing. The coordinator likewise works without the shop manual, including its review-filing step (`templates/agents.md:157`); this is consistent with the missing `review-N.md` files in one project (gate 2 §1). All 83 tests stay green, because the fake engine reads the system prompt where the bridge does not.
+- Candidates: none (found in the gate 2 §7 B source read, 2026-11-17; `evidence/engine-sources/bridge-5.0.3.md` §1)
+- Status: new
+- History: Related only: the author ran group teams on `pi-claude/claude-opus-5-5` (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/group/synthesis.md:31`) and stated the role in the team's task text (`spec/features/active/F954-a-private-assessment-combines-verified-collaboration-counts-from-both-session-stores/group/teams/team-2.md:3`). No source in the pass-2 set says that the bridge drops Pi's system prompt.
+- Note: Added after gate 2 (2026-11-17). The defect lies in the pairing of Limen at `rebuild-base` with the engines named in gate 2 §1 (Pi 1.5.1, bridge 5.0.3), not in Limen's code alone. A-037, A-038, A-040 and A-077 measured the cost and cache effects of text that never reaches the model on this route. Seat confirmation: `plan.md` → `## Deployment` item 12.
+- Decision: fix — Critical. Under bridge 5.0.3 nothing Limen adds to Pi's system prompt reaches the model (§1). Limen's standing instructions move to the **Limen context message**: at session start the hook sends one user-role message, marked as Limen's standing instructions, assembled from the package and the published copy (A-011: read-only for agents; the hook code is root-owned, A-025), containing per role the capability frame (A-043), the role prompt or coordinator manual, the registers for that role's audience (A-038), the enabled modules' text (A-040), vision and styleguide where the role gets them, and the owner decisions in scope (A-034). It is frozen for the session (A-037), saved in the job directory (A-079), and re-sent after every compaction (z. 4). Limen stops appending to Pi's system prompt. `AGENTS.override.md` in the working directory was rejected: the file would sit in a directory the agents' account can write, so a job could replace the coordinator's instructions at system-prompt level. `APPEND_SYSTEM.md` was rejected for the same reason and because the global file is per account, not per role. A bridge fork or PR was rejected: outside Limen.
 
 ## Pass 2: hypotheses from the owner's analysis
 

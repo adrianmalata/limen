@@ -1,7 +1,8 @@
 <!-- PL: Plan przebudowy Limena i punkt wznowienia każdej sesji: wizja, decyzje Adriana, etapy, tickety R-NNN, kroki
 wdrożenia na seat, pomiary, definicje subagentów i sekcja State. Nowa sesja zaczyna od State i ostatnich wpisów
-changes.md. Stan: bramki 0 i 2 zamknięte (D-001–D-004), fakty o Pi 1.5.1 i bridge'u 5.0.3 w Engine facts, czynności
-Adriana na seacie w Deployment; czeka decyzja o nowym znalezisku (prompty ról nie docierają przez bridge); etap 3 trwa. -->
+changes.md. Stan: bramki 0 i 2 zamknięte (D-001–D-004, decyzje w rewizji 3, w tym A-086: wiadomość kontekstowa Limena
+zamiast system promptu), fakty o Pi 1.5.1 i bridge'u 5.0.3 w Engine facts (E-1–E-14), czynności Adriana na seacie w
+Deployment; etap 3 (taste) się zaczyna. -->
 
 # Rebuild plan
 
@@ -18,8 +19,9 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   must exit 0 with no new failure against `evidence/baseline.md` (83/83).
 - 2026-11-16 D-002 (gate 0): commits on `adrian-rebuild` use the repo-local GitHub noreply identity of `2b8006f`, not the
   laptop's global identity.
-- 2026-11-17 D-003 (gate 2): Adrian's decision on each of the 85 findings is the `Decision` field in `audit.md` (fix 75,
-  rejected 9, rejected / fix 1). The cross-cutting decisions are in `audit.md` → `## Gate 2: decisions` → §2: G1 features
+- 2026-11-17 D-003 (gate 2, final form: revision 3 of Adrian's file): Adrian's decision on each of the 86 findings is
+  the `Decision` field in `audit.md` (fix 76, rejected 9, rejected / fix 1; A-086 added in revision 2, A-008, A-009 and
+  A-078 changed in revision 3). The cross-cutting decisions are in `audit.md` → `## Gate 2: decisions` → §2: G1 features
   and module switches (optional modules off by default), G2 isolation (T1 in code; owner channel B1″, egress allow-list
   and research account B2c on the seat), G3 land by conditions in code with no human gate, G4 review verdict parsed in
   code and required for every change outside `spec/`, S seat tooling in this repo, S1+ one `record.json` per job, the
@@ -61,15 +63,20 @@ the sources itself.
 | E-10 | Reasoning level (A-030) | Pi's level maps through the model's own table: for Opus 5.5 `high` → `--effort high`, `xhigh` → `--effort xhigh`; no level → Claude Code's default. | A-030 | yes |
 | E-11 | Extension API Limen relies on | `before_agent_start` runs once per run (each prompt sent while idle), not per LLM turn; a returned `systemPrompt` applies to that run only. `sendMessage` custom messages reach the model as `user` (`display: false` hides them from the TUI only); `appendEntry` stays out of the context. `/new` and `ctx.newSession()` give a new session ID, re-run extension factories and keep the CLI options. | A-009, A-033, A-037, A-008 | yes |
 | E-12 | `--append-system-prompt` text or path | Text, or the file's contents when the value names an existing file relative to the cwd. | (hosted mode, cut) | yes |
+| E-13 | Pi compaction vs the resumed Claude Code session (§7 B, revision 2; A-086) | Every Pi compaction path writes the compaction entry, rebuilds Pi's context and awaits `session_compact` before the next model call; the bridge listens to the same event. With no bridge query running (before a prompt, after a run, overflow, manual `/compact`), the next query rewrites the Claude Code session in place; between turns of a run, the bridge kills the query and restarts it under a new session id, re-sending the pending request and a "history replaced" notice. The rewritten session holds Pi's summary as one user record plus the kept entries; system entries are dropped. The hook re-sends the context message on `session_compact`, but no single `sendMessage` option fits every trigger: the default (steer) lands in the next request except after a run, where it starts an extra turn; there `triggerTurn: false` is right (between `agent_end` and `agent_settled`, `willRetry` false). Keeping the message through compaction instead is not simpler (Pi keeps one contiguous range). Claude Code's own auto-compaction is off; whether settings can turn it back on is engine-side. | A-086, A-037, A-079 | partly: end-to-end order is a seat check |
+| E-14 | Does each Pi user message reach the request intact (§7 B, revision 2; A-086) | Yes, as far as the bridge goes: no truncation, length cap, escaping or rewriting of user or custom text (its rewrites touch only the AGENTS text, the skills hint and tool names). When the session is reused, consecutive user messages are joined in order with a blank line into one prompt (text blocks of one message joined with a newline); on a rewrite each message is its own record, stored unchanged. The bridge has no size limit; a Claude Code limit on one prompt, and whether a leading `/` is parsed as a command, are engine-side. Until settled, the context message never starts with `/`. | A-086, A-051 | partly: size limit and verbatim delivery of a ~100 KB message are seat checks |
 
 **Consequences (main session, 2026-11-17).**
-- **New finding, awaiting Adrian's decision (proposed A-086, critical):** on the seat's only route, Limen's role prompts and
-  coordinator manual are silently absent. Fake-engine tests pass, and nothing reports it. Every rule that exists only
-  there has had no effect on the seat, e.g. the reviewer's `PASS <sha>` first line (`templates/reviewer.md:20`) and the
-  coordinator's review-filing step. The premise of A-037 ("rules stay in the system prompt") and the fallback of A-042
-  ("Limen injects them into the frozen system prompt") do not hold on this route. A-008's "non-user role" does not exist
-  either: every injected message arrives as `user`, and only tool results carry another role. The stage 1 measurement
-  of fixed context counts text that the seat's model never receives.
+- **A-086 (critical, `fix`; Adrian, gate 2 revision 2):** E-1 means that on the seat's only route Limen's role
+  prompts and coordinator manual are silently absent, while the fake-engine tests pass. Limen's standing instructions
+  move to the **Limen context message**: one user-role message at session start, frozen for the session, saved in the
+  job directory and re-sent after every compaction (E-13, E-14). Limen stops appending to Pi's system prompt. A-037,
+  A-038, A-042, A-051 and A-079 changed with it.
+- **Job text and the handoff note (Adrian, gate 2 revision 3):** every injected message arrives as `user`; only tool
+  results have another role. So a wake carries only a header computed by Limen, and the coordinator fetches job
+  content and the handoff note with a command, as a tool result (A-008, A-009, A-078).
+- The stage 1 measurement of fixed context counts text that the seat's model never receives. Every before/after
+  comparison of prompt-driven behaviour compares "no Limen prose" with "Limen prose delivered" (gate 2 §2, Measurement).
 - Within decisions already taken (no new choice): jobs drop `--approve` and add `--offline`, `CLAUDE_BRIDGE_ISOLATED=1`
   and a private `TMPDIR` or `JITI_FS_CACHE=0` (A-025, E-3, E-4); the T1 allow-list is the only environment filter,
   because the bridge forwards everything (A-004, E-4); read-only roles get a non-empty Pi `--tools` allowlist (A-081,
@@ -105,15 +112,16 @@ runs it. Stage 4 sets the order, the exact commands and the steps after each sta
 9. `limen init` answers per project: `maxJobs`, round limit, routes, project gate command, module switches (all off).
 10. Migrate records (S1+) and rewrite open tickets' `## Acceptance` (A-031) at their next spawn.
 11. Bell: first installation and the ntfy app on Adrian's phone (A-066, A-054).
-12. Seat verification of the points the Pi and bridge sources could not settle (`## Engine facts`): a job quoting the
-    first rule of `CLAUDE.md`'s "Real data" section (A-042, E-7); tool restrictions and the skills a job sees (A-081,
-    E-5, E-6); `systemd-run --user --scope true` from a Herdr pane on the agents' account (A-029). From the source read,
-    each with the exact procedure in `evidence/engine-sources/`: one job turn with `CLAUDE_BRIDGE_DEBUG=1` to confirm
-    the system-prompt append and whether each turn reuses or rewrites the Claude Code session (E-1, E-2); Claude Code's
-    cache TTL (`modelUsage` 5m vs 1h) and context window for `claude-opus-5-5` on the Max login (E-2, E-8); whether
-    a `rate_limit_event` arrives for the 5-hour and weekly limits (E-9); the jiti cache path and `-e` module resolution
-    (E-4); the `claude` binary and its version on `PATH` (E-1). The subagent tool name is settled by the source (E-5:
-    always denied).
+12. Seat verification of the points §7 B could not settle from the package sources: the bridge's per-query CLI log
+    (`CLAUDE_BRIDGE_DEBUG=1`) shows the Limen context message in the request, and a review job's final message starts
+    with `PASS <sha>` or `FAIL <sha>` (A-086, A-051); a job quoting the first rule of `CLAUDE.md`'s "Real data" section
+    and one quoting the project's `AGENTS.md` if it exists (A-042); the subagent tool name under the bridge (A-029);
+    tool restrictions and the skills a job sees (A-081); `systemd-run --user --scope true` from a Herdr pane on the
+    agents' account (A-029). Added from the source read (`## Engine facts`; procedures in `evidence/engine-sources/`):
+    whether each turn reuses or rewrites the Claude Code session (E-1, E-2); Claude Code's cache TTL (`modelUsage` 5m vs
+    1h) and its context window for `claude-opus-5-5` on the Max login (E-2, E-8); whether a `rate_limit_event` arrives
+    for the 5-hour and weekly limits (E-9); the jiti cache path and `-e` module resolution (E-4); the `claude` binary
+    and its version on `PATH` (E-1). The source already settles the subagent tool: always denied (E-5).
 13. Reboot test: Herdr restores the coordinator pane (A-033); jobs survive a Herdr restart (A-029, `systemd-cgls`).
 14. Measurements "before" (gate 2 §2, Measurement): one raw request of a coordinator and of a job; cache tokens per
     landed ticket and in the turn after a land; the same-task baseline run.
@@ -129,29 +137,27 @@ Pending (stage 4).
 
 ## State
 
-Updated 2026-11-17, gate 2 applied and §7 B answered; stage 3 (taste) starting.
+Updated 2026-11-17, gate 2 applied in its final form (revision 3) and §7 B answered; stage 3 (taste) starting.
 
 Done:
 - Stage 0 closed at gate 0: test gate `sh adrian-rebuild/tools/gate.sh` (D-001), commit identity (D-002).
 - Stage 1: `audit.md` → `## Map`; detail in `evidence/map/`; tools `spec-index.mjs`, `context-size.mjs` +
   `role-context.mjs`, `check.mjs`.
 - Stage 2: 85 findings, 22 hypotheses, cold read (`evidence/audit-pass1/`, `evidence/audit-pass2/`).
-- Gate 2 (2026-11-17): Adrian's decisions applied. Every finding has `Decision` (fix 75, rejected 9, rejected / fix 1);
-  `audit.md` → `## Gate 2: decisions` holds §1, §2, §4–§7 of his file; §8 is D-004, §9 is `## Deployment`; D-003
-  binds the plan to them. `check.mjs` now requires `Decision` and checks that `fix (via X)` names a fixed finding or a
-  gate-2 item: `node adrian-rebuild/tools/check.mjs` → 85 findings (fix 75, rejected / fix 1, rejected 9), 923
-  references, 0 errors. Gate `sh adrian-rebuild/tools/gate.sh` → 83/83, exit 0.
+- Gate 2 (2026-11-17): Adrian's decisions applied in revision 3 of his file. Every finding has `Decision` (fix 76,
+  rejected 9, rejected / fix 1); A-086 added (revision 2); A-008, A-009, A-037, A-038, A-042, A-051, A-078, A-079
+  changed. `audit.md` → `## Gate 2: decisions` holds §1, §2, §4–§7; §8 is D-004, §9 is `## Deployment`; D-003 binds the
+  plan to them. `check.mjs` requires `Decision` and checks `fix (via X)` targets: `node adrian-rebuild/tools/check.mjs`
+  → 86 findings (fix 76, rejected / fix 1, rejected 9), 937 references, 0 errors. Gate `sh adrian-rebuild/tools/gate.sh`
+  → 83/83, exit 0 (run after the `check.mjs` change).
 - Gate 2 §7 B: Pi 1.5.1 and bridge 5.0.3 sources read by two subagents, key claims checked by the main session;
-  answers in `## Engine facts` (E-1–E-12), detail in `evidence/engine-sources/`; unsettled points added to
-  `## Deployment` item 12.
+  answers in `## Engine facts` (E-1–E-14), detail in `evidence/engine-sources/`; unsettled points in `## Deployment`
+  item 12.
 
-Next:
-- Adrian decides the new finding from E-1 (proposed A-086: how Limen's frozen role text reaches the model through the
-  bridge, and where job data goes instead of a non-user role, A-008). Record it as `A-086` with `Decision` in
-  `audit.md` and as a D-NNN entry here.
-- Stage 3: Part A (author's taste inventory, delegated, result in `evidence/taste/`), then the interview, then Part B.
+Next: stage 3. Part A (author's taste inventory, delegated, result in `evidence/taste/`), then the interview with
+Adrian (AskUserQuestion, at most 4 questions per turn, one area per turn, highest priority first), then Part B.
 
-Open questions for Adrian: the E-1 decision above.
+Open questions for Adrian: none.
 
 Notes for the next session:
 - The Claude Code task list tool is not available in this session; progress lives in this section.
