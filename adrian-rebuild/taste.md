@@ -1114,23 +1114,33 @@ the author's choice. Taste decisions taken after this interview are added here w
   tree stays untouched. (2) Spawn refuses until the ticket's commit is in the published copy (A-031 (2), A-011), and
   `next` says when to retry. (3) A git hook on `main` refuses commits not made by a Limen command and points at `ticket
   commit` (a mistake guard, not a boundary, z. 14).
-- Open (shown to Adrian): A-006 publishes `main` by fast-forward only, so one uncovered commit holds back every correct
-  commit after it, and no recovery is described. Proposal, deleting nothing (z. 29): the owner channel's notification
-  offers `hold <sha>`, an owner-channel action that (i) publishes up to the parent of the first uncovered commit, (ii)
-  moves that commit and every commit after it onto the branch `limen/held/<sha>`, (iii) resets the agents' `main` to the
-  published tip, and (iv) leaves the covered commits to be replayed onto `main` by `limen replay <branch>`, which makes
-  new commits, each with a coverage entry that names its original; a conflict stops with exit code 1 and a `next`. The
-  uncovered change itself becomes a ticket or is dropped. Alternative: `cover <sha>`, an owner-channel action that
-  covers a commit after Adrian has looked at it, so publication continues; recommended only together with `hold`, for
-  an innocent mistake such as a hand commit of a ticket.
+- Recovery when an uncovered commit holds back publication (a gap in A-006, which publishes `main` by fast-forward
+  only, so one uncovered commit holds back every correct commit after it). Deleting nothing (z. 29): the owner
+  channel's notification offers `hold <sha>`. (1) The owner channel does not move `main` in the agents' repo; it only
+  records the hold decision where the agents' account can read it (as the published copy, A-011). Limen performs the
+  steps on the agents' account in `seat sweep`, only when no job runs (the rule of D3): it publishes up to the parent
+  of the first uncovered commit, moves that commit and every commit after it onto the branch `limen/held/<sha>`,
+  resets the agents' `main` to the published tip, and wakes the coordinator with a computed header. The reset in the
+  coordinator's checkout uses `git reset --keep` and refuses on a conflict with uncommitted changes. `limen replay
+  <branch>` then puts the covered commits back onto `main` as new commits, and the uncovered change becomes a ticket or
+  is dropped. (2) The coverage entry of a commit recreated by `replay` is valid only when its `git patch-id --stable`
+  equals that of the covered original; other content exits with code 1 and a `next`. (3) The `limen/held/<sha>`
+  branches live until a human deletes them (as in A-002), and `limen status` lists them; the bell gets the event kind
+  `uncovered-commit` with the fixed fields project and SHA (A-066). Rejected: `cover <sha>`, an owner approval that
+  would turn reflexive (gate 2 §1) and would publish content no gate checked; the hook of (3) above stops innocent
+  mistakes.
 - Why: the author forbids these things in prose (about 855 tokens of the specs register), and nothing checks them
   (AU-131).
 - Check: `limen ticket check` tests on fixtures (one valid ticket, one ticket per rule, and a false hit inside a code
   block that must pass); a refusal test with the rule ID, the line and the fix; the specs register's tokens measured
   before and after with the stage 1 script; a test that `ticket commit` commits no file outside the ticket's folder; a
-  test that spawn refuses before the ticket's commit is published; a test of the hook on `main`.
-- Source: interview round 6, AU-131, and its follow-up (`ticket commit` with its three conditions; the A-006 recovery
-  gap); departs from the author.
+  test that spawn refuses before the ticket's commit is published; a test of the hook on `main`; a test on a fixture
+  repo (covered A, uncovered U, covered B): after `hold`, A is published, `limen/held/U` holds U and B, `main` is A +
+  B′ with patch-id(B′) = patch-id(B) and a coverage entry, and publication goes on; a test that `replay` with other
+  content exits with code 1; a test that `hold` waits while a job runs; a test that the reset refuses on a conflict
+  with an uncommitted change in the coordinator's checkout.
+- Source: interview round 6, AU-131, and its follow-ups (`ticket commit` with its three conditions; the A-006
+  recovery by `hold` and `replay`); departs from the author. Resolved.
 
 ### T-23 The board is a generated view
 - Rule: Code generates the whole board; `spec/build.md` is a one-way view (z. 22), with no section written by the
