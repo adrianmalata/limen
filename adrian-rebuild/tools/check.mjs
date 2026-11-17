@@ -37,7 +37,7 @@ const OPTIONAL = {
 	Final: /^(fixed \(R-\d{3}(, R-\d{3})*\)|accepted-risk \(.+\)|rejected \(.+\))$/,
 };
 // Plan tickets (stage 4): one row of `## Tickets` per ticket, columns in this order.
-const COLUMNS = ["ID", "Title", "Stage", "Sources", "Depends", "Size", "Mode", "Mig.", "API", "Seat", "Status"];
+const COLUMNS = ["ID", "Title", "Stage", "Sources", "Depends", "Size", "Mode", "Run", "Mig.", "API", "Seat", "Status"];
 const SOURCE = /^(A-\d{3}|T-\d{2}|G1\.\d+|G[2-4]|§\d|S1\+|H-\d{2}|E-\d+|D-\d{3})$/;
 const ENGINE_APIS = new Set(["pi", "bridge", "herdr", "systemd"]);
 const STATUS = /^(planned|active|done|dropped \(.+\))$/;
@@ -300,12 +300,18 @@ function checkTicket(ticket, index, all, context) {
 		}
 	}
 	for (const dependency of ticket.Depends === "—" ? [] : ticket.Depends.split(", ")) {
-		const target = all.findIndex(({ ID }) => ID === dependency);
-		if (target < 0 || target >= index || Number(all[target].Stage) > Number(ticket.Stage)) {
-			errors.push(`${where}: dependency ${dependency} is not an earlier ticket of this or an earlier stage`);
+		const target = all.find(({ ID }) => ID === dependency);
+		if (target === undefined || target === ticket || Number(target.Stage) > Number(ticket.Stage)) {
+			errors.push(`${where}: dependency ${dependency} is not a ticket of this or an earlier stage`);
 		}
 	}
-	const formats = { Size: /^(S|M|L)$/, Mode: /^(delegated|pair)$/, "Mig.": /^(yes|—)$/, Status: STATUS };
+	const formats = {
+		Size: /^(S|M|L)$/,
+		Mode: /^(delegated|pair)$/,
+		Run: /^(night|day|day-after)$/,
+		"Mig.": /^(yes|—)$/,
+		Status: STATUS,
+	};
 	for (const [column, pattern] of Object.entries(formats)) {
 		if (!pattern.test(ticket[column])) {
 			errors.push(`${where}: ${column} "${ticket[column]}" is outside ${pattern}`);
@@ -329,6 +335,45 @@ function checkSeatSteps(ticket, steps, where) {
 			errors.push(`${where}: deployment step ${step} does not exist`);
 		} else if (!steps.get(step).includes(ticket.ID)) {
 			errors.push(`${where}: deployment step ${step} does not name ${ticket.ID}`);
+		}
+	}
+}
+
+/** The tickets a ticket depends on, directly or through others (the ticket itself is included only on a cycle). */
+function dependencyClosure(ticket, byId) {
+	const closure = new Set();
+	const queue = [ticket];
+	while (queue.length > 0) {
+		for (const id of queue.pop().Depends.split(", ")) {
+			const target = byId.get(id);
+			if (target !== undefined && !closure.has(target)) {
+				closure.add(target);
+				queue.push(target);
+			}
+		}
+	}
+	return closure;
+}
+
+/** D-011: no delegated ticket depends on a pair ticket of its stage; `Run` follows from the mode and the dependencies. */
+function checkRuns(tickets) {
+	const byId = new Map(tickets.map((ticket) => [ticket.ID, ticket]));
+	for (const ticket of tickets) {
+		const closure = dependencyClosure(ticket, byId);
+		if (closure.has(ticket)) {
+			errors.push(`${PLAN}: ${ticket.ID}: lies on a cycle of dependencies`);
+		}
+		const sameStage = [...closure].filter(({ Stage }) => Stage === ticket.Stage);
+		const pairs = sameStage.filter(({ Mode }) => Mode === "pair").map(({ ID }) => ID);
+		if (ticket.Mode === "delegated" && pairs.length > 0) {
+			errors.push(
+				`${PLAN}: ${ticket.ID}: delegated, but depends on the pair ticket(s) ${pairs.join(", ")} of its stage`,
+			);
+		}
+		const afterNight = sameStage.some(({ Mode }) => Mode === "delegated");
+		const run = ticket.Mode === "delegated" ? "night" : afterNight ? "day-after" : "day";
+		if (ticket.Run !== run) {
+			errors.push(`${PLAN}: ${ticket.ID}: Run is "${ticket.Run}", but its mode and dependencies make it "${run}"`);
 		}
 	}
 }
@@ -410,6 +455,7 @@ function checkPlan(planText, auditText, list, tasteIds) {
 			errors.push(`${PLAN}: stage ${number} has no ticket`);
 		}
 	}
+	checkRuns(tickets);
 	checkCoverage(tickets, list, tasteIds, section(planText, "Tickets"));
 	checkGateCopy(planText, auditText);
 	checkDeployCalls(planText, stages);

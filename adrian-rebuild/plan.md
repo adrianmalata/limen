@@ -1,8 +1,8 @@
-<!-- PL: Plan przebudowy Limena i punkt wznowienia każdej sesji: wizja, słownik, decyzje Adriana (z dosłowną kopią §2
-bramki 2 i rozstrzygnięciami bramki 4: D-008 skrypt wdrożenia po SHA, D-009 format changes.md, D-010 narzędzia seata
-w TypeScript), fakty o silniku, 9 etapów z tagami, 86 ticketów R-NNN, kroki wdrożenia na seat, pomiary M-01–M-13
-i protokół subagentów. Nowa sesja zaczyna od sekcji State i ostatnich wpisów changes.md. Stan: etap 4 gotowy,
-sprawdzony przez check.mjs i cold read; czeka na akceptację planu i definicji subagentów na bramce 4. -->
+<!-- PL: Plan przebudowy Limena i punkt wznowienia każdej sesji: wizja, słownik, decyzje Adriana (kopia §2 bramki 2,
+D-008–D-011 z bramki 4: wdrożenie po SHA, format changes.md, narzędzia seata w TypeScript, praca nocna), fakty
+o silniku, 9 etapów z kosztem i efektem każdego, 86 ticketów R-NNN z kolumną Run (noc albo dzień), wdrożenie na seat
+z warunkami wznowienia projektów, pomiary M-01–M-13, protokół subagentów i lista poleceń na allow-listę. Nowa sesja
+zaczyna od State i ostatnich wpisów changes.md. Stan: czeka na odpowiedzi na Q4 i Q5 oraz na akceptację planu i definicji subagentów (bramka 4). -->
 
 # Rebuild plan
 
@@ -39,7 +39,8 @@ rebuild stage N; from `## Stages` on, "stage N" means plan stage N, and a rebuil
 - **Pi**, **bridge**, **Herdr**: the coding-agent engine (Pi 1.5.1); its provider `@vanillagreen/pi-claude-bridge`
   5.0.3, which runs Claude Code on the Claude Max subscription; the terminal multiplexer whose panes and tabs hold the
   coordinator and the job logs.
-- **Max window**: the 5-hour and the weekly usage limits of that one subscription, shared by every session on the seat.
+- **Max window**: the 5-hour and the weekly usage limits of that one subscription, shared by every session on the seat
+  and by the rebuild's sessions on Adrian's laptop.
 - **`rebuild-base`**: the local tag of the commit `3b5edd7` the rebuild starts from; every `path:line` reference in this
   file points there.
 - **IDs**: A-NNN findings and the gate-2 items G1–G4, S1+, §N and H-NN (`audit.md`); T-NN taste rules (`taste.md`);
@@ -141,6 +142,15 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   `shellcheck` only on the seat. Check: a scan finds no `.sh` file in `seat/` and `bin/` beyond the exception list;
   golden tests of the generated units and nftables rules; a test of the deployment script: a failed verification
   returns to the previous SHA with code 4.
+- 2026-11-17 D-011 (gate 4, Adrian's additions before he accepts the plan): no delegated ticket depends, directly or
+  through other tickets, on a pair ticket of its own stage, so the delegated tickets of every stage can run in a night
+  run without Adrian, and the pair tickets run by day, before or after it (`## Tickets` → `Run`, checked by
+  `check.mjs`). To get there, R-013 and R-014 move to stage 1, and R-067, R-069, R-070 and R-071 to stage 7; no ticket
+  changes its scope, and none is merged. The arrangement exposed two missing dependencies, now in the table: R-067 on
+  R-069 (the label's round, T-24) and R-081 on R-082–R-086 (docs from the final code, A-084). The plan also states the cost and the effect of each stage, the earliest
+  stage after which the projects can resume on the seat, and the commands each stage needs for the allow-list in the
+  repo's `.claude/settings.json`. The night mode itself (questions in `adrian-rebuild/questions.md` instead of a stop,
+  hard exits, resume after a limit) is Adrian's addition to the rebuild prompt before rebuild stage 5.
 
 ### Gate 2 §2, copied
 
@@ -333,20 +343,55 @@ Adrian decides: go on, a fix, or a change of the plan. A fix is a ticket in the 
 steps and the seat measurements are Adrian's; the next stage does not wait for them unless he says so. When a seat
 step fails, Adrian chooses the rollback of 0.7 or a fix. The next stage starts in a new session.
 
-### Stage 1 — Cut what the seat does not use (a0.1.0)
+### Cost and effect per stage
+
+Adrian's cost per stage: the pair tickets he works on by day, the decisions the plan already expects from him, and
+the seat steps of `## Deployment`: the stage's own steps N.0–N.k, where N.0 is the deployment by 0.1–0.3, plus the
+measurements before (B.1 and B.2 before a0.1.0, B.3 after a0.2.0). Delegated tickets may also stop with `BLOCKED`
+questions; their number cannot be known in advance.
+
+| Stage | Tag | Tickets: S / M / L | Pair (Run) | Expected decisions | Seat steps |
+|---|---|---|---|---|---|
+| 1 | a0.1.0 | 14: 3 / 7 / 4 | 1: R-014 (day-after) | 4: gate 5.1; the golden help of R-014 (the wording is set by T-19, Adrian confirms the output); the same-task ticket before B.2 (R-011); the leftover list before `--drop-leftovers` (1.1) | 4 (1.0 bootstrap), plus B.1 and B.2 before it |
+| 2 | a0.2.0 | 11: 0 / 9 / 2 | 0 | 3: gate 5.2; id collisions in the record migration report (2.1); the `LIMEN_*` variables to remove (2.4) | 5, plus B.3 |
+| 3 | a0.3.0 | 12: 0 / 8 / 4 | 0 | 3, plus one per unlanded job: gate 5.3; the account names (3.3); `continue` or `abandon` for each finished job with unlanded work (3.6) | 10 |
+| 4 | a0.4.0 | 10: 2 / 6 / 2 | 2: R-041, R-046 (day-after) | 4: gate 5.4; the cue wording (R-041); the role prompt texts and their glossary of terms (T-14, R-046); the modules to switch on (4.9) | 10 |
+| 5 | a0.5.0 | 13: 0 / 9 / 4 | 0 | 3: gate 5.5; the owner channel's key, forced command and tokens (5.1); the domains added to the egress list (5.16) | 20 |
+| 6 | a0.6.0 | 7: 0 / 1 / 6 | 3: R-065, R-066, R-068 (day-after) | 5: gate 5.6; the refusal and message texts of the ticket commands (R-065); the board, and which old prose sections go to `docs/` (R-066, 6.4); the question blocks (R-068); the `limen init` values (6.1) | 5 |
+| 7 | a0.7.0 | 9: 3 / 4 / 2 | 1: R-073 (day-after) | 2: gate 5.7; the footer wording (R-073) | 6 |
+| 8 | a0.8.0 | 4: 1 / 1 / 2 | 0 | 2: gate 5.8; whether to switch on groups and research (8.1, 8.2) | 3 |
+| 9 | a1.0.0 | 6: 2 / 3 / 1 | 2: R-081 (day-after), R-085 (day) | 3: gate 5.9; the docs and `SECURITY.md` text (R-081); the final help (R-085) | 2 |
+
+What changes in daily work on the seat once the stage's tag is deployed:
+
+| Stage | Change |
+|---|---|
+| 1 | Cut commands and flags refuse with a pointer (`--tab`, `highlight`, `ticket-author`, `wait`, `ticket series`, `continue --review`, webhooks, Devin, Linear, OMP, scout). Every command ends with a JSON line and exits with a failure-class code; `limen --help` is the grouped help; `limen jobs` is `limen status --all` and `limen show <id>`, `limen queue` is `limen seat queue`. Tags deploy through `seat/deploy.ts`. |
+| 2 | Job records live in `record.json` (migrated once). A job is named by its full id or its final token of 8 hex characters, never by a label (T-20, R-022). `LIMEN_*` settings in the environment no longer apply, except the two route variables. `limen stats` reports from the records. |
+| 3 | Unlanded work is never pruned or retired: `limen abandon <id>` keeps it on a branch, and spawn refuses while such a job is unresolved. Reads never reap; `limen seat sweep` on a timer finalises dead jobs every minute (A-024, R-032). After a 5-hour limit, jobs resume by themselves 5 minutes after the reset, with no seat rule and no manual resume. Job failures and long start-queue waits ring the phone (escalations from stage 7). A `limen land` that stopped half-way continues when it runs again. |
+| 4 | The models get Limen's instructions for the first time (coordinator manual, role prompts), so their behaviour changes (measured by M-05). The turn cue no longer demands English: its audience line names the language (T-13). Jobs end without the task-note turn; a read-only role that writes fails; a `sleep` of 30 s or more is refused in the coordinator (T-34, R-047); modules are off unless switched on in `limits.json`. |
+| 5 | Coordinators start only through the root start script. Jobs hold no GitHub credential and reach only allow-listed domains. The owner channel publishes `main`, so Adrian stops pushing; owner files change only through the owner channel. Wakes carry a header, and the coordinator reads a result with `limen show <id> --result` (A-008, R-051); the handoff note goes through a tool; a hand commit on `main` is refused. |
+| 6 | Tickets move through `limen ticket start`, `drop` and `commit`; the board is generated, with no hand edits; `limen ticket check` is strict. `maxJobs`, the routes and the gate command come from `limits.json` and `routes.json`; the round limit is stored there and used from stage 7. Limen runs every `Check` when a job ends; the review verdict is parsed; questions go through `limen ask` and `limen answer`. Land itself is as before. |
+| 7 | `limen spawn <role> <FNNN>` (`FNNN`: the ticket's number) builds the task and the label (`--label` and free task text refuse). Review rounds are bounded and end in `limen escalate`; Limen files the review reports; land happens only when the conditions in code hold, with no "land" from Adrian. `limen decide` records his decisions; a footer follows every coordinator reply; `needs-adam` is gone. |
+| 8 | Groups, research, the quality pass and the Picture data exist only when switched on. |
+| 9 | The docs and `SECURITY.md` describe the code; old command names are unknown commands (exit code 2, with no pointer). |
+
+### Stage 1 — Cut, then one error type and one command registry (a0.1.0)
 
 Remove the features cut at gate 2 (G1, §6) and the author's working history (T-39) before any rewrite. The seat flow
 (detached jobs, review, land, the GitHub module) works as before; cut commands refuse with a pointer, and `limen status`
-lists the leftover files of cut features. The root deployment script (D-008) deploys every tag from a0.1.0 on. The same-task runner can run the "before" measurement on `rebuild-base`.
-Tickets R-001–R-012.
+lists the leftover files of cut features. The root deployment script (D-008) deploys every tag from a0.1.0 on. The
+same-task runner can run the "before" measurement on `rebuild-base`. Then the two foundations the registry needs: one
+error type with exit codes as failure classes and a final JSON line (R-013), and one command registry with the help in
+groups (R-014, `pair`, by day after the night run of the cuts, D-011). Tickets R-001–R-014.
 
 ### Stage 2 — Foundations (a0.2.0)
 
-The shared mechanisms every subsequent ticket builds on: one error type and exit codes as failure classes, one command
-registry and parser, one configuration reader, validated boundary data, one Pi API adapter, atomic writes, one lock
+The shared mechanisms every subsequent ticket builds on, next to the error type and the registry of stage 1: one
+configuration reader, validated boundary data, one Pi API adapter, atomic writes, one lock
 module, a Linux platform adapter, one `record.json` per job written only by the transition function, exact job
 references, thin commands over domain operations, `limen stats`, and test coverage derived from the registry. The
-records of both projects migrate; `limen stats` reads the migrated history. Tickets R-013–R-025.
+records of both projects migrate; `limen stats` reads the migrated history. Tickets R-015–R-025.
 
 ### Stage 3 — Work is never lost (a0.3.0)
 
@@ -369,18 +414,18 @@ under the same checks as the rest. Until R-071, land is decided as at `rebuild-b
 Adrian's word, D-004); the owner channel publishes those lands under the coverage rule, which is no weaker than today,
 where Adrian pushes them by hand without reviewing them (gate 2 §1). Tickets R-048–R-060.
 
-### Stage 6 — Land by conditions (a0.6.0)
+### Stage 6 — The parts of land by conditions (a0.6.0)
 
-G3 and G4: tickets and the board in a core spec module; owner settings in `limits.json` and `routes.json`; typed
-acceptance that Limen runs; a parsed verdict on the exact tip; ticket commands and a generated board; the task and the
-label built by code; typed questions; bounded rounds with escalation; reports filed by Limen; land only on
-code-checked conditions. Tickets R-061–R-071.
+The parts that G3 and G4 need: tickets and the board in a core spec module; owner settings in `limits.json` and
+`routes.json`; typed acceptance that Limen runs; a parsed verdict on the exact tip; ticket commands and a generated
+board; typed questions. Land itself stays as at `rebuild-base` until stage 7. Tickets R-061–R-066 and R-068.
 
-### Stage 7 — The owner's conversation (a0.7.0)
+### Stage 7 — Land by conditions and the owner's conversation (a0.7.0)
 
-Owner decisions with a checked quote, the footer and `limen status` from one renderer, the ticket that records an
-answered question in `docs/`, the migration of `needs-adam`, and owner touchpoints in `limen stats`. Tickets
-R-072–R-076.
+G3 and G4 complete: bounded review rounds with escalation, reports filed by Limen, the task and the label built by
+code, and land only on code-checked conditions. Then owner decisions with a checked quote, the footer and `limen
+status` from one renderer, the ticket that records an answered question in `docs/`, the migration of `needs-adam`, and
+owner touchpoints in `limen stats`. Tickets R-067 and R-069–R-076.
 
 ### Stage 8 — Optional modules (a0.8.0)
 
@@ -399,108 +444,117 @@ Columns:
 - **Stage**: the stage of `## Stages`.
 - **Sources**: findings (A-NNN), taste rules (T-NN), gate-2 items (G1.N, G2–G4, §N, S1+, H-NN), engine facts (E-N) and
   decisions (D-NNN).
-- **Depends**: tickets that must be done first; always an earlier ID.
+- **Depends**: tickets that must be done first, of the same or an earlier stage; `check.mjs` rejects a cycle.
 - **Size**: S (one module), M (a few modules), L (a subsystem).
 - **Mode**: `delegated` (the `rebuild-implementer` subagent) or `pair` (the main session with Adrian), see
   `## Agents`.
+- **Run**: `night` for a delegated ticket, which a night run can take without Adrian; `day-after` for a pair ticket
+  that depends, directly or through other tickets, on a night ticket of its stage, so it runs by day after that night run; `day` for a pair ticket with no
+  such dependency, by day before or after the night run. No delegated ticket depends on a pair ticket of its own stage
+  (D-011); `check.mjs` checks the column against the dependencies.
 - **Mig.**: `yes` when the ticket needs a migration path (`## Stages` → conventions).
 - **API**: Pi, bridge, Herdr or systemd behaviour that the fake engine cannot prove.
 - **Seat**: the `## Deployment` steps that verify it on the seat.
 - **Status**: `planned`, `active`, `done`, or `dropped (<reason>)` by Adrian's decision.
 
-| ID | Title | Stage | Sources | Depends | Size | Mode | Mig. | API | Seat | Status |
-|---|---|---|---|---|---|---|---|---|---|---|
-| R-001 | Leftover files of cut features are listed and can be dropped | 1 | A-042 | — | S | delegated | — | — | — | planned |
-| R-002 | Cut finish webhooks, coordinator signals and the finish ping | 1 | G1.3, A-027, A-060, A-076 | R-001 | M | delegated | yes | — | — | planned |
-| R-003 | Cut Devin and the Linear mirror | 1 | G1.5, G1.6, A-049 | R-001 | M | delegated | yes | — | — | planned |
-| R-004 | Cut the OMP engine | 1 | G1.7, A-049 | R-001 | M | delegated | yes | — | — | planned |
-| R-005 | Cut hosted `--tab` jobs; the GitHub module and groups run detached | 1 | G1.8, A-023 | R-001 | L | delegated | yes | herdr | 1.2, 1.3 | planned |
-| R-006 | Cut private planning, `highlight`, `ticket-author`, `wait`, `ticket series`, `continue --review` and `group status --json` | 1 | G1.12, T-18, T-37, A-079 | R-001 | M | delegated | yes | — | — | planned |
-| R-007 | Cut the Picture viewer and the map jobs | 1 | G1.4, §6, A-048 | R-001 | L | delegated | yes | — | — | planned |
-| R-008 | Cut the macOS branches | 1 | A-083 | — | S | delegated | — | — | — | planned |
-| R-009 | Cut the scout role and the `jg` cue | 1 | T-33, T-36, A-081 | R-001 | S | delegated | yes | — | — | planned |
-| R-010 | The author's working history leaves the tree; Limen's own test-line cap goes | 1 | T-39, T-11, §6 | — | M | delegated | — | — | — | planned |
-| R-011 | The same-task runner and the gate-time tool | 1 | H-21, T-11, T-41, §2 | — | M | delegated | — | — | — | planned |
-| R-012 | A root deployment script for a pinned SHA | 1 | D-008, D-010, §7 | R-002 | M | delegated | — | — | 1.0 | planned |
-| R-013 | One error type, exit codes as failure classes, a final JSON line | 2 | T-01, T-02 | — | L | delegated | yes | — | — | planned |
-| R-014 | One command registry, a shared parser and generated help | 2 | T-19, T-18, T-26, T-37 | R-013 | L | pair | yes | — | — | planned |
-| R-015 | One configuration reader; settings come only from owner files | 2 | T-03 | R-014 | M | delegated | yes | — | — | planned |
-| R-016 | One boundary parsing module with validators; the cast ratchet | 2 | T-27 | R-013 | M | delegated | — | — | — | planned |
-| R-017 | One Pi API adapter with type guards, checked against Pi's real types | 2 | T-32 | R-012, R-016 | M | delegated | — | pi | 2.2 | planned |
-| R-018 | One atomic-write module | 2 | A-022, T-25 | R-013 | M | delegated | — | — | — | planned |
-| R-019 | One lock module with process identity and a bounded wait | 2 | A-017, A-018, A-055, A-058, T-25 | R-018 | M | delegated | yes | — | — | planned |
-| R-020 | A Linux platform adapter and declared system requirements | 2 | A-083, T-12, T-32 | R-013 | M | delegated | — | — | — | planned |
-| R-021 | One `record.json` per job, written only by the transition function | 2 | S1+, A-019, A-053, A-056, T-20, T-25 | R-016, R-018, R-019 | L | delegated | yes | — | — | planned |
-| R-022 | Exact job references through one resolver | 2 | T-20 | R-014, R-021 | M | delegated | yes | — | — | planned |
-| R-023 | Commands are thin adapters over domain operations; a refusal leaves no trace | 2 | T-26, T-38 | R-014, R-021 | L | delegated | — | — | — | planned |
-| R-024 | `limen stats` over records and transcripts | 2 | H-01, H-20, §2, T-33 | R-021, R-023 | M | delegated | — | pi | 2.3 | planned |
-| R-025 | Test coverage derived from the command registry | 2 | T-28, T-29 | R-014, R-023 | M | delegated | — | — | — | planned |
-| R-026 | Every job runs in its own systemd user scope | 3 | A-029, A-052, T-43 | R-020, R-021 | L | delegated | — | systemd | 3.2, 3.7, 3.8 | planned |
-| R-027 | The reaper ends a job only after its process group is gone | 3 | A-005, A-056 | R-026 | M | delegated | — | — | — | planned |
-| R-028 | SIGTERM reaches the engine; a signal without a stop request is a failure | 3 | A-020, A-052 | R-026 | M | delegated | — | — | — | planned |
-| R-029 | One recorded failure cause per job | 3 | A-016, E-9, T-31 | R-017, R-021 | M | delegated | — | bridge | 3.4 | planned |
-| R-030 | Unlanded work survives: `limen abandon`, a guarded prune, a refusing spawn | 3 | A-001 | R-023 | M | delegated | yes | — | — | planned |
-| R-031 | `landed` and `abandoned` markers; retire moves records to the archive | 3 | A-002, §6 | R-030 | M | delegated | yes | — | — | planned |
-| R-032 | `limen seat sweep` runs on a timer; read commands never write or wait | 3 | A-024, T-04, T-18, A-017, §6 | R-012, R-027, R-031 | L | delegated | yes | systemd | 3.1 | planned |
-| R-033 | Alerts from their own account: failures and escalations only | 3 | A-066, A-054, T-18 | R-021 | M | delegated | yes | systemd | 3.3 | planned |
-| R-034 | Resume after the quota limit in code; seat rules are cut | 3 | A-016, A-010, A-068, §6 | R-029, R-032, R-033 | L | delegated | yes | systemd | 3.4, 3.5 | planned |
-| R-035 | Start-queue thresholds: a diagnosis at 30 min, a failure at 2 h | 3 | A-036 | R-026, R-033 | M | delegated | — | systemd | 3.8 | planned |
-| R-036 | Stall is measured over the whole job scope | 3 | A-059 | R-026 | M | delegated | — | systemd | 3.8 | planned |
-| R-037 | Land runs as recorded steps with an atomic closing commit | 3 | A-021, A-057, T-18, T-28 | R-023, R-031 | L | delegated | yes | herdr | 3.9 | planned |
-| R-038 | The fake engine shows the model's view under the bridge | 4 | T-31, A-051 | R-017 | M | delegated | — | bridge | 4.1 | planned |
-| R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16 | R-021, R-038 | L | delegated | yes | pi, bridge | 4.2 | planned |
-| R-040 | Role texts come from the package, in three registers | 4 | A-038, A-039, A-042, D-005 | R-001, R-039 | M | delegated | yes | — | — | planned |
-| R-041 | The turn cue holds only variable parts and the audience line | 4 | A-077, T-13 | R-039 | S | pair | — | pi | 4.4 | planned |
-| R-042 | The task-note mechanism is cut | 4 | A-044, A-059 | R-039 | M | delegated | yes | — | — | planned |
-| R-043 | Just-in-time reminders arrive in the triggering tool result | 4 | A-041, H-12 | R-039 | M | delegated | — | pi | 4.5 | planned |
-| R-044 | Module switches; hooks load by role and module | 4 | G1.10, G1.1, G1.2, G1.9, A-082, A-040 | R-015, R-039 | M | delegated | yes | pi | 4.7, 4.9 | planned |
-| R-045 | Tools and skills per role; a read-only role that writes fails | 4 | A-081, E-5 | R-044 | M | delegated | — | pi, bridge | 4.3 | planned |
-| R-046 | Role prompts are literal, sourced and budgeted | 4 | T-09, T-14, T-15, T-08, T-10, T-21, A-043, A-085, A-040 | R-040, R-041, R-042, R-044 | L | pair | — | — | — | planned |
-| R-047 | The coordinator never waits | 4 | T-34 | R-039 | S | delegated | — | pi | 4.6 | planned |
-| R-048 | The job environment is an allow-list; jobs run the bridge isolated | 5 | A-004, A-061, E-3, E-4, E-15, D-005 | R-021, R-040 | M | delegated | — | pi, bridge | 5.8, 5.9 | planned |
-| R-049 | Agents run only root-owned code; Pi and bridge versions are declared | 5 | A-025, T-32, T-36 | R-017, R-020, R-048 | L | delegated | yes | pi | 5.3, 5.5, 5.6, 5.10 | planned |
-| R-050 | The registered coordinator and its start script | 5 | A-033, A-061, A-029, §2 | R-026, R-033, R-034, R-049 | L | delegated | yes | pi, herdr, systemd | 5.4, 5.11 | planned |
-| R-051 | Wakes carry a computed header; Limen's messages are custom messages | 5 | A-008, A-078, A-034, T-16, E-16 | R-039, R-050 | M | delegated | — | pi | 5.12 | planned |
-| R-052 | The handoff note goes through a registered tool | 5 | A-009, A-034, A-047 | R-051 | M | delegated | yes | pi | 5.13 | planned |
-| R-053 | Steer entries carry an envelope; only the coordinator steers | 5 | A-028 | R-050 | M | delegated | yes | pi | 5.14 | planned |
-| R-054 | The published copy and the owner files | 5 | A-011, §2 | R-037, R-050 | L | delegated | yes | — | — | planned |
-| R-055 | The owner channel publishes `main` by the coverage rule; `hold` and `replay` | 5 | A-006, T-22, §7 | R-031, R-054 | L | delegated | yes | systemd | 5.1, 5.2, 5.15 | planned |
-| R-056 | Egress allow-list templates for the agents' account | 5 | G2, A-004 | R-012, R-048 | M | delegated | — | systemd | 5.16 | planned |
-| R-057 | The GitHub poller keeps its own state and authorises fork pull requests | 5 | A-003, A-062, A-063, A-018 | R-005, R-019 | M | delegated | yes | systemd | 5.17 | planned |
-| R-058 | GitHub text reaches the coordinator only as a tool result | 5 | A-007, A-026 | R-051, R-057 | M | delegated | — | — | — | planned |
-| R-059 | Seat code is typed, linted and tested in `seat/`; one usage poller | 5 | A-047, A-016, A-067 | R-020, R-034 | M | delegated | yes | pi, systemd | 5.5, 5.18 | planned |
-| R-060 | Agents create no timers; the sweep reports foreign timers and engines | 5 | T-42, A-029 | R-032, R-050 | M | delegated | — | pi, systemd | 5.19 | planned |
-| R-061 | Tickets and the board are a core spec module with narrow parsers | 6 | A-048, T-12 | R-016, R-023 | L | delegated | yes | — | — | planned |
-| R-062 | Owner settings in `limits.json` and `routes.json`; `limen init` asks for them | 6 | A-014, A-030, A-059, T-11, T-03 | R-015, R-054 | L | delegated | yes | — | — | planned |
-| R-063 | Typed acceptance; Limen runs every `Check` at the tip | 6 | A-031, T-06, T-10 | R-061, R-062 | L | delegated | yes | — | — | planned |
-| R-064 | The review verdict and findings are parsed from the reviewer's result | 6 | A-013, T-08, G4 | R-063 | M | delegated | — | bridge | 6.3 | planned |
-| R-065 | Ticket commands: start, drop, commit, check; a generated outcome; survey tickets | 6 | A-070, A-072, T-22, T-34 | R-037, R-055, R-061 | L | pair | yes | — | — | planned |
-| R-066 | The board is generated; `limen spec fix` replaces the keeper | 6 | T-23, A-045, A-072, T-18, §6 | R-065 | L | pair | yes | — | — | planned |
-| R-067 | The job task and the job label are built by code | 6 | T-07, T-24, A-073, A-044 | R-063, R-065 | M | delegated | yes | herdr | 6.5 | planned |
-| R-068 | `limen ask` and `limen answer`: typed questions in the record | 6 | T-05, T-15 | R-051, R-054, R-062 | L | pair | — | — | — | planned |
-| R-069 | Review rounds per ticket and `limen escalate` | 6 | A-015, T-05 | R-055, R-064, R-068 | M | delegated | — | — | — | planned |
-| R-070 | Limen files the review and research reports itself | 6 | A-035, A-046 | R-064, R-065 | M | delegated | — | — | — | planned |
-| R-071 | `limen land` passes only on code-checked conditions | 6 | A-012, A-032, G3, T-40, §7 | R-063, R-064, R-069, R-070 | M | delegated | — | — | — | planned |
-| R-072 | `limen decide`: owner decisions with a checked quote, a scope and a lifetime | 7 | A-034, T-05, T-42 | R-068 | L | delegated | — | pi | 7.3 | planned |
-| R-073 | The footer and `limen status` share one renderer; question blocks are chat entries | 7 | T-15, T-16, T-10 | R-068, R-072 | L | pair | — | pi | 7.2 | planned |
-| R-074 | An answered question opens the ticket that records it in `docs/` | 7 | T-05 | R-065, R-068 | S | delegated | — | — | — | planned |
-| R-075 | `needs-adam` keys become open request records | 7 | T-21 | R-068 | S | delegated | yes | — | — | planned |
-| R-076 | Owner touchpoints and questions in `limen stats` | 7 | T-40, T-05 | R-024, R-068 | S | delegated | — | — | — | planned |
-| R-077 | Groups: state conditions, data batches, one final result, a model-free group land | 8 | G1.2, A-029, A-069, A-080, A-075, A-045, T-35 | R-044, R-071 | L | delegated | yes | pi | 8.1 | planned |
-| R-078 | Research on its own account, with a queue scanner and quote-checked synthesis | 8 | G1.11, A-004, A-046, T-35, T-18, §6 | R-044, R-059, R-070 | L | delegated | — | systemd | 8.2 | planned |
-| R-079 | The quality pass is a module triggered by code | 8 | G1.13, A-071 | R-044, R-071 | S | delegated | — | — | — | planned |
-| R-080 | Picture serves record data only; `touches:` is optional | 8 | G1.4, A-048 | R-044, R-061 | M | delegated | yes | — | — | planned |
-| R-081 | Docs from the code with generated sections; `SECURITY.md` names the boundaries and accepted risks | 9 | A-050, A-084, T-02, T-10, T-21, T-39 | R-080 | L | pair | — | — | — | planned |
-| R-082 | Lint debt, casts and swallowed errors reach zero | 9 | T-27, T-01 | R-080 | M | delegated | — | — | — | planned |
-| R-083 | Test files are named after their subject | 9 | T-29 | R-080 | M | delegated | — | — | — | planned |
-| R-084 | Comments resolve and name no person | 9 | T-30, T-21 | R-080 | M | delegated | — | — | — | planned |
-| R-085 | The table of old command names leaves; the final help | 9 | T-18, T-19 | R-080 | S | pair | yes | — | — | planned |
-| R-086 | Context-message budgets from the final measurement | 9 | T-09 | R-046, R-080 | S | delegated | — | — | — | planned |
+| ID | Title | Stage | Sources | Depends | Size | Mode | Run | Mig. | API | Seat | Status |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| R-001 | Leftover files of cut features are listed and can be dropped | 1 | A-042 | — | S | delegated | night | — | — | — | planned |
+| R-002 | Cut finish webhooks, coordinator signals and the finish ping | 1 | G1.3, A-027, A-060, A-076 | R-001 | M | delegated | night | yes | — | — | planned |
+| R-003 | Cut Devin and the Linear mirror | 1 | G1.5, G1.6, A-049 | R-001 | M | delegated | night | yes | — | — | planned |
+| R-004 | Cut the OMP engine | 1 | G1.7, A-049 | R-001 | M | delegated | night | yes | — | — | planned |
+| R-005 | Cut hosted `--tab` jobs; the GitHub module and groups run detached | 1 | G1.8, A-023 | R-001 | L | delegated | night | yes | herdr | 1.2, 1.3 | planned |
+| R-006 | Cut private planning, `highlight`, `ticket-author`, `wait`, `ticket series`, `continue --review` and `group status --json` | 1 | G1.12, T-18, T-37, A-079 | R-001 | M | delegated | night | yes | — | — | planned |
+| R-007 | Cut the Picture viewer and the map jobs | 1 | G1.4, §6, A-048 | R-001 | L | delegated | night | yes | — | — | planned |
+| R-008 | Cut the macOS branches | 1 | A-083 | — | S | delegated | night | — | — | — | planned |
+| R-009 | Cut the scout role and the `jg` cue | 1 | T-33, T-36, A-081 | R-001 | S | delegated | night | yes | — | — | planned |
+| R-010 | The author's working history leaves the tree; Limen's own test-line cap goes | 1 | T-39, T-11, §6 | — | M | delegated | night | — | — | — | planned |
+| R-011 | The same-task runner and the gate-time tool | 1 | H-21, T-11, T-41, §2 | — | M | delegated | night | — | — | — | planned |
+| R-012 | A root deployment script for a pinned SHA | 1 | D-008, D-010, §7 | R-002 | M | delegated | night | — | — | 1.0 | planned |
+| R-013 | One error type, exit codes as failure classes, a final JSON line | 1 | T-01, T-02 | — | L | delegated | night | yes | — | — | planned |
+| R-014 | One command registry, a shared parser and generated help | 1 | T-19, T-18, T-26, T-37 | R-002, R-003, R-004, R-005, R-006, R-007, R-009, R-013 | L | pair | day-after | yes | — | — | planned |
+| R-015 | One configuration reader; settings come only from owner files | 2 | T-03 | R-014 | M | delegated | night | yes | — | — | planned |
+| R-016 | One boundary parsing module with validators; the cast ratchet | 2 | T-27 | R-013 | M | delegated | night | — | — | — | planned |
+| R-017 | One Pi API adapter with type guards, checked against Pi's real types | 2 | T-32 | R-012, R-016 | M | delegated | night | — | pi | 2.2 | planned |
+| R-018 | One atomic-write module | 2 | A-022, T-25 | R-013 | M | delegated | night | — | — | — | planned |
+| R-019 | One lock module with process identity and a bounded wait | 2 | A-017, A-018, A-055, A-058, T-25 | R-018 | M | delegated | night | yes | — | — | planned |
+| R-020 | A Linux platform adapter and declared system requirements | 2 | A-083, T-12, T-32 | R-013 | M | delegated | night | — | — | — | planned |
+| R-021 | One `record.json` per job, written only by the transition function | 2 | S1+, A-019, A-053, A-056, T-20, T-25 | R-016, R-018, R-019 | L | delegated | night | yes | — | — | planned |
+| R-022 | Exact job references through one resolver | 2 | T-20 | R-014, R-021 | M | delegated | night | yes | — | — | planned |
+| R-023 | Commands are thin adapters over domain operations; a refusal leaves no trace | 2 | T-26, T-38 | R-014, R-021 | L | delegated | night | — | — | — | planned |
+| R-024 | `limen stats` over records and transcripts | 2 | H-01, H-20, §2, T-33 | R-021, R-023 | M | delegated | night | — | pi | 2.3 | planned |
+| R-025 | Test coverage derived from the command registry | 2 | T-28, T-29 | R-014, R-023 | M | delegated | night | — | — | — | planned |
+| R-026 | Every job runs in its own systemd user scope | 3 | A-029, A-052, T-43 | R-020, R-021 | L | delegated | night | — | systemd | 3.2, 3.7, 3.8 | planned |
+| R-027 | The reaper ends a job only after its process group is gone | 3 | A-005, A-056 | R-026 | M | delegated | night | — | — | — | planned |
+| R-028 | SIGTERM reaches the engine; a signal without a stop request is a failure | 3 | A-020, A-052 | R-026 | M | delegated | night | — | — | — | planned |
+| R-029 | One recorded failure cause per job | 3 | A-016, E-9, T-31 | R-017, R-021 | M | delegated | night | — | bridge | 3.4 | planned |
+| R-030 | Unlanded work survives: `limen abandon`, a guarded prune, a refusing spawn | 3 | A-001 | R-023 | M | delegated | night | yes | — | — | planned |
+| R-031 | `landed` and `abandoned` markers; retire moves records to the archive | 3 | A-002, §6 | R-030 | M | delegated | night | yes | — | — | planned |
+| R-032 | `limen seat sweep` runs on a timer; read commands never write or wait | 3 | A-024, T-04, T-18, A-017, §6 | R-012, R-027, R-031 | L | delegated | night | yes | systemd | 3.1 | planned |
+| R-033 | Alerts from their own account: failures and escalations only | 3 | A-066, A-054, T-18 | R-021 | M | delegated | night | yes | systemd | 3.3 | planned |
+| R-034 | Resume after the quota limit in code; seat rules are cut | 3 | A-016, A-010, A-068, §6 | R-029, R-032, R-033 | L | delegated | night | yes | systemd | 3.4, 3.5 | planned |
+| R-035 | Start-queue thresholds: a diagnosis at 30 min, a failure at 2 h | 3 | A-036 | R-026, R-033 | M | delegated | night | — | systemd | 3.8 | planned |
+| R-036 | Stall is measured over the whole job scope | 3 | A-059 | R-026 | M | delegated | night | — | systemd | 3.8 | planned |
+| R-037 | Land runs as recorded steps with an atomic closing commit | 3 | A-021, A-057, T-18, T-28 | R-023, R-031 | L | delegated | night | yes | herdr | 3.9 | planned |
+| R-038 | The fake engine shows the model's view under the bridge | 4 | T-31, A-051 | R-017 | M | delegated | night | — | bridge | 4.1 | planned |
+| R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16 | R-021, R-038 | L | delegated | night | yes | pi, bridge | 4.2 | planned |
+| R-040 | Role texts come from the package, in three registers | 4 | A-038, A-039, A-042, D-005 | R-001, R-039 | M | delegated | night | yes | — | — | planned |
+| R-041 | The turn cue holds only variable parts and the audience line | 4 | A-077, T-13 | R-039 | S | pair | day-after | — | pi | 4.4 | planned |
+| R-042 | The task-note mechanism is cut | 4 | A-044, A-059 | R-039 | M | delegated | night | yes | — | — | planned |
+| R-043 | Just-in-time reminders arrive in the triggering tool result | 4 | A-041, H-12 | R-039 | M | delegated | night | — | pi | 4.5 | planned |
+| R-044 | Module switches; hooks load by role and module | 4 | G1.10, G1.1, G1.2, G1.9, A-082, A-040 | R-015, R-039 | M | delegated | night | yes | pi | 4.7, 4.9 | planned |
+| R-045 | Tools and skills per role; a read-only role that writes fails | 4 | A-081, E-5 | R-044 | M | delegated | night | — | pi, bridge | 4.3 | planned |
+| R-046 | Role prompts are literal, sourced and budgeted | 4 | T-09, T-14, T-15, T-08, T-10, T-21, A-043, A-085, A-040 | R-040, R-041, R-042, R-044 | L | pair | day-after | — | — | — | planned |
+| R-047 | The coordinator never waits | 4 | T-34 | R-039 | S | delegated | night | — | pi | 4.6 | planned |
+| R-048 | The job environment is an allow-list; jobs run the bridge isolated | 5 | A-004, A-061, E-3, E-4, E-15, D-005 | R-021, R-040 | M | delegated | night | — | pi, bridge | 5.8, 5.9 | planned |
+| R-049 | Agents run only root-owned code; Pi and bridge versions are declared | 5 | A-025, T-32, T-36 | R-017, R-020, R-048 | L | delegated | night | yes | pi | 5.3, 5.5, 5.6, 5.10 | planned |
+| R-050 | The registered coordinator and its start script | 5 | A-033, A-061, A-029, §2 | R-026, R-033, R-034, R-049 | L | delegated | night | yes | pi, herdr, systemd | 5.4, 5.11 | planned |
+| R-051 | Wakes carry a computed header; Limen's messages are custom messages | 5 | A-008, A-078, A-034, T-16, E-16 | R-039, R-050 | M | delegated | night | — | pi | 5.12 | planned |
+| R-052 | The handoff note goes through a registered tool | 5 | A-009, A-034, A-047 | R-051 | M | delegated | night | yes | pi | 5.13 | planned |
+| R-053 | Steer entries carry an envelope; only the coordinator steers | 5 | A-028 | R-050 | M | delegated | night | yes | pi | 5.14 | planned |
+| R-054 | The published copy and the owner files | 5 | A-011, §2 | R-037, R-050 | L | delegated | night | yes | — | — | planned |
+| R-055 | The owner channel publishes `main` by the coverage rule; `hold` and `replay` | 5 | A-006, T-22, §7 | R-031, R-054 | L | delegated | night | yes | systemd | 5.1, 5.2, 5.15 | planned |
+| R-056 | Egress allow-list templates for the agents' account | 5 | G2, A-004 | R-012, R-048 | M | delegated | night | — | systemd | 5.16 | planned |
+| R-057 | The GitHub poller keeps its own state and authorises fork pull requests | 5 | A-003, A-062, A-063, A-018 | R-005, R-019 | M | delegated | night | yes | systemd | 5.17 | planned |
+| R-058 | GitHub text reaches the coordinator only as a tool result | 5 | A-007, A-026 | R-051, R-057 | M | delegated | night | — | — | — | planned |
+| R-059 | Seat code is typed, linted and tested in `seat/`; one usage poller | 5 | A-047, A-016, A-067 | R-020, R-034 | M | delegated | night | yes | pi, systemd | 5.5, 5.18 | planned |
+| R-060 | Agents create no timers; the sweep reports foreign timers and engines | 5 | T-42, A-029 | R-032, R-050 | M | delegated | night | — | pi, systemd | 5.19 | planned |
+| R-061 | Tickets and the board are a core spec module with narrow parsers | 6 | A-048, T-12 | R-016, R-023 | L | delegated | night | yes | — | — | planned |
+| R-062 | Owner settings in `limits.json` and `routes.json`; `limen init` asks for them | 6 | A-014, A-030, A-059, T-11, T-03 | R-015, R-054 | L | delegated | night | yes | — | — | planned |
+| R-063 | Typed acceptance; Limen runs every `Check` at the tip | 6 | A-031, T-06, T-10 | R-061, R-062 | L | delegated | night | yes | — | — | planned |
+| R-064 | The review verdict and findings are parsed from the reviewer's result | 6 | A-013, T-08, G4 | R-063 | M | delegated | night | — | bridge | 6.3 | planned |
+| R-065 | Ticket commands: start, drop, commit, check; a generated outcome; survey tickets | 6 | A-070, A-072, T-22, T-34 | R-037, R-055, R-061 | L | pair | day-after | yes | — | — | planned |
+| R-066 | The board is generated; `limen spec fix` replaces the keeper | 6 | T-23, A-045, A-072, T-18, §6 | R-065 | L | pair | day-after | yes | — | — | planned |
+| R-067 | The job task and the job label are built by code | 7 | T-07, T-24, A-073, A-044 | R-063, R-065, R-069 | M | delegated | night | yes | herdr | 7.4 | planned |
+| R-068 | `limen ask` and `limen answer`: typed questions in the record | 6 | T-05, T-15 | R-051, R-054, R-062 | L | pair | day-after | — | — | — | planned |
+| R-069 | Review rounds per ticket and `limen escalate` | 7 | A-015, T-05 | R-055, R-064, R-068 | M | delegated | night | — | — | — | planned |
+| R-070 | Limen files the review and research reports itself | 7 | A-035, A-046 | R-064, R-065 | M | delegated | night | — | — | — | planned |
+| R-071 | `limen land` passes only on code-checked conditions | 7 | A-012, A-032, G3, T-40, §7 | R-063, R-064, R-069, R-070 | M | delegated | night | — | — | 7.5 | planned |
+| R-072 | `limen decide`: owner decisions with a checked quote, a scope and a lifetime | 7 | A-034, T-05, T-42 | R-068 | L | delegated | night | — | pi | 7.3 | planned |
+| R-073 | The footer and `limen status` share one renderer; question blocks are chat entries | 7 | T-15, T-16, T-10 | R-068, R-072 | L | pair | day-after | — | pi | 7.2 | planned |
+| R-074 | An answered question opens the ticket that records it in `docs/` | 7 | T-05 | R-065, R-068 | S | delegated | night | — | — | — | planned |
+| R-075 | `needs-adam` keys become open request records | 7 | T-21 | R-068 | S | delegated | night | yes | — | — | planned |
+| R-076 | Owner touchpoints and questions in `limen stats` | 7 | T-40, T-05 | R-024, R-068 | S | delegated | night | — | — | — | planned |
+| R-077 | Groups: state conditions, data batches, one final result, a model-free group land | 8 | G1.2, A-029, A-069, A-080, A-075, A-045, T-35 | R-044, R-071 | L | delegated | night | yes | pi | 8.1 | planned |
+| R-078 | Research on its own account, with a queue scanner and quote-checked synthesis | 8 | G1.11, A-004, A-046, T-35, T-18, §6 | R-044, R-059, R-070 | L | delegated | night | — | systemd | 8.2 | planned |
+| R-079 | The quality pass is a module triggered by code | 8 | G1.13, A-071 | R-044, R-071 | S | delegated | night | — | — | — | planned |
+| R-080 | Picture serves record data only; `touches:` is optional | 8 | G1.4, A-048 | R-044, R-061 | M | delegated | night | yes | — | — | planned |
+| R-081 | Docs from the code with generated sections; `SECURITY.md` names the boundaries and accepted risks | 9 | A-050, A-084, T-02, T-10, T-21, T-39 | R-080, R-082, R-083, R-084, R-085, R-086 | L | pair | day-after | — | — | — | planned |
+| R-082 | Lint debt, casts and swallowed errors reach zero | 9 | T-27, T-01 | R-080 | M | delegated | night | — | — | — | planned |
+| R-083 | Test files are named after their subject | 9 | T-29 | R-080 | M | delegated | night | — | — | — | planned |
+| R-084 | Comments resolve and name no person | 9 | T-30, T-21 | R-080 | M | delegated | night | — | — | — | planned |
+| R-085 | The table of old command names leaves; the final help | 9 | T-18, T-19 | R-080 | S | pair | day | yes | — | — | planned |
+| R-086 | Context-message budgets from the final measurement | 9 | T-09 | R-046, R-080 | S | delegated | night | — | — | — | planned |
 
 Taste rules with no ticket of their own:
 - T-17: binds the rebuild files, not Limen; its check runs in `adrian-rebuild/tools/check.mjs` since rebuild stage 3.
 
 Notes for the tickets (facts a ticket needs that its row cannot hold):
+- R-067, R-081: the job label carries the round from the counter of R-069 (T-24), so R-067 depends on R-069; the docs
+  are written from the final code (A-084), so R-081 depends on R-082–R-086.
+- R-014: it registers the commands that remain after the cuts, so it depends on the cut tickets of stage 1, and it gives
+  them the names of T-18 where no other ticket's mechanism is needed: `limen jobs` becomes `limen status --all` and
+  `limen show <id>`, and `limen queue` becomes `limen seat queue`.
 - R-001: A-042's decision defines the mechanism ("`limen status` lists leftover template copies once; `limen init
   --drop-leftovers` removes them"); R-001 builds it once, and every cut ticket registers the leftover paths of its
   feature.
@@ -566,6 +620,51 @@ Where the owner actions of gate 2 §9 (the 16 items recorded at gate 2) are plac
 
 Item 12 also asked for the subagent tool's name under the bridge: settled by the sources (always denied, E-5).
 
+### Resuming the projects on the seat
+
+The earliest point to resume `synchronizer` and `ledger` on the seat, with the rest of the rebuild running in
+parallel, is after a0.3.0 is deployed:
+- Until a0.3.0 the critical losses of A-001 and A-002 are live: prune deletes the uncommitted work of a finished job,
+  `prune --retire` deletes the records of jobs that never landed, and the seat's daily `limen-prune` timer runs both.
+- a0.3.0 brings what a running seat needs most: one automatic resume after the 5-hour limit (12 of the 18 failed jobs,
+  gate 2 §1), a recorded cause for every failure, the sweep timer, and alerts to the phone.
+- Until a0.5.0, resumed jobs run as during M1: with the spawner's whole environment, a GitHub credential and an open
+  network (A-004, A-006, A-007). Whether Adrian accepts that, and on which condition, is open question Q4 in `## State`.
+- From then on, every tag deploys onto live data the same way (0.1–0.7). Stage 4 changes how the models behave in the
+  middle of the projects' work; that is the change M-05 measures, not a reason to wait.
+
+Conditions:
+1. Before a0.1.0 is deployed: B.1 and B.2 run on `rebuild-base`, and the snapshot of 0.1 taken before that first
+   deployment is kept as the "before" data of B.3, because resumed projects add jobs of several versions to the live
+   records.
+2. Until a0.3.0, the old `limen-prune` timer stays disabled on the seat; also now, while the coordinators are paused
+   (A-001: it deletes the uncommitted work of finished jobs every day).
+3. Migrations on live data run after the snapshot of 0.1, with `--dry-run` first and the report checked before the real
+   run: 2.1 (records), 3.6 (unlanded jobs, landed markers; before the first spawn), 6.2 (front matter, acceptance), 6.4
+   (board), 7.1 (`needs-adam`).
+4. Steps 3.1–3.3 (sweep timer, job scopes, alerts) are done before normal work resumes; the trial jobs of 0.6 and 3.2
+   are the only spawns before them. 3.4 waits for a real limit.
+5. Every deployment after the resumption needs a quiet window: the script refuses while a job runs (D-008), so Adrian
+   stops spawning, lets the running jobs end (one per project with `maxJobs` 1, the seat's practice, A-014; each within
+   its timeout), and deploys. A job that waits for its quota resume is not running (state `failed`, kind `quota`); its
+   resume after the deployment runs on the new version, like a `continue`.
+6. The "after" measurements of 9.1 count only jobs whose id date follows the a1.0.0 deployment (a job id starts with
+   its date), so jobs of intermediate versions enter neither "before" nor "after".
+
+One Max window for the laptop and the seat:
+- The rebuild's sessions on the laptop (the main session and its subagents) and the seat's coordinators and jobs draw
+  on the same 5-hour and weekly limits. After the resumption each slows the other, and a limit stops both.
+- Split: by day, the projects and the rebuild's pair tickets, while Adrian is present; at night, the rebuild's
+  delegated tickets. A job spawned in the evening takes from the night run's window. The weekly limit binds both
+  sides; which side yields when it is near is open question Q5 in `## State`.
+- After a0.3.0 a limit on the seat ends in one automatic resume 5 minutes after the reset (R-034); on the laptop, the
+  night mode that Adrian adds to the rebuild prompt resumes after the limit.
+- B.2 and the same-task runs of 4.8 and 9.1 (k = 3 whole tickets each) take a large share of a window; they run when
+  neither the projects nor a night run need it.
+- Revisit when: the 5-hour limit stops the seat's work or the night run on at least two days of one week (M-11, kind
+  `quota`, on the seat; the night mode's record of its stops on the laptop); then the split changes, for example to
+  whole days for one side.
+
 ### Every tag
 
 The deployment script (D-008, R-012) is the only way a commit reaches `/opt/limen`; gate 5.N gives the tag and its
@@ -586,11 +685,16 @@ full SHA.
   bridge version; a version change lands only after the bridge and the type contract pass.
 - **0.6** Trial route in one project: one small ticket through spawn, review and land; note the exit codes and the
   time. The stage's steps name what else to watch.
-- **0.7** Rollback: `node /opt/limen/seat/deploy.ts <previous sha>`, then restore the snapshot of 0.1.
+- **0.7** Rollback: copy the current `<project>/.limen/` of both projects aside, to be kept (z. 29); run
+  `node /opt/limen/seat/deploy.ts <previous sha>`; when the stage changed an on-disk format, restore the snapshot of
+  0.1. The work of jobs run since 0.1 stays in their branches and in the copy, so a rollback loses nothing.
 
 ### Measurements before
 
-B.1 and B.2 run before the first deployment; B.3 runs after a0.2.0 is deployed.
+B.1 and B.2 run before the first deployment; B.3 runs after a0.2.0 is deployed, on the snapshot taken before the first
+deployment (`### Resuming the projects on the seat`, condition 1). B.2 needs the same-task runner of R-011 but no
+deployment: once R-011 is pushed, Adrian runs it on the seat as the agents' account from a separate checkout of that
+commit, outside `/opt/limen`, and points it at the `rebuild-base` checkout in `/opt/limen` and at a scratch clone.
 
 
 - **B.1** On `rebuild-base` (today's seat), with `CLAUDE_BRIDGE_DEBUG=1`: save the per-query CLI log of one coordinator
@@ -598,8 +702,8 @@ B.1 and B.2 run before the first deployment; B.3 runs after a0.2.0 is deployed.
   cache TTL (`modelUsage` 5m or 1h), the context window of `claude-opus-5-5` on the Max login, and the cache read of
   the turn after a manual `/compact`, which forces a rewrite (E-1, E-2, E-8).
 - **B.2** The same-task baseline: the same-task runner of R-011 with `rebuild-base`, k attempts (M-05).
-- **B.3** After a0.2.0 is tagged: `limen stats` of a0.2.0 over a migrated copy of each project's `.limen/` from the
-  snapshot of 0.1 (R-024; M-03, M-04, M-06–M-11).
+- **B.3** After a0.2.0 is deployed: `limen stats` of a0.2.0 over a migrated copy of each project's `.limen/` from the
+  snapshot taken before the first deployment (R-024; M-03, M-04, M-06–M-11).
 
 ### After stage 1 (a0.1.0)
 
@@ -720,8 +824,6 @@ B.1 and B.2 run before the first deployment; B.3 runs after a0.2.0 is deployed.
   one answer per criterion (item 12; A-086, A-051; R-064).
 - **6.4** The board migration of R-066 prints the old prose sections; what should stay goes into the milestone plan in
   `docs/` through a normal ticket.
-- **6.5** Job tabs in Herdr carry the label built by code (R-067).
-- **6.6** A trial route through land by conditions, including one refusal (R-071).
 
 ### After stage 7 (a0.7.0)
 
@@ -731,6 +833,8 @@ B.1 and B.2 run before the first deployment; B.3 runs after a0.2.0 is deployed.
 - **7.2** A footer entry does not reach the model: the next turn's input tokens do not grow by the footer's size (item
   12; T-15; R-073; M-12).
 - **7.3** `limen decide --quote` accepts a quote from Adrian's last message and refuses one from a wake (R-072).
+- **7.4** Job tabs in Herdr carry the label built by code (R-067).
+- **7.5** A trial route through land by conditions, including one refusal (R-071).
 
 ### After stage 8 (a0.8.0)
 
@@ -822,19 +926,27 @@ Template of `ticket.md` (`check.mjs` requires these headings in every ticket fol
 ```
 
 Protocol per ticket (rebuild stage 5):
-1. The next ticket is the lowest `planned` ID of the current stage whose dependencies are all `done`.
+1. The next ticket is the lowest `planned` ID of the current stage whose dependencies are all `done`: in a night run
+   only among the `night` tickets; by day among the `day` and `day-after` tickets as well (D-011).
 2. The main session writes `adrian-rebuild/R-NNN-<slug>/ticket.md` and sets the ticket's status to `active`.
-3. `delegated`: the main session starts `rebuild-implementer` by its name (not a fork) with the ticket folder's path
-   and changes nothing in the working tree while it runs. On `BLOCKED: …` it asks Adrian, adds the answer to
+3. `delegated`: the main session runs `node adrian-rebuild/tools/review-guard.mjs snapshot --git >
+   node_modules/.rebuild-review/R-NNN.git`, starts `rebuild-implementer` by its name (not a fork) with the ticket
+   folder's path, changes nothing in the working tree while it runs, and afterwards runs `compare --git` on that file.
+   Exit 1 (a commit, a push or a staged change by the implementer; the allow-list cannot tell the two sessions apart)
+   voids the run, and Adrian decides. On `BLOCKED: …` it asks Adrian, adds the answer to
    `ticket.md` → `## Decisions`, and resumes the same agent with `SendMessage` to its ID. `pair`: the main session
    implements with Adrian.
 4. The main session runs `sh adrian-rebuild/tools/gate.sh` itself; its run counts, not a subagent's report. When it
    fails after `DONE`, the main session resumes the implementer with the output; a second failure of the same step
    goes to Adrian (z. 1).
-5. Review: `node adrian-rebuild/tools/review-guard.mjs snapshot > <scratch>/R-NNN.before` and
-   `node adrian-rebuild/tools/review-guard.mjs diff > <scratch>/R-NNN.diff` (both files outside the repository), then
-   `rebuild-reviewer` with the three paths, then `node adrian-rebuild/tools/review-guard.mjs compare
-   <scratch>/R-NNN.before`. Exit 1 voids the review. The guard compares HEAD, every ref, `git status --porcelain` and a
+5. Review: `mkdir -p node_modules/.rebuild-review`, then `node adrian-rebuild/tools/review-guard.mjs snapshot >
+   node_modules/.rebuild-review/R-NNN.before` and `node adrian-rebuild/tools/review-guard.mjs diff >
+   node_modules/.rebuild-review/R-NNN.diff` (an ignored directory, like the gate's helper, so the guard does not see
+   the files), then `rebuild-reviewer` with the three paths, then `node adrian-rebuild/tools/review-guard.mjs compare
+   node_modules/.rebuild-review/R-NNN.before`. Exit 1 voids the review: for each path the guard names, the main
+   session runs `git restore --source=HEAD -- <path>` and `git apply --include=<path>
+   node_modules/.rebuild-review/R-NNN.diff`, or `rm <path>` for a file the reviewer created, checks that `compare`
+   exits 0, and runs the review again. The guard compares HEAD, every ref, `git status --porcelain` and a
    SHA-256 of every changed and untracked file, so a second edit of an already modified file is caught, which the
    status alone would miss (`tools/test-review-guard.sh`).
 6. The main session writes the round into `review.md`. It records why it rejects a finding, or adds the findings to fix
@@ -844,6 +956,47 @@ Protocol per ticket (rebuild stage 5):
 7. `outcome.md`, the `changes.md` entry (D-009), the status `done` in `## Tickets` and `## State`; then `check.mjs`
    and Biome on `adrian-rebuild`; one commit `R-NNN: <title>` with all of it; `git push origin adrian-rebuild`.
 - No `SendMessage` to other sessions, no `ListAgents`, no agent teams; state passes only through files.
+- In a night run, every "Adrian decides" and "asks Adrian" of steps 3, 4 and 6 follows the night mode that Adrian adds
+  to the rebuild prompt before rebuild stage 5; a ticket that stops waits for the day, and so do the tickets that depend
+  on it. There is no night run before that addition.
+
+## Commands
+
+The Bash commands rebuild stage 5 runs, for the allow-list in the repo's `.claude/settings.json` (no
+skip-permissions). The rules there apply to the main session and to both subagents alike: the reviewer's read-only
+limit comes from its definition and from `review-guard.mjs` (a change voids the review), and the implementer's from
+its definition and from `compare --git` (protocol step 3), not from the list. Commands run from the repository root,
+with relative paths, never through `cd`.
+
+Adrian writes `.claude/settings.json`; the rebuild session never changes its own permissions. By day before a night
+run, the main session writes the `ticket.md` of the night's tickets that delete or move files, so their exact paths
+can go on the list. The command strings of the gate-time tool (R-011) and of the contract script (R-017) are named in
+those tickets' outcomes and added to the list then.
+
+Every stage:
+
+| Who | Commands |
+|---|---|
+| main session, implementer, reviewer: reading | `git status`, `git diff`, `git log`, `git show`, `git ls-files`, `git rev-parse`, `git cat-file`, `git grep`, `git for-each-ref`, `ls`, `cat`, `head`, `tail`, `wc`, `grep`, `find` (without `-delete` and `-exec`), `sed -n`, `sort`, `uniq`, `cmp`, `diff`, `file`, `command -v` |
+| main session, implementer, reviewer: checks | `sh adrian-rebuild/tools/gate.sh`, `npm run check`, `npm run typecheck`, `npx tsc --noEmit`, `npx biome check --error-on-warnings <path>`, `node --test <test file>`, `node adrian-rebuild/tools/check.mjs`, `node --test adrian-rebuild/tools/test-changes-entries.mjs`, `sh adrian-rebuild/tools/test-review-guard.sh`, `sh adrian-rebuild/tools/test-pre-push.sh`, `node bin/limen <args>` on a test fixture |
+| main session, implementer: changes | `npx biome format --write <path>`, `npm ci`; `rm`, `rm -r` and `mv` on exactly the paths a ticket's `## Change` names, one entry per path (stage 1 cuts, R-042 and R-059 replace files, R-083 renames test files, and others) |
+| main session only | `mkdir -p node_modules/.rebuild-review`; `node adrian-rebuild/tools/review-guard.mjs snapshot`, `snapshot --git`, `diff`, `compare <file>` and `compare --git <file>`; `git restore --source=HEAD -- <path>` and `git apply --include=<path> <diff>` (after a void review); `git add <paths>` (`git add -A -- <paths>` for deletions and renames), `git commit`, `git push origin adrian-rebuild`; `sh adrian-rebuild/tools/install-hooks.sh` (after a move or a new clone); at the close of a stage `git tag <tag> <sha>` (local), the gate-time tool of R-011 and, from stage 4, `node adrian-rebuild/tools/context-size.mjs <ref>` |
+
+In addition, per stage:
+
+| Stage | Commands | For |
+|---|---|---|
+| 1 | the per-path `rm -r` entries of the cuts (for example `spec/`, `templates/.history/`, `docs/reviews/`, `picture/viewer/`, `.omp/`, `bin/tony-finish-ping.sh`) | R-002–R-010 |
+| 2 | `npm pack @earendil-works/pi-coding-agent@1.5.1 @earendil-works/pi-ai@1.5.1 @earendil-works/pi-agent-core@1.5.1 @vanillagreen/pi-claude-bridge@5.0.3 --pack-destination adrian-rebuild/input/vendor`, `mkdir -p adrian-rebuild/input/vendor/<package>`, `tar -xzf <tarball> -C adrian-rebuild/input/vendor/<package>`, and the contract script of R-017 on that copy; the only network access besides `npm ci` and `git push origin adrian-rebuild` | the type contract of R-017 (T-32 (2)) |
+| 3 | none: scopes, units and timers are tested on fakes (T-28 (5)); `systemd-run`, `systemctl` and `loginctl` are seat steps | — |
+| 4 | `node adrian-rebuild/tools/context-size.mjs <ref>` for the implementer too | R-039 |
+| 5–8 | none: `nft`, `systemd-analyze`, `ssh` and account setup are seat steps | — |
+| 9 | the per-path `mv` entries of the test files that R-083 renames | R-083 |
+
+Never in the list: `git push` of any other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, `git rebase`,
+`git tag -d`, `git branch -d` or `-D`, `git checkout` or `git switch` of another branch, `git stash`, `git clean`,
+`--no-verify`, `npm install` (only `npm ci`) and `npm install -g`, `sudo`, `curl`, `wget`, `ssh`, `python3`,
+`systemctl`, and `rm` outside the paths of the current tickets.
 
 ## State
 
@@ -860,12 +1013,27 @@ Done:
 
 Gate 4: Adrian answered Q1–Q3 on 2026-11-17 (D-008–D-010, applied: the root deployment script R-012 in stage 1, which
 absorbs D3; tickets R-012–R-059 of commit `cdf3e78` are R-013–R-060 now; the `changes.md` format; seat tools in
-TypeScript). Acceptance of the plan and of the subagent definitions is pending.
+TypeScript). On the same day Adrian asked, before he accepts, for the cost and the effect of each stage, the earliest stage to
+resume the projects, night runs without him, and the commands for the allow-list (D-011, applied: R-013 and R-014 in
+stage 1, R-067 and R-069–R-071 in stage 7, the `Run` column, `### Cost and effect per stage`, `### Resuming the
+projects on the seat`, `## Commands`; two dependencies the arrangement exposed: R-067 on R-069, R-081 on R-082–R-086).
+Acceptance of the plan and of the subagent definitions is pending.
 
 Next: after Adrian accepts the plan and the definitions, rebuild stage 5 starts with plan stage 1 ("Cut") in a new
 session, with R-001.
 
-Open questions for Adrian: none beyond the acceptance of gate 4.
+Now, while the coordinators are paused: disable the old `limen-prune` timer on the seat (A-001;
+`### Resuming the projects on the seat`, condition 2).
+
+Open questions for Adrian (gate 4), with the main session's recommendation:
+- Q4 Resuming the projects after a0.3.0 means that until a0.5.0 their jobs run as during M1, with the whole
+  environment, a GitHub credential and an open network (A-004, A-006, A-007). Options: (a) accept that until a0.5.0,
+  with the GitHub module disconnected until then, so that the untrusted input is only what jobs fetch themselves; (b)
+  resume only after a0.5.0. Recommendation: (a), because M1 ran this way, the repositories are private, and a0.5.0 is
+  two stages and many seat steps away.
+- Q5 When the weekly limit is near, which side yields: (a) the rebuild (the night run stops until the limit renews);
+  (b) the projects. Recommendation: (a), because the projects hold production data and the rebuild has no deadline.
+- Then the acceptance of the plan and of the subagent definitions.
 
 Notes for the next session:
 - Start Claude Code in the repository root, so that it loads `.claude/agents/`.

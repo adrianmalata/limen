@@ -2,11 +2,14 @@
    refy, `git status --porcelain` i skrót SHA-256 treści każdego zmienionego i nieśledzonego pliku; `compare <plik>`
    kończy się kodem 1, gdy stan po recenzji różni się od zapisanego, więc recenzja, która cokolwiek zmieniła, jest
    nieważna (gwarancja w kodzie, nie w prompcie). `diff` wypisuje pełny diff ticketu względem HEAD razem z plikami
-   nieśledzonymi, który dostaje recenzent. Stan: działa; test w tools/test-review-guard.sh. */
+   nieśledzonymi, który dostaje recenzent. Tryb `--git` porównuje tylko HEAD, refy i indeks, więc wokół pracy
+   implementera wykrywa commit, push albo `git add`, a zmiany w drzewie przepuszcza. Stan: działa; test
+   w tools/test-review-guard.sh. */
 // Usage (from the repository root):
 //   node adrian-rebuild/tools/review-guard.mjs snapshot > <file>   before the review; <file> outside the repository
 //   node adrian-rebuild/tools/review-guard.mjs compare <file>      after the review; exit 1 when anything changed
 //   node adrian-rebuild/tools/review-guard.mjs diff > <file>       the ticket's diff for the reviewer
+//   snapshot --git / compare --git <file>: HEAD, refs and the index only, around the implementer's run
 // Files ignored by git (node_modules, the gate's TMPDIR) are outside the guard: they are not part of a change.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -46,11 +49,24 @@ function digest(path) {
 	}
 }
 
-function snapshot() {
-	const status = git(["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
-	const lines = [
+function gitState() {
+	const index = createHash("sha256")
+		.update(git(["diff", "--cached", "--binary"]))
+		.digest("hex");
+	return [
 		`head ${git(["rev-parse", "HEAD"]).toString("utf8").trim()}`,
 		...git(["for-each-ref", "--format=ref %(refname) %(objectname)"]).toString("utf8").trim().split("\n"),
+		`index ${index}`,
+	];
+}
+
+function snapshot(gitOnly) {
+	if (gitOnly) {
+		return `${gitState().join("\n")}\n`;
+	}
+	const status = git(["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+	const lines = [
+		...gitState(),
 		...status
 			.toString("utf8")
 			.split("\0")
@@ -61,9 +77,9 @@ function snapshot() {
 	return `${lines.join("\n")}\n`;
 }
 
-function compare(file) {
+function compare(file, gitOnly) {
 	const before = readFileSync(file, "utf8").split("\n");
-	const after = snapshot().split("\n");
+	const after = snapshot(gitOnly).split("\n");
 	const removed = before.filter((line) => !after.includes(line));
 	const added = after.filter((line) => !before.includes(line));
 	if (removed.length === 0 && added.length === 0) {
@@ -90,14 +106,16 @@ function diff() {
 	return 0;
 }
 
-const [command, file] = process.argv.slice(2);
+const [command, ...rest] = process.argv.slice(2);
+const gitOnly = rest.includes("--git");
+const [file] = rest.filter((arg) => arg !== "--git");
 if (command === "snapshot") {
-	process.stdout.write(snapshot());
+	process.stdout.write(snapshot(gitOnly));
 } else if (command === "compare" && file) {
-	process.exitCode = compare(file);
+	process.exitCode = compare(file, gitOnly);
 } else if (command === "diff") {
 	process.exitCode = diff();
 } else {
-	console.error("usage: review-guard.mjs snapshot | compare <file> | diff");
+	console.error("usage: review-guard.mjs snapshot [--git] | compare [--git] <file> | diff");
 	process.exitCode = 2;
 }

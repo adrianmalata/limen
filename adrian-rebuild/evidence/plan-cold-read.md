@@ -1,8 +1,8 @@
-<!-- PL: Wynik cold readu planu z etapu 4 przebudowy: świeży subagent dostał tylko plan.md i dwie definicje subagentów
-i zgłosił 35 uwag w sześciu kategoriach (brak podstawy, niejasność, sprzeczność, kolejność, brak następnego kroku,
-spójność definicji). Plik zapisuje każdą uwagę w skrócie i to, jak ją rozstrzygnięto w planie albo w definicjach.
-Numery ticketów są z planu w commicie cdf3e78 (na bramce 4 R-012–R-059 przesunęły się o jeden). Stan: wszystkie
-uwagi rozstrzygnięte (32 poprawione, 3 inaczej z podanym powodem); brak otwartych. -->
+<!-- PL: Wyniki dwóch cold readów planu z etapu 4 przebudowy. Pierwszy: świeży subagent dostał plan.md i dwie definicje
+subagentów i zgłosił 35 uwag (brak podstawy, niejasność, sprzeczność, kolejność, brak następnego kroku, spójność
+definicji); drugi objął uzupełnienia z bramki 4 (D-011: koszt etapów, wznowienie projektów, praca nocna, polecenia)
+i zgłosił 22 uwagi. Plik zapisuje każdą uwagę w skrócie i jej rozstrzygnięcie; numery ticketów pierwszego są z commitu
+cdf3e78. Stan: wszystkie uwagi rozstrzygnięte, dwie przeszły jako pytania Q4 i Q5 do Adriana. -->
 
 # Cold read of the plan (rebuild stage 4)
 
@@ -52,3 +52,35 @@ R-060 merged into it, so R-012–R-059 of this file are R-013–R-060 of the cur
 | 33 | 6 | Running the gate might void a review | fixed: the reviewer definition says where the gate writes (ignored paths) |
 | 34 | 6 | The implementer does not get `input/prompt.md`; what in `input/` is tracked | other: `prompt.md` is the main session's instruction file; the implementer gets its binding constraints as its rules, and the definition says `input/` is untracked |
 | 35 | 6 | Only the reviewer declares `disallowedTools: Agent` | fixed |
+
+# Second cold read: the gate-4 additions (D-011)
+
+2026-11-17. A fresh general-purpose subagent read only `adrian-rebuild/plan.md` and checked the additions of D-011
+(the cost and effect per stage, the resumption of the projects, the `Run` column, `## Commands`) against the rest of
+the plan. It recounted the tickets, sizes, pair tickets, `Run` values and seat steps: all matched. Ticket numbers are
+those of the current plan.
+
+| # | Remark (short) | Resolution |
+|---|---|---|
+| 1 | The seat-step count includes N.0 without saying so; B.1–B.3 are in no row | fixed: intro says N.0 is counted; B.1, B.2 in stage 1, B.3 in stage 2 |
+| 2 | The `day-after` legend leaves indirect dependencies open | fixed: "directly or through other tickets" |
+| 3 | Row 3 claims escalations before `limen escalate` exists (R-069, stage 7) | fixed: job failures and long queue waits; escalations from stage 7 |
+| 4 | Row 4 "answers in the owner's language" is no change (D-004) | fixed: the cue stops demanding English; the audience line names the language (T-13) |
+| 5 | Row 6 says the round limit applies before bounded rounds exist | fixed: stored in stage 6, used from stage 7 |
+| 6 | Terms in the rows without support ("8-hex token", "every minute", "30 s", `show --result`, `<FNNN>`, glossary) | fixed: each row cites its rule and ticket |
+| 7 | Steps 3.1–3.3 "before the first spawn" vs the trial jobs of 0.6 and 3.2 | fixed: "before normal work resumes"; the trial jobs are the only earlier spawns |
+| 8 | The rollback of 0.7 would erase the records of jobs run since the snapshot | fixed: 0.7 first copies `.limen/` aside to be kept, and restores the snapshot only for a format change |
+| 9 | "One per project at most" has no source; quota-waiting jobs unclear | fixed: `maxJobs` 1 (A-014); a quota-waiting job is `failed` and resumes on the new version |
+| 10 | The Max window term omits the laptop | fixed in `## Terms` |
+| 11 | The split ignores pair tickets by day and the weekly limit; "the night run's log" undefined | fixed: pair tickets named; the weekly limit is open question Q5; the night mode's record named |
+| 12 | "Also now" (prune timer off) is an action missing from State | fixed: State lists it |
+| 13 | Resuming at a0.3.0 runs jobs with today's credentials and network until a0.5.0, unstated | fixed: stated in the section; the acceptance is open question Q4 |
+| 14 | B.3 "deployed" vs "tagged"; how B.2 runs before any deployment | fixed: one wording; B.2 runs from a separate checkout of R-011's commit |
+| 15 | `context-size.mjs` listed only for stage 4 | fixed: main-session row, from stage 4 at every close |
+| 16 | `rm`/`mv` allowed only in stages 1 and 9, but other stages delete or move files | fixed: per-path entries in the every-stage row |
+| 17 | Path entries "before the night run" vs tickets written one by one; who writes the settings | fixed: Adrian writes `.claude/settings.json`; the night's deleting tickets are written by day first |
+| 18 | Relative paths vs a scratch directory outside the repo | fixed: `node_modules/.rebuild-review/` (ignored) |
+| 19 | The allow-list cannot stop an implementer's commit or push | fixed: `review-guard.mjs snapshot --git` / `compare --git` around the implementer (tested) |
+| 20 | No way to undo a void review; `tar -xzf` vs the "-f" ban; missing command strings; `install-hooks.sh`; network via push | fixed: `git restore --source=HEAD` + `git apply --include` procedure; the ban names `git push`; strings from the outcomes; `install-hooks.sh` listed; push named |
+| 21 | No night variant of the protocol's "Adrian decides" | fixed: the night mode of the rebuild prompt governs; a stopped ticket and its dependents wait for the day |
+| 22 | D-011 omits the two new dependencies; R-071's Seat is "—" though 7.5 names it | fixed |
