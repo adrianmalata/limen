@@ -179,7 +179,7 @@ Where the reference shows them, IDs, unique suffixes, and unique labels work the
 ```
 
 ### AU-212 Refuse before the first write
-- Opinion: Spawn checks everything before it creates anything; once the record exists it prints the id; a later failure marks the job `failed` instead of leaving debris.
+- Opinion: Spawn checks everything before it creates anything; once the record exists it prints the id; a failure after that marks the job `failed` instead of leaving debris.
 - Where: `src/commands/spawn.ts:350-351`, `src/commands/spawn.ts:360-363`, `src/commands/init.ts:39-50`, `test/s1-spawn.test.ts:37-62`
 - Evidence: test name "each spawn refusal exits 1, names its cause and leaves no job, worktree or branch" (`test/s1-spawn.test.ts:37`).
 - Gives: A refused command can be retried as it is. A killed caller still names its job.
@@ -202,7 +202,7 @@ Where the reference shows them, IDs, unique suffixes, and unique labels work the
 - Where: `src/commands/init.ts:82-89`, `src/commands/init.ts:39-50`, `src/commands/init.ts:52-57`, `docs/commands.md:175`
 - Evidence: `await copyFile(source, target, constants.COPYFILE_EXCL);` (`src/commands/init.ts:86`).
 - Gives: Safe to rerun after an upgrade. Project files belong to the project.
-- Costs: The settings that matter (job limit, routes, modules) have no place at init; they come from env vars or from later edits.
+- Costs: The settings that matter (job limit, routes, modules) have no place at init; they come from env vars or from edits after init.
 - Fit: partial with z. 16 (init sets nothing about what agents may change); A-014, A-030.
 - Gate 2: settled by A-014 and A-030: change (init asks for `maxJobs`, module switches, round limit, routes and the gate command; without a terminal it requires flags).
 - Example:
@@ -222,7 +222,7 @@ Where the reference shows them, IDs, unique suffixes, and unique labels work the
 - Where: `package.json:5`, `package.json:30`, `package.json:51`, `bin/limen:9`, `bin/limen:21`, `tsconfig.json:15-17`, `test/structure.test.ts:28`, `src/commands/land.ts:314`, `src/runtime/contain.ts:223`
 - Evidence: `"dependencies": {},` (`package.json:51`), asserted by `assert.deepEqual(pkg.dependencies, {});` (`test/structure.test.ts:28`).
 - Gives: Nothing to audit or update from npm. The source is the release. `npm ci` takes seconds.
-- Costs: Hand-written parsers instead of libraries: front matter (`src/picture/frontmatter.ts`, 399 lines), Markdown (`src/picture/markdown.ts`, 316 lines), flag rules. Hidden system needs: git 2.36 or later for `worktree list -z` (`evidence/baseline.md`), `tar`, `ps`; nothing declares or checks them.
+- Costs: Hand-written parsers instead of libraries: front matter (`src/picture/frontmatter.ts`, 399 lines), Markdown (`src/picture/markdown.ts`, 316 lines), flag rules. Hidden system needs: git 2.36 or newer for `worktree list -z` (`evidence/baseline.md`), `tar`, `ps`; nothing declares or checks them.
 - Fit: none applies; gate 2 named it the author's taste (H-15).
 - Gate 2: open (gate 2 §4, H-15).
 - Question: (a) keep zero runtime dependencies; (b) allow a short vetted list (for example a YAML parser, a schema validator for `record.json`); (c) zero in the core, allowed in optional modules; in each case, declare and check the system tools (git version).
@@ -426,7 +426,7 @@ export function limitMs(limit: Limit, fallback: number, root = process.env.LIMEN
 - Where: `test/plant.ts:1-3`, `test/plant.ts:53-76`, `test/fake-engine.mjs:2-8`, `test/s8-groups.test.ts:129-130`
 - Evidence: "Scenarios wait on `limen wait`, file events and FIFOs; nothing here sleeps." (`test/plant.ts:3`); script verbs "commit · fail <code> · error … · say <text> · tool <command> · block · orphan · finish" (`test/fake-engine.mjs:4`).
 - Gives: Tests prove what a user sees, across process boundaries, with no model and no network. The full gate runs in about 80 s on Adrian's laptop (`evidence/baseline.md`).
-- Costs: A fake engine cannot show what a real engine or the bridge does with Limen's text (A-086 went unseen). Tests depend on the platform (git 2.36 or later, a private `TMPDIR`; `evidence/baseline.md`). One real 12 s hold remains (`test/s8-groups.test.ts:130`).
+- Costs: A fake engine cannot show what a real engine or the bridge does with Limen's text (A-086 went unseen). Tests depend on the platform (git 2.36 or newer, a private `TMPDIR`; `evidence/baseline.md`). One real 12 s hold remains (`test/s8-groups.test.ts:130`).
 - Fit: compliant with z. 40 (mechanism tests); partial with z. 41 (no end-to-end task with a model and a grader); A-051, A-086.
 - Gate 2: open (A-051 adds golden prompt tests and a seat check, §2 Measurement adds same-task runs; the fake-engine suite itself is not decided).
 - Question: (a) keep the scenario suite and the fake engine as the gate; (b) add a replay engine that plays recorded bridge sessions; (c) move part of the suite to unit tests to save lines.
@@ -574,14 +574,14 @@ Speak only when something looks wrong, or when the coordinator asks you. The coo
 - Gives: The author's laptop and the seat run the same code.
 - Costs: Platform branches inside core files. The seat-level reaper exists only on macOS (A-024).
 - Fit: partial with z. 38 (platform code belongs in an adapter); A-024, A-083.
-- Gate 2: settled by A-083 and A-024: change (one platform interface with a Linux implementation only; macOS later as a new implementation).
+- Gate 2: settled by A-083 and A-024: change (one platform interface with a Linux implementation only; future macOS support as a new implementation).
 
 ### AU-239 The release is a live clone
 - Opinion: Limen installs as a Git clone with `npm link`; projects never copy hooks or templates; hooks find the package through `limen` on `PATH`; an update is `git pull` and `/reload`.
 - Where: `README.md:31-38`, `README.md:61-62`, `docs/setup.md:34`, `templates/limen-extension.ts:7`, `templates/limen-extension.ts:14-25`
 - Evidence: "To update Limen, pull the package clone and use `/reload` in the agent session. All projects on that computer use the same installed package." (`README.md:61-62`).
 - Gives: One update reaches every project; projects cannot drift apart in version.
-- Costs: A job that can write the clone, or put another `limen` first on `PATH`, changes code that later sessions load (A-025). No version is pinned per project, and a pull during a job mixes versions (D3).
+- Costs: A job that can write the clone, or put another `limen` first on `PATH`, changes code that the next sessions load (A-025). No version is pinned per project, and a pull during a job mixes versions (D3).
 - Fit: conflicts with z. 14 (code loaded from a place agents can write); A-025.
 - Gate 2: settled by A-025 and D3: change (root-owned release directories, absolute paths, deployment waits until no job runs).
 

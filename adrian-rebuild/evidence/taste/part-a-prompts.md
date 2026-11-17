@@ -154,7 +154,7 @@ Conventions. "The author" is Adam Gospodarczyk (overment). "Manual" is `template
 - Opinion: A re-review reads the earlier findings, checks each blocking one against the new commit, inspects the delta and does not re-prosecute what was settled; the re-review task names the findings file and the commit and nothing else.
 - Where: `templates/reviewer.md:18`, `templates/agents.md:157`
 - Evidence: "A re-review handoff names the findings file and the commit and stops — no probe list, no verdict word, no hash typed by hand" (`templates/agents.md:157`)
-- Gives: cheap later rounds; no drift into a new review of the whole design; no coordinator bias in the brief.
+- Gives: cheap follow-up rounds; no drift into a new review of the whole design; no coordinator bias in the brief.
 - Costs: a regression outside the delta can pass; with A-031 the reviewer must answer every acceptance ID anyway, which a bounded review may answer from stale evidence.
 - Fit: z. 34 partial; related findings A-015, A-031, A-013.
 - Gate 2: open (A-013 V3 requires a new review after a new commit; its scope is not decided).

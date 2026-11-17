@@ -1,8 +1,9 @@
 /* PL: Walidator plików przebudowy (Node, bez zależności). Sprawdza, że każda referencja `plik:linia` w audit.md
    i taste.md istnieje przy tagu rebuild-base, że każde znalezisko A-NNN ma wymagane pola z dozwolonymi wartościami
-   (od bramki 2 także decyzję Adriana) i że decyzja „fix (via X)” wskazuje znalezisko z decyzją fix albo pozycję
-   sekcji Gate 2: decisions. W etapie 4 dojdzie sprawdzenie planu, a w etapie 6 struktury folderów ticketów i
-   streszczeń PL. Stan: działa; kończy się kodem 1 i listą błędów, gdy coś się nie zgadza. */
+   (od bramki 2 także decyzję Adriana), że decyzja „fix (via X)” wskazuje znalezisko z decyzją fix albo pozycję
+   sekcji Gate 2: decisions, oraz (T-17), że taste.md i plan.md nie mają słów-zapchajdziur ani pustego pola
+   „Revisit when:”. W etapie 4 dojdzie sprawdzenie planu, a w etapie 6 struktury folderów ticketów i streszczeń PL.
+   Stan: działa; kończy się kodem 1 i listą błędów, gdy coś się nie zgadza. */
 // Usage: node adrian-rebuild/tools/check.mjs   (run from the repository root)
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -10,6 +11,9 @@ import { readFileSync } from "node:fs";
 const BASE = "rebuild-base";
 const AUDIT = "adrian-rebuild/audit.md";
 const TASTE = "adrian-rebuild/taste.md";
+const PLAN = "adrian-rebuild/plan.md";
+// T-17: the rebuild parks nothing; "not now" is `rejected` with a non-empty `Revisit when:`.
+const FILLER = /\b(backlog|deferred|later|tbd)\b|do ustalenia/i;
 
 const FIELDS = {
 	// reliability and security together are priority 1 of the rebuild prompt.
@@ -139,7 +143,31 @@ function checkAudit() {
 	return `audit: ${list.length} findings (${decisions.join(", ")}), ${references} references`;
 }
 
-const summary = [checkAudit(), `taste: ${checkReferences(readFileSync(TASTE, "utf8"), TASTE)} references`];
+/** T-17: no filler words and no empty `Revisit when:` field in taste.md and plan.md. */
+function checkWording(file) {
+	const lines = readFileSync(file, "utf8").split("\n");
+	let revisits = 0;
+	lines.forEach((line, index) => {
+		const filler = line.match(FILLER);
+		if (filler) {
+			errors.push(`${file}:${index + 1}: filler word "${filler[0]}" (T-17)`);
+		}
+		const revisit = line.match(/(?<!`)Revisit when:(.*)$/);
+		if (revisit) {
+			revisits += 1;
+			if (!revisit[1].trim()) {
+				errors.push(`${file}:${index + 1}: empty Revisit when: (T-17)`);
+			}
+		}
+	});
+	return revisits;
+}
+
+const summary = [
+	checkAudit(),
+	`taste: ${checkReferences(readFileSync(TASTE, "utf8"), TASTE)} references, ${checkWording(TASTE)} revisit signals`,
+	`plan: ${checkWording(PLAN)} revisit signals`,
+];
 for (const error of errors) {
 	console.error(error);
 }

@@ -1,7 +1,7 @@
 <!-- PL: Rubryka taste przebudowy: część A to jawny inwentarz opinii autora Limena wbudowanych w system, część B to
 zasady Adriana (T-NN) z regułą, uzasadnieniem i sposobem sprawdzenia. Po bramce 3 plik jest rubryką obok zasad
 z input/, a nowe decyzje taste dopisuje się tu z datą i źródłem. Stan: część A gotowa (80 opinii autora, 40 już
-rozstrzygniętych bramką 2, 40 otwartych do wywiadu); część B powstaje w wywiadzie z Adrianem (rundy 1–4: T-01–T-16). -->
+rozstrzygniętych bramką 2, 40 otwartych do wywiadu); część B powstaje w wywiadzie z Adrianem (rundy 1–4: T-01–T-17). -->
 
 # Taste
 
@@ -130,7 +130,7 @@ Source with quotes, examples and interview questions: `evidence/taste/part-a-pro
 - **AU-115 A re-review is bounded by the prior findings file**
   - Opinion: A re-review reads the earlier findings, checks each blocking one against the new commit, inspects the delta and does not re-prosecute what was settled; the re-review task names the findings file and the commit and nothing else.
   - Where: `templates/reviewer.md:18`, `templates/agents.md:157`
-  - Gives: cheap later rounds; no drift into a new review of the whole design; no coordinator bias in the brief.
+  - Gives: cheap follow-up rounds; no drift into a new review of the whole design; no coordinator bias in the brief.
   - Costs: a regression outside the delta can pass; with A-031 the reviewer must answer every acceptance ID anyway, which a bounded review may answer from stale evidence.
   - Fit: z. 34 partial; related findings A-015, A-031, A-013.
   - Gate 2: open (A-013 V3 requires a new review after a new commit; its scope is not decided).
@@ -406,7 +406,7 @@ Source with quotes, examples and interview questions: `evidence/taste/part-a-cod
   - Fit: none applies directly; an ambiguous match refuses, which fits z. 12.
   - Gate 2: open.
 - **AU-212 Refuse before the first write**
-  - Opinion: Spawn checks everything before it creates anything; once the record exists it prints the id; a later failure marks the job `failed` instead of leaving debris.
+  - Opinion: Spawn checks everything before it creates anything; once the record exists it prints the id; a failure after that marks the job `failed` instead of leaving debris.
   - Where: `src/commands/spawn.ts:350-351`, `src/commands/spawn.ts:360-363`, `src/commands/init.ts:39-50`, `test/s1-spawn.test.ts:37-62`
   - Gives: A refused command can be retried as it is. A killed caller still names its job.
   - Costs: The preflight grows with every engine and mode (12 refusal cases in one test). Not every command follows it: land's ticket close renames folders before its commit and keeps them on failure (A-021).
@@ -416,7 +416,7 @@ Source with quotes, examples and interview questions: `evidence/taste/part-a-cod
   - Opinion: `limen init` never overwrites a file, prints `created` or `kept` for each, refuses legacy paths, ends with one `next:` line, and asks no questions.
   - Where: `src/commands/init.ts:82-89`, `src/commands/init.ts:39-50`, `src/commands/init.ts:52-57`, `docs/commands.md:175`
   - Gives: Safe to rerun after an upgrade. Project files belong to the project.
-  - Costs: The settings that matter (job limit, routes, modules) have no place at init; they come from env vars or from later edits.
+  - Costs: The settings that matter (job limit, routes, modules) have no place at init; they come from env vars or from edits after init.
   - Fit: partial with z. 16 (init sets nothing about what agents may change); A-014, A-030.
   - Gate 2: settled by A-014 and A-030: change (init asks for `maxJobs`, module switches, round limit, routes and the gate command; without a terminal it requires flags).
 
@@ -426,7 +426,7 @@ Source with quotes, examples and interview questions: `evidence/taste/part-a-cod
   - Opinion: The package has no runtime dependency and no build: Node 24 runs the TypeScript sources by type stripping, as ESM with `.ts` imports, and system tools (git, tar, ps, Ruby on macOS) fill the gaps.
   - Where: `package.json:5`, `package.json:30`, `package.json:51`, `bin/limen:9`, `bin/limen:21`, `tsconfig.json:15-17`, `test/structure.test.ts:28`, `src/commands/land.ts:314`, `src/runtime/contain.ts:223`
   - Gives: Nothing to audit or update from npm. The source is the release. `npm ci` takes seconds.
-  - Costs: Hand-written parsers instead of libraries: front matter (`src/picture/frontmatter.ts`, 399 lines), Markdown (`src/picture/markdown.ts`, 316 lines), flag rules. Hidden system needs: git 2.36 or later for `worktree list -z` (`evidence/baseline.md`), `tar`, `ps`; nothing declares or checks them.
+  - Costs: Hand-written parsers instead of libraries: front matter (`src/picture/frontmatter.ts`, 399 lines), Markdown (`src/picture/markdown.ts`, 316 lines), flag rules. Hidden system needs: git 2.36 or newer for `worktree list -z` (`evidence/baseline.md`), `tar`, `ps`; nothing declares or checks them.
   - Fit: none applies; gate 2 named it the author's taste (H-15).
   - Gate 2: open (gate 2 §4, H-15).
 - **AU-215 Lint rules with reasons, debt kept visible**
@@ -506,7 +506,7 @@ Source with quotes, examples and interview questions: `evidence/taste/part-a-cod
   - Opinion: Tests run the real `bin/limen` on a throwaway "plant" repo with real Git and real processes; one fake engine plays `pi` and `omp` from a script in the task text and loads the real hooks; a fetch sink records every request; tests wait on files and FIFOs, not on sleeps.
   - Where: `test/plant.ts:1-3`, `test/plant.ts:53-76`, `test/fake-engine.mjs:2-8`, `test/s8-groups.test.ts:129-130`
   - Gives: Tests prove what a user sees, across process boundaries, with no model and no network. The full gate runs in about 80 s on Adrian's laptop (`evidence/baseline.md`).
-  - Costs: A fake engine cannot show what a real engine or the bridge does with Limen's text (A-086 went unseen). Tests depend on the platform (git 2.36 or later, a private `TMPDIR`; `evidence/baseline.md`). One real 12 s hold remains (`test/s8-groups.test.ts:130`).
+  - Costs: A fake engine cannot show what a real engine or the bridge does with Limen's text (A-086 went unseen). Tests depend on the platform (git 2.36 or newer, a private `TMPDIR`; `evidence/baseline.md`). One real 12 s hold remains (`test/s8-groups.test.ts:130`).
   - Fit: compliant with z. 40 (mechanism tests); partial with z. 41 (no end-to-end task with a model and a grader); A-051, A-086.
   - Gate 2: open (A-051 adds golden prompt tests and a seat check, §2 Measurement adds same-task runs; the fake-engine suite itself is not decided).
 - **AU-226 Numbered files, sentence names**
@@ -605,12 +605,12 @@ Source with quotes, examples and interview questions: `evidence/taste/part-a-cod
   - Gives: The author's laptop and the seat run the same code.
   - Costs: Platform branches inside core files. The seat-level reaper exists only on macOS (A-024).
   - Fit: partial with z. 38 (platform code belongs in an adapter); A-024, A-083.
-  - Gate 2: settled by A-083 and A-024: change (one platform interface with a Linux implementation only; macOS later as a new implementation).
+  - Gate 2: settled by A-083 and A-024: change (one platform interface with a Linux implementation only; future macOS support as a new implementation).
 - **AU-239 The release is a live clone**
   - Opinion: Limen installs as a Git clone with `npm link`; projects never copy hooks or templates; hooks find the package through `limen` on `PATH`; an update is `git pull` and `/reload`.
   - Where: `README.md:31-38`, `README.md:61-62`, `docs/setup.md:34`, `templates/limen-extension.ts:7`, `templates/limen-extension.ts:14-25`
   - Gives: One update reaches every project; projects cannot drift apart in version.
-  - Costs: A job that can write the clone, or put another `limen` first on `PATH`, changes code that later sessions load (A-025). No version is pinned per project, and a pull during a job mixes versions (D3).
+  - Costs: A job that can write the clone, or put another `limen` first on `PATH`, changes code that the next sessions load (A-025). No version is pinned per project, and a pull during a job mixes versions (D3).
   - Fit: conflicts with z. 14 (code loaded from a place agents can write); A-025.
   - Gate 2: settled by A-025 and D3: change (root-owned release directories, absolute paths, deployment waits until no job runs).
 - **AU-240 Not a sandbox, said plainly**
@@ -626,7 +626,7 @@ Source with quotes, examples and interview questions: `evidence/taste/part-a-cod
 Adrian's rules for the rebuilt Limen, from the stage 3 interview (2026-11-17). Each rule has an ID, the rule, why it
 holds, how it is checked (a tool, a test or a script in `npm run check`; otherwise a question for the reviewer, or
 `Check: none`), and its source: the interview round, the Part A item it answers, and whether it keeps or departs from
-the author's choice. Later taste decisions are added here with their date and source.
+the author's choice. Taste decisions taken after this interview are added here with their date and source.
 
 ### T-01 Errors never vanish
 - Rule: An error on the main path always propagates and ends the command with a non-zero exit code (T-02), a message
@@ -852,10 +852,18 @@ the author's choice. Later taste decisions are added here with their date and so
   (z. 10). (5) A footer: Done / In progress / Waiting for you, with the publication state of `main`. Mechanisms: (1) is
   one rule with its reason in the owner register; it takes over "the result first" from `## Cue: Shared` and
   `## Cue: Wake`, whose sentences A-077 cuts from the per-turn cue. (2), (3) and (4) are built by code: `limen ask --kind
-  decision|request` requires the fields of its kind, refuses without them and renders a fixed template that the
-  coordinator passes on; the rule reference of (2) is checked (the file and the anchor exist). (5) is generated by code
-  from the records: lands, active jobs and the queue, open `limen ask` items with their numbers, and the published SHA
-  against local `main`.
+  decision|request` requires the fields of its kind and refuses without them; the hook shows the rendered block as a
+  chat entry (`appendEntry` with `registerEntryRenderer`, as the footer), so the coordinator never retypes it (that
+  costs tokens, and the model could change the text); the model knows the content because it gave the fields in the
+  call. The rule reference of (2) is checked (the file and the anchor exist). (5) is generated by code from the
+  records: lands, active jobs and the queue, open `limen ask` items with their numbers, and the published SHA against
+  local `main`. After a reply the order is: the model's prose, the `limen ask` blocks, the footer (T-16).
+- Language: the labels of the footer and of `limen ask` blocks are code text in literal English, without idioms
+  (Done / In progress / Waiting for you; T-13, T-14). The footer is a view of the same records as `limen status`, so
+  one renderer and one language serve both (z. 22); the line content is English anyway (ticket titles, SHAs, paths,
+  Q-NNN IDs); a language that follows the conversation would need a translation mechanism (YAGNI). The content of the
+  `limen ask` fields is written by the coordinator in the language of the owner's last message (T-13); quotes given to
+  `limen answer --quote` stay verbatim.
 - Shape reference (anonymised skeleton from a real end-of-milestone message; the original stays out of the repo):
   ```
   <Result> is done. <Evidence: what passed and where>. Recorded on the board (<file>, commit <sha>,
@@ -883,8 +891,10 @@ the author's choice. Later taste decisions are added here with their date and so
   apart from the measurement.
 - Footer channel: a chat entry (`appendEntry` with `registerEntryRenderer`, Pi 1.5.1), appended by the hook after a
   coordinator reply only when the rendered footer differs from the last appended one (a text comparison, as for the
-  board digest in A-037). It is in the session history and, per Pi's API, not in the model's context. A widget is not
-  used now: it takes panel space permanently and no friction asks for it; its first friction goes to the backlog.
+  board digest in A-037). It is in the session history and, per Pi's API, not in the model's context. A widget below
+  the editor is `rejected`: it takes panel space permanently and no friction asks for it. Revisit when: after a break
+  Adrian has to ask for the current state because the last footer is stale, in at least two different weeks (z. 38,
+  z. 40).
   1. The model writes no footer of its own. The source of today's model-written overview is `## Cue: Human`
      (`templates/communication.md:138`, sent with every turn by `hook/communication.ts:215-219`), which reaches the
      model because the cue is a message (E-1, E-11). A-077 cuts it and code takes the footer over, so the owner
@@ -896,10 +906,11 @@ the author's choice. Later taste decisions are added here with their date and so
 - Footer checks: a test that renders the footer from test records; a test that the hook appends nothing when the
   footer is unchanged; a test that the IDs under "Waiting for you" equal the open `limen ask` items in the records; a
   test that the A-034 check skips footer entries; a metric for `plan.md` → `## Measurement`: the share of model
-  replies with their own Done / In progress / Waiting for you lines is 0.
-- Open: the language of the footer's labels (round 4 follow-up).
-- Source: interview round 4, AU-122, and Adrian's correction of the same day (the cue reaches the model; gate 2
-  revision 4); departs from the author.
+  replies with their own Done / In progress / Waiting for you lines is 0; a test that the footer and `limen status` use
+  the same render function; a test that after a successful `limen ask` the hook appends the block entry before the
+  footer; a golden test of the labels on test data.
+- Source: interview round 4, AU-122, Adrian's correction of the same day (the cue reaches the model; gate 2 revision
+  4) and the round 4 follow-up (labels, `limen ask` blocks shown by the hook); departs from the author.
 
 ### T-16 Evidence in a report comes from records, not from the model
 - Rule: The order of a report follows from where its parts come from: the model's prose, the `limen ask` blocks, the
@@ -910,8 +921,8 @@ the author's choice. Later taste decisions are added here with their date and so
   laptop) comes with its source. A turn with work in flight ends with the footer's "In progress" line from the
   records; the model-written overview goes. A decision is a `limen ask --kind decision` block (T-15 (3)), and one
   message may hold several numbered decisions. "What it touches and what it costs" is not part of a report: no source
-  of friction asks for it (T-09); if Limen records usage per job, its place is `limen status`, and its first friction
-  goes to the backlog.
+  of friction asks for it (T-09), and `limen stats` already counts tokens by class per job and per coordinator turn
+  (H-01 + H-20, gate 2 §2 Measurement).
 - Owner message: a Pi session entry with role `user`. Every message Limen injects into the coordinator's session
   (wakes, the context message, digests, notices) is a Pi custom message (`pi.sendMessage` with a `limen-*` type,
   `deliverAs: "followUp"`, `triggerTurn: true`; E-16), never `sendUserMessage`, so a wake does not reset the "Done"
@@ -928,3 +939,15 @@ the author's choice. Later taste decisions are added here with their date and so
   rest as in T-15.
 - Source: interview round 4, AU-123, and Adrian's correction of the same day (the "Done" line content, the owner
   message definition; gate 2 revision 4); departs from the author.
+
+### T-17 No parking list: "not now" is a final rejection with a revisit signal
+- Rule: The rebuild keeps no list of parked ideas and no postponed status (gate 2 §0.6). An idea that is not done now
+  is recorded as a final decision `rejected` with a field `Revisit when:` that names an observable signal, the number
+  of occurrences and the source of evidence (the change signal of an ADR, z. 36). Notes on friction after the rebuild
+  live outside the repo; the rebuild creates nothing for them.
+- Why: twice in round 4 an idea was parked for "its first friction" (a footer widget, usage per job), and a one-time
+  rebuild has no place for parked ideas.
+- Check: `tools/check.mjs` rejects the filler words of its `FILLER` list (parking-list words, postponement words and
+  placeholders, in English and Polish) in `taste.md` and `plan.md`, and requires every `Revisit when:` field to be
+  non-empty.
+- Source: interview round 4 follow-up.
