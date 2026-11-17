@@ -5,8 +5,8 @@ uprawnienia w settings.local.json, Claude Code instalowany przez roota,
 zapis narzędzi przez --out bez przekierowań, nocny przebieg tools/night.mjs z formatem status.json i zasadą dla
 niezacommitowanych zmian), fakty o silniku z pomiarem B.1 z seata,
 wymagania systemowe, 9 etapów z kosztem i efektem, 87 ticketów R-NNN, wdrożenie, pomiary, protokół subagentów
-i polecenia na allow-listę. Stan: etap 5 (przebudowa) w toku, etap planu 1; w nocy 17.11 R-001 zablokowany pytaniem
-Q-1 (limit linii testów), R-008 i R-010 zamknięte; noc bierze dalej R-011 i R-013. -->
+i polecenia na allow-listę. Stan: etap 5 (przebudowa) w toku, etap planu 1; noc 17.11: R-008 i R-010 zamknięte,
+R-001, R-011 i R-013 zablokowane pytaniami Q-1–Q-3 (.night/questions.md); noc skończona z powodem no-ticket. -->
 
 # Rebuild plan
 
@@ -585,9 +585,9 @@ Columns:
 | R-008 | Cut the macOS branches | 1 | A-083 | — | S | delegated | night | — | — | — | done |
 | R-009 | Cut the scout role and the `jg` cue | 1 | T-33, T-36, A-081 | R-001 | S | delegated | night | yes | — | — | planned |
 | R-010 | The author's working history leaves the tree; Limen's own test-line cap goes | 1 | T-39, T-11, §6 | — | M | delegated | night | — | — | — | done |
-| R-011 | The same-task runner and the gate-time tool | 1 | H-21, T-11, T-41, §2 | — | M | delegated | night | — | — | — | planned |
+| R-011 | The same-task runner and the gate-time tool | 1 | H-21, T-11, T-41, §2 | — | M | delegated | night | — | — | — | blocked |
 | R-012 | A root deployment script for a pinned SHA | 1 | D-008, D-010, §7 | R-002 | M | delegated | night | — | — | 1.0 | planned |
-| R-013 | One error type, exit codes as failure classes, a final JSON line | 1 | T-01, T-02 | — | L | delegated | night | yes | — | — | planned |
+| R-013 | One error type, exit codes as failure classes, a final JSON line | 1 | T-01, T-02 | — | L | delegated | night | yes | — | — | blocked |
 | R-014 | One command registry, a shared parser and generated help | 1 | T-19, T-18, T-26, T-37 | R-002, R-003, R-004, R-005, R-006, R-007, R-009, R-013 | L | pair | day-after | yes | — | — | planned |
 | R-015 | One configuration reader; settings come only from owner files | 2 | T-03 | R-014 | M | delegated | night | yes | — | — | planned |
 | R-016 | One boundary parsing module with validators; the cast ratchet | 2 | T-27 | R-013 | M | delegated | night | — | — | — | planned |
@@ -1156,8 +1156,8 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-17, rebuild stage 4 (plan) done; gate 4 closed: the plan accepted (D-014), the subagent definitions
-accepted after corrections (D-015); the night runner `tools/night.mjs` built and reviewed (D-019).
+Updated 2026-11-17 (night run), rebuild stage 5 in progress at plan stage 1: R-008 and R-010 `done`; R-001, R-011 and
+R-013 `blocked` on Q-1–Q-3; the night ended with the reason `no-ticket`.
 
 Done:
 - Rebuild stages 0–3 with gates 0, 2 and 3 (D-001–D-007); rebuild stage 1 has no gate.
@@ -1183,24 +1183,34 @@ Done:
   (D-019) is done with its test and a review by `rebuild-reviewer`: `evidence/night-runner/` (ticket, review,
   outcome).
 
-Next: rebuild stage 5 starts with plan stage 1 ("Cut, then one error type and one command registry") with R-001, in a
-new session started in the repository root, by day or as a night run that Adrian starts with
-`node adrian-rebuild/tools/night.mjs --until HH:MM`. B.2 runs on the seat before a0.1.0 is deployed (B.1 was done on
-2026-11-17).
-
-Night run of 2026-11-17 (until 07:00): R-001 is `blocked`: Q-1 in `adrian-rebuild/.night/questions.md` (the 3,500-line
-cap of `test/` leaves one line, and R-010 removes it; recommended: R-001 depends on R-010); R-001's ticket is written,
-nothing is implemented. R-002–R-007 and R-009 depend on R-001, R-012 on R-002, so they wait for the answer. The night
-takes R-008, R-010, R-011 and R-013 in that order.
+Night run of 2026-11-17 (until 07:00; commits `d51cc24`, `6968edf`, `e444106`):
+- R-001 `blocked`, Q-1: the 3,500-line cap of `test/` left one line, so its three new test files could not pass the
+  gate; R-010 removes the cap. Recommended: R-001 depends on R-010. Its `ticket.md` is written; nothing is implemented.
+  R-002–R-007 and R-009 depend on R-001, and R-012 on R-002, so they wait for the answer.
 - R-008 `done` (review PASS in one round). For Adrian to confirm: R-008 leaves the LaunchAgent installer (`limen sweep
   --install`, `--uninstall`) to R-032, which replaces it with the systemd installer, because R-008 has `Mig. —` and
   cutting the installer would change the CLI (R-008 → `ticket.md` → `## Decisions`).
 - R-010 `done` (review PASS in one round): the author's `spec/` and the docs of gate 2 §6 left the tree, and the
   3,500-line cap of `test/` is gone, so Q-1's cause no longer exists; R-001 stays `blocked` until Adrian's answer.
+- R-011 `blocked`, Q-2: whether a same-task attempt is a whole coordinator session (M-05, T-40 and T-41 count the
+  coordinator's behaviour; it needs Pi's headless RPC mode, so the row's API `—` would become `pi`) or one worker job.
+  Recommended: a coordinator session. No ticket folder yet.
+- R-013 `blocked`, Q-3: where the final JSON line `{class, code, next}` carries the data of a successful command, above
+  all the job id that `spawn` prints on its last line today. Recommended: an optional typed field (`id`). No ticket
+  folder yet.
+- `check.mjs` and the `Status` column accept `blocked` (the night mode of the rebuild prompt v6).
+- No stage-1 `night` ticket could start after that (R-014 is `pair`, `day-after`), so the night ended with `no-ticket`
+  (`.night/status.json`). Gate 5.1 is not due: stage 1 has 9 tickets left.
+
+Next (day session): read the answers in `adrian-rebuild/.night/questions.md`, move each into its ticket's
+`## Decisions` (R-001's `ticket.md`; R-011 and R-013 get their `ticket.md` written from the answer), mark the entries
+resolved, and resume: R-001, then R-002–R-007 and R-009 in the order of IDs, R-011, R-012, R-013, and R-014 (pair)
+after them. B.2 runs on the seat before a0.1.0 is deployed (B.1 was done on 2026-11-17).
 
 Active ticket: none.
 
-Open questions for Adrian: none (Q7 → D-018).
+Open questions for Adrian: Q-1, Q-2 and Q-3 in `adrian-rebuild/.night/questions.md` (untracked); the R-008 point
+above.
 
 Notes for the next session:
 - Start Claude Code in the repository root, so that it loads `.claude/agents/`.
