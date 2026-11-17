@@ -1,7 +1,7 @@
 <!-- PL: Rubryka taste przebudowy: część A to jawny inwentarz opinii autora Limena wbudowanych w system, część B to
 zasady Adriana (T-NN) z regułą, uzasadnieniem i sposobem sprawdzenia. Po bramce 3 plik jest rubryką obok zasad
 z input/, a nowe decyzje taste dopisuje się tu z datą i źródłem. Stan: część A gotowa (80 opinii autora, 40 już
-rozstrzygniętych bramką 2, 40 otwartych do wywiadu); część B powstaje w wywiadzie z Adrianem (rundy 1–5: T-01–T-21). -->
+rozstrzygniętych bramką 2, 40 otwartych do wywiadu); część B powstaje w wywiadzie z Adrianem (rundy 1–6: T-01–T-24). -->
 
 # Taste
 
@@ -679,7 +679,7 @@ the author's choice. Taste decisions taken after this interview are added here w
 - Source: interview round 1, AU-224; departs from the author.
 
 ### T-04 Read commands never write and never wait
-- Rule: Read commands (`jobs`, `status`, `diff`, `queue`, `stats`, `jobs --result`, `github show`, `handoff show`)
+- Rule: Read commands (`status`, `show`, `diff`, `seat queue`, `stats`, `show --result`, `github show`, `handoff show`; names per T-18)
   never write and never wait. They compute a dead job's state and show it without writing it, e.g. "wrapper dead since
   …; limen-sweep will finalize". The housekeeping before every `limen` call goes. Only `limen-sweep` (A-024) and
   explicit state-changing commands, a manual `limen sweep` included, clean up and finalize.
@@ -1055,8 +1055,8 @@ the author's choice. Taste decisions taken after this interview are added here w
   suffix matches every id that ends with it (`src/job/job.ts:110-116`). (1) Every command takes only the full id or its
   final token of 8 hex characters (`src/job/job.ts:136`); the token is unique by construction: at job creation it is
   checked against the project's records and archive under the shared lock (A-018) and drawn again on a collision.
-  (2) A label is only a list filter (`status --label F012`), never a reference; label prefixes, short suffixes and
-  exact labels are cut as references. (3) Any other form exits with code 2 (T-02); the message lists the matching jobs
+  (2) A label is never a reference; label prefixes, short suffixes and exact labels are cut as references. The list
+  filter is `status --ticket FNNN`, by the record's ticket field, not by label text (T-24). (3) Any other form exits with code 2 (T-02); the message lists the matching jobs
   (token, label, state) and the ready command in `next` (z. 11, z. 12). (4) One resolver handles every argument of
   type job in the registry of T-19. (5) References in files (records, the handoff note, `decide` entries) use the full
   id. (6) The S1+ migration checks the uniqueness of tokens in existing records; jobs with a collision or an older id
@@ -1089,3 +1089,71 @@ the author's choice. Taste decisions taken after this interview are added here w
   `LICENSE` and an explicit list of attribution exceptions; a golden test of a refusal with `next`; a test of the board
   line from an open `limen ask` record; a migration test of `needs-adam` on a fixture.
 - Source: interview round 5, AU-223; departs from the author.
+
+### T-22 Ticket rules that code can check are checked by code
+- Rule: The deterministic rules of the author's "what never goes in a ticket" list (`templates/communication.md:33-40`)
+  move into `limen ticket check` (z. 21, z. 14); the specs register keeps only the rules that need judgment. In code: a
+  status line in the body; a date, author, badge or tag line outside the front matter (commands write the dates in the
+  front matter); a bare number of another ticket (allowed only as "(FNNN)" after a sentence that says what that ticket
+  is, and the ticket's own number in its title); phases, landed/remaining markers, check boxes; branch names; length
+  (over 500 words refuses: "split into two tickets or a survey job"); the title "FNNN · what becomes true" and the
+  item counts per section. The patterns skip code blocks and inline code, `Check:` commands included. A refusal names
+  the rule ID, the line, the fragment and the fix (z. 12, T-02). "A ticket body is never edited to track progress" is
+  covered by the ban on progress markers and by the visible change of criteria (A-031 (2)). Prose in the specs register
+  stays only for judgment: Outcome in product language, Scope as a starting point rather than an edit list, Out of
+  scope only for likely mistakes; each with a reviewer question. The check runs in the command that commits a ticket's
+  content, at spawn (A-031 (1)) and at land (A-072).
+- Open (shown to Adrian): no decided command commits a ticket's content. At `rebuild-base`, `limen ticket new` only
+  writes the file (`src/commands/ticket.ts:104`, flag `wx`, no commit), and the coordinator commits the ticket by hand
+  (`docs/jobs.md:13`). After the rebuild a hand commit that changes only `spec/` is not covered by A-006 (2) and is not
+  published, while spawn copies the criteria from the published copy (A-031 (2)).
+- Why: the author forbids these things in prose (about 855 tokens of the specs register), and nothing checks them
+  (AU-131).
+- Check: `limen ticket check` tests on fixtures (one valid ticket, one ticket per rule, and a false hit inside a code
+  block that must pass); a refusal test with the rule ID, the line and the fix; the specs register's tokens measured
+  before and after with the stage 1 script.
+- Source: interview round 6, AU-131; departs from the author.
+
+### T-23 The board is a generated view
+- Rule: Code generates the whole board; `spec/build.md` is a one-way view (z. 22), with no section written by the
+  coordinator (a stale board misleads more than none, and a hand edit does not pass A-006 (2) anyway). Sections:
+  Milestone, a pointer to a section of the plan in `docs/`, from an optional `milestone:` field in the ticket's front
+  matter, with the anchor checked (it replaces TRACK; the direction lives in the milestone plan and the vision,
+  A-085); NOW, the active tickets and their jobs from the records; Waiting for owner, the open `limen ask` records
+  (T-21); NEXT, the tickets in `planned/` by number, with the title as the sentence; PROVEN, the last 10 landed tickets
+  with the path to their `outcome.md` (A-070); DROPPED, the latest tickets from `dropped/`. Status words instead of
+  emoji (T-14). PARKED is cut (Adrian does not use it). Only `limen spec fix` writes the board, inside Limen commands
+  (the closing commit of land, `ticket start`, `ticket drop`, `ticket done`); `ticket check` (A-072) refuses when the
+  file differs from the generated one. Migration: a script generates the board anew and prints the old prose
+  sections; what should stay goes into the plan in `docs/` through a normal ticket. Rejected: coordinator prose through
+  a command (no guarantee it stays true) and a NEXT order from a dependency field (YAGNI).
+- Draft: `evidence/taste/board-draft.mjs` generates the board for a synthetic fixture with the shape of synchronizer
+  after M1 (21 tickets landed in M1, F017 dropped, M2 started: one active ticket with a running worker, two planned,
+  one open decision); the titles, dates and SHAs are invented. It exits 1 when a `milestone:` anchor is missing.
+- Why: the author mixes coordinator prose (TRACK, NEXT, PARKED, DROPPED) with generated sections and prose-only emoji
+  marks (AU-133).
+- Check: a golden test of the board on a fixture of folders, records and questions; a test that `ticket check`
+  refuses a hand-changed or stale `spec/build.md`; a test that the anchor of `milestone:` must exist; a migration test
+  on a fixture of an old board with TRACK, NEXT and PARKED.
+- Source: interview round 6, AU-133; departs from the author.
+
+### T-24 Code builds a job's label
+- Rule: Code builds a job's label from the record; the `--label` flag is cut (as the route flags in A-030: given, it
+  exits with code 2 and a `next`). Format: "<ticket title> · <role> r<round> · FNNN", the title cut at a word boundary
+  with a visible "…", the whole at most 40 characters (the full title stays in the ticket, T-10). Every part is data:
+  the title is the "what becomes true" sentence, role and ticket come from the record, the round from the A-015
+  counter (z. 21). Instead of a refusal (T-10), a test of the building function. The root-owned start script names the
+  coordinator's Herdr tab (A-025, A-033); job tabs take their names from the label. The "Jobs and Herdr" section
+  leaves the coordinator manual (`templates/agents.md:90` and around). The list filter is `status --ticket FNNN`, by
+  the record's field instead of the label text (amends T-19 and T-20).
+- Why: the author's coordinator writes every label by hand, about 40 characters with the ticket number last, and the
+  manual carries tab-naming rules for Herdr (about 2.8k tokens of "Jobs and Herdr") (AU-128).
+- Check: a golden test of the building function (worker, repair r2, review r2, a cut with "…", length ≤ 40); a test
+  that spawn with `--label` exits with code 2; a test that `status --ticket` filters by the record field; the
+  coordinator manual's tokens measured before and after with the stage 1 script.
+- Source: interview round 6, AU-128; departs from the author.
+
+### Part A items settled by earlier rules
+- AU-129 (ticket shape): the sections come from T-07 (the task takes Outcome, Scope and Out of scope), the budgets are
+  enforced by code (T-10, T-22), the front matter is a strict subset (T-12), `needs-adam` goes (T-21), Acceptance is
+  typed (A-031), and `touches` is optional (A-048).

@@ -55,7 +55,7 @@ const COMMANDS = [
 		"report a ticket that used all its review rounds, in four checked parts",
 	],
 	["project", "change", "public", "init", "set up Limen here; asks for limits, routes and modules"],
-	["project", "read", "public", "status [--all] [--label FNNN]", "what runs, what landed, what waits for the owner"],
+	["project", "read", "public", "status [--all] [--ticket FNNN]", "what runs, what landed, what waits for the owner"],
 	["project", "read", "public", "stats", "verdicts, rounds, failures and tokens per job and route"],
 	["project", "read", "public", "board", "the board, with NOW and NEXT from the ticket folders"],
 	["ticket", "change", "public", 'ticket new "what becomes true"', "write a planned ticket with the next free number"],
