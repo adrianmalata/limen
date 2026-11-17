@@ -163,12 +163,19 @@ Done:
   item 12.
 - Gate 2 accepted by Adrian (D-005), with the isolated-mode clarification for jobs (E-15) and a seat check that an
   isolated job still sees `CLAUDE.md` (`## Deployment` item 12).
-- Stage 3 Part A started: two subagents inventory the author's taste (prompts, process and communication; code, CLI,
-  tests and defaults) into `evidence/taste/part-a-prompts.md` and `evidence/taste/part-a-code-cli.md`.
+- Stage 3 Part A done: two subagents inventoried the author's taste into `evidence/taste/part-a-prompts.md` (AU-101–140)
+  and `evidence/taste/part-a-code-cli.md` (AU-201–240); 54 basename-only references expanded to full paths; merged
+  into `taste.md` → Part A (80 items, 40 settled by gate 2, 40 open). `check.mjs` now also checks the references in
+  `taste.md` (418, 0 errors).
 
-Next: stage 3. Merge the two Part A files into `taste.md` → Part A (verify each reference at `rebuild-base`), then the
-interview with Adrian (AskUserQuestion, at most 4 questions per turn, one area per turn, highest priority first;
-appearance questions with two variants on a real fragment), then Part B (`T-NN` with Rule, Why, Check).
+Next: stage 3 interview with Adrian (AskUserQuestion, at most 4 questions per turn, one area per turn, highest priority
+first; appearance questions with two variants on a real fragment; open questions on what slows him down and what he
+enjoys), then Part B (`T-NN` with Rule, Why, Check). Planned rounds: (1) failure and refusal behaviour of the code
+(AU-219, AU-209, AU-224, AU-205); (2) process determinism (AU-112, AU-115, AU-127, AU-126); (3) cost and size
+budgets (AU-105, AU-139, AU-227, AU-214); (4) register and tone (AU-124, AU-125, AU-122, AU-123); (5) CLI and naming
+(AU-206, AU-207, AU-211, AU-223); (6) ticket, board and code style (AU-129, AU-133, AU-216, AU-226); then the open
+questions; the remaining open items go to Adrian as recommendations to accept or change. Answers are recorded in
+`taste.md` → Part B as they come.
 
 Open questions for Adrian: none.
 

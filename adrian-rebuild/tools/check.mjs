@@ -1,14 +1,15 @@
-/* PL: Walidator plików przebudowy (Node, bez zależności). Dziś sprawdza audit.md: że każda referencja `plik:linia`
-   istnieje przy tagu rebuild-base, że każde znalezisko A-NNN ma wymagane pola z dozwolonymi wartościami (od bramki 2
-   także decyzję Adriana) i że decyzja „fix (via X)” wskazuje istniejące znalezisko z decyzją fix albo pozycję z sekcji
-   Gate 2: decisions. W etapie 4 dojdzie sprawdzenie planu, a w etapie 6 struktury folderów ticketów i streszczeń PL.
-   Stan: działa dla audytu; kończy się kodem 1 i listą błędów, gdy coś się nie zgadza. */
+/* PL: Walidator plików przebudowy (Node, bez zależności). Sprawdza, że każda referencja `plik:linia` w audit.md
+   i taste.md istnieje przy tagu rebuild-base, że każde znalezisko A-NNN ma wymagane pola z dozwolonymi wartościami
+   (od bramki 2 także decyzję Adriana) i że decyzja „fix (via X)” wskazuje znalezisko z decyzją fix albo pozycję
+   sekcji Gate 2: decisions. W etapie 4 dojdzie sprawdzenie planu, a w etapie 6 struktury folderów ticketów i
+   streszczeń PL. Stan: działa; kończy się kodem 1 i listą błędów, gdy coś się nie zgadza. */
 // Usage: node adrian-rebuild/tools/check.mjs   (run from the repository root)
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
 const BASE = "rebuild-base";
 const AUDIT = "adrian-rebuild/audit.md";
+const TASTE = "adrian-rebuild/taste.md";
 
 const FIELDS = {
 	// reliability and security together are priority 1 of the rebuild prompt.
@@ -138,7 +139,7 @@ function checkAudit() {
 	return `audit: ${list.length} findings (${decisions.join(", ")}), ${references} references`;
 }
 
-const summary = [checkAudit()];
+const summary = [checkAudit(), `taste: ${checkReferences(readFileSync(TASTE, "utf8"), TASTE)} references`];
 for (const error of errors) {
 	console.error(error);
 }
