@@ -1,6 +1,7 @@
 <!-- PL: Audyt Limena przy tagu rebuild-base: mapa systemu (etap 1), znaleziska A-NNN z dowodami i werdyktami
-względem rubryki (etap 2) oraz decyzje Adriana o każdym znalezisku (bramka 2). Twierdzenia bez dowodu trafiają
-do sekcji To verify, nie do znalezisk. Stan: mapa z etapu 1 gotowa; przejścia 1 i 2 audytu oraz cold read zakończone (85 znalezisk, 22 hipotezy, 11 pytań do seata); czeka bramka 2. -->
+względem rubryki (etap 2) oraz decyzje Adriana z bramki 2 (pole Decision w każdym znalezisku i sekcja Gate 2:
+decisions z faktami z seata, decyzjami przekrojowymi G1–G4, S, S1+ i rozstrzygnięciami pytań). Twierdzenia bez dowodu
+trafiają do sekcji To verify. Stan: bramka 2 zamknięta (fix 75, rejected 9, rejected / fix 1); pole Final dojdzie w etapie 6. -->
 
 # Audit of Limen at `rebuild-base`
 
@@ -93,109 +94,197 @@ base prompt, built-in tools, skills and `AGENTS.md` loading are outside the repo
   and `spec/build.md` are larger. The same script measures a real project with `--project <path>` (read-only copies of
   its guidance files) — a step for the seat, listed for stage 4 `## Measurement`.
 
-## Gate 2: recommended decisions
+## Gate 2: decisions
 
-Recommendations by the main session, 2026-11-16, for Adrian to decide. Counts: fix 73, accepted-risk
-2, rejected 10. "Follows G1…G4" ties a finding to one decision below; "taste T" marks a
-finding whose direction is a taste question for stage 3 (the decision `fix` stands, the shape waits for `taste.md`).
+Adrian's decisions at gate 2, 2026-11-16/17, taken on this audit as it stood on 2026-11-16 (85 findings, 22
+hypotheses, Q1–Q11). Source: Adrian's gate-2 decisions file (local input, not published); this section copies its §1,
+§2 and §4–§7, and keeps its § numbers so that references such as "§2" or "§7 D1" resolve. §3 (one decision per
+finding) is the `Decision` field of every finding below; §8 (corrections to the target environment) is `plan.md` →
+`## Decisions` D-004; §9 (owner actions on the seat) is `plan.md` → `## Deployment`. The main session's
+recommendations that these decisions replace are in commit `26fcd13`.
 
-- **G1** Which features run on the seat: GitHub doorbell, groups, finish webhooks, picture map, Linear mirror, Devin,
-  OMP, hosted `--tab` jobs, non-Git workspace. Unused ones are cut, which closes their findings by removal.
-- **G2** Job isolation (A-004): (a) allow-list the engine environment and keep one Unix account, accepting the rest of
-  the same-account risk; (b) a separate Unix account for jobs, without credentials or write access to the checkouts
-  (a seat change you carry out).
-- **G3** Land gate (A-012): land requires an approval that only your own message produces (recorded by the
-  coordinator's hook from your literal "land"), or the rule stays in prose (accepted-risk).
-- **G4** Review gate (A-013): land refuses a branch tip that differs from the reviewed PASS commit when a review
-  exists. This overrides the author's "Limen informs; the coordinator decides".
+Counts: fix 75, rejected 9, rejected / fix 1 (A-046); no finding is wholly `accepted-risk`. Accepted risks sit inside
+the decisions where they apply (marked `accepted-risk`) and in §2 (G2). Vocabulary: `fix` = a ticket in this rebuild;
+`fix (via X)` = closed by decision X; `rejected` = untrue, not applicable or compliant; `accepted-risk` = stays, with a
+reason; there is no `deferred`. "Agents' account" = the Unix account that runs the coordinator and every job today;
+"owner channel" = a separate account reached only by Adrian's own key with a forced command (§2, B1″). First person
+("I", "my") in the sections below is Adrian.
 
-| ID | Severity | Recommendation | Reason |
+### §1 Facts established at gate 2 (seat data, 2026-11-16/17)
+
+- Hosted `--tab` jobs: 0 in both projects.
+- Human gates were reflexive: during M1 my "land" became automatic and I do not consciously review commits before a
+  push. Gates by a human are replaced by conditions in code.
+- Q1: 18 failed jobs in both projects. 12 are the 5-hour limit (`stop-reason`: "You've hit your session limit · resets
+  <hour> (UTC)", hour without date). 6 have an empty `stop-reason` because Limen-side failures go only to the `failed:`
+  log line: 3 × `timeout after 5400000ms` (two reviews, one mutation-testing job), 2 × stall at `bash sleep 240`
+  (`CPU-idle child for 180s`, both reviews), 1 × `worker exited with code 1`. No weekly-limit or rate-limit failure,
+  no silent false success. Ledger F019 counted 9 "rounds": 4 were limits, 2 failures without a verdict.
+- Seat rules were used once (2026-11-10, `claude-quota-reset` and a backup, set by a coordinator) as a workaround for
+  missing resume-after-limit in code.
+- Start-queue waits: 22 in both projects, 20 under 6 min, longest 48 min and 23 min.
+- No `.agents/limen/communication.md`, `worker.md`, `reviewer.md`, `reminders.md` or `AGENTS.md` in either project;
+  both have `CLAUDE.md` and `.agents/limen/styleguide.md`. The drift advisory never fires on the seat. The audit's
+  claim that a Polish register overlay reaches every job (A-039, A-042) is untrue for the seat.
+- Both projects run planning mode `committed`. Research and the quality pass were never used. Ledger's missing
+  `review-N.md` files come from the prose-only filing step, not from private planning.
+- The bell (ntfy) is not installed; I receive no phone notifications today.
+- Real ledger data is not on the seat.
+- Synchronizer commits per path: `docs/` 41, `CLAUDE.md` 1, `spec/vision.md` 1, `.agents/limen/` 6.
+- Pi on the seat is **1.5.1**, in use (not 1.2.0). Bridge `@vanillagreen/pi-claude-bridge` 5.0.3.
+- An extra full checkout of the Limen package exists in the agents' home directory; nothing found loads it. To be
+  confirmed at deployment (§9).
+- Limen will probably run on macOS in the future (not in this rebuild, see A-083).
+
+### §2 Cross-cutting decisions
+
+**G1 — features.**
+
+| ID | Feature | Decision |
+|---|---|---|
+| G1.1 | GitHub doorbell | keep, as a module (G1.10) |
+| G1.2 | Groups | keep, as a module (G1.10) |
+| G1.3 | Finish webhooks, coordinator signals, `bin/tony-finish-ping.sh` | cut |
+| G1.4 | Picture | cut the UI (viewer, `/`, `map.html`); keep `/activity.json`, `/events` and the data model for a future UI of mine; module (G1.10) |
+| G1.5 | Linear mirror | cut |
+| G1.6 | Devin | cut |
+| G1.7 | OMP | cut |
+| G1.8 | Hosted `--tab` | cut; the doorbell moves to detached jobs, groups are detached only |
+| G1.9 | Non-Git workspace | keep, as a module (G1.10) |
+| G1.10 | Module switches | optional modules (Picture, doorbell, groups, non-Git workspace, research, quality pass) have switches in a project file (e.g. `.agents/limen/limits.json`), **off by default**; a disabled module contributes no prompt text and no hook, and its commands refuse with a message |
+| G1.11 | Research (researcher + judge) | module, off by default; the research account, queue and scanner (B2c) belong to it: the rebuild writes them, I install them only when I enable it |
+| G1.12 | Private planning | cut; only `committed` stays |
+| G1.13 | Quality pass | module, off by default; when on, triggered **by code** after N landings since the last findings file (N in `limits.json`, asked at `limen init`, default 10) and by `limen quality`; the prose trigger goes |
+| — | `limen highlight` | cut |
+| — | macOS branches | cut (A-083) |
+
+**G2 — isolation (A-004).** In code: T1 (§3, A-004). On the seat, as separate accounts I set up with tooling the
+rebuild writes (decision S):
+- **B1″ owner channel:** a separate SSH key only on my own machines (no agent forwarding); a separate account accepts
+  it only with a forced command. Its timer publishes `main` by the coverage rule (A-006) from its own clone (`git
+  fetch` from the agents' repo as data, fast-forward only). It holds the only GitHub token with write access; the
+  agents' account gets a read-only token. It does not start research.
+- **B2c:** the agents' account has outbound traffic only to an allow-list of domains (nftables per UID + proxy:
+  Claude and Anthropic, GitHub read, npm, Maven Central and whatever Claude Code under the bridge needs; the list is
+  set by measurement). It does not talk to the DNS resolver; the proxy resolves names. A separate research account
+  has an open network and its own Claude login, no access to the repos or the agents' home, and writes results to a
+  results directory. Agents only queue a research request; a service outside the agents' account scans it (length
+  limit; refusal on known token formats such as `github_pat_`, `sk-ant-`, OAuth tokens, and on high-entropy strings;
+  the refusal goes to the coordinator with a reason) and starts the research job. No approval by me.
+  `accepted-risk`: a token deliberately encoded by an attack written against Limen.
+- **Bell:** runs on its own account, outside the agents' account (A-066).
+- **Condition:** if a project managed by Limen becomes public, publishing `main` becomes an exit path and this decision
+  must be revisited.
+- **Accepted-risk (same account):** deliberate tampering by a job with Limen's own files on the agents' account
+  (records, markers, another job's `result`, inbox, transcripts, cgroup moves, shell start-up files). Typical
+  injections lose their point because there is no push credential and no open network; local damage is reversible
+  (git, archive) and stopped by the land conditions and the publication rule.
+- Account names used today are misleading; new names are chosen before the seat changes.
+
+**S — seat tooling lives in the Limen repo.** Owner channel, research launcher and queue scanner, network-rule and
+proxy templates, bell, coordinator start script, Pi extensions of the seat: all under the same checks (tsc, biome,
+tests). The rebuild writes them; I deploy them. No secrets in tracked files.
+
+**S1+ — one structured record per job.** `record.json` with a schema version: state, transitions, verdict, judgments,
+check results, rounds, markers `landed`/`abandoned`, failure kind and detail, quota reset time, owed wakes,
+`doneBy`, route, process identity, land steps, `filed`. Writes only through the transition function (A-019): temporary
+file + `rename`, a `wx` claim at the terminal transition. Content (result, transcripts, logs) stays in separate files.
+Migration of existing records by a script with a fixture test. Earlier wording such as "the `verdict` file" means a
+field of `record.json`. Not SQLite: it would not cover the git step of land and adds migrations, harder rollback and
+WAL reads across accounts.
+
+**Owner files (final form, replaces the list in A-011 and A-006).** `.agents/limen/**` (`limits.json`,
+`routes.json`, `styleguide.md`), `CLAUDE.md`, `AGENTS.md`, `spec/vision.md`. Changed only by `limen land --owner`,
+accepted **only through the owner channel**. `land` refuses a job branch that touches them or `spec/build.md`.
+`docs/**` is **not** an owner file: tickets change it (41 of 49 such commits in synchronizer M1), review covers it, and
+a second fixed judgment checks it (A-031). Reason for the owner channel: a coordinator able to run `land --owner` could
+raise its own limits and change its own routes and rules (z. 16).
+
+**Registered coordinator.** One function, "the caller is the registered coordinator", used by every coordinator-only
+command (`limen steer`, `limen decide`, `limen github resolve`, `limen github work`, and others): the caller's process
+is in no job's systemd scope (`/proc/self/cgroup`) and descends from the PID of the registered coordinator (A-033).
+Environment variables (`LIMEN_JOB`, `LIMEN_COORDINATOR`, `HERDR_PANE_ID`) no longer decide. `land --owner` is not
+a coordinator command.
+
+**Measurement (for `plan.md` → `## Measurement`).**
+- Method (z. 40, z. 41): compare Limen before and after the rebuild on the **same task** (identical input: commit and
+  task file; same model and reasoning; clean state), several attempts (z. 17), result as pass^k. Candidate: a closed
+  synchronizer M1 ticket that went through several review rounds, replayed from its parent commit, the merged change
+  as the reference solution. Mechanisms (resume after limit, stall, queue) get their own mechanism tests.
+- `limen stats` (S1+) over all records including the archive: verdict, judgments per ID, check results and times,
+  rounds, failure kind, `doneBy`, number and origin of steers, route, queue time, and tokens by class (input, cache
+  write, cache read, output) from the transcript, per job and per coordinator turn; grouped by route (A-030′).
+- Named seat measurements: coordinator cache-read tokens per landed ticket (A-078); cache-write tokens in the turn
+  after a land (A-037); fixed context per role, before and after (stage 1 script and one raw request on the seat).
+
+### §4 Pass 2 hypotheses
+
+- Settled by the findings: H-02 (A-031, A-044), H-03 and H-07 (A-044, A-041), H-04 (stays; A-028 adds origin), H-05
+  (G1.13), H-06 (A-044), H-08 (A-010), H-09 (A-042), H-10 (A-051), H-16 and H-17 (A-025, A-082), H-19 (A-002), H-14
+  (fact). H-15 ("zero runtime dependencies") returns in stage 3 as the author's taste. H-11 and H-13 go to the §7 B
+  task and the seat (§7). H-22: settled facts in §1; the rest in §7.
+- **H-12 — fix:** amends A-041 (vision reminder at ticket editing, not after spawn).
+- **H-18 — accepted-risk:** job worktrees and `limen/abandon/<id>` branches live only on the seat and are not in the
+  `.limen/` snapshot (taken after each milestone, no periodic backup). Unlanded work can be redone from the ticket
+  (criteria live in the ticket); landed work is on GitHub; pushing job branches off the seat would be a new exit path.
+- **H-01 + H-20 — fix:** `limen stats` signal list in §2 (Measurement).
+- **H-21 — fix:** the same-task method in §2 (Measurement).
+
+### §5 The author's intents (input for stage 3)
+
+| # | Author's intent | My stance | Basis |
 |---|---|---|---|
-| A-001 | critical | fix | prune keeps any worktree with uncommitted or unmerged work; the manual stops promising survival |
-| A-002 | critical | fix | retire only records that land or ticket done marked landed; archive, do not delete, the session |
-| A-003 | critical | fix | refuse fork-head reviews or run them without credentials; cut the doorbell if unused (G1) |
-| A-004 | critical | fix | scope per G2: allow-list engine environment now; separate job account is G2 option b |
-| A-005 | high | fix | reaper checks and terminates the process group before it finalizes |
-| A-006 | high | fix | strip the push credential from job environments (with A-004); server-side protection is your action (Q3) |
-| A-007 | high | fix | follows G1: frame and bound the GitHub text, or cut the doorbell |
-| A-008 | high | fix | frame the final message as job data, bound it, point to the file |
-| A-009 | high | fix | handoff note written only by the coordinator session and framed as data |
-| A-010 | high | fix | refuse rule changes from jobs; residual same-account risk follows G2 |
-| A-011 | high | fix | jobs cannot write the files that feed the coordinator prompt (follows G2); land refuses `docs/` changes |
-| A-012 | high | fix | code gate per G3: land needs your recorded approval |
-| A-013 | high | fix | land refuses a tip that differs from the reviewed PASS commit when a review exists (G4) |
-| A-014 | high | fix | one running job per project in the start queue, every mode; remove the parallel advice |
-| A-015 | high | fix | round counter in code; the third round escalates to you |
-| A-016 | high | fix | quota-failed marker, owed wakes, a resume command; ship the extension through init or cut it |
-| A-017 | medium | fix | lock owner records birth time; bounded wait with a message |
-| A-018 | medium | fix | follows G1 (stale-lock recovery or cut) |
-| A-019 | medium | fix | finalize claims the terminal state atomically (exclusive create) |
-| A-020 | medium | fix | limits live outside the signal handler; TERM reaches the engine group |
-| A-021 | medium | fix | ticket close is one commit or a clean rollback; land exits non-zero on failure |
-| A-022 | medium | fix | atomic writes for board, tickets and job files |
-| A-023 | medium | fix | hosted jobs get the same limits; no done by idleness (or cut hosted mode, G1) |
-| A-024 | medium | fix | a Linux sweep timer, or the sweep folded into an existing timer |
-| A-025 | medium | fix | hooks resolve only from the pinned package path |
-| A-026 | medium | fix | follows G1 (redact or cut) |
-| A-027 | medium | fix | follows G1 for webhooks: secret outside the checkout, or cut webhooks |
-| A-028 | medium | accepted-risk | same Unix account by design until G2 option b; the steer inbox stays the correction channel |
-| A-029 | medium | fix | follows G1 for groups (cut groups, or move guards out of env) |
-| A-030 | medium | fix | no silent model substitute; a continuation inherits its parent route |
-| A-031 | medium | fix | taste T: proof is a command that ran or a file the session changed (author chose any existing file) |
-| A-032 | medium | fix | `stop "done: …"` still computes open checks |
-| A-033 | medium | fix | owed wakes per plant survive a coordinator restart |
-| A-034 | medium | fix | taste T: decisions the owner gives in conversation go to a file by command |
-| A-035 | medium | fix | code files the review verdict; retire never deletes it |
-| A-036 | medium | fix | start-queue wait has a limit that escalates |
-| A-037 | medium | fix | volatile board digest leaves the system prompt (after Q9) |
-| A-038 | medium | fix | job roles get a machine register without the human sections |
-| A-039 | medium | fix | separate coordinator and job registers; the Polish overlay reaches only the coordinator |
-| A-040 | medium | fix | cut the manual sections with the features cut in G1 |
-| A-041 | medium | fix | taste T: guidance once per context, either in the system prompt or as reminders, not both |
-| A-042 | medium | fix | drift notice once per change, acknowledged by the operator |
-| A-043 | medium | fix | capability frame states the shared quota (prose; measured on the seat) |
-| A-044 | medium | fix | taste T: measure the task note on the seat, then keep or cut it |
-| A-045 | medium | fix | skip the keeper when the deterministic check passes |
-| A-046 | medium | fix | bounded by A-015 and A-045; sessions per ticket measured |
-| A-047 | medium | fix | seat extensions under tsc, biome and tests, or cut |
-| A-048 | medium | fix | ticket check without the viewer; picture shrink or cut per G1 |
-| A-049 | medium | fix | cut engines and integrations with no seat use (G1) |
-| A-050 | medium | fix | correct SECURITY.md |
-| A-051 | medium | fix | a test on the assembled prompt per role |
-| A-052 | low | fix | record a signal kill as failed, not a requested stop |
-| A-053 | low | fix | wrapper does not overwrite a terminal state |
-| A-054 | low | fix | units per project; no bell flood on first run |
-| A-055 | low | accepted-risk | one coordinator per project allocates tickets |
-| A-056 | low | fix | a missing `born` is not proof of the same process |
-| A-057 | low | rejected | compliant: nothing to change |
-| A-058 | low | rejected | compliant: nothing to change |
-| A-059 | low | rejected | bounds hold; their gaps are A-001 and A-020 |
-| A-060 | low | rejected | compliant: nothing to change |
-| A-061 | low | fix | strip `LIMEN_COORDINATOR` from job environments (with A-004) |
-| A-062 | low | fix | follows G1 |
-| A-063 | low | fix | follows G1 |
-| A-064 | low | rejected | compliant: nothing to change |
-| A-065 | low | rejected | compliant: nothing to change |
-| A-066 | low | fix | topic file mode 600; accepted-risk for the public relay |
-| A-067 | low | rejected | compliant: nothing to change |
-| A-068 | low | fix | with A-016 (resume keyed on the recorded stop reason, not error text) |
-| A-069 | low | fix | follows G1 for groups |
-| A-070 | low | fix | taste T: spawn moves a planned ticket to active; `ticket start|drop` commands |
-| A-071 | low | fix | taste T: count landings in code and notify, or cut the quality pass |
-| A-072 | low | fix | with A-045 |
-| A-073 | low | fix | worker jobs require a `Ticket:` pointer |
-| A-074 | low | rejected | compliant with z. 4; its cache cost is A-037 |
-| A-075 | low | rejected | compliant; moot if groups are cut (G1) |
-| A-076 | low | rejected | compliant: nothing to change |
-| A-077 | low | fix | taste T: shorter cue without repeated fixed text |
-| A-078 | low | fix | with A-008: wake carries a bounded summary and a pointer |
-| A-079 | low | fix | keep the preamble stable on continue |
-| A-080 | low | fix | follows G1 for groups |
-| A-081 | low | fix | skills and tools scoped per role (after Q10) |
-| A-082 | low | fix | group hook loads only when a group runs (or cut, G1) |
-| A-083 | low | fix | cut macOS-only branches |
-| A-084 | low | fix | correct developer docs |
-| A-085 | low | fix | one source per shared text (with A-038, A-040) |
+| 1 | "Limen informs; the coordinator decides": no land gate for open checks; the coordinator is the single landing owner | **departure**: code decides land; the coordinator only calls it | G3, G4, A-031, A-032; human approval was reflexive |
+| 2 | Launch settings and machinery are mechanisms; never swap a model on failure | **agreement** | A-030, A-016 |
+| 3 | Proportional review: one falsifier per commit | **partial departure**: review is mandatory for every change outside `spec/`; agreement on bounding rounds | A-013 V2, A-015, A-046 |
+| 4 | Do not grow the always-on prompt; budget it per role; just-in-time reminders and short cues are deliberate | **agreement** | A-038/A-039, A-040, A-041, A-077, A-081 |
+| 5 | The core is system-prompt appends, a watch on the job folder and short cues; the picture is not core | **agreement**, with appends frozen per session | A-048, A-082, A-037 |
+| 6 | Parallel work | **departure for the seat**: `maxJobs` default 1, configurable at `limen init` | A-014 |
+
+### §6 Decisions from the audit tables
+
+- **T24:** the daily `limen-sweep` run includes `prune --retire` (only records with `landed`/`abandoned`, moved to the
+  archive).
+- **Research:** with the module on, research starts without my approval (consistent with B2c and my role "tie-breaks
+  only"); the module switch replaces the prose "never start research unprompted"; Limen spawns the judge
+  automatically once both reports are filed.
+- **Picture:** `picture tick` and `picture watch` (model jobs that maintain the map) are cut; the module serves only
+  data from records.
+- **Cut:** `docs/vps.md`, `docs/reviews/*`, `docs/diagrams/context-injection.html`, `.pi/settings.json`.
+- **Tests** for mechanisms that remain without one: a recorded limit error → one resume after the reset (A-016);
+  `limen ticket done` → a correct board.
+- **`limen highlight`:** cut.
+
+### §7 To verify
+
+**A — settled** by facts or decisions: Q1; Q8 and security 5 (no `AGENTS.md`; A-012); planning mode; Q11 (facts in
+§1); cost 7; poller, Devin, webhooks and module usage (G1); pre-push hook in the shared `.git/hooks` (B1″); wrappers
+in Herdr's cgroup (A-029); session-ID changes (A-033); compaction and owner decisions (A-034); `agent_before_settle`
+(A-044); `--append-system-prompt` path vs text (hosted cut); SIGTERM and a cancelled `limen stop` (A-020).
+
+**B — task for the rebuild session, right after applying this file and before stage 3** (stage 1 is already done). Read the npm sources of **Pi 1.5.1** and
+`@vanillagreen/pi-claude-bridge` 5.0.3 and record the answers in `plan.md`:
+- what `--approve` enables and what Pi loads from a job's worktree (Q5, Q6, security 1);
+- how the bridge maps the system prompt and messages onto Claude requests, where it places cache breakpoints and
+  which cache TTL it requests (Q9, cost 2; A-037, A-079);
+- how the bridge passes tool restrictions to Claude Code (A-081) and the name of the subagent tool as Pi's
+  `tool_call` hook sees it (A-029);
+- whether `CLAUDE.md` from the worktree is loaded under the bridge (A-042);
+- the context window the bridge reports for Opus 5.5 (cost 8; A-034 thresholds).
+Every decision that depends on an answer already has its fallback (e.g. A-042: inject when not loaded). Where the
+sources do not settle a point, add a seat verification step to `## Deployment`.
+
+**C — seat checks at deployment:** in §9.
+
+**D — new decisions.**
+- **D1 — fix (seat, me):** a GitHub ruleset on `main` of both projects: push only from the owner channel's identity,
+  no force push, no deletion. Second layer behind B1″.
+- **D2:** the TTY confirmation in `limen land` is cut (folded into A-012).
+- **D3 — fix:** deployment of a new tag (seat tooling, S) waits until no job runs, or refuses with the list of running
+  jobs; a test asserts that `src/` and `hook/` have no dynamic `import(` on the job-finalize path (no mixed versions
+  inside one job).
+- **D4:** both projects in one seat registry is the expected state; isolation between them comes from A-010, A-011,
+  A-033.
 
 ## Findings
 
@@ -215,7 +304,10 @@ Definitions:
 - **Seat facts** (Ubuntu VPS, Pi via the Claude bridge, one Claude Max subscription, one job at a time per project,
   land only after Adrian says "land", only Adrian pushes a project's `main`, `docs/` changed only by Adrian, a Polish
   communication overlay in each project) come from the rebuild prompt's description of the target environment. They are
-  operator facts, not repo facts, and are not cited by `file:line`.
+  operator facts, not repo facts, and are not cited by `file:line`. Gate 2 corrected several of them (`## Gate 2:
+  decisions` → §1; `plan.md` → `## Decisions` D-004): Pi is 1.5.1; no project has a communication overlay, so the
+  Polish-overlay premise of A-039 and A-042 is untrue for the seat; the human gates ("land", push of `main`, `docs/`)
+  give way to conditions in code. The findings keep the facts they were written against; `Decision` is final.
 - **Severity.** critical: loss of data or work, a leaked secret, execution of untrusted content, or a silent false
   success; high: a failure with no recovery, or a guarantee on the critical path that exists only in prose; medium: a
   defect with a recovery path, a cost or a guarantee off the critical path; low: a small defect, a cleanup, or a
@@ -232,100 +324,101 @@ Definitions:
 - **Status** (pass 2): `known` when a history source names the same mechanism, or shows the author chose the behaviour
   (`DELIBERATE:` in `History`); `new` otherwise, also when a source is only related. `CONFLICT:` marks a history
   source that disagrees with the finding's facts.
-- **Stages and gates** are those of the rebuild plan (`plan.md`): gate 2 adds `Decision`, stage 6 adds `Final`, and
+- **Stages and gates** are those of the rebuild plan (`plan.md`): gate 2 added `Decision` (Adrian's; `fix`, `fix (via
+  X)`, `rejected (reason)`, or `rejected / fix` for A-046, then ` — ` and the final content), stage 6 adds `Final`, and
   "stage 4 `## Measurement`" means that section of `plan.md`.
 
 Fields: `Area`, `Severity`, `Location` (`file:line` at `rebuild-base`), `Evidence`, `Rule`, `Verdict`, `Direction`,
-`Scenario`, `Candidates`, `Status`, `History`, `Note`, later `Decision` and `Final`. Pass 2 detail and the author's
+`Scenario`, `Candidates`, `Status`, `History`, `Note`, `Decision`, later `Final`. Pass 2 detail and the author's
 intents: `evidence/audit-pass2/history.md`.
 
-| ID | Severity | Area | Verdict | Title | Candidates | Pass 2 |
-|---|---|---|---|---|---|---|
-| A-001 | critical | reliability | non-compliant | Prune deletes the uncommitted work of every finished job, automatically | R-01, D-01 | new |
-| A-002 | critical | reliability | non-compliant | `prune --retire` treats a zero-commit branch as landed and deletes the job's record, transcript, branch and worktree | R-02 | new |
-| A-003 | critical | security | non-compliant | Doorbell review runs fork-authored PR code under the credential-holding account | S-01 | new |
-| A-004 | critical | security | non-compliant | Jobs run without a sandbox, with approvals bypassed and the spawner's whole environment, as the account that holds all credentials | S-02 | new |
-| A-005 | high | reliability | non-compliant | Reaper marks a job "process group gone" while its engine group still runs, then prune removes the live engine's worktree | R-03 | new |
-| A-006 | high | security | non-compliant | "Only the human pushes main" rests on a client-side hook in a directory every job worktree shares, and on a credential every job holds | S-06, D-06 | new |
-| A-007 | high | security | non-compliant | Untrusted GitHub text from any commenter is typed into the coordinator as a human prompt, with a prose-only boundary | S-03 | new |
-| A-008 | high | security | non-compliant | A job's whole final message enters the coordinator as an unframed user message, followed by a landing instruction | S-04 | new |
-| A-009 | high | security | non-compliant | Coordinator-handoff turns a worker-writable file into the first user message of a fresh coordinator session | S-07 | new |
-| A-010 | high | security | non-compliant | Any job can set seat-wide rules that every coordinator on the seat receives each turn and as a typed prompt | S-08 | new |
-| A-011 | high | security | non-compliant | The coordinator's system-prompt files and future jobs' role preambles live in the canonical checkout that every job can write; "never edit the board" is prose only | S-09 | new |
-| A-012 | high | determinism | non-compliant | `limen land` has no human gate, and the code-written wake tells the coordinator to land | D-02, S-05 | known · deliberate |
-| A-013 | high | determinism | non-compliant | Review verdict is never read, and land merges the branch tip instead of the reviewed candidate | D-03 | new |
-| A-014 | high | determinism | non-compliant | "One job at a time per project" is absent from code, and the manual mandates the opposite | D-05, K-01, R-12 | known · deliberate |
-| A-015 | high | autonomy | non-compliant | The review/repair loop has no exit condition in code | D-04 | known |
-| A-016 | high | autonomy | non-compliant | Quota resumption depends on prose and on a seat extension Limen does not install; wakes during the limit stop after two attempts | D-07 | known · deliberate |
-| A-017 | medium | reliability | non-compliant | The worktree lock and the seat start-queue lock wait forever when the owner pid is reused; no message, no timeout | R-04 | new |
-| A-018 | medium | reliability | non-compliant | A stale GitHub `poll.lock` disables the doorbell for that project permanently | R-05 | new |
-| A-019 | medium | reliability | n/a | `finalizeJob` is check-then-write with no lock; concurrent finalizers both commit and the final state is a coin toss | R-06 | new |
-| A-020 | medium | reliability | non-compliant | SIGTERM to the wrapper alone disarms the timeout, tool cap and stall watch without stopping the engine | R-07 | new |
-| A-021 | medium | reliability | non-compliant | Land's ticket close is not transactional; a failed commit leaves staged moves, prints a false "tickets stay active" and exits 0 | R-08, D-15 | new |
-| A-022 | medium | reliability | n/a | The board, tickets and some job files are rewritten in place (truncate, then write) | R-09 | new |
-| A-023 | medium | reliability | non-compliant | Hosted jobs have no wall-clock or tool-call bound, and an idle heuristic can end one `done` | R-10, D-12 | new |
-| A-024 | medium | reliability | partial | No seat-level reaper on Linux: a dead job stays `running` unless a coordinator session or a human runs a command | R-11, D-10, K-19 | new |
-| A-025 | medium | security | partial | Harness code loaded into later sessions resolves from worker-writable locations, not from the root-owned release | S-10 | new · conflict |
-| A-026 | medium | security | partial | The App posts worker-written job output to public threads without redaction | S-11 | new |
-| A-027 | medium | security | non-compliant | Webhook bearer tokens sit in a dotenv inside the checkout that every job can read; the payload carries the whole final message | S-12 | new |
-| A-028 | medium | security | non-compliant | The steer inbox (the owner's correction channel) is writable by every job and is delivered as a user message | S-13 | new |
-| A-029 | medium | security | partial | Group-role guards are keyed on environment variables and tool names that a member's own shell controls | S-14 | new |
-| A-030 | medium | determinism | non-compliant | A spawn or continue without route flags silently substitutes a model | D-08, K-06 | known |
-| A-031 | medium | determinism | partial | A note-check line marked "proven" is closed by naming any existing file | D-13 | known · deliberate · conflict |
-| A-032 | medium | determinism | partial | `limen stop <id> "done: …"` lets the model create a landable `done` that skips open checks | D-14 | known · deliberate |
-| A-033 | medium | autonomy | partial | A new coordinator session loses wakes for jobs that ended while it was down | D-09 | known |
-| A-034 | medium | autonomy | partial | Owner decisions given in conversation live only in the thread; the handoff reminder fires once | D-11 | known |
-| A-035 | medium | autonomy | non-compliant | Review filing is prose-only, and `prune --retire` deletes the unfiled verdict | D-16 | known |
-| A-036 | medium | autonomy | partial | Start-queue waits have no limit and no escalation | D-17 | new |
-| A-037 | medium | cost | non-compliant | The system prompt is rebuilt every prompt; every land invalidates the coordinator's cached history | K-02 | new |
-| A-038 | medium | cost | non-compliant | Job roles carry the human register, the ticket rules and maintainer notes | K-03 | new |
-| A-039 | medium | cost | n/a | One register file serves the coordinator and every job; the Polish override reaches all jobs | K-04 | new |
-| A-040 | medium | cost | non-compliant | The shop manual ships ≈2.5k tokens per request for features whose seat use is unknown | K-05 | new |
-| A-041 | medium | cost | non-compliant | Guidance already in the system prompt is re-requested as forced reads | K-07 | known · deliberate |
-| A-042 | medium | cost | non-compliant | The drift advisory repeats in every coordinator prompt for the operator's deliberate overlay | K-08 | new |
-| A-043 | medium | cost | n/a | The capability frame tells every agent that time is abundant, on a shared quota | K-10 | new |
-| A-044 | medium | cost | non-compliant | The task-note mechanism adds work to every job, read-only roles included, and its experiment was never closed | K-11 | known · deliberate |
-| A-045 | medium | cost | non-compliant | The keeper spends a model session on mostly deterministic link fixes, even when the check is clean | K-12 | new |
-| A-046 | medium | cost | partial | Session and turn multipliers per ticket | K-13 | known |
-| A-047 | medium | cross-cutting | non-compliant | The seat's Pi extensions, where installed, run in every coordinator with no typecheck, lint or test | K-20 | new |
-| A-048 | medium | cross-cutting | n/a | The picture subsystem is ≈28 % of shipped code and sits on the ticket-check path | K-21 | known |
-| A-049 | medium | cross-cutting | non-compliant | Engines and integrations with no known seat use make up ≈6k lines | K-22 | known · deliberate |
-| A-050 | medium | cross-cutting | n/a | `SECURITY.md` misstates Linux process containment | K-24 | new |
-| A-051 | medium | cross-cutting | non-compliant | No test checks the assembled prompt beyond marker counts | K-26 | new |
-| A-052 | low | reliability | n/a | An engine killed by a signal is recorded as a requested stop | R-13 | new |
-| A-053 | low | reliability | n/a | The wrapper writes `state=running` unconditionally after starting the engine | R-14 | new |
-| A-054 | low | reliability | n/a | Seat units cover one project each; the bell floods on first run | R-15 | new |
-| A-055 | low | reliability | n/a | Ticket numbers outside a series are allocated without a lock | R-16 | new |
-| A-056 | low | reliability | n/a | A missing `born` file counts as "same process" in the reaper | R-17 | new |
-| A-057 | low | reliability | compliant | Job publication is atomic and prune-safe | R-18 | new |
-| A-058 | low | reliability | compliant | Recovery claims and wake receipts resist pid reuse and double delivery | R-19 | known |
-| A-059 | low | reliability | partial | Detached jobs have hard limits that end in a recorded failure and a wake | R-20, D-21 | new |
-| A-060 | low | reliability | compliant | Webhook queue: lease takeover and idempotency key | R-21 | known · deliberate |
-| A-061 | low | security | partial | `LIMEN_COORDINATOR` is inherited by every job, and coordinator-only doorbell commands trust environment variables | S-15 | known |
-| A-062 | low | security | partial | The poller writes through worker-controlled path components in the checkout | S-16 | new |
-| A-063 | low | security | partial | The poller runs git in the worker-owned repository with the ownership check overridden | S-17 | new |
-| A-064 | low | security | compliant | App key isolation and poller preconditions hold (compliant mechanism) | S-18 | new |
-| A-065 | low | security | compliant | Doorbell trigger authorization is enforced in code (compliant mechanism) | S-19 | new |
-| A-066 | low | security | partial | The ntfy bell sends job labels to a public relay, and its topic secret sits in a world-readable unit drop-in | S-20 | new |
-| A-067 | low | security | compliant | The statusline reads the Claude OAuth token but sends it only to a fixed HTTPS endpoint (compliant mechanism) | S-21 | new |
-| A-068 | low | security | partial | quota-resume sends an automatic coordinator turn keyed on error text and one environment variable | S-22 | new |
-| A-069 | low | security | partial | Group peer data is labelled and kept out of the user role, but the label is prose | S-23 | new |
-| A-070 | low | determinism | partial | `planned→active`, drop and outcome are model-only, and land silently closes nothing for a ticket left in `planned/` | D-18 | new |
-| A-071 | low | determinism | non-compliant | The quality-pass trigger (ten landings) is prose-only although it is countable | D-19 | known |
-| A-072 | low | determinism | partial | The keeper's stop criterion is partly prose | D-20 | new |
-| A-073 | low | determinism | partial | The ticket-at-base check covers only `Ticket: spec/…` pointers | D-25 | known |
-| A-074 | low | autonomy | compliant | Rules are re-injected from files every turn, and the job's note is a file | D-22 | known · deliberate |
-| A-075 | low | autonomy | compliant | Group rounds advance in code under a deadline | D-23 | known · deliberate |
-| A-076 | low | autonomy | compliant | Webhook retries are bounded and end in a visible final failure | D-24 | known · deliberate |
-| A-077 | low | cost | partial | The per-prompt hidden cue restates the system prompt and accumulates in history | K-09 | known · deliberate |
-| A-078 | low | cost | partial | The completion wake injects the whole final message into the coordinator | K-14 | known · deliberate |
-| A-079 | low | cost | partial | Continuations re-cache the whole transcript behind a changed prefix | K-15 | new |
-| A-080 | low | cost | non-compliant | A group lead gets a model turn per peer batch | K-16 | new |
-| A-081 | low | cost | partial | Tools and skills are not scoped per role | K-18 | known |
-| A-082 | low | cross-cutting | n/a | Every coordinator session runs the group hook with a 1-second timer | K-17 | new |
-| A-083 | low | cross-cutting | n/a | macOS-only branches on a Linux-only seat | K-23 | new |
-| A-084 | low | cross-cutting | non-compliant | Developer docs drift from the code | K-25 | new |
-| A-085 | low | cost | n/a | Duplicated text across templates | K-27 | known |
+| ID | Severity | Area | Verdict | Title | Candidates | Pass 2 | Decision |
+|---|---|---|---|---|---|---|---|
+| A-001 | critical | reliability | non-compliant | Prune deletes the uncommitted work of every finished job, automatically | R-01, D-01 | new | fix |
+| A-002 | critical | reliability | non-compliant | `prune --retire` treats a zero-commit branch as landed and deletes the job's record, transcript, branch and worktree | R-02 | new | fix |
+| A-003 | critical | security | non-compliant | Doorbell review runs fork-authored PR code under the credential-holding account | S-01 | new | fix |
+| A-004 | critical | security | non-compliant | Jobs run without a sandbox, with approvals bypassed and the spawner's whole environment, as the account that holds all credentials | S-02 | new | fix |
+| A-005 | high | reliability | non-compliant | Reaper marks a job "process group gone" while its engine group still runs, then prune removes the live engine's worktree | R-03 | new | fix |
+| A-006 | high | security | non-compliant | "Only the human pushes main" rests on a client-side hook in a directory every job worktree shares, and on a credential every job holds | S-06, D-06 | new | fix |
+| A-007 | high | security | non-compliant | Untrusted GitHub text from any commenter is typed into the coordinator as a human prompt, with a prose-only boundary | S-03 | new | fix |
+| A-008 | high | security | non-compliant | A job's whole final message enters the coordinator as an unframed user message, followed by a landing instruction | S-04 | new | fix |
+| A-009 | high | security | non-compliant | Coordinator-handoff turns a worker-writable file into the first user message of a fresh coordinator session | S-07 | new | fix |
+| A-010 | high | security | non-compliant | Any job can set seat-wide rules that every coordinator on the seat receives each turn and as a typed prompt | S-08 | new | fix |
+| A-011 | high | security | non-compliant | The coordinator's system-prompt files and future jobs' role preambles live in the canonical checkout that every job can write; "never edit the board" is prose only | S-09 | new | fix |
+| A-012 | high | determinism | non-compliant | `limen land` has no human gate, and the code-written wake tells the coordinator to land | D-02, S-05 | known · deliberate | fix |
+| A-013 | high | determinism | non-compliant | Review verdict is never read, and land merges the branch tip instead of the reviewed candidate | D-03 | new | fix |
+| A-014 | high | determinism | non-compliant | "One job at a time per project" is absent from code, and the manual mandates the opposite | D-05, K-01, R-12 | known · deliberate | fix |
+| A-015 | high | autonomy | non-compliant | The review/repair loop has no exit condition in code | D-04 | known | fix |
+| A-016 | high | autonomy | non-compliant | Quota resumption depends on prose and on a seat extension Limen does not install; wakes during the limit stop after two attempts | D-07 | known · deliberate | fix |
+| A-017 | medium | reliability | non-compliant | The worktree lock and the seat start-queue lock wait forever when the owner pid is reused; no message, no timeout | R-04 | new | fix |
+| A-018 | medium | reliability | non-compliant | A stale GitHub `poll.lock` disables the doorbell for that project permanently | R-05 | new | fix |
+| A-019 | medium | reliability | n/a | `finalizeJob` is check-then-write with no lock; concurrent finalizers both commit and the final state is a coin toss | R-06 | new | fix |
+| A-020 | medium | reliability | non-compliant | SIGTERM to the wrapper alone disarms the timeout, tool cap and stall watch without stopping the engine | R-07 | new | fix |
+| A-021 | medium | reliability | non-compliant | Land's ticket close is not transactional; a failed commit leaves staged moves, prints a false "tickets stay active" and exits 0 | R-08, D-15 | new | fix |
+| A-022 | medium | reliability | n/a | The board, tickets and some job files are rewritten in place (truncate, then write) | R-09 | new | fix |
+| A-023 | medium | reliability | non-compliant | Hosted jobs have no wall-clock or tool-call bound, and an idle heuristic can end one `done` | R-10, D-12 | new | fix (via G1.8) |
+| A-024 | medium | reliability | partial | No seat-level reaper on Linux: a dead job stays `running` unless a coordinator session or a human runs a command | R-11, D-10, K-19 | new | fix |
+| A-025 | medium | security | partial | Harness code loaded into later sessions resolves from worker-writable locations, not from the root-owned release | S-10 | new · conflict | fix |
+| A-026 | medium | security | partial | The App posts worker-written job output to public threads without redaction | S-11 | new | fix |
+| A-027 | medium | security | non-compliant | Webhook bearer tokens sit in a dotenv inside the checkout that every job can read; the payload carries the whole final message | S-12 | new | fix (via G1.3) |
+| A-028 | medium | security | non-compliant | The steer inbox (the owner's correction channel) is writable by every job and is delivered as a user message | S-13 | new | fix |
+| A-029 | medium | security | partial | Group-role guards are keyed on environment variables and tool names that a member's own shell controls | S-14 | new | fix |
+| A-030 | medium | determinism | non-compliant | A spawn or continue without route flags silently substitutes a model | D-08, K-06 | known | fix |
+| A-031 | medium | determinism | partial | A note-check line marked "proven" is closed by naming any existing file | D-13 | known · deliberate · conflict | fix |
+| A-032 | medium | determinism | partial | `limen stop <id> "done: …"` lets the model create a landable `done` that skips open checks | D-14 | known · deliberate | fix |
+| A-033 | medium | autonomy | partial | A new coordinator session loses wakes for jobs that ended while it was down | D-09 | known | fix |
+| A-034 | medium | autonomy | partial | Owner decisions given in conversation live only in the thread; the handoff reminder fires once | D-11 | known | fix |
+| A-035 | medium | autonomy | non-compliant | Review filing is prose-only, and `prune --retire` deletes the unfiled verdict | D-16 | known | fix |
+| A-036 | medium | autonomy | partial | Start-queue waits have no limit and no escalation | D-17 | new | fix |
+| A-037 | medium | cost | non-compliant | The system prompt is rebuilt every prompt; every land invalidates the coordinator's cached history | K-02 | new | fix |
+| A-038 | medium | cost | non-compliant | Job roles carry the human register, the ticket rules and maintainer notes | K-03 | new | fix |
+| A-039 | medium | cost | n/a | One register file serves the coordinator and every job; the Polish override reaches all jobs | K-04 | new | fix (removal) |
+| A-040 | medium | cost | non-compliant | The shop manual ships ≈2.5k tokens per request for features whose seat use is unknown | K-05 | new | fix |
+| A-041 | medium | cost | non-compliant | Guidance already in the system prompt is re-requested as forced reads | K-07 | known · deliberate | fix |
+| A-042 | medium | cost | non-compliant | The drift advisory repeats in every coordinator prompt for the operator's deliberate overlay | K-08 | new | fix |
+| A-043 | medium | cost | n/a | The capability frame tells every agent that time is abundant, on a shared quota | K-10 | new | fix |
+| A-044 | medium | cost | non-compliant | The task-note mechanism adds work to every job, read-only roles included, and its experiment was never closed | K-11 | known · deliberate | fix |
+| A-045 | medium | cost | non-compliant | The keeper spends a model session on mostly deterministic link fixes, even when the check is clean | K-12 | new | fix |
+| A-046 | medium | cost | partial | Session and turn multipliers per ticket | K-13 | known | rejected / fix |
+| A-047 | medium | cross-cutting | non-compliant | The seat's Pi extensions, where installed, run in every coordinator with no typecheck, lint or test | K-20 | new | fix |
+| A-048 | medium | cross-cutting | n/a | The picture subsystem is ≈28 % of shipped code and sits on the ticket-check path | K-21 | known | fix |
+| A-049 | medium | cross-cutting | non-compliant | Engines and integrations with no known seat use make up ≈6k lines | K-22 | known · deliberate | fix (via G1) |
+| A-050 | medium | cross-cutting | n/a | `SECURITY.md` misstates Linux process containment | K-24 | new | fix |
+| A-051 | medium | cross-cutting | non-compliant | No test checks the assembled prompt beyond marker counts | K-26 | new | fix |
+| A-052 | low | reliability | n/a | An engine killed by a signal is recorded as a requested stop | R-13 | new | fix |
+| A-053 | low | reliability | n/a | The wrapper writes `state=running` unconditionally after starting the engine | R-14 | new | fix (via A-019) |
+| A-054 | low | reliability | n/a | Seat units cover one project each; the bell floods on first run | R-15 | new | fix |
+| A-055 | low | reliability | n/a | Ticket numbers outside a series are allocated without a lock | R-16 | new | fix |
+| A-056 | low | reliability | n/a | A missing `born` file counts as "same process" in the reaper | R-17 | new | fix |
+| A-057 | low | reliability | compliant | Job publication is atomic and prune-safe | R-18 | new | rejected (compliant) |
+| A-058 | low | reliability | compliant | Recovery claims and wake receipts resist pid reuse and double delivery | R-19 | known | rejected (compliant) |
+| A-059 | low | reliability | partial | Detached jobs have hard limits that end in a recorded failure and a wake | R-20, D-21 | new | fix |
+| A-060 | low | reliability | compliant | Webhook queue: lease takeover and idempotency key | R-21 | known · deliberate | rejected (not applicable) |
+| A-061 | low | security | partial | `LIMEN_COORDINATOR` is inherited by every job, and coordinator-only doorbell commands trust environment variables | S-15 | known | fix |
+| A-062 | low | security | partial | The poller writes through worker-controlled path components in the checkout | S-16 | new | fix |
+| A-063 | low | security | partial | The poller runs git in the worker-owned repository with the ownership check overridden | S-17 | new | fix |
+| A-064 | low | security | compliant | App key isolation and poller preconditions hold (compliant mechanism) | S-18 | new | rejected (compliant) |
+| A-065 | low | security | compliant | Doorbell trigger authorization is enforced in code (compliant mechanism) | S-19 | new | rejected (compliant) |
+| A-066 | low | security | partial | The ntfy bell sends job labels to a public relay, and its topic secret sits in a world-readable unit drop-in | S-20 | new | fix |
+| A-067 | low | security | compliant | The statusline reads the Claude OAuth token but sends it only to a fixed HTTPS endpoint (compliant mechanism) | S-21 | new | rejected (compliant) |
+| A-068 | low | security | partial | quota-resume sends an automatic coordinator turn keyed on error text and one environment variable | S-22 | new | fix (via A-016) |
+| A-069 | low | security | partial | Group peer data is labelled and kept out of the user role, but the label is prose | S-23 | new | fix |
+| A-070 | low | determinism | partial | `planned→active`, drop and outcome are model-only, and land silently closes nothing for a ticket left in `planned/` | D-18 | new | fix |
+| A-071 | low | determinism | non-compliant | The quality-pass trigger (ten landings) is prose-only although it is countable | D-19 | known | fix (via G1.13) |
+| A-072 | low | determinism | partial | The keeper's stop criterion is partly prose | D-20 | new | fix |
+| A-073 | low | determinism | partial | The ticket-at-base check covers only `Ticket: spec/…` pointers | D-25 | known | fix |
+| A-074 | low | autonomy | compliant | Rules are re-injected from files every turn, and the job's note is a file | D-22 | known · deliberate | rejected (compliant) |
+| A-075 | low | autonomy | compliant | Group rounds advance in code under a deadline | D-23 | known · deliberate | rejected (compliant) |
+| A-076 | low | autonomy | compliant | Webhook retries are bounded and end in a visible final failure | D-24 | known · deliberate | rejected (not applicable) |
+| A-077 | low | cost | partial | The per-prompt hidden cue restates the system prompt and accumulates in history | K-09 | known · deliberate | fix |
+| A-078 | low | cost | partial | The completion wake injects the whole final message into the coordinator | K-14 | known · deliberate | fix (via A-008) |
+| A-079 | low | cost | partial | Continuations re-cache the whole transcript behind a changed prefix | K-15 | new | fix |
+| A-080 | low | cost | non-compliant | A group lead gets a model turn per peer batch | K-16 | new | fix |
+| A-081 | low | cost | partial | Tools and skills are not scoped per role | K-18 | known | fix |
+| A-082 | low | cross-cutting | n/a | Every coordinator session runs the group hook with a 1-second timer | K-17 | new | fix |
+| A-083 | low | cross-cutting | n/a | macOS-only branches on a Linux-only seat | K-23 | new | fix |
+| A-084 | low | cross-cutting | non-compliant | Developer docs drift from the code | K-25 | new | fix |
+| A-085 | low | cost | n/a | Duplicated text across templates | K-27 | known | fix |
 
 ### A-001 Prune deletes the uncommitted work of every finished job, automatically
 - Area: reliability
@@ -341,6 +434,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Status: new
 - History: Related only: the retro says durable job files saved a job's uncommitted work (`spec/research/limen-ops-retro-2026-09-10.md:43`). No source says that prune deletes it.
 - Note: The `continue` message is printed at `src/commands/continue.ts:484`; the manual line is `templates/agents.md:224`; `docs/seat/agent-setup.md:194` is the seat setup step that installs the daily prune timer.
+- Decision: fix — Prune never touches the worktree of a finished job with unlanded work (changes or commits outside `main`) until it is resolved. Resolutions: `limen continue <id>` in the same worktree, or `limen abandon <id>`, which first commits the state (changes and untracked files, not ignored ones) to `limen/abandon/<id>` and then removes the worktree. A new worker spawn in the project refuses while an unresolved job with unlanded work exists, naming both commands. Fix `docs/jobs.md:44`, `templates/agents.md:224`.
 
 ### A-002 `prune --retire` treats a zero-commit branch as landed and deletes the job's record, transcript, branch and worktree
 - Area: reliability
@@ -354,6 +448,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: R-02
 - Status: new
 - History: Related only: the owner treats `prune --retire` as destructive and snapshots `.limen/` before it (owner's analysis l. 205, owner's analysis l. 255). No source names the zero-commit "landed" test.
+- Decision: fix — Markers `landed` (written by `land` and `ticket done`: sha, date) and `abandoned` (written by `limen abandon`) in the record. `--retire` takes only jobs with a marker, never from the git graph, and moves the record to `.limen/archive/YYYY-MM/<id>/` with one `rename`; only an explicit human command deletes the archive. `limen/abandon/<id>` branches live until a human deletes them; `limen status` lists them. The daily sweep runs `--retire` (§6).
 
 ### A-003 Doorbell review runs fork-authored PR code under the credential-holding account
 - Area: security
@@ -368,6 +463,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Status: new
 - History: Adam asked to leave `limen github …` alone (`spec/features/planned/F959-docs-and-messages-describe-a-coordinator-as-a-session/ticket.md:25`). No source discusses fork PR code.
 - Note: Severity assumes the doorbell runs on the seat (To verify Q2). The reviewer at the fork head is started by the coordinator running `limen github review`, as the code-written doorbell prompt tells it to (`src/commands/github.ts:268`, `src/commands/github.ts:219`): fork code runs after a model decision that Limen's own text prompts. Whether a job can read the gh credential as a file, and what the engine loads from the worktree, are To verify (Q4, Q5).
+- Decision: fix — A fork PR (head repo ≠ base) passes only if its author has `admin`, `maintain` or `write`; otherwise the doorbell refuses the review with a comment giving the reason. `Pull` carries the head repo.
 
 ### A-004 Jobs run without a sandbox, with approvals bypassed and the spawner's whole environment, as the account that holds all credentials
 - Area: security
@@ -382,6 +478,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
 - Note: Pi jobs get `--approve` (the Pi profile sets `projectTrust: true`, `src/runtime/engine.ts:38`); OMP jobs get `--auto-approve` (`src/runtime/engine.ts:50`). What `--approve` permits in Pi is To verify (Q6), so "approvals bypassed" is certain only for OMP. The seat keeps `gh auth login` on the worker account (`docs/seat/README.md:20`); whether a job can read that credential as a file is To verify (Q4).
+- Decision: fix — T1: the job environment is an allow-list, not a deny-list; no `LIMEN_COORDINATOR`; `gh` and git in a job have no logged-in credential helper. Limen supports B2c: the researcher role starts through an external launcher on another account; its result is accepted from a results directory as data. Seat side: G2.
 
 ### A-005 Reaper marks a job "process group gone" while its engine group still runs, then prune removes the live engine's worktree
 - Area: reliability
@@ -395,6 +492,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: R-03
 - Status: new
 - History: Related only: two retries shared one worktree (`spec/research/limen-ops-retro-2026-09-10.md:107`), so the retro asks to "Verify exclusive live ownership before reusing a worktree" (`spec/research/limen-ops-retro-2026-09-10.md:148`). The reaper-then-prune path is not named.
+- Decision: fix — Before a terminal state the reaper checks the recorded process group (with the start-time check used in `contain.ts`); a live group gets TERM, then KILL; only then `failed`, with a log of what it checked; `pid` stays until the group is gone. Test `s9` asserts the engine is dead.
 
 ### A-006 "Only the human pushes main" rests on a client-side hook in a directory every job worktree shares, and on a credential every job holds
 - Area: security
@@ -410,6 +508,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Status: new
 - History: Context: in the author's practice, the coordinator commits and pushes `main` when the owner authorizes it (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/group/brief.md:9`). The rule that only the human pushes `main` comes from the seat (owner's analysis l. 201).
 - Note: The project pre-push hook is an operator fact from the rebuild prompt (it lives in the projects, outside this repo). The finding is that the hook sits in the git directory every job worktree shares and that jobs hold the push credential. If `main` is protected on GitHub, severity drops to medium (Q3).
+- Decision: fix — Publication of `main` is done automatically by the owner channel's timer (own clone, fetch as data, fast-forward only), only when every new commit is covered: (1) a `limen land` result with the `landed` marker; (2) a change only in `spec/` made by Limen commands, with the command entry; (3) `limen land --owner <branch>` through the owner channel, owner files only. An uncovered commit is not published, and I get a notification with the commit and the reason. `accepted-risk`: deliberate forgery of markers by a job. Server-side ruleset: §7 D1.
 
 ### A-007 Untrusted GitHub text from any commenter is typed into the coordinator as a human prompt, with a prose-only boundary
 - Area: security
@@ -424,6 +523,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Status: new
 - History: Adam asked to leave `limen github …` alone (`spec/features/planned/F959-docs-and-messages-describe-a-coordinator-as-a-session/ticket.md:25`). No source discusses commenter text.
 - Note: Severity assumes the doorbell runs on the seat (Q2). The role check cited as `:401` is `src/integrations/github-poller.ts:401`.
+- Decision: fix — The coordinator gets only a pointer from the doorbell (repo, number, `@limen` author, SHA, requested action); it fetches the content with a command (e.g. `limen github show <claim>`) as a tool result, wrapped and length-limited; text from authors without write access is dropped; everything is built from the poller's private claim, never from a checkout copy.
 
 ### A-008 A job's whole final message enters the coordinator as an unframed user message, followed by a landing instruction
 - Area: security
@@ -438,6 +538,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Status: new
 - History: Related: the author wants the whole report in the final message (`spec/features/active/F954-a-private-assessment-combines-verified-collaboration-counts-from-both-session-stores/group/teams/team-1.md:9`; see A-078). No source discusses how it is framed or whether it is trusted.
 - Note: Missing framing means: the result goes into a user-role prompt after a plain `Final message:` header (`src/job/wake-text.ts:35-37`), with no delimiter marking it as job-authored data, no length bound, and the harness's own landing instruction after it (`src/job/wake-text.ts:94-98`).
+- Decision: fix — A wake has two separate parts: (1) Limen's header (id, state, check summary, first verdict line, path to the full `result`); (2) job data as a separate message in a non-user role, marked as data, length-limited (e.g. 40 lines or 4 KB) with a truncation note. Limen text never follows job data. No "land it" sentence. `accepted-risk` (G2): a job overwriting another job's `result`.
 
 ### A-009 Coordinator-handoff turns a worker-writable file into the first user message of a fresh coordinator session
 - Area: security
@@ -452,6 +553,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Status: new
 - History: Related only: the retro saw that the "replacement authority" between shepherd notes was unclear (`spec/research/limen-ops-retro-2026-09-10.md:117`). No source names the handoff file.
 - Note: Severity assumes `coordinator-handoff.ts` is installed on the seat (Q7).
+- Decision: fix — The handoff note goes through a tool registered by the extension in the coordinator process (`handoff(note)`), with no trigger files in `.limen/`; the file is only an archive written by the extension. The new session gets the note wrapped as a previous session's note (data), never as instructions or owner decisions.
 
 ### A-010 Any job can set seat-wide rules that every coordinator on the seat receives each turn and as a typed prompt
 - Area: security
@@ -465,6 +567,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: S-08
 - Status: new
 - History: F958 sends rules to sessions without Herdr too (`spec/features/planned/F958-seat-wide-rules-reach-every-coordinator-session/ticket.md:13`), but it does not limit who may set a rule. So it widens the reach of this finding.
+- Decision: fix — Cut seat rules (`limen rule`, start priority). Standing condition: automatic resume after the limit renews stays permanently in code (A-016), for both projects, 5 minutes after the reset.
 
 ### A-011 The coordinator's system-prompt files and future jobs' role preambles live in the canonical checkout that every job can write; "never edit the board" is prose only
 - Area: security
@@ -479,6 +582,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Status: new
 - History: Related: coordinators committed each other's board hunks in the shared checkout, and the retro asks for one board writer (`spec/research/limen-ops-retro-2026-09-10.md:119`, `spec/research/limen-ops-retro-2026-09-10.md:157`). No source names jobs that write into the checkout.
 - Note: "`docs/` only by the human" is an operator rule from the rebuild prompt, not written in this repo. A-011 is high and A-025 medium because A-011 uses files the coordinator reads every turn by design, while A-025 needs a job to redirect how hooks resolve.
+- Decision: fix — (a) Files that feed prompts (vision, styleguide, `.agents/limen/**`, board sections, test-line cap) are read from the published copy, maintained by the owner channel after each publication in a directory the agents can only read. (b) Owner files: final list in §2; `land` refuses a job branch touching them or `spec/build.md`.
 
 ### A-012 `limen land` has no human gate, and the code-written wake tells the coordinator to land
 - Area: determinism
@@ -494,6 +598,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Status: known (`spec/research/limen-ops-retro-2026-09-10.md:157`)
 - History: DELIBERATE: the author wants one landing owner per checkout, and that owner is the coordinator ("Only the lane's coordinator lands", `spec/features/planned/F958-seat-wide-rules-reach-every-coordinator-session/outside-limen.md:26`). The reason: fewer merge and board collisions (`spec/research/limen-ops-retro-2026-09-10.md:170`). The human gate is the seat's rule (A-012 cites `docs/seat/agent-setup.md:70`).
 - Note: The full wake text is "Job done. Next step: land it, or name the check that still blocks landing." (`src/job/wake-text.ts:82`), and the instruction ends "After it lands, continue with the next item" (`src/job/wake-text.ts:98`). "Land only after the human says land" is not written in this repo; whether the projects' `AGENTS.md` or overlays record it is To verify (Q8).
+- Decision: fix — G3. No human gate at land. `limen land` passes only when code-checked conditions hold: state `done`, clean tree, ticket check, test-line cap, PASS on the exact tip (A-013), every `Check` passed and every `Judgment` `met` on that tip (A-031), round limit (A-015); otherwise it refuses with an actionable reason. The coordinator calls land. Wakes never say "land it"; they state the computed condition ("conditions met" or "blocked: <reason>"). The seat rule "land only after Adrian says so" ends. The TTY confirmation in `limen land` (`src/commands/land.ts:38`) is cut: land behaves the same with and without a terminal.
 
 ### A-013 Review verdict is never read, and land merges the branch tip instead of the reviewed candidate
 - Area: determinism
@@ -512,6 +617,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: D-03
 - Status: new
 - History: Aligned intent: when review is requested, "buy one falsifier against one commit" (`spec/research/limen-ops-retro-2026-09-10.md:152`). But the author wants no land gate for open checks (`spec/features/done/2026-10/F953-a-done-job-with-open-note-checks-tells-the-coordinator-and-is-not-a-plain-done/ticket.md:25`), and Adam landed F953 despite a FAIL (`spec/features/done/2026-10/F953-a-done-job-with-open-note-checks-tells-the-coordinator-and-is-not-a-plain-done/ticket.md:40`).
+- Decision: fix — G4. V1: at the end of a review job, code parses the first line of the result into the verdict field (`PASS <sha>` or `FAIL <sha>`); unreadable or missing = no verdict, land refuses. V2: review is required for land for every job whose diff touches anything outside `spec/`; `spec/`-only changes need none. V3: land accepts only a PASS on exactly the tip being merged; a new commit after PASS needs a new review. The coordinator cannot override a FAIL.
 
 ### A-014 "One job at a time per project" is absent from code, and the manual mandates the opposite
 - Area: determinism
@@ -528,6 +634,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Status: known (`spec/research/limen-ops-retro-2026-09-10.md:45`)
 - History: DELIBERATE: the author runs parallel jobs, coordinators and multi-model groups ("Explicit handbacks enabled useful parallel work"). So the one-job limit comes from the seat, not from the author.
 - Note: The scenario assumes a quota hit ends a job `failed`; that is To verify (Q1).
+- Decision: fix — `maxJobs` in `.agents/limen/limits.json`, default 1; counts every running job in the project, any role; a spawn over the limit refuses and names the job holding the slot; a group start refuses when teams > `maxJobs`. Remove the contradicting lines (`templates/agents.md:67`, `:152`). `limen init` asks for `maxJobs`, the module switches, the round limit, the routes and the project gate command; without a terminal it requires explicit flags.
 
 ### A-015 The review/repair loop has no exit condition in code
 - Area: autonomy
@@ -548,6 +655,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Status: known (`spec/research/limen-ops-retro-2026-09-10.md:152`)
 - History: The retro: "Do not turn an unchanged baseline failure into an automatic repair loop". The owner counted one ticket with 3 review rounds (owner's analysis l. 99), and F953 ran 4 rounds before Adam stopped it (`spec/features/done/2026-10/F953-a-done-job-with-open-note-checks-tells-the-coordinator-and-is-not-a-plain-done/ticket.md:40`).
 - Note: Absence search: `git grep -n -i -E 'round|re-review|repair' rebuild-base -- src hook` matches only group rounds and unrelated words; no review-round counter or verdict file exists.
+- Decision: fix — L1: review-round limit per ticket in `limits.json`, default 3. L2: counted per ticket across jobs and continuations; a new ticket starts at zero. A round is a review with a verdict **or** a failed run of Limen's checks (A-031); failures without a result (limit, timeout, stall, error) do not count. L3: when exhausted, spawn of review and repair for the ticket refuses, Limen wakes the coordinator and rings me. The coordinator writes the escalation with `limen escalate`, which checks in code that four parts are present and non-empty (what the problem is, what was tried, why it failed, proposed alternatives) and stores it with the ticket. Resolutions through the owner channel: +1 round or `abandon`; the coordinator may propose splitting the ticket. No "land despite FAIL".
 
 ### A-016 Quota resumption depends on prose and on a seat extension Limen does not install; wakes during the limit stop after two attempts
 - Area: autonomy
@@ -568,6 +676,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Status: known (`spec/research/limen-ops-retro-2026-09-10.md:144`)
 - History: DELIBERATE: after the 10,480-wake storm, the retro's first fix bounds wake retries (`spec/research/limen-ops-retro-2026-09-10.md:167`) and accepts that recovery "may require deliberate resumption". The claim is "retained for human recovery" (`src/job/wake-delivery.ts:202`, checked). So "dropped" means "not sent again automatically".
 - Note: The scenario assumes a quota hit ends a job `failed` (Q1); whether the seat extension is installed is Q7.
+- Decision: fix — (1) Limen records one structured failure cause, whoever detected it: kind (`quota`, `timeout`, `tool-cap`, `stall`, `reaped`, `engine-error`, `exit`, `signal`, `oom`, `queue`, `read-only-violation`, `quota-exhausted`), detail, and for `quota` the reset time. The reset time is read only from the provider's error field in the engine result, never from model text. (2) Wakes blocked by the limit go to a durable owed list. (3) A systemd timer independent of the coordinator runs `limen resume --quota` 5 minutes after the reset: it resumes only `quota` jobs, with their recorded route and the parent's recorded system prompt (A-079), and delivers owed wakes; the coordinator gets a summary built from record fields, not quoted error text. Other kinds follow A-001. (4) If the message is unreadable: try hourly via the usage endpoint (shared poller, A-047) and notify me once. (5) At most 3 quota resumes per job; then `failed`, kind `quota-exhausted`, and the bell. (6) `docs/seat/quota-resume.ts` is cut. Test: a recorded limit error → exactly one resume after the reset.
 
 ### A-017 The worktree lock and the seat start-queue lock wait forever when the owner pid is reused; no message, no timeout
 - Area: reliability
@@ -581,6 +690,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: R-04
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
+- Decision: fix — The lock owner file holds `{pid, start time, boot_id}`; any mismatch = takeover of an abandoned lock; waiting is bounded to 60 s, then an error naming the lock file, the owner and a hint; oneshot units get `TimeoutStartSec`.
 
 ### A-018 A stale GitHub `poll.lock` disables the doorbell for that project permanently
 - Area: reliability
@@ -595,6 +705,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
 - Note: Applies only if the doorbell runs on the seat (Q2).
+- Decision: fix — One shared lock module (A-017) for every lock in Limen (worktree, start queue, group, `poll.lock`, ticket numbers, the rest); `limen github doctor` reports an abandoned lock.
 
 ### A-019 `finalizeJob` is check-then-write with no lock; concurrent finalizers both commit and the final state is a coin toss
 - Area: reliability
@@ -608,6 +719,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: R-06
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
+- Decision: fix — Every job state change goes through one function; a transition happens only from the expected state (compare-and-swap); the first finisher wins, the loser returns without writing; nothing writes a state after a terminal one. Store: S1+. Closes A-053.
 
 ### A-020 SIGTERM to the wrapper alone disarms the timeout, tool cap and stall watch without stopping the engine
 - Area: reliability
@@ -621,6 +733,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: R-07
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
+- Decision: fix — On SIGTERM the wrapper forwards TERM to the engine's process group, keeps the limits armed, sends KILL after a 10 s grace, then records `stopped` through the transition function with a log line. `docs/jobs.md:234` points to `limen stop <id>` instead of a manual `kill`.
 
 ### A-021 Land's ticket close is not transactional; a failed commit leaves staged moves, prints a false "tickets stay active" and exits 0
 - Area: reliability
@@ -635,6 +748,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: R-08, D-15
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
+- Decision: fix — Land is a sequence of steps recorded in the record (`merged`, `closed`, `cleaned`); a repeated `limen land <id>` continues from the last completed step; each step is idempotent; the branch is deleted only after a successful closing commit. The closing commit (ticket move, board, `limen spec fix`, generated `outcome.md`) is built atomically (temporary git index, `main` updated only from the expected value). Every error ends with exit ≠ 0, a message and the exact next command. The closing commit goes through the project's pre-commit hooks.
 
 ### A-022 The board, tickets and some job files are rewritten in place (truncate, then write)
 - Area: reliability
@@ -648,6 +762,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: R-09
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
+- Decision: fix — Every write in `spec/` and in job files goes through `atomicWrite` (temporary file, `fsync`, `rename`, `fsync` of the parent directory). A test scans `src/` and `hook/` and fails on a direct `writeFile` to those paths outside the helper.
 
 ### A-023 Hosted jobs have no wall-clock or tool-call bound, and an idle heuristic can end one `done`
 - Area: reliability
@@ -662,6 +777,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: R-10, D-12
 - Status: new
 - History: Context: the author's T3 practice forbids `--tab` jobs, without a reason (`spec/features/planned/F958-seat-wide-rules-reach-every-coordinator-session/outside-limen.md:23`).
+- Decision: fix (via G1.8) — Cut with hosted mode; the doorbell uses detached jobs with time and tool limits.
 
 ### A-024 No seat-level reaper on Linux: a dead job stays `running` unless a coordinator session or a human runs a command
 - Area: reliability
@@ -677,6 +793,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: R-11, D-10, K-19
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
+- Decision: fix — One seat timer `limen-sweep` on the agents' account across all registered projects: every minute the reaper (A-005), quota resume (A-016) and owed wakes; daily prune and `--retire`. `limen sweep --install` on Linux installs systemd user units (no root), idempotently, with `--uninstall` and `--status`; it checks lingering and, if off, prints the command for root and exits ≠ 0. It installs nothing on other accounts.
 
 ### A-025 Harness code loaded into later sessions resolves from worker-writable locations, not from the root-owned release
 - Area: security
@@ -690,6 +807,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: S-10
 - Status: new
 - History: CONFLICT: the owner says only the `/opt/limen` checkout sets the seat version (owner's analysis l. 159). A-025's demo shows that hooks load through `LIMEN_PACKAGE` or the first `limen` on `PATH`. So this holds only while no job redirects them.
+- Decision: fix — All code run by agents comes from root-owned directories, loaded by absolute paths: Pi and the bridge installed by root, version pinned by the seat script (Pi 1.5.1); coordinator and jobs start with `--no-extensions` and an explicit extension list from the Limen checkout; seat extensions live in a root-owned directory; hooks call `limen` and `jg` by absolute path; the stub refuses a package in an agent-writable directory; `extensions.json` paths outside root-owned directories are ignored; a root-owned coordinator start script, called by full path, starts coordinators. `accepted-risk` (G2): shell start-up files of the agents' account.
 
 ### A-026 The App posts worker-written job output to public threads without redaction
 - Area: security
@@ -704,6 +822,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
 - Note: Applies only if the doorbell runs on the seat (Q2).
+- Decision: fix — Doorbell comments carry Limen fields (state, job id, SHA, a stable link); a branch name must match `limen/<id>`. Before posting, code checks the repo's visibility through the API: a public repo gets only Limen fields; a private repo also gets the result fragment after the B2c secret scanner, and on a hit only Limen fields plus "content withheld". Unknown visibility counts as public.
 
 ### A-027 Webhook bearer tokens sit in a dotenv inside the checkout that every job can read; the payload carries the whole final message
 - Area: security
@@ -717,6 +836,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: S-12
 - Status: new
 - History: Related: the retro found `.limen/finish-webhook.env` in no project (`spec/research/limen-ops-retro-2026-09-10.md:87`) and asks that inspection show nothing secret (`spec/research/limen-ops-retro-2026-09-10.md:148`). No source names token exposure.
+- Decision: fix (via G1.3) — Webhook token file goes with the webhooks.
 
 ### A-028 The steer inbox (the owner's correction channel) is writable by every job and is delivered as a user message
 - Area: security
@@ -730,6 +850,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: S-13
 - Status: new
 - History: Related only (different mechanism): The F952 group found that a steer has no author field (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/group/findings/final.md:209`) and can hold coordinator text or a timeout nudge. The group sees an attribution gap, not a write-access hole.
+- Decision: fix — `limen steer` is a registered-coordinator command (§2) and refuses when the target is a review job; the hook of a review job delivers only the `limen-deadline` envelope. Every inbox entry has an envelope with `from` (`coordinator` or `limen-deadline`); the hook prefixes the origin; a file without a valid envelope is not delivered and goes to the job log. Role prompts: a coordinator steer is a correction; a Limen notice is information. A different reviewer focus = a new review with another brief. `accepted-risk` (G2): a job writing into another job's inbox. Rejected: a per-job secret (readable by every job on one account), a control plane on another account.
 
 ### A-029 Group-role guards are keyed on environment variables and tool names that a member's own shell controls
 - Area: security
@@ -743,6 +864,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: S-14
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
+- Decision: fix — Guards keyed on environment variables or tool names are documented in code and `docs/groups.md` as mistake guards, not boundaries. Real limits are state conditions: `land` refuses a job with group membership in its record (group work lands through `limen group land`, see A-045), the keeper refuses while a member runs, the helper allowance is a sub-limit of `maxJobs`. A test per guard removes the variable and checks that the state condition still refuses. Every job runs in its own systemd user scope (`systemd-run --user --scope`); any terminal transition stops the whole scope, including processes detached with `setsid`. `limen-sweep` looks every minute for engine processes (`claude`, `pi`) on the agents' account outside any job scope and outside the registered coordinator, and sends one notification per process (PID, command, start time); it kills nothing. Coordinators start only through the root-owned start script (A-025), which records PID and start time. `accepted-risk` (G2): a process deliberately moved to another cgroup.
 
 ### A-030 A spawn or continue without route flags silently substitutes a model
 - Area: determinism
@@ -757,6 +879,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: D-08, K-06
 - Status: known (`spec/research/limen-ops-retro-2026-09-10.md:129`)
 - History: "Model prose was not launch configuration": two coordinators ran Grok although their briefs asked for Astra (`spec/research/limen-ops-retro-2026-09-10.md:131-134`). The retro asks to record the effective route (`spec/research/limen-ops-retro-2026-09-10.md:148`). Every group brief forbids a model change (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/group/brief.md:7`).
+- Decision: fix — Routes file `.agents/limen/routes.json` (owner file): per role (coordinator, worker, reviewer, keeper, scout, researcher, judge, quality, group member) provider, model, reasoning level, timeout. `limen init` asks for them. Spawn, continue, keeper, groups and resume take the route from the file; a missing role or field refuses with the file and field named. The `openai-codex/…` fallback and `LIMEN_WORKER_MODEL`/`LIMEN_REVIEWER_MODEL` are cut. `continue` uses the parent's recorded route. The record stores the effective route. The `<board …>` placeholders leave the manual; the coordinator passes no route flags; route flags on spawn and continue are refused; a route changes only by changing the file. The coordinator start script reads the coordinator route from the file. Default timeouts (proposed by `limen init`): worker 90 min, reviewer 60 min, model keeper 15 min, scout/researcher/judge 45 min. `limen stats` groups by route.
 
 ### A-031 A note-check line marked "proven" is closed by naming any existing file
 - Area: determinism
@@ -770,6 +893,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: D-13
 - Status: known (`spec/features/done/2026-10/F953-a-done-job-with-open-note-checks-tells-the-coordinator-and-is-not-a-plain-done/ticket.md:14`)
 - History: DELIBERATE: F953 says proof is "a command that ran in the session or a file that exists" and keeps the judgment of evidence out of scope (`spec/features/done/2026-10/F953-a-done-job-with-open-note-checks-tells-the-coordinator-and-is-not-a-plain-done/ticket.md:26`). CONFLICT: the owner says that only a bash call with exit 0 counts (owner's analysis l. 27).
+- Decision: fix — (1) Every line of a ticket's `## Acceptance` has an ID and a type: `Check: \`<command>\`` (run by Limen) or `Judgment: <criterion>` (judged by the reviewer). `limen ticket check` validates: section present and non-empty, every line typed, no filler; a spawn for a ticket without a valid section refuses. (2) At spawn Limen copies the criteria from `main` (published copy) into the record; the job's branch cannot change what is checked; a change after spawn needs a ticket change on `main` and `continue`, and the wake shows it. (3) Limen runs every `Check` itself in the worktree at the tip, with its own timeout (default 30 min, overridable per check), outside the model session, on the agents' account; exit code and output tail per ID go to the record. (4) After the verdict line the reviewer answers every ID: `<ID>: met | not met | unknown: <evidence>`; code parses it; a missing ID = `not met`; `unknown` blocks like `not met` and is listed separately in escalations. (5) Fixed judgments Limen adds to every ticket: "no existing test removed or weakened unless the ticket requires it"; and, when the diff touches `docs/`: "the `docs/` changes describe what the ticket requires; no requirement was weakened or removed to fit the code unless the ticket requires it". (6) The project gate command (asked at `limen init`, e.g. `./mvnw verify`, `npm run check`) is a fixed `Check` of every ticket. (7) Checks run automatically when a job reaches `done`, once per tip; review can be spawned only after they pass; a failed check run counts as a round (A-015); land verifies that the results are for exactly the tip being merged, and a new commit reruns them. (8) A refusal names the ID, command, exit code, output tail and the next command. The worker's note check is gone (A-044). Existing tickets with prose `## Acceptance` are rewritten at their next spawn.
 
 ### A-032 `limen stop <id> "done: …"` lets the model create a landable `done` that skips open checks
 - Area: determinism
@@ -783,6 +907,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: D-14
 - Status: known (`spec/features/done/2026-10/F953-a-done-job-with-open-note-checks-tells-the-coordinator-and-is-not-a-plain-done/ticket.md:25`)
 - History: DELIBERATE: F953 rejects "A new terminal state or a land gate. Limen informs; the coordinator decides". The coordinator may "accept each item with a reason" (`spec/features/done/2026-10/F953-a-done-job-with-open-note-checks-tells-the-coordinator-and-is-not-a-plain-done/ticket.md:14`).
+- Decision: fix — `limen stop <id> --done "<reason>"`, reason required and non-empty; the transition to `done` goes through the transition function with `doneBy: coordinator` and the reason in the record; it triggers the checks (A-031); land conditions are the same as for a worker's `done`; wakes and `limen stats` show who declared `done`. A `done:` prefix in a reason no longer changes the state. Fix `docs/jobs.md`, `templates/agents.md:221`.
 
 ### A-033 A new coordinator session loses wakes for jobs that ended while it was down
 - Area: autonomy
@@ -796,6 +921,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: D-09
 - Status: known (`spec/research/limen-ops-retro-2026-09-10.md:115`)
 - History: Shepherds found "unwatched workers". The author fixes this in practice: the first message to a moved lane runs `limen watch` on each running worker (`spec/features/planned/F958-seat-wide-rules-reach-every-coordinator-session/outside-limen.md:22`). The original owner stays unless ownership transfers explicitly (`spec/research/limen-ops-retro-2026-09-10.md:158`).
+- Decision: fix — Identity "coordinator of project X" in a file written by the root-owned start script (project, PID, start time, `boot_id`); the hook adds the current session ID at `session_start` (`/new` changes the session, not the process). Every job of the project belongs to the project's coordinator, not to a session. At `session_start` the hook attaches running jobs and delivers undelivered wakes of finished jobs, oldest first, above a few as one summary with a list and paths. With no live coordinator a wake goes to the owed list (A-016) and after a 15-minute grace (in `limits.json`) I get one bell notification. A second coordinator for a project with a live registered one: the start script refuses and names the PID; a dead PID = automatic takeover. Cut: per-session subscriptions (`watch`, `unwatch`, `--running`, `origin-tab`), the fallback wake and its "do not act" text.
 
 ### A-034 Owner decisions given in conversation live only in the thread; the handoff reminder fires once
 - Area: autonomy
@@ -809,6 +935,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: D-11
 - Status: known (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/revision-2/design.md:24`)
 - History: F952 plans a decision ledger and an optional compaction hook that keeps Adam's messages for 30 days. The retro asks that Adam's "no independent review" instruction survive resumes (`spec/research/limen-ops-retro-2026-09-10.md:152`).
+- Decision: fix — `limen decide --quote "<my exact words>" "<decision>" --scope ticket:<FNNN>|project --until <date|ticket-done|revoked>` (registered-coordinator command). Code checks that the quote is a substring of a user-role message in the registered coordinator's current session transcript; otherwise it refuses with a message (tool results, e.g. GitHub comments, never pass). Entries are immutable, ADR-style: `active`, `expired`, `revoked`, `superseded by #N`; a change is a new entry. The coordinator gets a short list of active entries at the end of its context each turn (never in the system prompt); ticket-scoped entries also go into the tasks of that ticket's jobs. Expired entries drop out automatically; `limen status` lists them. The handoff note no longer carries decisions; the handoff reminder fires at every further threshold, not once. `accepted-risk` (G2): a job forging a line in the coordinator's transcript.
 
 ### A-035 Review filing is prose-only, and `prune --retire` deletes the unfiled verdict
 - Area: autonomy
@@ -822,6 +949,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: D-16
 - Status: known (owner's analysis l. 101)
 - History: The owner found in Git that ledger files no reviews or notes, although synchronizer does (owner's analysis l. 99). He snapshots before `prune --retire` (owner's analysis l. 205). The cause is not diagnosed.
+- Decision: fix — When a review job reaches a terminal state with a verdict, Limen itself writes `review-<n>.md` into the ticket folder on `main`: a header (job id, reviewed SHA, verdict, judgments from the record) and the reviewer's final message verbatim; `n` = round number. The write is an atomic `spec/`-only commit (A-021 mechanics, A-006 coverage (2)). Repair and re-review spawns get the prior-findings path in their task automatically. Record field `filed` (commit SHA); a failed write gives a wake reason and a `limen-sweep` retry; retire waits for `filed`. Step 6 of the manual loses "file the verdict" and "commit on the candidate branch" (that would change the tip after PASS, against V3).
 
 ### A-036 Start-queue waits have no limit and no escalation
 - Area: autonomy
@@ -835,6 +963,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: D-17
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
+- Decision: fix — Two thresholds for the start queue (seat gate file): after 30 min a wake to the coordinator and one notification to me with a diagnosis (gate reading and the three largest CPU and memory consumers by systemd scope: job, project coordinator, unattributed); the job keeps waiting. After 2 h `failed`, kind `queue`, then A-001.
 
 ### A-037 The system prompt is rebuilt every prompt; every land invalidates the coordinator's cached history
 - Area: cost
@@ -849,6 +978,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Status: new
 - History: The author's core keeps two system-prompt appends (`spec/features/active/F957-first-principles-cut-of-limen-architecture-new-graph-marks-unvaluable-parts/ticket.md:38`). No source discusses cache invalidation.
 - Note: Assumes the usual prompt-cache order (tools, then system, then messages); where the bridge places cache breakpoints is To verify (Q9).
+- Decision: fix — The system prompt is assembled once at `session_start` and never changes during the session (coordinator and jobs); rules stay in it, so they survive compaction. The board digest (NOW, NEXT) leaves the system prompt: the hook appends a compact version at the end of the context only when it differs from the last delivered one. A change to vision, styleguide or the manual during a session: one appended notice "changed <file>, new text from the next session" with the path. Measurement: cache-write tokens in the turn after a land, before and after (with A-078).
 
 ### A-038 Job roles carry the human register, the ticket rules and maintainer notes
 - Area: cost
@@ -862,6 +992,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: K-03
 - Status: new
 - History: Related: F952 measured the whole always-on context per role (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/revision-2/design.md:12`), not the register's share of it.
+- Decision: fix — One communication style for all of Limen (package only, same for every project), split by audience into three registers: **owner** (Human, reporting work; coordinator only), **agent** (Shared, Agent, Before you send; every role), **specs** (coordinator and keeper only). Maintainer notes (`templates/communication.md:3`, `:124-126`) move out of the injected text into documentation. A disabled module contributes no sections.
 
 ### A-039 One register file serves the coordinator and every job; the Polish override reaches all jobs
 - Area: cost
@@ -875,6 +1006,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: K-04
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
+- Decision: fix (removal) — Project override of the register is cut (unused on the seat); the project `styleguide.md` stays.
 
 ### A-040 The shop manual ships ≈2.5k tokens per request for features whose seat use is unknown
 - Area: cost
@@ -888,6 +1020,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: K-05
 - Status: new
 - History: Related: F952 limits how much the always-on prompt may grow (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/revision-2/design.md:19`), and F957 would mark parts to cut (`spec/features/active/F957-first-principles-cut-of-limen-architecture-new-graph-marks-unvaluable-parts/ticket.md:9`). Which features are unused depends on the seat.
+- Decision: fix — After the G1 cuts and A-030, with modules off, only research and private planning remained always-on; both are now modules or cut (G1.11, G1.12). An enabled module's text stays in the always-on manual (no load-on-demand mechanism).
 
 ### A-041 Guidance already in the system prompt is re-requested as forced reads
 - Area: cost
@@ -901,6 +1034,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: K-07
 - Status: known (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/revision-2/design.md:13`)
 - History: DELIBERATE: the recall reminder fits the model limits that the author names, "forgetting after compaction, weak long-range recall" (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/revision-2/brief.md:6`). F952 would reuse it (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/revision-2/design.md:20`). The owner sees it as a strength (owner's analysis l. 32).
+- Decision: fix — The just-in-time reminder stays (same triggers, same instruction "check this edit against these rules"), but the hook appends the section text (bounded) directly to the triggering tool result instead of forcing another tool call; once per area, again after compaction. It covers rules that need judgment; deterministic rules are enforced by the project gate as a `Check` (A-031 (6)). The vision reminder triggers on creating or editing a ticket in `spec/features/planned/`, no longer on `limen spawn` or `git merge` (H-12).
 
 ### A-042 The drift advisory repeats in every coordinator prompt for the operator's deliberate overlay
 - Area: cost
@@ -914,6 +1048,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: K-08
 - Status: new
 - History: The owner lists drift detection as a strength (owner's analysis l. 34), not its repetition in every prompt.
+- Decision: fix — The coordinator manual and role prompts always come from the package; overrides by `AGENTS.md`, `.agents/limen/worker.md`, `.agents/limen/reviewer.md` are cut. Limen guarantees that the project's `CLAUDE.md` and `AGENTS.md` (if present) reach every role's context as project context, next to Limen's instructions, never instead of them: if the engine loads them, a test proves it; if not, Limen injects them into the frozen system prompt. Drift tracking and its prompt advisory are cut; `limen status` lists leftover template copies once; `limen init --drop-leftovers` removes them. Condition: real ledger data never sits on the agents' account; if it ever had to be on the seat, the boundary is a filesystem permission, not a rule in `CLAUDE.md`.
 
 ### A-043 The capability frame tells every agent that time is abundant, on a shared quota
 - Area: cost
@@ -927,6 +1062,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: K-10
 - Status: new
 - History: Context: the owner's constraint is the opposite: on Max, every injected KB is paid again in every turn (owner's analysis l. 86).
+- Decision: fix — The capability frame stays (package only) and keeps: the owner's attention is the scarcest resource, decide yourself, the proper design over the patch, prove it, keep to the asked outcome. The sentence about abundant time and many parallel agents is replaced by the real constraint. Its one-sentence anchor stays in the turn cue. Starting draft for stage 3 (my rule T-NN): "The owner's attention is the scarcest resource: decide engineering questions yourself, choose the proper design over the patch, prove it, and keep to the asked outcome. Tokens come from one subscription window shared by every job on this machine: spend them where they buy evidence (a test, a check, a review), not on rereading, broad exploration, or redoing settled work."
 
 ### A-044 The task-note mechanism adds work to every job, read-only roles included, and its experiment was never closed
 - Area: cost
@@ -940,6 +1076,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: K-11
 - Status: known (owner's analysis l. 111)
 - History: DELIBERATE: the note is the author's experiment with the hypothesis "mniej zapominania" (less forgetting) (owner's analysis l. 110), and its format is approved (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/group/findings/final.md:117`). The owner notes that the before/after results never reached the repo.
+- Decision: fix — The task-note mechanism is cut: the start instruction (`noteStart`), the forced note-check turn at the end (`hook/finish.ts`), `note.md`/`note.first.md` tracking, `open-checks`, the steer appendix (`noteSteer`) and project reminders (`.agents/limen/reminders.md`). The job task contains the criteria from the record verbatim, with "Limen will run these and the reviewer will judge them". An important easy-to-miss rule goes into the ticket as a `Judgment` or `Check`. The 80 % steer text drops note references (A-059).
 
 ### A-045 The keeper spends a model session on mostly deterministic link fixes, even when the check is clean
 - Area: cost
@@ -953,6 +1090,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: K-12
 - Status: new
 - History: The F952 group keeps the keeper's link-fixing contract (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/group/findings/final.md:117`) and does not discuss its cost.
+- Decision: fix — The deterministic keeper work becomes a script, `limen spec fix`, run by `limen land` inside the closing commit (A-021): board line for planned/dropped tickets, map `sources:` path rewrite (Picture on), front-matter normalisation. A number collision makes land refuse with `limen ticket renumber <FNNN> <new>` (script; the coordinator picks the number). A model keeper runs only with Picture on and unknown `touches:` reported by the script, limited to that residue. Groups: `limen group land` creates a model-free job at the integration branch tip, which passes checks (A-031) and review (V2) like any job. The wake sentence "start limen keeper …" is cut.
 
 ### A-046 Session and turn multipliers per ticket
 - Area: cost
@@ -966,6 +1104,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: K-13
 - Status: known (`spec/research/limen-ops-retro-2026-09-10.md:13`)
 - History: The retro: "The recurring cost was machinery retries and coordination repair". It asks for proportional review, with one falsifier per commit (`spec/research/limen-ops-retro-2026-09-10.md:152`).
+- Decision: rejected / fix — Review opt-in by ticket class (the audit's direction): `rejected`, against A-013 V2 (reliability over cost). `fix`: Limen itself files `report-<n>.md` and `judgment.md` when researcher and judge jobs end (A-035 mechanics); the coordinator never re-emits job results. The other multipliers are closed by A-045, A-015, A-035, A-008, A-037, A-033; the quality pass by G1.13.
 
 ### A-047 The seat's Pi extensions, where installed, run in every coordinator with no typecheck, lint or test
 - Area: cross-cutting
@@ -979,6 +1118,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: K-20
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
+- Decision: fix — Seat code moves from `docs/seat/` into a typed directory (e.g. `seat/`) under `tsc`, biome and tests; shell scripts pass `shellcheck` in `npm run check`; systemd units are verified in a test (`systemd-analyze verify`). `statusline.ts` (my Polish status line) moves there with a test on a recorded usage-endpoint response. One shared poller of the usage endpoint serves the status line and A-016 (4), with one request budget (the endpoint accepts about one request per 2 min per account). The status line loads only in coordinators. `quota-resume.ts` cut (A-016), `coordinator-handoff.ts` replaced by `handoff(note)` (A-009), `limen-prune.*` replaced by `limen-sweep` (A-024), bell per A-066, `github-setup.sh` and `limen-github.*` belong to the doorbell module.
 
 ### A-048 The picture subsystem is ≈28 % of shipped code and sits on the ticket-check path
 - Area: cross-cutting
@@ -992,6 +1132,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: K-21
 - Status: known (`spec/features/active/F957-first-principles-cut-of-limen-architecture-new-graph-marks-unvaluable-parts/ticket.md:42`)
 - History: The author's core leaves the picture out ("not part of this essence"), and F957 would give it a verdict. F952 refuses the picture as a durable store (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/group/findings/final.md:76`).
+- Decision: fix — Tickets and board become their own core: `tickets.ts`, `frontmatter.ts`, `board.ts` move from `src/picture/` to a spec module (e.g. `src/spec/`) with no import from Picture; `limen ticket check` is the only ticket check on the land path. Picture is an optional module: model, activity, `serve` with `/activity.json` and `/events`; `picture build` validates the map and generates no HTML. `touches:` is optional; validated and maintained only with Picture on; ignored otherwise. A test asserts that with Picture off no core file imports from `src/picture/`. `picture tick` and `picture watch` are cut (§6).
 
 ### A-049 Engines and integrations with no known seat use make up ≈6k lines
 - Area: cross-cutting
@@ -1005,6 +1146,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: K-22
 - Status: known (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/group/synthesis.md:28`)
 - History: DELIBERATE (by use): the author runs four-model groups (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/group/synthesis.md:30-33`) and counts OMP sessions (`spec/features/active/F954-a-private-assessment-combines-verified-collaboration-counts-from-both-session-stores/group/brief.md:12`). But automatic finish webhooks were set up on 0 of 207 jobs (`spec/research/limen-ops-retro-2026-09-10.md:7`).
+- Decision: fix (via G1) — Devin, OMP, finish webhooks, Linear cut; doorbell and groups deliberately kept as modules off by default (against the audit's "cut everything unused").
 
 ### A-050 `SECURITY.md` misstates Linux process containment
 - Area: cross-cutting
@@ -1018,6 +1160,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: K-24
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
+- Decision: fix — `SECURITY.md` is rewritten from the code at the end of the rebuild in two parts: (1) what the boundaries are (accounts B1″ and B2c, domain allow-list, per-job systemd scope, land conditions, publication rule); (2) an explicit list of the risks accepted at gate 2, each with one sentence of reason.
 
 ### A-051 No test checks the assembled prompt beyond marker counts
 - Area: cross-cutting
@@ -1031,6 +1174,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: K-26
 - Status: new
 - History: Related: the owner says the fake-engine tests check mechanics, not behaviour that comes from prose (owner's analysis l. 35). F950 added 72 exact-wording checks (owner's analysis l. 110). Whether they cover the assembled prompt was not checked.
+- Decision: fix — A golden test per role and mode (detached, continuation): the exact system prompt and first message against a reference file. A second test: with unchanged files the system prompt is byte-identical across two prompts, and the board digest appears at the end of the context only after a change.
 
 ### A-052 An engine killed by a signal is recorded as a requested stop
 - Area: reliability
@@ -1044,6 +1188,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: R-13
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
+- Decision: fix — `stopped` only with a recorded stop request (`limen stop`, A-020); any other signal is `failed`, kind `signal`, with the signal name; a rise of `oom_kill` in the job scope's `memory.events` (A-029) gives kind `oom`.
 
 ### A-053 The wrapper writes `state=running` unconditionally after starting the engine
 - Area: reliability
@@ -1058,6 +1203,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
 - Note: "10 min" is the reaper's startup grace `STARTUP_GRACE_MS` (`src/runtime/reap.ts:8`, applied at `src/runtime/reap.ts:106`).
+- Decision: fix (via A-019) — closed by A-019.
 
 ### A-054 Seat units cover one project each; the bell floods on first run
 - Area: reliability
@@ -1071,6 +1217,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: R-15
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
+- Decision: fix — The bell iterates all registered projects (like `limen-sweep`); installing the bell marks existing terminal jobs as already reported. Other bell rules: A-066.
 
 ### A-055 Ticket numbers outside a series are allocated without a lock
 - Area: reliability
@@ -1084,6 +1231,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: R-16
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
+- Decision: fix — Ticket number allocation (also outside a series) runs under the shared lock module (A-018); the collision check at land and `limen ticket renumber` stay as a safety net.
 
 ### A-056 A missing `born` file counts as "same process" in the reaper
 - Area: reliability
@@ -1097,6 +1245,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: R-17
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
+- Decision: fix — Process identity `{pid, start time, boot_id}` is a record field, written synchronously in the transition to `running` (A-019); a missing identity means "unknown", never "alive"; the reaper (A-005) compares `boot_id` and start time, and a mismatch means dead.
 
 ### A-057 Job publication is atomic and prune-safe
 - Area: reliability
@@ -1110,6 +1259,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: R-18
 - Status: new
 - History: Consistent: the retro says recovery "depended on files, not the pane" (`spec/research/limen-ops-retro-2026-09-10.md:43`).
+- Decision: rejected (compliant) — Atomic job publication; the pattern carries over to the closing commit of land (A-021).
 
 ### A-058 Recovery claims and wake receipts resist pid reuse and double delivery
 - Area: reliability
@@ -1123,6 +1273,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: R-19
 - Status: known (`spec/research/limen-ops-retro-2026-09-10.md:81`)
 - History: The retro traced 9,450 log lines of "claim released without counting an attempt" (`spec/research/limen-ops-retro-2026-09-10.md:75-77`) to `releaseUncounted()`. That call no longer exists at `rebuild-base` (grep, checked), which agrees with this compliant finding.
+- Decision: rejected (compliant) — Recovery claims and wake receipts resist PID reuse; the identity model carries over to every lock (A-017, A-018).
 
 ### A-059 Detached jobs have hard limits that end in a recorded failure and a wake
 - Area: reliability
@@ -1137,6 +1288,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: R-20, D-21
 - Status: new
 - History: Context: an F954 Sol draft timed out with no result, and the owner restarted the group with a longer deadline (`spec/features/active/F954-a-private-assessment-combines-verified-collaboration-counts-from-both-session-stores/group/recovery-1.md:3`).
+- Decision: fix — Limits stay (time, tool calls, stall); default timeouts per role in `routes.json` (A-030). Every `Check` has its own timeout, independent of the job. Stall is measured over the whole systemd scope of the job (`cpu.stat`): no CPU in the whole job and no tool progress for 180 s; a background build does not trigger it, a lone `sleep` does. The 80 % steer: worker "commit your work now; Limen runs the checks", reviewer "write the verdict and the judgments now".
 
 ### A-060 Webhook queue: lease takeover and idempotency key
 - Area: reliability
@@ -1150,6 +1302,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: R-21
 - Status: known (`spec/research/limen-ops-retro-2026-09-10.md:146`)
 - History: DELIBERATE: the retro says "Preserve once-only automatic claims; do not add blind whole-list retries". It wants an agreed event identity "without exactly-once promises".
+- Decision: rejected (not applicable) — Webhook queue cut (G1.3).
 
 ### A-061 `LIMEN_COORDINATOR` is inherited by every job, and coordinator-only doorbell commands trust environment variables
 - Area: security
@@ -1163,6 +1316,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: S-15
 - Status: known (`spec/features/planned/F958-seat-wide-rules-reach-every-coordinator-session/outside-limen.md:30`)
 - History: F958's open check: helper threads that inherit `LIMEN_COORDINATOR=1` might register as a second coordinator. F958 makes this variable the only test (`spec/features/planned/F958-seat-wide-rules-reach-every-coordinator-session/ticket.md:41`), which raises the stakes.
+- Decision: fix — `LIMEN_COORDINATOR` is outside the job allow-list (T1). The registered-coordinator function (§2) replaces every environment-variable check for coordinator-only commands. The Herdr pane binding goes with hosted mode. `accepted-risk` (G2): a process deliberately moved to another cgroup.
 
 ### A-062 The poller writes through worker-controlled path components in the checkout
 - Area: security
@@ -1177,6 +1331,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
 - Note: Applies only if the doorbell runs on the seat (Q2).
+- Decision: fix — The poller writes nothing into a worker-controlled tree: the claim mirror in `.limen/github/claims/` is cut; the poller's lock lives in its private state; the coordinator reads through `limen github show <claim>` from the private claim (A-007).
 
 ### A-063 The poller runs git in the worker-owned repository with the ownership check overridden
 - Area: security
@@ -1191,6 +1346,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
 - Note: Applies only if the doorbell runs on the seat (Q2).
+- Decision: fix — The repo identity (`owner/repo`) is stored in the poller's private state at `github connect`; the poller never runs git in a worker tree; a test asserts the poller code calls no git on the checkout.
 
 ### A-064 App key isolation and poller preconditions hold (compliant mechanism)
 - Area: security
@@ -1204,6 +1360,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: S-18
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
+- Decision: rejected (compliant) — App key isolation and poller preconditions; the audit's extension (integrity of every imported module) is covered by A-025.
 
 ### A-065 Doorbell trigger authorization is enforced in code (compliant mechanism)
 - Area: security
@@ -1217,6 +1374,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: S-19
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
+- Decision: rejected (compliant) — Doorbell trigger authorization in code; additions in A-003 and A-007.
 
 ### A-066 The ntfy bell sends job labels to a public relay, and its topic secret sits in a world-readable unit drop-in
 - Area: security
@@ -1230,6 +1388,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: S-20
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
+- Decision: fix — The bell runs on its own account, reads job records read-only, and sends only fixed fields: project, event kind, job id. It sends **only failures and escalations** (`failed:<kind>`, `escalation`, `no-coordinator`, `queue`, `unattributed-engine`), no plain `done`, no labels, no job text; details come from `limen status` over SSH. The topic is a systemd credential (`LoadCredential=`) or an `EnvironmentFile=` with mode 0600 owned by the bell account. The public `ntfy.sh` relay stays (a self-hosted server would not remove ntfy.sh from the iOS path, and its upstream requests are rate-limited too). The bell is part of the seat core, not a module, because it is the only escalation path to me (A-015, A-016, A-029, A-033, A-036); `limen status` warns when it is not configured; the deployment describes its first installation.
 
 ### A-067 The statusline reads the Claude OAuth token but sends it only to a fixed HTTPS endpoint (compliant mechanism)
 - Area: security
@@ -1243,6 +1402,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: S-21
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
+- Decision: rejected (compliant) — The status line sends the OAuth token only to a fixed HTTPS endpoint; covered by A-047. The Claude login being a file readable by jobs is accepted in G2 (the bridge is Claude Code).
 
 ### A-068 quota-resume sends an automatic coordinator turn keyed on error text and one environment variable
 - Area: security
@@ -1256,6 +1416,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: S-22
 - Status: new
 - History: Related intent: "Do not revive the same exhausted session merely because work remains" (`spec/research/limen-ops-retro-2026-09-10.md:159`).
+- Decision: fix (via A-016) — `quota-resume.ts` cut; the lessons are in A-016 (1) and (3).
 
 ### A-069 Group peer data is labelled and kept out of the user role, but the label is prose
 - Area: security
@@ -1269,6 +1430,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: S-23
 - Status: new
 - History: Related intent: "Source text is data, never instructions" (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/group/findings/final.md:131`).
+- Decision: fix — A peer batch is structured data: under a fixed header, a JSON-encoded list of messages (author = team id, length, text as a JSON string); the tool-result channel stays (groups module).
 
 ### A-070 `planned→active`, drop and outcome are model-only, and land silently closes nothing for a ticket left in `planned/`
 - Area: determinism
@@ -1282,6 +1444,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: D-18
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
+- Decision: fix — `limen ticket start FNNN` and `limen ticket drop FNNN`: folder move, board line and commit, atomically (A-021, A-006 coverage (2)). A worker spawn requires `Ticket:`; a ticket in `planned/` is moved to `active/` by the spawn through the same mechanism. Land of a job whose ticket cannot be closed exits ≠ 0 with a message. `outcome.md` is generated by Limen at land from the record (verdict, check results, commits, rounds); the coordinator may append a note. Consequence: every code change needs a ticket.
 
 ### A-071 The quality-pass trigger (ten landings) is prose-only although it is countable
 - Area: determinism
@@ -1295,6 +1458,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: D-19
 - Status: known (owner's analysis l. 102)
 - History: The owner found no `spec/quality/` after 21 and 11 landings and suspects the prose trigger. F952 calls the rule "a coordinator instruction, not an installed learning timer" (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/group/findings/final.md:193`). It also warns that missing files do not prove that no pass ran (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/group/findings/final.md:201`).
+- Decision: fix (via G1.13) — closed by G1.13.
 
 ### A-072 The keeper's stop criterion is partly prose
 - Area: determinism
@@ -1308,6 +1472,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: D-20
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
+- Decision: fix — `limen ticket check` (the land gate) also checks the board line of planned/dropped tickets and, with Picture on, the map `sources:` paths; "fixed" (`limen spec fix`) and "passes land" are one check.
 
 ### A-073 The ticket-at-base check covers only `Ticket: spec/…` pointers
 - Area: determinism
@@ -1321,6 +1486,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: D-25
 - Status: known (`spec/research/limen-ops-retro-2026-09-10.md:156`)
 - History: The retro saw "missing tickets" (`spec/research/limen-ops-retro-2026-09-10.md:36`) and wants each launch to name a "committed ticket and base". It does not name spawns that have no `Ticket:` line.
+- Decision: fix — Worker and repair spawns require exactly one `Ticket:` pointer; every `spec/…` path named in the task must exist at the base commit, or the spawn refuses with the path and the base. Limen supplies the prior-findings path itself (A-035).
 
 ### A-074 Rules are re-injected from files every turn, and the job's note is a file
 - Area: autonomy
@@ -1334,6 +1500,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: D-22
 - Status: known (`spec/features/active/F957-first-principles-cut-of-limen-architecture-new-graph-marks-unvaluable-parts/ticket.md:38`)
 - History: DELIBERATE: system-prompt appends, re-read from files, are part of the author's core (`spec/features/active/F957-first-principles-cut-of-limen-architecture-new-graph-marks-unvaluable-parts/ticket.md:36-41`). They fit a limit that the author names, "forgetting after compaction" (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/revision-2/brief.md:6`).
+- Decision: rejected (compliant) — Rules come from files in the system prompt, once per session (A-037); the job note is gone (A-044); owner decisions: A-034.
 
 ### A-075 Group rounds advance in code under a deadline
 - Area: autonomy
@@ -1347,6 +1514,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: D-23
 - Status: known (`spec/features/active/F954-a-private-assessment-combines-verified-collaboration-counts-from-both-session-stores/group/recovery-1.md:3`)
 - History: DELIBERATE: the author's groups run draft, critique, revise and final under a deadline (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/group/synthesis.md:28`). The owner relays Adam's advice: several models, different angles (owner's analysis l. 113).
+- Decision: rejected (compliant) — Group rounds advance in code under a deadline; group landing inherits A-012, A-013 and A-045.
 
 ### A-076 Webhook retries are bounded and end in a visible final failure
 - Area: autonomy
@@ -1360,6 +1528,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: D-24
 - Status: known (`spec/research/limen-ops-retro-2026-09-10.md:146`)
 - History: DELIBERATE: the retro wants job inspection to show attempt outcomes and wants no blind whole-list retries.
+- Decision: rejected (not applicable) — Webhooks cut.
 
 ### A-077 The per-prompt hidden cue restates the system prompt and accumulates in history
 - Area: cost
@@ -1373,6 +1542,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: K-09
 - Status: known (`spec/features/active/F957-first-principles-cut-of-limen-architecture-new-graph-marks-unvaluable-parts/ticket.md:40`)
 - History: DELIBERATE: "Short cues. The cues keep work on the board." This is one of the three parts of the author's core. No source discusses the repeated fixed text.
+- Decision: fix — The turn cue holds only variable parts (failure of the last turn, last touched area, ticket), one audience line ("Audience: owner" or "Audience: agent") instead of repeated register sections, and the one-sentence frame anchor (A-043); target ≈40–60 tokens per prompt.
 
 ### A-078 The completion wake injects the whole final message into the coordinator
 - Area: cost
@@ -1386,6 +1556,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: K-14
 - Status: known (`spec/features/active/F954-a-private-assessment-combines-verified-collaboration-counts-from-both-session-stores/group/teams/team-1.md:9`)
 - History: DELIBERATE: "Call finish with the whole final report, not just its note check". A likely reason: some saved results held only note checks, and their drafts had to be recovered from transcripts (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/group/synthesis.md:35`).
+- Decision: fix (via A-008) — Measurement: coordinator cache-read tokens per landed ticket, before and after.
 
 ### A-079 Continuations re-cache the whole transcript behind a changed prefix
 - Area: cost
@@ -1399,6 +1570,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: K-15
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
+- Decision: fix — The frozen system prompt (A-037) is saved in the job directory; `continue`, `resume --quota` and later group rounds reuse the parent's saved prompt, with one appended notice for files changed since. `continue --review` is cut; a re-review is always a new review job with the prior-findings file.
 
 ### A-080 A group lead gets a model turn per peer batch
 - Area: cost
@@ -1412,6 +1584,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: K-16
 - Status: new
 - History: no source in the pass-2 set names this mechanism.
+- Decision: fix — Peer findings reach the group lead only with the group's final result, with no intermediate turns.
 
 ### A-081 Tools and skills are not scoped per role
 - Area: cost
@@ -1425,6 +1598,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: K-18
 - Status: known (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/revision-2/design.md:11`)
 - History: The author measured the skills list: 37 KB for 60 skills, in every session. He proposed jobs with `--no-skills` plus `--skill`, about 30 KB less (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/revision-2/design.md:34`). The choice is still open.
+- Decision: fix — Per-role tool and skill lists in the role definition: read-only roles (scout, judge, researcher, reviewer) get no write or edit tools; skills are off by default and enabled per role. Effect check in code: when a read-only role ends, Limen compares the worktree and branch with their state at start (git status, no new commits); a difference = `failed`, kind `read-only-violation`. The tool list is a mistake and noise guard (Bash can still write); the effect check is the guarantee.
 
 ### A-082 Every coordinator session runs the group hook with a 1-second timer
 - Area: cross-cutting
@@ -1438,6 +1612,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: K-17
 - Status: new
 - History: F957 lists the four coordinator hooks for a keep/cut verdict (`spec/features/active/F957-first-principles-cut-of-limen-architecture-new-graph-marks-unvaluable-parts/brief.md:43`). No source names the timer.
+- Decision: fix — Hooks load by role and module: `group-peer` only with groups on and only in a session that leads a group; `steering` only in jobs.
 
 ### A-083 macOS-only branches on a Linux-only seat
 - Area: cross-cutting
@@ -1451,6 +1626,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: K-23
 - Status: new
 - History: Context: the author's job roots are in a macOS home (`spec/research/limen-ops-retro-2026-09-10.md:21-23`), so the darwin branches serve the author's own machine.
+- Decision: fix — A platform adapter as an interface (process identity, containment, scheduler install, memory reading, notifications) with one implementation, Linux. macOS branches (`proc-pidinfo.rb`, `memory_pressure`, `osascript`, LaunchAgent) and `darwin` in `package.json` are cut. Future macOS support = a new implementation of the interface with its own tests.
 
 ### A-084 Developer docs drift from the code
 - Area: cross-cutting
@@ -1464,6 +1640,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: K-25
 - Status: new
 - History: F959 fixes a different drift: docs that require a Herdr pane (`spec/features/planned/F959-docs-and-messages-describe-a-coordinator-as-a-session/ticket.md:12`).
+- Decision: fix — Documentation is rewritten from the code at the end of the rebuild (with `SECURITY.md`). Facts that are code constants (timeouts, hook list, failure kinds, module switches) are generated from code into marked sections; a test fails when a section is stale.
 
 ### A-085 Duplicated text across templates
 - Area: cost
@@ -1477,8 +1654,11 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: K-27
 - Status: known (`spec/research/limen-ops-retro-2026-09-10.md:150`)
 - History: The retro: "Keep prompt policy in one place" and remove conflicting defaults. Its example: the worker's full-native-lane line competes with focused budgets.
+- Decision: fix — One copy of each fact, in the role that acts on it; the finish-ping paragraph goes (G1.3); a sentence-duplicate check over `templates/*.md` (the audit's script) joins `npm run check`.
 
 ## Pass 2: hypotheses from the owner's analysis
+
+Dispositions at gate 2: `## Gate 2: decisions` → §4.
 
 Source: `input/petla-uczenia-2026-11-15.md` (local, not published), read only after pass 1. Each hypothesis about
 Limen's code is marked against `rebuild-base` as `confirmed`, `partial` or `refuted` (none was refuted); "Adrian" is the
@@ -1511,6 +1691,8 @@ from the repo; they are marked "not settled here" and listed in `## To verify` (
 | H-22 | Seat and project facts: quality pass left no trace, no `reminders.md` in either project, "planted bug passes the gate" class, upstream `main` equals the pin (§1, §8a) | not settled here | Project data and the network are out of this session's reach; A-071 explains the quality pass gap by a prose-only trigger |
 
 ## Pass 2: the author's intents (material for stage 3)
+
+Adrian's stance on each intent: `## Gate 2: decisions` → §5.
 
 Full list with quotes and `path:line`: `evidence/audit-pass2/history.md` → "Author's intents" (sources: the ops retro of
 2026-09-10, F952, F954, F957, F958, F959, and F953 for one claim). The six that bear most on the rebuild:
@@ -1737,6 +1919,9 @@ Grep base: `git grep -n -E '<pattern>' rebuild-base -- test`. "0" = no test file
 | Steer: "No wrapper, no cue" | `docs/diagrams/context-injection.html:346` | `hook/steering.ts:130` | The steer carries `noteSteer(job)` text. |
 
 ## To verify
+
+Dispositions at gate 2: `## Gate 2: decisions` → §7 (A settled; B answered from the Pi and bridge sources in
+`plan.md` → `## Engine facts`; C and the rest are seat checks in `plan.md` → `## Deployment`).
 
 ### Merged questions
 

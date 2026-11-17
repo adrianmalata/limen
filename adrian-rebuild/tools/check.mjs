@@ -1,6 +1,7 @@
 /* PL: Walidator plików przebudowy (Node, bez zależności). Dziś sprawdza audit.md: że każda referencja `plik:linia`
-   istnieje przy tagu rebuild-base oraz że każde znalezisko A-NNN ma wymagane pola z dozwolonymi wartościami.
-   W etapie 4 dojdzie sprawdzenie planu, a w etapie 6 struktury folderów ticketów i streszczeń PL.
+   istnieje przy tagu rebuild-base, że każde znalezisko A-NNN ma wymagane pola z dozwolonymi wartościami (od bramki 2
+   także decyzję Adriana) i że decyzja „fix (via X)” wskazuje istniejące znalezisko z decyzją fix albo pozycję z sekcji
+   Gate 2: decisions. W etapie 4 dojdzie sprawdzenie planu, a w etapie 6 struktury folderów ticketów i streszczeń PL.
    Stan: działa dla audytu; kończy się kodem 1 i listą błędów, gdy coś się nie zgadza. */
 // Usage: node adrian-rebuild/tools/check.mjs   (run from the repository root)
 import { spawnSync } from "node:child_process";
@@ -18,11 +19,12 @@ const FIELDS = {
 	Rule: /^(z\. \d+(, z\. \d+)*|none)$/,
 	Verdict: /^(compliant|partial|non-compliant|n\/a)$/,
 	Direction: /\S/,
+	// Adrian's gate-2 decision, then " — " and its final content; A-046 is split ("rejected / fix").
+	Decision: /^(fix( \((via [^()]+|removal)\))?|rejected \([^()]+\)|accepted-risk \([^()]+\)|rejected \/ fix) — \S/,
 };
 // Fields added by later passes; checked only when present.
 const OPTIONAL = {
 	Status: /^(new|known \(.+\))$/,
-	Decision: /^(fix|accepted-risk \(.+\)|rejected \(.+\))$/,
 	Final: /^(fixed \(R-\d{3}(, R-\d{3})*\)|accepted-risk \(.+\)|rejected \(.+\))$/,
 };
 
@@ -99,6 +101,26 @@ function checkFinding({ id, fields }) {
 	}
 }
 
+/** A `fix (via X)` decision names a finding whose own decision is a fix, or an item of `## Gate 2: decisions`. */
+function checkVia(list, text) {
+	const decided = new Map(list.map(({ id, fields }) => [id, fields.get("Decision") ?? ""]));
+	const gate = text.match(/^## Gate 2: decisions\n([\s\S]*?)^## /m)?.[1] ?? "";
+	for (const [id, decision] of decided) {
+		const via = decision.match(/^fix \(via ([^()]+)\)/)?.[1];
+		if (via === undefined) {
+			continue;
+		}
+		const known = /^A-\d{3}$/.test(via)
+			? /^(fix|rejected \/ fix)\b/.test(decided.get(via) ?? "")
+			: gate.includes(`| ${via} |`) || gate.includes(`**${via} `);
+		if (!known) {
+			errors.push(
+				`${AUDIT}: ${id}: Decision names ${via}, which is no fixed finding and no item of ## Gate 2: decisions`,
+			);
+		}
+	}
+}
+
 function checkAudit() {
 	const text = readFileSync(AUDIT, "utf8");
 	const references = checkReferences(text, AUDIT);
@@ -110,7 +132,10 @@ function checkAudit() {
 	for (const finding of list) {
 		checkFinding(finding);
 	}
-	return `audit: ${list.length} findings, ${references} references`;
+	checkVia(list, text);
+	const counts = Object.groupBy(list, ({ fields }) => (fields.get("Decision") ?? "none").split(/ [—(]/)[0]);
+	const decisions = Object.entries(counts).map(([name, group]) => `${name} ${group.length}`);
+	return `audit: ${list.length} findings (${decisions.join(", ")}), ${references} references`;
 }
 
 const summary = [checkAudit()];
