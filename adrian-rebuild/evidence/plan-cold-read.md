@@ -1,7 +1,8 @@
 <!-- PL: Wynik cold readu planu z etapu 4 przebudowy: świeży subagent dostał tylko plan.md i dwie definicje subagentów
 i zgłosił 35 uwag w sześciu kategoriach (brak podstawy, niejasność, sprzeczność, kolejność, brak następnego kroku,
 spójność definicji). Plik zapisuje każdą uwagę w skrócie i to, jak ją rozstrzygnięto w planie albo w definicjach.
-Stan: wszystkie uwagi rozstrzygnięte (32 poprawione, 3 rozstrzygnięte inaczej z podanym powodem); brak otwartych. -->
+Numery ticketów są z planu w commicie cdf3e78 (na bramce 4 R-012–R-059 przesunęły się o jeden). Stan: wszystkie
+uwagi rozstrzygnięte (32 poprawione, 3 inaczej z podanym powodem); brak otwartych. -->
 
 # Cold read of the plan (rebuild stage 4)
 
@@ -10,6 +11,9 @@ Stan: wszystkie uwagi rozstrzygnięte (32 poprawione, 3 rozstrzygnięte inaczej 
 cannot understand or verify from them. Categories: 1 no stated basis, 2 unclear or undefined, 3 contradiction, 4 order,
 5 next step unclear, 6 inconsistent subagent definitions. "Fixed" means the plan or a definition now says it; "other"
 means the remark was settled another way, with the reason.
+
+Ticket numbers below are those of the plan at commit `cdf3e78`. At gate 4 (D-008) a new R-012 was inserted and the old
+R-060 merged into it, so R-012–R-059 of this file are R-013–R-060 of the current plan.
 
 | # | Cat. | Remark (short) | Resolution |
 |---|---|---|---|

@@ -1,19 +1,20 @@
 /* PL: Walidator plików przebudowy (Node, bez zależności). Sprawdza referencje `plik:linia` w audit.md, taste.md
    i plan.md przy tagu rebuild-base, pola znalezisk A-NNN (z decyzją Adriana) i reguł T-NN, słowa-zapchajdziury (T-17)
    oraz plan: etapy z tagami, tickety (źródła, zależności, rozmiar, tryb, kroki weryfikacji na seacie), pokrycie
-   każdego znaleziska `fix` i każdej reguły T-NN ticketem, zgodność kopii §2 z audit.md i definicje pomiarów M-NN.
-   Sprawdza też polskie streszczenia plików w adrian-rebuild/ i .claude/agents/, a od etapu 5 foldery ticketów (z
-   tytułem i sekcjami szablonu ticket.md) i wpisy changes.md. Stan: działa; kończy się kodem 1 i listą błędów. */
+   każdego znaleziska `fix` i każdej reguły T-NN ticketem, zgodność kopii §2 z audit.md, wywołanie skryptu wdrożenia
+   w każdym etapie (D-008) i definicje pomiarów M-NN. Sprawdza też polskie streszczenia plików w adrian-rebuild/
+   i .claude/agents/, a od etapu 5 foldery ticketów (szablon ticket.md) i wpisy changes.md według D-009
+   (changes-entries.mjs). Stan: działa; kończy się kodem 1 i listą błędów. */
 // Usage: node adrian-rebuild/tools/check.mjs   (run from the repository root)
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { CHANGES, checkEntries, parseEntries } from "./changes-entries.mjs";
 
 const BASE = "rebuild-base";
 const DIR = "adrian-rebuild";
 const AUDIT = `${DIR}/audit.md`;
 const TASTE = `${DIR}/taste.md`;
 const PLAN = `${DIR}/plan.md`;
-const CHANGES = `${DIR}/changes.md`;
 const AGENTS = ".claude/agents";
 // T-17: the rebuild parks nothing; "not now" is `rejected` with a non-empty `Revisit when:`.
 const FILLER = /\b(backlog|deferred|later|tbd)\b|do ustalenia/i;
@@ -40,7 +41,6 @@ const COLUMNS = ["ID", "Title", "Stage", "Sources", "Depends", "Size", "Mode", "
 const SOURCE = /^(A-\d{3}|T-\d{2}|G1\.\d+|G[2-4]|§\d|S1\+|H-\d{2}|E-\d+|D-\d{3})$/;
 const ENGINE_APIS = new Set(["pi", "bridge", "herdr", "systemd"]);
 const STATUS = /^(planned|active|done|dropped \(.+\))$/;
-const CHANGE_FIELDS = ["What", "Why", "Proof", "Measurement", "Commit", "Rollback"];
 // The template of `ticket.md` in plan.md → `## Agents`.
 const TICKET_SECTIONS = [
 	"Problem",
@@ -361,6 +361,23 @@ function checkGateCopy(planText, auditText) {
 	}
 }
 
+/** D-008: every stage's part of `## Deployment` calls the deployment script with a SHA. */
+function checkDeployCalls(planText, stages) {
+	const parts = section(planText, "Deployment")
+		.split(/^### After stage /m)
+		.slice(1);
+	for (const [number, tag] of stages) {
+		const part = parts.find((block) => block.startsWith(`${number} (${tag})\n`));
+		if (part === undefined) {
+			errors.push(`${PLAN}: ## Deployment has no "### After stage ${number} (${tag})"`);
+		} else if (!part.includes("`node /opt/limen/seat/deploy.ts <sha>`")) {
+			errors.push(
+				`${PLAN}: ## Deployment, stage ${number}: no call of \`node /opt/limen/seat/deploy.ts <sha>\` (D-008)`,
+			);
+		}
+	}
+}
+
 /** Every M-NN named in the plan is a row of `## Measurement`. */
 function checkMeasurements(planText) {
 	const defined = new Set([...section(planText, "Measurement").matchAll(/^\| (M-\d{2}) \|/gm)].map(([, id]) => id));
@@ -395,6 +412,7 @@ function checkPlan(planText, auditText, list, tasteIds) {
 	}
 	checkCoverage(tickets, list, tasteIds, section(planText, "Tickets"));
 	checkGateCopy(planText, auditText);
+	checkDeployCalls(planText, stages);
 	const metrics = checkMeasurements(planText);
 	const summary = `plan: ${stages.size} stages, ${tickets.length} tickets, ${steps.size} deployment steps, ${metrics}`;
 	return { tickets, summary: `${summary} metrics, ${references} references, ${checkWording(PLAN)} revisit signals` };
@@ -473,42 +491,20 @@ function checkTicketFolders(tickets) {
 	return folders.length;
 }
 
-/** Stage 5 on: every changes.md entry has its fields and points at a done ticket and at that ticket's commit. */
+/** Stage 5 on: the changes.md entries by D-009 (`changes-entries.mjs`). */
 function checkChanges(tickets) {
-	const text = readFileSync(CHANGES, "utf8").replace(/^```[\s\S]*?^```/gm, "");
-	const entries = text.split(/^## /m).slice(1);
-	for (const entry of entries) {
-		const heading = entry.slice(0, entry.indexOf("\n"));
-		const id = heading.match(/^\d{4}-\d{2}-\d{2} (R-\d{3}) \S/)?.[1];
-		if (id === undefined) {
-			errors.push(`${CHANGES}: heading "${heading}" is not "YYYY-MM-DD R-NNN <title>"`);
-			continue;
-		}
-		const fields = Object.fromEntries([...entry.matchAll(/^- (\w+): (.+)$/gm)].map(([, name, value]) => [name, value]));
-		for (const name of CHANGE_FIELDS.filter((field) => !fields[field])) {
-			errors.push(`${CHANGES}: ${id}: missing field ${name}`);
-		}
-		if (tickets.find(({ ID }) => ID === id)?.Status !== "done") {
-			errors.push(`${CHANGES}: ${id} is not a done ticket of ${PLAN}`);
-		}
-		if (
-			fields.Measurement &&
-			!/^(measured|unmeasured \(plan\.md → Measurement: M-\d{2}.*\))$/.test(fields.Measurement)
-		) {
-			errors.push(`${CHANGES}: ${id}: Measurement is not "measured" or "unmeasured (plan.md → Measurement: M-NN)"`);
-		}
-		const sha = fields.Commit ?? "";
-		const subject = git(["log", "-1", "--format=%s", `${sha}^{commit}`]);
-		if (!/^[0-9a-f]{7,40}$/.test(sha) || subject.status !== 0) {
-			errors.push(`${CHANGES}: ${id}: Commit "${sha}" is not a commit of this repository`);
-		} else if (!subject.stdout.toString("utf8").startsWith(`${id}:`)) {
-			errors.push(`${CHANGES}: ${id}: commit ${sha} is not "${id}: …"`);
-		}
-		if (fields.Rollback && !fields.Rollback.includes(`git revert ${sha}`)) {
-			errors.push(`${CHANGES}: ${id}: Rollback does not say "git revert ${sha}"`);
-		}
-	}
-	return entries.length;
+	const head = git(["show", `HEAD:${CHANGES}`]);
+	const folders = readdirSync(DIR).filter((name) => /^R-\d{3}-/.test(name));
+	const text = readFileSync(CHANGES, "utf8");
+	errors.push(
+		...checkEntries({
+			text,
+			headText: head.status === 0 ? head.stdout.toString("utf8") : "",
+			folders,
+			done: new Set(tickets.filter(({ Status }) => Status === "done").map(({ ID }) => ID)),
+		}),
+	);
+	return parseEntries(text).length;
 }
 
 const auditText = readFileSync(AUDIT, "utf8");
