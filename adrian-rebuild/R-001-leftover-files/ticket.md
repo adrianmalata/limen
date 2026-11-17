@@ -2,7 +2,8 @@
 w `limen status` i usuwanie przez `limen init --drop-leftovers` (decyzja A-042). Kolejne tickety wycinające funkcje
 dopisują do rejestru swoje ścieżki; cięcie śledzenia dryfu i porady w prompcie należy do R-040. Stan: zablokowany
 w nocy 17.11 limitem 3500 linii w `test/` (pytanie Q-1); 18.11 Adrian zdecydował, że R-001 zależy od R-010 (D-020),
-a R-010 limit już usunął, więc ticket czeka na wznowienie; nic jeszcze nie zaimplementowano. -->
+a R-010 limit już usunął. W nocy 18.11 implementer zatrzymał się przed zmianą na błędnym AC-6 (pytanie Q-4);
+ticket znów jest zablokowany, nic nie zaimplementowano. -->
 
 # R-001 Leftover files of cut features are listed and can be dropped
 
@@ -87,8 +88,9 @@ Relied on:
 - AC-2: `node --test test/cli/status.test.ts` → exit 0.
 - AC-3: `node --test test/cli/init.test.ts` → exit 0.
 - AC-4: `node adrian-rebuild/tools/fails-before.mjs` → exit 0: the three new test files fail at HEAD.
-- AC-5: `node adrian-rebuild/tools/gate.mjs` → exit 0 with `fail 0`; the reported test count is at least the 83 of
-  `evidence/baseline.md` plus the new tests, so every file of `test/*.test.ts` still runs.
+- AC-5: `node adrian-rebuild/tools/gate.mjs` → exit 0 with `fail 0`; the reported test count is at least 82 (the 83
+  of `evidence/baseline.md` minus the cap test that R-010 removed) plus the new tests, so every file of
+  `test/*.test.ts` still runs.
 - AC-6: `git grep -n '"templates/agents.md"' -- src hook` → exactly one line: the tracked template list is not copied.
 - AC-7: `node adrian-rebuild/tools/check.mjs` → exit 0; `npx biome check --error-on-warnings adrian-rebuild` → exit 0.
 - AC-8 (judgment): the listing in `limen status` writes nothing and waits for nothing (T-04), and `listLeftovers` reads
@@ -122,3 +124,8 @@ only `src/commands/init.ts`).
   R-010); the answer goes here.
 - 2026-11-18 (Adrian, Q-1 → `plan.md` D-020): R-001 depends on R-010, an exposed dependency like R-067 on R-069 in
   D-011; no scope changes. R-010 is done (`e444106`) and removed the cap with its test, so R-001 runs as written.
+- 2026-11-18 (night run, `rebuild-implementer`): `BLOCKED` before any change: AC-6 fails at HEAD, because
+  `git grep -n '"templates/agents.md"' -- src hook` prints two lines, `src/project/inherit.ts:16` (the tracked list)
+  and `hook/communication.ts:307` (the `AGENTS.md` fallback of `readInheritedAgents`, cut by R-040, out of scope); the
+  main session confirmed both lines. `review-guard.mjs compare --git` → "within its limits". The question is Q-4 of
+  the night's `adrian-rebuild/.night/questions.md` (recommended: narrow AC-6 to `src`); the answer goes here.

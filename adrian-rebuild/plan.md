@@ -620,7 +620,7 @@ Columns:
 
 | ID | Title | Stage | Sources | Depends | Size | Mode | Run | Mig. | API | Seat | Status |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| R-001 | Leftover files of cut features are listed and can be dropped | 1 | A-042 | R-010 | S | delegated | night | — | — | — | planned |
+| R-001 | Leftover files of cut features are listed and can be dropped | 1 | A-042 | R-010 | S | delegated | night | — | — | — | blocked |
 | R-002 | Cut finish webhooks, coordinator signals and the finish ping | 1 | G1.3, A-027, A-060, A-076 | R-001 | M | delegated | night | yes | — | — | planned |
 | R-003 | Cut Devin and the Linear mirror | 1 | G1.5, G1.6, A-049 | R-001 | M | delegated | night | yes | — | — | planned |
 | R-004 | Cut the OMP engine | 1 | G1.7, A-049 | R-001 | M | delegated | night | yes | — | — | planned |
@@ -1263,8 +1263,15 @@ marked resolved):
 - The R-008 point → D-023: the LaunchAgent installer goes with R-032.
 - D-024: the main session starts the night runner when Adrian asks for it in the conversation.
 
-Next (night run): R-001, then R-002–R-007 and R-009 in the order of IDs, R-011, R-012, R-013; R-014 (pair) by day
-after them. B.2 runs on the seat before a0.1.0 is deployed (B.1 was done on 2026-11-17).
+Night run of 2026-11-18 (until 07:00):
+- R-001 `blocked`, Q-4: AC-6 (`git grep -n '"templates/agents.md"' -- src hook` → one line) fails at HEAD, because
+  `hook/communication.ts:307` (the `AGENTS.md` fallback that R-040 cuts) matches besides the tracked list; the error is
+  the ticket's. Recommended: narrow AC-6 to `src`. Nothing implemented; R-002–R-007, R-009 and R-012 wait with it.
+- The day session's note that the `ticket.md` files of R-011 and R-013 were written was wrong: neither folder existed
+  at `edaafe2`. The night run writes them from D-021 and D-022.
+
+Next (night run): R-011, then R-013. After Q-4 (by day): R-001, R-002–R-007 and R-009 in the order of IDs, R-012;
+R-014 (pair) by day after them. B.2 runs on the seat before a0.1.0 is deployed (B.1 was done on 2026-11-17).
 
 Active ticket: none.
 
