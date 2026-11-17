@@ -2,7 +2,7 @@
 wdrożenia na seat, pomiary, definicje subagentów i sekcja State. Nowa sesja zaczyna od State i ostatnich wpisów
 changes.md. Stan: bramki 0 i 2 zamknięte i przyjęte (D-001–D-005, decyzje w rewizji 4, w tym A-086: wiadomość
 kontekstowa Limena zamiast system promptu; joby z bridge'em w trybie izolowanym), fakty o Pi 1.5.1 i bridge'u 5.0.3 w
-Engine facts (E-1–E-16), czynności Adriana na seacie w Deployment; trwa etap 3 (taste), rundy 1–4 zapisane (T-01–T-17). -->
+Engine facts (E-1–E-16), czynności Adriana na seacie w Deployment; trwa etap 3 (taste), rundy 1–6 zapisane (T-01–T-24). -->
 
 # Rebuild plan
 
@@ -160,7 +160,7 @@ Pending (stage 4).
 ## State
 
 Updated 2026-11-17, gate 2 applied in its final form (revision 4), §7 B answered, gate 2 accepted (D-005); stage 3
-(taste) in progress: rounds 1–4 recorded (T-01–T-17).
+(taste) in progress: rounds 1–6 recorded (T-01–T-24).
 
 Done:
 - Stage 0 closed at gate 0: test gate `sh adrian-rebuild/tools/gate.sh` (D-001), commit identity (D-002).
@@ -184,17 +184,18 @@ Done:
   into `taste.md` → Part A (80 items, 40 settled by gate 2, 40 open). `check.mjs` now also checks the references in
   `taste.md` (418, 0 errors).
 
-Next: stage 3 interview, round 5 (CLI and naming: AU-206, AU-207, AU-211, AU-223), round 6 (ticket, board and code
-style: AU-129, AU-133, AU-216, AU-226), then the open questions (what slows Adrian down, what he enjoys), then the
-remaining open Part A items as recommendations to accept or change. Rounds 1–4 and their follow-ups are recorded as
-T-01–T-17 in `taste.md` → Part B (AU-219, AU-209, AU-224, AU-205; AU-112, AU-115, AU-127, AU-126; AU-105, AU-139,
-AU-227, AU-214; AU-124, AU-125, AU-122, AU-123; T-17 from the round 4 follow-up). Interview method: AskUserQuestion,
-at most 4 questions per turn, one area per turn; appearance questions show two variants on a real repo fragment.
+Next: resolve the ticket-content commit gap (T-22, shown to Adrian), then interview round 7 (code style and tests:
+AU-216, AU-226, AU-215, AU-217, AU-218, AU-225, AU-229), round 8 (the remaining open Part A items as recommendations
+to accept or change, and the open questions: what slows Adrian down, what he enjoys), then gate 3. Rounds 1–6 and their
+follow-ups are recorded as T-01–T-24 in `taste.md` → Part B; drafts that Adrian judged on real output:
+`evidence/taste/help-registry.mjs` (T-18, T-19) and `evidence/taste/board-draft.mjs` (T-23). The Claude Code task
+list now tracks the remaining stage 3 steps. Interview method: AskUserQuestion, at most 4 questions per turn, one area
+per turn; appearance questions show two variants on a real repo fragment.
 
 Open questions for Adrian: none.
 
 Notes for the next session:
-- The Claude Code task list tool is not available in this session; progress lives in this section.
+- Progress lives in this section; the Claude Code task list mirrors the open steps when the tool is available.
 - After moving or re-cloning the repo, run `sh adrian-rebuild/tools/install-hooks.sh` again.
 - Run the gate as `sh adrian-rebuild/tools/gate.sh` (D-001). Run `node adrian-rebuild/tools/check.mjs` after editing
   `audit.md`.
