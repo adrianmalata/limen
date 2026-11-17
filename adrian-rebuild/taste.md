@@ -701,8 +701,12 @@ the author's choice. Taste decisions taken after this interview are added here w
      "<text>"`. Code checks that the quote stands at that place on `main` (the published copy); otherwise it refuses,
      and the question goes to Adrian (z. 10, z. 14; the pattern of A-034).
   3. An escalation to Adrian is a choice: the bell rings `escalation`, and `limen status` shows the four parts. His
-     answer is recorded by `limen decide` (A-034), and the job resumes in the same worktree with the decision in its
-     task.
+     answer is recorded by `limen decide --answers Q-NNN` (A-034), and the job resumes in the same worktree with the
+     decision in its task. `answer` and `decide` stay two commands: `answer` closes a question with a quote checked at
+     `path:line` in the published copy; `decide` records the owner's words, checked against an owner message (T-16),
+     as an entry with scope and lifetime. On a question that comes from an escalation after the review rounds are
+     used up (A-015), `decide --answers` records the choice but never changes the round limit; one more round and
+     `abandon` stay actions of the owner channel (z. 16).
   4. After Adrian's answer, Limen itself opens a ticket "record decision Q-NNN in `docs/`" with its criteria written up
      front (`Judgment`: `docs/` describes the decision; `Check`: the decision register contains Q-NNN), through the
      normal review path (z. 34, z. 36).
@@ -713,8 +717,14 @@ the author's choice. Taste decisions taken after this interview are added here w
      decisions and requests counted apart (z. 37).
 - Why: the author's worker writes the question to a plain file in its worktree and names the path in its final
   message (AU-112), which is easy to miss once wakes carry only a header (A-008).
+- Open conflict (for Adrian; not resolved here): T-05 (3) resumes the job after `limen decide`. When the question
+  belongs to a ticket whose review rounds are used up, A-015 L3 refuses spawns of review and repair for that ticket:
+  a resumed job is then either itself a repair (refused) or makes a new tip that needs a review (refused), so it cannot
+  reach land, and `decide --answers` may not add a round. T-05 (3) does not say what happens in that case.
 - Check: tests for an incomplete `ask` (exit code 1), a valid `ask` (record, wake header, bell), an `answer` whose quote
-  is not at the source (refusal), the automatic ticket after a decision, the open-question limit, and `stats`.
+  is not at the given `path:line` in the published copy (refusal), a `decide` whose quote is not in an owner message
+  (refusal, T-16), a `decide --answers` on an escalation question that changes neither the round limit nor the job's
+  state, the automatic ticket after a decision, the open-question limit, and `stats`.
 - Source: interview round 2, AU-112 (the limit by kind: round 4, from a real end-of-milestone message with two
   decisions and one request); keeps the author's sense, departs on the channel and the flow; amends A-001 (3).
 
@@ -968,25 +978,30 @@ the author's choice. Taste decisions taken after this interview are added here w
 - Migration: an old name exits with code 2 (T-02) and names the new one in `next`; a ticket in the last stage of the
   plan removes the table of old names.
 - Structure (variant B, corrected): a top-level command acts on one of three objects. (1) One job: `spawn` creates
-  it; `continue`, `steer`, `stop`, `abandon`, `land`, `wait`, `diff`, `show` and `open` take its id. (2) The
-  conversation with the owner: `ask`, `answer`, `decide`, `escalate` (the names of A-015, A-034 and T-05, unchanged).
+  it; `continue`, `steer`, `stop`, `abandon`, `land`, `diff`, `show` and `open` take its id. (2) The
+  conversation with the owner: `ask`, `answer`, `decide`, `escalate` (the names of A-015, A-034 and T-05, unchanged;
+  `decide` takes `--answers Q-NNN`, T-05).
   (3) This project: `init` and the reads `status`, `stats`, `board`. Everything about another or a wider object is a
   group: `ticket`, `spec`, `group`, `github`, `handoff`, and a new group `seat` (`seat queue`, `seat sweep`), because
   those commands act on the whole machine and every project. There is no group `owner`: in gate 2 "owner" names what
   is reserved for Adrian (owner files, the owner channel, `land --owner`), so a coordinator running `limen owner
   decide` would be ambiguous (z. 13). `init` stays at the top, as in `git init` and `npm init`. Prune and retire are
-  steps of `seat sweep` (A-024), with no command of their own. `wait` has its own kind `wait` (it neither writes nor
-  returns at once, so T-04 does not cover it) and refuses the registered coordinator, which must never block its
-  conversation. Built in `pair` mode.
+  steps of `seat sweep` (A-024), with no command of their own. The research module is named now: `limen research
+  submit "<question>"` (G1.11, the B2c queue). `ticket series` is cut: the projects do not share tickets (Adrian
+  confirmed). Built in `pair` mode.
+- `wait` is `rejected`, with no new command kind in T-04: Adrian does not use it, the coordinator is refused it, and
+  a larger `maxJobs` creates no caller: the coordinator gets a wake after every job (A-033), the order of spawns
+  settles dependencies between tickets, and code advances group rounds (A-075). Revisit when: a concrete caller that
+  cannot use a wake appears (e.g. a shell script), in at least two different tasks (z. 38).
 - Why: the author's 30 flat commands use private metaphors, and some names mislead (`close` closes Herdr tabs,
   `ticket-author` sits beside the `ticket` group, `jobs` and `status` overlap) (AU-206); z. 13.
 - Check: in the registry of T-19 every top-level command declares its object `job`, `owner` or `project`; a test that
   object `job` means a required argument of type job (the resolver of T-20), except the one entry that creates the job
   (`spawn`); a golden test of `limen --help` in variant B; the T-14 script rejects plant, pulse, cabinet, doorbell,
   bell and keeper in user-facing text and in identifiers; the glossary holds seat, land and wake; a reviewer question:
-  every help line is a usage criterion (z. 13).
-- Source: interview round 5, AU-206 and its follow-up (variants A and B on the help after the gate-2 cuts); departs
-  from the author.
+  every help line is a usage criterion (z. 13); the same script also scans the generated help text.
+- Source: interview round 5, AU-206 and its two follow-ups (variants A and B on the help after the gate-2 cuts; the
+  generator's output); departs from the author.
 
 ### T-19 One command registry is the only source
 - Rule: One registry of commands is the only source (z. 22, A-084). An entry holds the name (T-18), the kind `read` or
@@ -1005,13 +1020,21 @@ the author's choice. Taste decisions taken after this interview are added here w
   this machine"). (2) Summaries are usage criteria (z. 13), lines at most 100 characters; Adrian's wording: stop "stop a
   running job; --done "reason" to declare it done", abandon "give up on a job and keep its work on a branch", land
   "merge a finished job; refuses until its conditions hold", status "what runs, what landed, what waits for the
-  owner". (3) The exit codes take one line, followed by "The last output line is JSON {class, code, next}." (T-02,
-  z. 11). (4) The `spawn` line follows the schema of T-07. Each group aligns its own summary column, capped at 35
-  characters of usage; a longer usage puts its summary on the next line. The draft registry and its generator, with
-  the real output, are `evidence/taste/help-registry.mjs` (it exits 1 when a line is wider than 100 characters).
+  owner"; open "open the job's log tab in Herdr"; escalate "report a ticket that used all its review rounds, in four
+  checked parts"; board "the board, with NOW and NEXT from the ticket folders"; answer "close a question with a quote
+  from a file on main"; github "answer @limen mentions on GitHub pull requests" (what it does, not its old name). (3)
+  The exit codes take one line, followed by "The last output line is JSON {class, code, next}." (T-02, z. 11). (4) The
+  `spawn` line follows the schema of T-07. (5) The Modules header names the mechanism: "Modules: off by default; the
+  owner switches them on (limen init, or limits.json via owner channel)" (T-21, z. 16), and every module line shows
+  its state from the project's `limits.json`, `[on]` or `[off]` (G1.10). Each group aligns its own summary column,
+  capped at 35 characters of usage; a longer usage puts its summary on the next line at the same column, and a summary
+  that does not fit there goes to the next line indented by 6. The draft registry and its generator, with the real
+  output, are `evidence/taste/help-registry.mjs` (`--on MODULE` stands in for `limits.json`; it exits 1 when a line is
+  wider than 100 characters).
 - Why: the author's help is one wide string (64 lines, the widest 356 characters) that lists internal commands and
   ends with advice to the coordinator; only 10 of 31 command files use the shared flag parser (AU-207).
-- Check: a golden test of the full `limen --help`; a test that every group has a header naming its object from the
+- Check: a golden test of the full `limen --help` on a fixture with one module on and the rest off; a test that every
+  group has a header naming its object from the
   registry (`job`, `owner`, `project` or the group); a test that every command file is in the registry and has a flag
   schema; a scan finds no hand-made argument
   parsing (`process.argv`, own loops over `args`) outside the shared parser; a test of the help line width; golden
