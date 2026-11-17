@@ -1,8 +1,8 @@
 <!-- PL: Plan przebudowy Limena i punkt wznowienia każdej sesji: wizja, słownik, decyzje Adriana (kopia §2 bramki 2,
-D-008–D-011 z bramki 4: wdrożenie po SHA, format changes.md, narzędzia seata w TypeScript, praca nocna), fakty
-o silniku, 9 etapów z kosztem i efektem każdego, 86 ticketów R-NNN z kolumną Run (noc albo dzień), wdrożenie na seat
-z warunkami wznowienia projektów, pomiary M-01–M-13, protokół subagentów i lista poleceń na allow-listę. Nowa sesja
-zaczyna od State i ostatnich wpisów changes.md. Stan: czeka na odpowiedzi na Q4 i Q5 oraz na akceptację planu i definicji subagentów (bramka 4). -->
+D-008–D-014 z bramki 4: wdrożenie po SHA, format changes.md, narzędzia seata w TypeScript, praca nocna, wznowienie
+projektów po a0.3.0 jako ryzyko z terminem, limit tygodniowy, akceptacja planu), fakty o silniku, 9 etapów z kosztem
+i efektem, 87 ticketów R-NNN z kolumną Run, wdrożenie na seat, pomiary M-01–M-13, protokół subagentów i polecenia
+na allow-listę. Stan: plan przyjęty; czeka na datę z Q6 i akceptację definicji subagentów (bramka 4). -->
 
 # Rebuild plan
 
@@ -151,6 +151,21 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   stage after which the projects can resume on the seat, and the commands each stage needs for the allow-list in the
   repo's `.claude/settings.json`. The night mode itself (questions in `adrian-rebuild/questions.md` instead of a stop,
   hard exits, resume after a limit) is Adrian's addition to the rebuild prompt before rebuild stage 5.
+- 2026-11-17 D-012 (gate 4, Q4): the projects resume on the seat after a0.3.0. Until a0.5.0 the risks that stage 5
+  closes stay open (the agents' account holds the GitHub token and has an open network; harness code loads from
+  worker-writable places; GitHub text and worker-writable files reach the coordinator; A-006, A-007, A-009, A-025,
+  A-028): `accepted-risk` with a deadline. If a0.5.0 is not deployed by the date of open question Q6 in `## State`,
+  Adrian takes the decision again (z. 26). What narrows the risk: T1 of A-004 (the job environment as an allow-list;
+  git and gh in a job without a credential) moves to stage 3 as R-087, split from R-048 without a change of scope;
+  before the projects resume, a GitHub ruleset on `main` of both projects forbids force pushes and deletion (part of
+  §7 D1, step 3.11); the seat's GitHub token is fine-grained, with Contents read and write on `synchronizer` and
+  `ledger` only (Adrian, 2026-11-17).
+- 2026-11-17 D-013 (gate 4, Q5): at the weekly limit, until a0.5.0 the projects yield, which shortens the risk window
+  of D-012; from a0.5.0 the rebuild yields. The threshold is manual, at about 80 % of the weekly usage.
+- 2026-11-17 D-014 (gate 4): Adrian accepts the plan after two corrections: `### Resuming the projects on the seat`
+  states the land rule of stages 3–6, and files are deleted and moved with `git rm` and `git mv`, so the allow-list of
+  `## Commands` does not change every night. He accepts the subagent definitions separately, after reading them in
+  full.
 
 ### Gate 2 §2, copied
 
@@ -354,7 +369,7 @@ questions; their number cannot be known in advance.
 |---|---|---|---|---|---|
 | 1 | a0.1.0 | 14: 3 / 7 / 4 | 1: R-014 (day-after) | 4: gate 5.1; the golden help of R-014 (the wording is set by T-19, Adrian confirms the output); the same-task ticket before B.2 (R-011); the leftover list before `--drop-leftovers` (1.1) | 4 (1.0 bootstrap), plus B.1 and B.2 before it |
 | 2 | a0.2.0 | 11: 0 / 9 / 2 | 0 | 3: gate 5.2; id collisions in the record migration report (2.1); the `LIMEN_*` variables to remove (2.4) | 5, plus B.3 |
-| 3 | a0.3.0 | 12: 0 / 8 / 4 | 0 | 3, plus one per unlanded job: gate 5.3; the account names (3.3); `continue` or `abandon` for each finished job with unlanded work (3.6) | 10 |
+| 3 | a0.3.0 | 13: 0 / 9 / 4 | 0 | 3, plus one per unlanded job: gate 5.3; the account names (3.3); `continue` or `abandon` for each finished job with unlanded work (3.6) | 12 |
 | 4 | a0.4.0 | 10: 2 / 6 / 2 | 2: R-041, R-046 (day-after) | 4: gate 5.4; the cue wording (R-041); the role prompt texts and their glossary of terms (T-14, R-046); the modules to switch on (4.9) | 10 |
 | 5 | a0.5.0 | 13: 0 / 9 / 4 | 0 | 3: gate 5.5; the owner channel's key, forced command and tokens (5.1); the domains added to the egress list (5.16) | 20 |
 | 6 | a0.6.0 | 7: 0 / 1 / 6 | 3: R-065, R-066, R-068 (day-after) | 5: gate 5.6; the refusal and message texts of the ticket commands (R-065); the board, and which old prose sections go to `docs/` (R-066, 6.4); the question blocks (R-068); the `limen init` values (6.1) | 5 |
@@ -368,9 +383,9 @@ What changes in daily work on the seat once the stage's tag is deployed:
 |---|---|
 | 1 | Cut commands and flags refuse with a pointer (`--tab`, `highlight`, `ticket-author`, `wait`, `ticket series`, `continue --review`, webhooks, Devin, Linear, OMP, scout). Every command ends with a JSON line and exits with a failure-class code; `limen --help` is the grouped help; `limen jobs` is `limen status --all` and `limen show <id>`, `limen queue` is `limen seat queue`. Tags deploy through `seat/deploy.ts`. |
 | 2 | Job records live in `record.json` (migrated once). A job is named by its full id or its final token of 8 hex characters, never by a label (T-20, R-022). `LIMEN_*` settings in the environment no longer apply, except the two route variables. `limen stats` reports from the records. |
-| 3 | Unlanded work is never pruned or retired: `limen abandon <id>` keeps it on a branch, and spawn refuses while such a job is unresolved. Reads never reap; `limen seat sweep` on a timer finalises dead jobs every minute (A-024, R-032). After a 5-hour limit, jobs resume by themselves 5 minutes after the reset, with no seat rule and no manual resume. Job failures and long start-queue waits ring the phone (escalations from stage 7). A `limen land` that stopped half-way continues when it runs again. |
+| 3 | Unlanded work is never pruned or retired: `limen abandon <id>` keeps it on a branch, and spawn refuses while such a job is unresolved. Reads never reap; `limen seat sweep` on a timer finalises dead jobs every minute (A-024, R-032). After a 5-hour limit, jobs resume by themselves 5 minutes after the reset, with no seat rule and no manual resume. Job failures and long start-queue waits ring the phone (escalations from stage 7). A `limen land` that stopped half-way continues when it runs again. Jobs see only allow-listed environment variables, and git and gh in a job hold no credential (T1, R-087). |
 | 4 | The models get Limen's instructions for the first time (coordinator manual, role prompts), so their behaviour changes (measured by M-05). The turn cue no longer demands English: its audience line names the language (T-13). Jobs end without the task-note turn; a read-only role that writes fails; a `sleep` of 30 s or more is refused in the coordinator (T-34, R-047); modules are off unless switched on in `limits.json`. |
-| 5 | Coordinators start only through the root start script. Jobs hold no GitHub credential and reach only allow-listed domains. The owner channel publishes `main`, so Adrian stops pushing; owner files change only through the owner channel. Wakes carry a header, and the coordinator reads a result with `limen show <id> --result` (A-008, R-051); the handoff note goes through a tool; a hand commit on `main` is refused. |
+| 5 | Coordinators start only through the root start script. Jobs run the bridge isolated and reach only allow-listed domains. The owner channel publishes `main`, so Adrian stops pushing; owner files change only through the owner channel. Wakes carry a header, and the coordinator reads a result with `limen show <id> --result` (A-008, R-051); the handoff note goes through a tool; a hand commit on `main` is refused. |
 | 6 | Tickets move through `limen ticket start`, `drop` and `commit`; the board is generated, with no hand edits; `limen ticket check` is strict. `maxJobs`, the routes and the gate command come from `limits.json` and `routes.json`; the round limit is stored there and used from stage 7. Limen runs every `Check` when a job ends; the review verdict is parsed; questions go through `limen ask` and `limen answer`. Land itself is as before. |
 | 7 | `limen spawn <role> <FNNN>` (`FNNN`: the ticket's number) builds the task and the label (`--label` and free task text refuse). Review rounds are bounded and end in `limen escalate`; Limen files the review reports; land happens only when the conditions in code hold, with no "land" from Adrian. `limen decide` records his decisions; a footer follows every coordinator reply; `needs-adam` is gone. |
 | 8 | Groups, research, the quality pass and the Picture data exist only when switched on. |
@@ -397,7 +412,8 @@ records of both projects migrate; `limen stats` reads the migrated history. Tick
 
 No unlanded work is deleted; every job runs in its own scope; every failure has a recorded kind; a seat timer finds and
 finishes dead jobs; a quota limit ends in one automatic resume; land is a sequence of recorded, repeatable steps; the
-owner gets alerts for failures and escalations only. Tickets R-026–R-037.
+owner gets alerts for failures and escalations only; jobs run with an allow-listed environment and no credential (T1,
+moved here from stage 5 by D-012). Tickets R-026–R-037 and R-087.
 
 ### Stage 4 — Limen's instructions reach the model (a0.4.0)
 
@@ -407,7 +423,7 @@ package and are literal, sourced and budgeted per role. Tickets R-038–R-047.
 
 ### Stage 5 — The trust boundary (a0.5.0)
 
-G2 in code and in seat tooling: an allow-listed job environment with no credential, only root-owned code for agents,
+G2 in code and in seat tooling (T1 came in stage 3): jobs run the bridge isolated, only root-owned code for agents,
 one registered coordinator, Limen's messages as custom messages and job or GitHub text only as tool results, the owner
 files and the published copy, publication of `main` by the owner channel, egress allow-list templates, and seat code
 under the same checks as the rest. Until R-071, land is decided as at `rebuild-base` (the coordinator lands after
@@ -496,6 +512,7 @@ Columns:
 | R-035 | Start-queue thresholds: a diagnosis at 30 min, a failure at 2 h | 3 | A-036 | R-026, R-033 | M | delegated | night | — | systemd | 3.8 | planned |
 | R-036 | Stall is measured over the whole job scope | 3 | A-059 | R-026 | M | delegated | night | — | systemd | 3.8 | planned |
 | R-037 | Land runs as recorded steps with an atomic closing commit | 3 | A-021, A-057, T-18, T-28 | R-023, R-031 | L | delegated | night | yes | herdr | 3.9 | planned |
+| R-087 | The job environment is an allow-list; git and gh in a job hold no credential (T1) | 3 | A-004, A-061, E-4 | R-015, R-021, R-026 | M | delegated | night | — | pi, bridge | 3.10 | planned |
 | R-038 | The fake engine shows the model's view under the bridge | 4 | T-31, A-051 | R-017 | M | delegated | night | — | bridge | 4.1 | planned |
 | R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16 | R-021, R-038 | L | delegated | night | yes | pi, bridge | 4.2 | planned |
 | R-040 | Role texts come from the package, in three registers | 4 | A-038, A-039, A-042, D-005 | R-001, R-039 | M | delegated | night | yes | — | — | planned |
@@ -506,7 +523,7 @@ Columns:
 | R-045 | Tools and skills per role; a read-only role that writes fails | 4 | A-081, E-5 | R-044 | M | delegated | night | — | pi, bridge | 4.3 | planned |
 | R-046 | Role prompts are literal, sourced and budgeted | 4 | T-09, T-14, T-15, T-08, T-10, T-21, A-043, A-085, A-040 | R-040, R-041, R-042, R-044 | L | pair | day-after | — | — | — | planned |
 | R-047 | The coordinator never waits | 4 | T-34 | R-039 | S | delegated | night | — | pi | 4.6 | planned |
-| R-048 | The job environment is an allow-list; jobs run the bridge isolated | 5 | A-004, A-061, E-3, E-4, E-15, D-005 | R-021, R-040 | M | delegated | night | — | pi, bridge | 5.8, 5.9 | planned |
+| R-048 | Jobs run the bridge isolated: no `--approve`, `--offline`, a private `TMPDIR`, an explicit Claude Code path | 5 | A-025, E-3, E-4, E-15, D-005 | R-040, R-087 | M | delegated | night | — | pi, bridge | 5.8, 5.9 | planned |
 | R-049 | Agents run only root-owned code; Pi and bridge versions are declared | 5 | A-025, T-32, T-36 | R-017, R-020, R-048 | L | delegated | night | yes | pi | 5.3, 5.5, 5.6, 5.10 | planned |
 | R-050 | The registered coordinator and its start script | 5 | A-033, A-061, A-029, §2 | R-026, R-033, R-034, R-049 | L | delegated | night | yes | pi, herdr, systemd | 5.4, 5.11 | planned |
 | R-051 | Wakes carry a computed header; Limen's messages are custom messages | 5 | A-008, A-078, A-034, T-16, E-16 | R-039, R-050 | M | delegated | night | — | pi | 5.12 | planned |
@@ -602,10 +619,10 @@ Where the owner actions of gate 2 §9 (the 16 items recorded at gate 2) are plac
 | Item | Subject | Steps |
 |---|---|---|
 | 1 | Accounts: names, owner channel, research account, alerts account, egress allow-list, tokens | 3.3, 5.1, 5.16, 8.2 |
-| 2 | GitHub ruleset on `main` of both projects (§7 D1) | 5.2 |
+| 2 | GitHub ruleset on `main` of both projects (§7 D1) | 3.11, 5.2 |
 | 3 | Root-owned installs of Pi 1.5.1, the bridge and the coordinator start script | 5.3 |
 | 4 | Coordinators start only through the start script | 5.4 |
-| 5 | `limen seat sweep --install`, old prune units off, route variables out of the environment | 3.1, 6.1 |
+| 5 | `limen seat sweep --install`, old prune units off (done on 2026-11-17), route variables out of the environment | 3.1, 6.1 |
 | 6 | Old seat extensions removed; the extra Limen checkout in the agents' home | 5.5 |
 | 7 | `limen` and `node` resolve to root-owned paths; `LIMEN_PACKAGE` unset | 5.6 |
 | 8 | The agents' account is not in `adm` or `systemd-journal` | 5.7 |
@@ -628,8 +645,13 @@ parallel, is after a0.3.0 is deployed:
   `prune --retire` deletes the records of jobs that never landed, and the seat's daily `limen-prune` timer runs both.
 - a0.3.0 brings what a running seat needs most: one automatic resume after the 5-hour limit (12 of the 18 failed jobs,
   gate 2 §1), a recorded cause for every failure, the sweep timer, and alerts to the phone.
-- Until a0.5.0, resumed jobs run as during M1: with the spawner's whole environment, a GitHub credential and an open
-  network (A-004, A-006, A-007). Whether Adrian accepts that, and on which condition, is open question Q4 in `## State`.
+- Until a0.5.0 the risks that stage 5 closes stay open: the agents' account holds the GitHub token and has an open
+  network, harness code loads from worker-writable places, and GitHub text and worker-writable files reach the
+  coordinator. Adrian accepts them with a deadline (D-012). Jobs already run with T1 from a0.3.0 (R-087); the seat's
+  token is fine-grained, with Contents read and write on the two projects only; the ruleset of 3.11 forbids force
+  pushes and deletion on `main`.
+- Land in stages 3–6: today's rule stays until a0.7.0: the coordinator lands a job only after Adrian's "land". From
+  a0.7.0 land happens only when the conditions in code hold (R-071), with no "land" from Adrian (D-004).
 - From then on, every tag deploys onto live data the same way (0.1–0.7). Stage 4 changes how the models behave in the
   middle of the projects' work; that is the change M-05 measures, not a reason to wait.
 
@@ -637,8 +659,8 @@ Conditions:
 1. Before a0.1.0 is deployed: B.1 and B.2 run on `rebuild-base`, and the snapshot of 0.1 taken before that first
    deployment is kept as the "before" data of B.3, because resumed projects add jobs of several versions to the live
    records.
-2. Until a0.3.0, the old `limen-prune` timer stays disabled on the seat; also now, while the coordinators are paused
-   (A-001: it deletes the uncommitted work of finished jobs every day).
+2. The old `limen-prune` timers stay disabled until a0.3.0 replaces them (A-001: they deleted the uncommitted work of
+   finished jobs every day). Done on 2026-11-17; step 3.1 checks it.
 3. Migrations on live data run after the snapshot of 0.1, with `--dry-run` first and the report checked before the real
    run: 2.1 (records), 3.6 (unlanded jobs, landed markers; before the first spawn), 6.2 (front matter, acceptance), 6.4
    (board), 7.1 (`needs-adam`).
@@ -648,15 +670,17 @@ Conditions:
    stops spawning, lets the running jobs end (one per project with `maxJobs` 1, the seat's practice, A-014; each within
    its timeout), and deploys. A job that waits for its quota resume is not running (state `failed`, kind `quota`); its
    resume after the deployment runs on the new version, like a `continue`.
-6. The "after" measurements of 9.1 count only jobs whose id date follows the a1.0.0 deployment (a job id starts with
+6. Step 3.11 (the ruleset on `main`) is done before the projects resume.
+7. The "after" measurements of 9.1 count only jobs whose id date follows the a1.0.0 deployment (a job id starts with
    its date), so jobs of intermediate versions enter neither "before" nor "after".
 
 One Max window for the laptop and the seat:
 - The rebuild's sessions on the laptop (the main session and its subagents) and the seat's coordinators and jobs draw
   on the same 5-hour and weekly limits. After the resumption each slows the other, and a limit stops both.
 - Split: by day, the projects and the rebuild's pair tickets, while Adrian is present; at night, the rebuild's
-  delegated tickets. A job spawned in the evening takes from the night run's window. The weekly limit binds both
-  sides; which side yields when it is near is open question Q5 in `## State`.
+  delegated tickets. A job spawned in the evening takes from the night run's window.
+- The weekly limit binds both sides (D-013): when about 80 % of it is used (Adrian's manual threshold), until a0.5.0 the
+  projects yield, so that the risk window of D-012 stays short; from a0.5.0 the rebuild yields.
 - After a0.3.0 a limit on the seat ends in one automatic resume 5 minutes after the reset (R-034); on the laptop, the
   night mode that Adrian adds to the rebuild prompt resumes after the limit.
 - B.2 and the same-task runs of 4.8 and 9.1 (k = 3 whole tickets each) take a large share of a window; they run when
@@ -734,7 +758,9 @@ commit, outside `/opt/limen`, and points it at the `rebuild-base` checkout in `/
 
 - **3.0** Deploy a0.3.0 by 0.1–0.3: `node /opt/limen/seat/deploy.ts <sha>` with the full SHA from gate 5.3.
 - **3.1** `limen seat sweep --install` on the agents' account, with lingering on (root runs `loginctl enable-linger` if
-  the command says so); then disable and remove the old `limen-prune.*` units (item 5; R-032).
+  the command says so). The old `limen-prune@ledger` and `limen-prune@synchronizer` timers were disabled on 2026-11-17
+  (Adrian, `systemctl disable --now`; item 5, done); what remains is to check that `systemctl list-timers --all` shows
+  no `limen-prune` (R-032).
 - **3.2** From a Herdr pane on the agents' account, `systemd-run --user --scope true` exits 0 (item 12); during a trial
   job, `systemd-cgls` shows the engine and its tools in the job's scope (R-026).
 - **3.3** Alerts: choose the new account names for every account of item 1 (the alerts account is the first), and
@@ -753,6 +779,10 @@ commit, outside `/opt/limen`, and points it at the `rebuild-base` checkout in `/
 - **3.8** A trial job's record holds the peak memory and CPU of its scope, and a job that runs only `sleep 300` ends
   with kind `stall` (R-026, R-035, R-036).
 - **3.9** Land closes the job's Herdr tab in its `cleaned` step (R-037).
+- **3.10** A trial job reaches Claude with the allow-listed environment; inside it, `env` shows only the allow-listed
+  names, `git config --get credential.helper` prints nothing, and `gh auth status` reports no login (R-087).
+- **3.11** Before the projects resume: a GitHub ruleset on `main` of both projects that forbids force pushes and
+  deletion (part of §7 D1; D-012). Step 5.2 adds the rest of D1.
 
 ### After stage 4 (a0.4.0)
 
@@ -779,8 +809,8 @@ commit, outside `/opt/limen`, and points it at the `rebuild-base` checkout in `/
 - **5.1** Accounts (item 1), with the names chosen in 3.3: create the owner channel account, which accepts only a
   separate key of Adrian's, kept on his own machines with no agent forwarding, and only with a forced command; move
   the GitHub write token to it; give the agents' account a read-only token (R-055).
-- **5.2** A GitHub ruleset on `main` of both projects: push only from the owner channel's identity, no force push, no
-  deletion (item 2; §7 D1; R-055).
+- **5.2** Extend the ruleset of 3.11 on `main` of both projects: push only from the owner channel's identity (item 2;
+  §7 D1; R-055).
 - **5.3** Root-owned installs by the seat script: Pi 1.5.1 and bridge 5.0.3, with Pi's install path confirmed, and the
   coordinator start script (item 3; R-049, R-050).
 - **5.4** Coordinators start only through the start script, never by exporting `LIMEN_COORDINATOR`; a second start for
@@ -890,7 +920,7 @@ first line; `check.mjs` accepts that form for these two files.
 - **rebuild-implementer**: tools `Read`, `Grep`, `Glob`, `Edit`, `Write`, `Bash`; `disallowedTools`: `Agent`. Reads
   `ticket.md`, `taste.md`, the harness principles in `input/`, the plan's Decisions and Engine facts, and the findings
   the ticket names. Writes the failing test first, then the change; runs the gate, `check.mjs` and Biome; drafts
-  `outcome.md`. Changes no git state, edits none of the main session's files and none of the checks that judge it. On
+  `outcome.md`. Changes no git state other than `git rm` and `git mv` on its ticket's paths, edits none of the main session's files and none of the checks that judge it. On
   a question it stops and replies `BLOCKED: <question>` with options and a recommendation; two failures of the same
   step also end in `BLOCKED`.
 - **rebuild-reviewer**: tools `Read`, `Grep`, `Glob`, `Bash`; `disallowedTools`: `Write`, `Edit`, `Agent`. Gets only
@@ -932,8 +962,8 @@ Protocol per ticket (rebuild stage 5):
 3. `delegated`: the main session runs `node adrian-rebuild/tools/review-guard.mjs snapshot --git >
    node_modules/.rebuild-review/R-NNN.git`, starts `rebuild-implementer` by its name (not a fork) with the ticket
    folder's path, changes nothing in the working tree while it runs, and afterwards runs `compare --git` on that file.
-   Exit 1 (a commit, a push or a staged change by the implementer; the allow-list cannot tell the two sessions apart)
-   voids the run, and Adrian decides. On `BLOCKED: …` it asks Adrian, adds the answer to
+   Exit 1 (a commit or a push by the implementer; the allow-list cannot tell the two sessions apart) voids the run, and
+   Adrian decides. `git rm` and `git mv` stage changes, which the implementer may do on its ticket's paths. On `BLOCKED: …` it asks Adrian, adds the answer to
    `ticket.md` → `## Decisions`, and resumes the same agent with `SendMessage` to its ID. `pair`: the main session
    implements with Adrian.
 4. The main session runs `sh adrian-rebuild/tools/gate.sh` itself; its run counts, not a subagent's report. When it
@@ -945,8 +975,8 @@ Protocol per ticket (rebuild stage 5):
    the files), then `rebuild-reviewer` with the three paths, then `node adrian-rebuild/tools/review-guard.mjs compare
    node_modules/.rebuild-review/R-NNN.before`. Exit 1 voids the review: for each path the guard names, the main
    session runs `git restore --source=HEAD -- <path>` and `git apply --include=<path>
-   node_modules/.rebuild-review/R-NNN.diff`, or `rm <path>` for a file the reviewer created, checks that `compare`
-   exits 0, and runs the review again. The guard compares HEAD, every ref, `git status --porcelain` and a
+   node_modules/.rebuild-review/R-NNN.diff`; a file the reviewer created is removed with Adrian's approval of
+   `rm <path>`, which is on no list. Then `compare` must exit 0, and the review runs again. The guard compares HEAD, every ref, `git status --porcelain` and a
    SHA-256 of every changed and untracked file, so a second edit of an already modified file is caught, which the
    status alone would miss (`tools/test-review-guard.sh`).
 6. The main session writes the round into `review.md`. It records why it rejects a finding, or adds the findings to fix
@@ -968,10 +998,9 @@ limit comes from its definition and from `review-guard.mjs` (a change voids the 
 its definition and from `compare --git` (protocol step 3), not from the list. Commands run from the repository root,
 with relative paths, never through `cd`.
 
-Adrian writes `.claude/settings.json`; the rebuild session never changes its own permissions. By day before a night
-run, the main session writes the `ticket.md` of the night's tickets that delete or move files, so their exact paths
-can go on the list. The command strings of the gate-time tool (R-011) and of the contract script (R-017) are named in
-those tickets' outcomes and added to the list then.
+Adrian writes `.claude/settings.json`; the rebuild session never changes its own permissions. The command strings of
+the gate-time tool (R-011) and of the contract script (R-017) are named in those tickets' outcomes and added to the
+list then.
 
 Every stage:
 
@@ -979,61 +1008,54 @@ Every stage:
 |---|---|
 | main session, implementer, reviewer: reading | `git status`, `git diff`, `git log`, `git show`, `git ls-files`, `git rev-parse`, `git cat-file`, `git grep`, `git for-each-ref`, `ls`, `cat`, `head`, `tail`, `wc`, `grep`, `find` (without `-delete` and `-exec`), `sed -n`, `sort`, `uniq`, `cmp`, `diff`, `file`, `command -v` |
 | main session, implementer, reviewer: checks | `sh adrian-rebuild/tools/gate.sh`, `npm run check`, `npm run typecheck`, `npx tsc --noEmit`, `npx biome check --error-on-warnings <path>`, `node --test <test file>`, `node adrian-rebuild/tools/check.mjs`, `node --test adrian-rebuild/tools/test-changes-entries.mjs`, `sh adrian-rebuild/tools/test-review-guard.sh`, `sh adrian-rebuild/tools/test-pre-push.sh`, `node bin/limen <args>` on a test fixture |
-| main session, implementer: changes | `npx biome format --write <path>`, `npm ci`; `rm`, `rm -r` and `mv` on exactly the paths a ticket's `## Change` names, one entry per path (stage 1 cuts, R-042 and R-059 replace files, R-083 renames test files, and others) |
+| main session, implementer: changes | `npx biome format --write <path>`, `npm ci`; `git rm <path>`, `git rm -r <path>` and `git mv <old> <new>` on the paths a ticket's `## Change` names (the cuts of stage 1, R-042 and R-059 replace files, R-083 renames test files, and others); every deletion and move goes through them, so the list stays the same every night (D-014) |
 | main session only | `mkdir -p node_modules/.rebuild-review`; `node adrian-rebuild/tools/review-guard.mjs snapshot`, `snapshot --git`, `diff`, `compare <file>` and `compare --git <file>`; `git restore --source=HEAD -- <path>` and `git apply --include=<path> <diff>` (after a void review); `git add <paths>` (`git add -A -- <paths>` for deletions and renames), `git commit`, `git push origin adrian-rebuild`; `sh adrian-rebuild/tools/install-hooks.sh` (after a move or a new clone); at the close of a stage `git tag <tag> <sha>` (local), the gate-time tool of R-011 and, from stage 4, `node adrian-rebuild/tools/context-size.mjs <ref>` |
 
 In addition, per stage:
 
 | Stage | Commands | For |
 |---|---|---|
-| 1 | the per-path `rm -r` entries of the cuts (for example `spec/`, `templates/.history/`, `docs/reviews/`, `picture/viewer/`, `.omp/`, `bin/tony-finish-ping.sh`) | R-002–R-010 |
 | 2 | `npm pack @earendil-works/pi-coding-agent@1.5.1 @earendil-works/pi-ai@1.5.1 @earendil-works/pi-agent-core@1.5.1 @vanillagreen/pi-claude-bridge@5.0.3 --pack-destination adrian-rebuild/input/vendor`, `mkdir -p adrian-rebuild/input/vendor/<package>`, `tar -xzf <tarball> -C adrian-rebuild/input/vendor/<package>`, and the contract script of R-017 on that copy; the only network access besides `npm ci` and `git push origin adrian-rebuild` | the type contract of R-017 (T-32 (2)) |
 | 3 | none: scopes, units and timers are tested on fakes (T-28 (5)); `systemd-run`, `systemctl` and `loginctl` are seat steps | — |
 | 4 | `node adrian-rebuild/tools/context-size.mjs <ref>` for the implementer too | R-039 |
 | 5–8 | none: `nft`, `systemd-analyze`, `ssh` and account setup are seat steps | — |
-| 9 | the per-path `mv` entries of the test files that R-083 renames | R-083 |
 
 Never in the list: `git push` of any other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, `git rebase`,
 `git tag -d`, `git branch -d` or `-D`, `git checkout` or `git switch` of another branch, `git stash`, `git clean`,
 `--no-verify`, `npm install` (only `npm ci`) and `npm install -g`, `sudo`, `curl`, `wget`, `ssh`, `python3`,
-`systemctl`, and `rm` outside the paths of the current tickets.
+`systemctl`, and `rm` and `mv` (deletions and moves go through `git rm` and `git mv`).
 
 ## State
 
-Updated 2026-11-17, rebuild stage 4 (plan) done; gate 4 waits for Adrian.
+Updated 2026-11-17, rebuild stage 4 (plan) done; the plan is accepted (D-014); gate 4 waits for the date of Q6 and
+for the acceptance of the subagent definitions.
 
 Done:
 - Rebuild stages 0–3 with gates 0, 2 and 3 (D-001–D-007); rebuild stage 1 has no gate.
-- Rebuild stage 4: `## Vision`; `## Decisions` with the verbatim copy of gate 2 §2; `## Stages` (9 stages, tags a0.1.0–a1.0.0);
-  `## Tickets` (R-001–R-086: every `fix` finding and every taste rule except T-17 is a source of a ticket); the
-  16 gate-2 owner actions placed in `## Deployment`; `## Measurement` (M-01–M-13); `## Agents` with the two definitions
-  in `.claude/agents/` and `tools/review-guard.mjs` with its test. `check.mjs` checks the plan (stages, tickets,
-  sources, dependencies, seat steps, the copy of §2), the Polish summaries and, from stage 5, the ticket folders and
-  `changes.md`. Cold read of the plan by a fresh subagent: `evidence/plan-cold-read.md`.
+- Rebuild stage 4: `## Vision`; `## Terms`; `## Decisions` with the verbatim copy of gate 2 §2; `## Stages` (9 stages,
+  tags a0.1.0–a1.0.0, the cost and the effect of each); `## Tickets` (R-001–R-087: every `fix` finding and every taste
+  rule except T-17 is a source of a ticket; the `Run` column); the 16 gate-2 owner actions placed in `## Deployment`,
+  with the resumption of the projects; `## Measurement` (M-01–M-13); `## Agents` with the two definitions in
+  `.claude/agents/` and `tools/review-guard.mjs` with its test; `## Commands`. `check.mjs` checks the plan (stages,
+  tickets, sources, the dependency graph, `Run`, seat steps, the deployment call per stage, the copy of §2), the Polish
+  summaries and, from rebuild stage 5, the ticket folders and `changes.md` (`tools/changes-entries.mjs`, tested). Two
+  cold reads by fresh subagents (35 and 22 remarks, resolved): `evidence/plan-cold-read.md`.
+- Gate 4 (2026-11-17): Q1–Q3 → D-008–D-010 (the root deployment script R-012 in stage 1, which absorbs D3, so tickets
+  R-012–R-059 of commit `cdf3e78` are R-013–R-060 now; the `changes.md` format; seat tools in TypeScript). Adrian's
+  additions → D-011 (night runs: R-013 and R-014 in stage 1, R-067 and R-069–R-071 in stage 7, the `Run` column; the
+  cost and effect per stage; the resumption; `## Commands`; two exposed dependencies: R-067 on R-069, R-081 on
+  R-082–R-086). Q4 and Q5 → D-012 and D-013 (the projects resume after a0.3.0 as an accepted risk with a deadline; T1
+  as R-087 in stage 3, split from R-048; step 3.11; the weekly limit). The plan accepted after two corrections → D-014
+  (the land rule of stages 3–6; `git rm` and `git mv`).
+- The old `limen-prune` timers on the seat were disabled on 2026-11-17 (Adrian); step 3.1 checks it.
 
-Gate 4: Adrian answered Q1–Q3 on 2026-11-17 (D-008–D-010, applied: the root deployment script R-012 in stage 1, which
-absorbs D3; tickets R-012–R-059 of commit `cdf3e78` are R-013–R-060 now; the `changes.md` format; seat tools in
-TypeScript). On the same day Adrian asked, before he accepts, for the cost and the effect of each stage, the earliest stage to
-resume the projects, night runs without him, and the commands for the allow-list (D-011, applied: R-013 and R-014 in
-stage 1, R-067 and R-069–R-071 in stage 7, the `Run` column, `### Cost and effect per stage`, `### Resuming the
-projects on the seat`, `## Commands`; two dependencies the arrangement exposed: R-067 on R-069, R-081 on R-082–R-086).
-Acceptance of the plan and of the subagent definitions is pending.
+Next: once the definitions are accepted, rebuild stage 5 starts with plan stage 1 ("Cut, then one error type and one
+command registry") in a new session, with R-001.
 
-Next: after Adrian accepts the plan and the definitions, rebuild stage 5 starts with plan stage 1 ("Cut") in a new
-session, with R-001.
-
-Now, while the coordinators are paused: disable the old `limen-prune` timer on the seat (A-001;
-`### Resuming the projects on the seat`, condition 2).
-
-Open questions for Adrian (gate 4), with the main session's recommendation:
-- Q4 Resuming the projects after a0.3.0 means that until a0.5.0 their jobs run as during M1, with the whole
-  environment, a GitHub credential and an open network (A-004, A-006, A-007). Options: (a) accept that until a0.5.0,
-  with the GitHub module disconnected until then, so that the untrusted input is only what jobs fetch themselves; (b)
-  resume only after a0.5.0. Recommendation: (a), because M1 ran this way, the repositories are private, and a0.5.0 is
-  two stages and many seat steps away.
-- Q5 When the weekly limit is near, which side yields: (a) the rebuild (the night run stops until the limit renews);
-  (b) the projects. Recommendation: (a), because the projects hold production data and the rebuild has no deadline.
-- Then the acceptance of the plan and of the subagent definitions.
+Open questions for Adrian:
+- Q6 The date in D-012: by when a0.5.0 must be deployed, after which Adrian takes the decision on the resumption risk
+  again.
+- The acceptance of the subagent definitions, after he reads them in full.
 
 Notes for the next session:
 - Start Claude Code in the repository root, so that it loads `.claude/agents/`.

@@ -2,7 +2,7 @@
 # PL: Test strażnika recenzji bez sieci: buduje tymczasowe repo z jednym commitem i zmienionym plikiem, robi snapshot
 # PL: i sprawdza, że `compare` wykrywa drugą edycję już zmienionego pliku, nowy plik nieśledzony, zmianę indeksu
 # PL: i nowy commit (kod 1), a przepuszcza drzewo bez zmian (kod 0). Sprawdza też, że `diff` zawiera plik nieśledzony,
-# PL: oraz tryb --git: edycje drzewa przechodzą, a zmiana indeksu i commit dają kod 1.
+# PL: oraz tryb --git: edycje drzewa i git mv przechodzą, a commit daje kod 1.
 # PL: Stan: działa.
 set -eu
 GIT_CONFIG_GLOBAL=/dev/null
@@ -64,7 +64,7 @@ expect 0 "index restored"
 g commit -q -am change
 expect 1 "new commit"
 
-# --git: HEAD, refs and the index only (the implementer's run may change the working tree).
+# --git: HEAD and refs only (the implementer may change the tree and stage git rm / git mv).
 expect_git() {
 	want=$1
 	name=$2
@@ -83,10 +83,9 @@ node "$guard" snapshot --git >"$snap"
 printf 'four\n' >tracked.txt
 printf 'new\n' >untracked.txt
 expect_git 0 "working-tree edits pass"
-g add tracked.txt
-expect_git 1 "a staged change"
-g reset -q tracked.txt
-expect_git 0 "index restored"
+g mv tracked.txt moved.txt
+expect_git 0 "a staged git mv passes"
+g mv moved.txt tracked.txt
 g commit -q -am again
 expect_git 1 "a commit"
 

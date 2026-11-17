@@ -2,14 +2,14 @@
    refy, `git status --porcelain` i skrót SHA-256 treści każdego zmienionego i nieśledzonego pliku; `compare <plik>`
    kończy się kodem 1, gdy stan po recenzji różni się od zapisanego, więc recenzja, która cokolwiek zmieniła, jest
    nieważna (gwarancja w kodzie, nie w prompcie). `diff` wypisuje pełny diff ticketu względem HEAD razem z plikami
-   nieśledzonymi, który dostaje recenzent. Tryb `--git` porównuje tylko HEAD, refy i indeks, więc wokół pracy
-   implementera wykrywa commit, push albo `git add`, a zmiany w drzewie przepuszcza. Stan: działa; test
+   nieśledzonymi, który dostaje recenzent. Tryb `--git` porównuje tylko HEAD i refy, więc wokół pracy implementera
+   wykrywa commit i push, a zmiany w drzewie i w indeksie (git rm, git mv) przepuszcza. Stan: działa; test
    w tools/test-review-guard.sh. */
 // Usage (from the repository root):
 //   node adrian-rebuild/tools/review-guard.mjs snapshot > <file>   before the review; <file> outside the repository
 //   node adrian-rebuild/tools/review-guard.mjs compare <file>      after the review; exit 1 when anything changed
 //   node adrian-rebuild/tools/review-guard.mjs diff > <file>       the ticket's diff for the reviewer
-//   snapshot --git / compare --git <file>: HEAD, refs and the index only, around the implementer's run
+//   snapshot --git / compare --git <file>: HEAD and refs only, around the implementer's run (it may git rm, git mv)
 // Files ignored by git (node_modules, the gate's TMPDIR) are outside the guard: they are not part of a change.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -49,24 +49,24 @@ function digest(path) {
 	}
 }
 
-function gitState() {
-	const index = createHash("sha256")
-		.update(git(["diff", "--cached", "--binary"]))
-		.digest("hex");
+function refs() {
 	return [
 		`head ${git(["rev-parse", "HEAD"]).toString("utf8").trim()}`,
 		...git(["for-each-ref", "--format=ref %(refname) %(objectname)"]).toString("utf8").trim().split("\n"),
-		`index ${index}`,
 	];
 }
 
 function snapshot(gitOnly) {
 	if (gitOnly) {
-		return `${gitState().join("\n")}\n`;
+		return `${refs().join("\n")}\n`;
 	}
 	const status = git(["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+	const index = createHash("sha256")
+		.update(git(["diff", "--cached", "--binary"]))
+		.digest("hex");
 	const lines = [
-		...gitState(),
+		...refs(),
+		`index ${index}`,
 		...status
 			.toString("utf8")
 			.split("\0")
