@@ -2,7 +2,7 @@
 
 Operator checklist and the current setup steps. Limen does not run these. Copy the units, set the drop-ins, enable the timers.
 
-The seat owns the project copy (the Git checkout), the worktrees, and the job files in `.limen/jobs/`. The laptop is only a window. [vps.md](../vps.md) is an old record of one setup pass, not this checklist.
+The seat owns the project copy (the Git checkout), the worktrees, and the job files in `.limen/jobs/`. The laptop is only a window.
 
 Units next to this file: `bell.sh`, `limen-bell.{service,timer}`, `limen-prune.{service,timer}`, and the Pi extensions `coordinator-handoff.ts`, `quota-resume.ts` and `statusline.ts`.
 
@@ -24,7 +24,7 @@ Units next to this file: `bell.sh`, `limen-bell.{service,timer}`, `limen-prune.{
 
 ## Bell
 
-Prefer **Moshi** if the phone already gets Herdr pings: pair `moshi-hook` on the box (`--store file` on Linux), `service install`, `loginctl enable-linger`. Steps: [vps.md](../vps.md).
+Prefer **Moshi** if the phone already gets Herdr pings: pair `moshi-hook` on the box (`--store file` on Linux), `service install`, `loginctl enable-linger`.
 
 ntfy is the fallback when Moshi is not in play:
 

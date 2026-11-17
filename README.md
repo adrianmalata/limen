@@ -131,3 +131,7 @@ Read these files in each `.limen/jobs/<id>/`: `note.md` (the note at the end), `
 | Optional Linear mirror | [Linear](templates/linear.md) |
 
 See [Contributing](CONTRIBUTING.md) for development and checks.
+
+## History
+
+The working history of the original author up to `3b5edd7` (the tickets, research and reviews of Limen's own development, which were in `spec/`) is in the git history of this branch at that commit, for example `git show 3b5edd7:spec/vision.md`, and in the upstream [`overment/limen`](https://github.com/overment/limen).

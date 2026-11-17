@@ -6,7 +6,7 @@ zapis narzędzi przez --out bez przekierowań, nocny przebieg tools/night.mjs z 
 niezacommitowanych zmian), fakty o silniku z pomiarem B.1 z seata,
 wymagania systemowe, 9 etapów z kosztem i efektem, 87 ticketów R-NNN, wdrożenie, pomiary, protokół subagentów
 i polecenia na allow-listę. Stan: etap 5 (przebudowa) w toku, etap planu 1; w nocy 17.11 R-001 zablokowany pytaniem
-Q-1 (limit linii testów), R-008 zamknięty; noc bierze dalej R-010, R-011 i R-013. -->
+Q-1 (limit linii testów), R-008 i R-010 zamknięte; noc bierze dalej R-011 i R-013. -->
 
 # Rebuild plan
 
@@ -584,7 +584,7 @@ Columns:
 | R-007 | Cut the Picture viewer and the map jobs | 1 | G1.4, §6, A-048 | R-001 | L | delegated | night | yes | — | — | planned |
 | R-008 | Cut the macOS branches | 1 | A-083 | — | S | delegated | night | — | — | — | done |
 | R-009 | Cut the scout role and the `jg` cue | 1 | T-33, T-36, A-081 | R-001 | S | delegated | night | yes | — | — | planned |
-| R-010 | The author's working history leaves the tree; Limen's own test-line cap goes | 1 | T-39, T-11, §6 | — | M | delegated | night | — | — | — | planned |
+| R-010 | The author's working history leaves the tree; Limen's own test-line cap goes | 1 | T-39, T-11, §6 | — | M | delegated | night | — | — | — | done |
 | R-011 | The same-task runner and the gate-time tool | 1 | H-21, T-11, T-41, §2 | — | M | delegated | night | — | — | — | planned |
 | R-012 | A root deployment script for a pinned SHA | 1 | D-008, D-010, §7 | R-002 | M | delegated | night | — | — | 1.0 | planned |
 | R-013 | One error type, exit codes as failure classes, a final JSON line | 1 | T-01, T-02 | — | L | delegated | night | yes | — | — | planned |
@@ -1195,6 +1195,8 @@ takes R-008, R-010, R-011 and R-013 in that order.
 - R-008 `done` (review PASS in one round). For Adrian to confirm: R-008 leaves the LaunchAgent installer (`limen sweep
   --install`, `--uninstall`) to R-032, which replaces it with the systemd installer, because R-008 has `Mig. —` and
   cutting the installer would change the CLI (R-008 → `ticket.md` → `## Decisions`).
+- R-010 `done` (review PASS in one round): the author's `spec/` and the docs of gate 2 §6 left the tree, and the
+  3,500-line cap of `test/` is gone, so Q-1's cause no longer exists; R-001 stays `blocked` until Adrian's answer.
 
 Active ticket: none.
 

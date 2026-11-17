@@ -4,7 +4,7 @@ The machine that runs jobs is not the machine you sit at.
 
 A **seat** is one always-on host (typically a VPS on a Tailscale tailnet). The seat owns the project copy (the Git checkout), the worktrees, and the job files in `.limen/jobs/`. Your laptop, phone, or studio Mac is only a **window**: attach, look, type, leave. Closing the lid must not kill a worker.
 
-This is operator guidance, not a provisioner. Limen does not install Tailscale or Herdr for you. The current checklist is [docs/seat/](seat/README.md). [vps.md](vps.md) is an old record of one setup pass; keep it as evidence, not as the checklist.
+This is operator guidance, not a provisioner. Limen does not install Tailscale or Herdr for you. The current checklist is [docs/seat/](seat/README.md).
 
 ## Two layers
 
@@ -178,6 +178,4 @@ Accepted claims and cursors live under `/var/lib/limen-github/state/<sha256-of-a
 
 ## Related
 
-- [Vision](../spec/vision.md) — durable intent, including the seat/window split.
-- [F013 remote seat](../spec/features/done/2026-09/F013-remote-seat/ticket.md) — shop manual names seat vs window.
 - [SECURITY.md](../SECURITY.md) — a job runs as you (`pi --approve`, or `omp --auto-approve`), wherever the seat is.

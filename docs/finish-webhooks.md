@@ -638,7 +638,9 @@ Legacy `finish-webhook-bot-turn` and local source-selection flags are ignored.
 The receiver-owned proof is finished. On the VPS, one automatic delivery to
 the first bot showed HTTP accepted with the bot turn unobserved while its export was
 held, then observed for target 1 after release, with no second send. The record
-is the [bot-turn receipt outcome](../spec/features/done/2026-09/F091-finish-job-shows-bot-turn-receipt/outcome.md).
+is the bot-turn receipt outcome,
+`spec/features/done/2026-09/F091-finish-job-shows-bot-turn-receipt/outcome.md` at
+`3b5edd7`, in the original author's working history (see [History](../README.md#history)).
 Do not repeat that proof for ordinary setup.
 
 ## Checks

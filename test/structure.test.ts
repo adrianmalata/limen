@@ -3,7 +3,6 @@ import { createHash } from "node:crypto";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import test from "node:test";
-import { testLineCap } from "../src/commands/land.ts";
 import { templateHistoryText } from "../src/project/inherit.ts";
 
 const root = new URL("..", import.meta.url).pathname;
@@ -43,15 +42,4 @@ test("shipped template history starts at the current template", async () => {
 		const head = (await readFile(path, "utf8")).split(" ")[0];
 		assert.equal(head, hash, `regenerate ${path}: LIMEN_WRITE_HISTORY=1 node --test test/structure.test.ts`);
 	}
-});
-
-test("test/ stays within the line cap that spec/vision.md sets", async () => {
-	const cap = testLineCap(await readFile(join(root, "spec/vision.md"), "utf8"));
-	assert.ok(cap, "spec/vision.md names no cap for test/");
-	let lines = 0;
-	for (const path of await filesBelow(join(root, "test"))) {
-		lines += (await readFile(path, "utf8")).split("\n").length - 1;
-	}
-	const fix = `Remove ${lines - cap} test lines, or ask Adam to raise the cap.`;
-	assert.ok(lines <= cap, `test/ has ${lines} lines; spec/vision.md caps it at ${cap}. ${fix}`);
 });

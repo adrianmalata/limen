@@ -1,6 +1,6 @@
 <!-- PL: Dziennik zmian przebudowy Limena: jeden wpis na zamknięty ticket R-NNN, tylko dopisywany, najnowszy na dole.
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
-wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; pierwszy wpis: R-008. -->
+wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010. -->
 
 # Changes
 
@@ -27,3 +27,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: measured
 - Commit: R-008
 - Rollback: git revert $(git log --format=%H --grep='^R-008:' adrian-rebuild --)
+
+## 2026-11-17 R-010 The author's working history leaves the tree; Limen's own test-line cap goes
+- What: `spec/` (865 files), `docs/reviews/`, `docs/diagrams/`, `docs/vps.md` and `.pi/settings.json` deleted; `test/structure.test.ts` (the cap test); `README.md` (`## History` pointer); `docs/remote.md`, `docs/seat/README.md`, `docs/finish-webhooks.md` (links); `biome.jsonc`
+- Why: T-39, T-11, gate 2 §6
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (82/82: the baseline's 83 minus the cap test); `git ls-files spec docs/reviews docs/diagrams docs/vps.md .pi/settings.json` → no output; `node adrian-rebuild/tools/check.mjs` → exit 0
+- Measurement: measured
+- Commit: R-010
+- Rollback: git revert $(git log --format=%H --grep='^R-010:' adrian-rebuild --)
