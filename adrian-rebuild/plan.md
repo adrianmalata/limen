@@ -122,7 +122,8 @@ runs it. Stage 4 sets the order, the exact commands and the steps after each sta
    (A-025).
 8. Check that the agents' account is not in `adm` or `systemd-journal`.
 9. `limen init` answers per project: `maxJobs`, round limit, routes, project gate command, module switches (all off).
-10. Migrate records (S1+) and rewrite open tickets' `## Acceptance` (A-031) at their next spawn.
+10. Migrate records (S1+) and rewrite open tickets' `## Acceptance` (A-031) at their next spawn. Before the migration
+    of ticket front matter, count the `needs-adam` keys in both projects (T-21).
 11. Bell: first installation and the ntfy app on Adrian's phone (A-066, A-054).
 12. Seat verification of the points §7 B could not settle from the package sources: the bridge's per-query CLI log
     (`CLAUDE_BRIDGE_DEBUG=1`) shows the Limen context message in the request, and a review job's final message starts

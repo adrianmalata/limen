@@ -1,7 +1,7 @@
 <!-- PL: Rubryka taste przebudowy: część A to jawny inwentarz opinii autora Limena wbudowanych w system, część B to
 zasady Adriana (T-NN) z regułą, uzasadnieniem i sposobem sprawdzenia. Po bramce 3 plik jest rubryką obok zasad
 z input/, a nowe decyzje taste dopisuje się tu z datą i źródłem. Stan: część A gotowa (80 opinii autora, 40 już
-rozstrzygniętych bramką 2, 40 otwartych do wywiadu); część B powstaje w wywiadzie z Adrianem (rundy 1–4: T-01–T-17). -->
+rozstrzygniętych bramką 2, 40 otwartych do wywiadu); część B powstaje w wywiadzie z Adrianem (rundy 1–5: T-01–T-21). -->
 
 # Taste
 
@@ -951,3 +951,88 @@ the author's choice. Taste decisions taken after this interview are added here w
   placeholders, in English and Polish) in `taste.md` and `plan.md`, and requires every `Revisit when:` field to be
   non-empty.
 - Source: interview round 4 follow-up.
+
+### T-18 Plain words, one word per thing
+- Rule: The criterion of T-14 applies to names: when an ordinary word with the same meaning exists, use it; otherwise
+  use one term defined once in the glossary; one word per thing, code identifiers included. Terms: plant → project;
+  seat stays in the glossary (the machine with its accounts, timers and queue), and "machine" as its synonym goes
+  (`src/runtime/start-queue.ts:15`); land stays (A-021); wake stays in the glossary; keeper goes (A-045: `limen spec
+  fix`; a model job under Picture is named after its task); pulse → activity; cabinet → plain names (group registry,
+  summary line); doorbell → the GitHub module; bell → alerts (A-066).
+- Conflicts resolved: (1) `close FNNN` is cut; closing Herdr tabs is part of the `cleaned` step of `land`, `ticket
+  done`, `ticket drop` and `abandon`, and the daily `limen-sweep` closes leftovers (today a prose trigger,
+  `templates/agents.md:108`, `templates/agents.md:158`; z. 21). (2) `ticket-author` is cut (`docs/jobs.md:206`, meant
+  for collaborators; Adrian works alone; `git log --diff-filter=A --follow` replaces it). (3) `jobs` is cut: `status`
+  is the project summary, rendered by the same function as the footer (T-15); `status --all` lists the jobs; `show
+  <id>` shows one job, with `--result` (A-008).
+- Migration: an old name exits with code 2 (T-02) and names the new one in `next`; a ticket in the last stage of the
+  plan removes the table of old names.
+- Open: the command structure, variant A or B (round 5 follow-up, `pair` mode).
+- Why: the author's 30 flat commands use private metaphors, and some names mislead (`close` closes Herdr tabs,
+  `ticket-author` sits beside the `ticket` group, `jobs` and `status` overlap) (AU-206); z. 13.
+- Check: a golden test of `limen --help`; the T-14 script rejects plant, pulse, cabinet, doorbell, bell and keeper in
+  user-facing text and in identifiers; the glossary holds seat, land and wake; a reviewer question: every help line
+  is a usage criterion (z. 13).
+- Source: interview round 5, AU-206; departs from the author.
+
+### T-19 One command registry is the only source
+- Rule: One registry of commands is the only source (z. 22, A-084). An entry holds the name (T-18), the kind `read` or
+  `change` (T-04), the visibility `public` or `internal`, a one-line summary written as a usage criterion (z. 13), the
+  schema of arguments and flags, and the handler. Generated from it: (1) `limen --help`: the list in the groups of
+  T-18, one line per command, a width limit (e.g. 100 characters), and at the end the exit-code table of T-02,
+  generated from its constant; (2) `limen <cmd> --help`: usage from the schema, the kind, one example; (3) parsing:
+  every command goes through one schema-driven parser, a bad flag exits with code 2 and a `next` (T-02), and one
+  handler wrapper prints the final JSON line; (4) a marked section of `docs/commands.md` with a staleness test
+  (A-084); (5) the command list in the coordinator manual, if it stays, also from the registry (A-085). Internal
+  commands stay out of `limen --help`, in their own section of the docs. The advice to the coordinator at the end of
+  the help goes: code enforces it (T-07).
+- Open: the `limen --help` variant (groups with summaries, or the same with a read/change column; round 5 follow-up,
+  `pair` mode).
+- Why: the author's help is one wide string (64 lines, the widest 356 characters) that lists internal commands and
+  ends with advice to the coordinator; only 10 of 31 command files use the shared flag parser (AU-207).
+- Check: a test that every command file is in the registry and has a flag schema; a scan finds no hand-made argument
+  parsing (`process.argv`, own loops over `args`) outside the shared parser; a test of the help line width; golden
+  tests of `limen --help` and of one `limen <cmd> --help`; the staleness test of `docs/commands.md`; a test that an
+  internal command does not appear in `limen --help`.
+- Source: interview round 5, AU-207; departs from the author.
+
+### T-20 A job reference is always exact
+- Rule: A reference to a job is always exact; an approximate match appears only as a hint in an error, never in an
+  execution. Today an exact label also depends on time (a second review round has the same label), and a 3-character
+  suffix matches every id that ends with it (`src/job/job.ts:110-116`). (1) Every command takes only the full id or its
+  final token of 8 hex characters (`src/job/job.ts:136`); the token is unique by construction: at job creation it is
+  checked against the project's records and archive under the shared lock (A-018) and drawn again on a collision.
+  (2) A label is only a list filter (`status --label F012`), never a reference; label prefixes, short suffixes and
+  exact labels are cut as references. (3) Any other form exits with code 2 (T-02); the message lists the matching jobs
+  (token, label, state) and the ready command in `next` (z. 11, z. 12). (4) One resolver handles every argument of
+  type job in the registry of T-19. (5) References in files (records, the handoff note, `decide` entries) use the full
+  id. (6) The S1+ migration checks the uniqueness of tokens in existing records; jobs with a collision or an older id
+  format accept only the full id.
+- Why: the author accepts the full id, a unique suffix, an exact label or a unique label prefix of 3 or more
+  characters in every command, `land` and `stop` included (AU-211); a prefix unique today can hit another job tomorrow.
+- Check: a resolver test (the full id and the token pass; a shorter suffix, a label and a label prefix exit with code
+  2 with the candidate list and `next`); a test that `land` and `stop` with a label exit with code 2 and change no
+  state; a test that the token is drawn again on a collision with a record and with the archive; a scan that every
+  argument of type job goes through the one resolver.
+- Source: interview round 5, AU-211; departs from the author.
+
+### T-21 The owner is a role, not a name
+- Rule: The product names a role, never a person: the term `owner` (as in gate 2: owner files, owner channel, owner
+  message, owner register) in code, prompts, keys and file labels; "you" only in views that only Adrian reads (the
+  footer, T-15); no name in the configuration (YAGNI). (1) A refusal names the mechanism and an actionable step
+  instead of a person (z. 12): where the limit lives (an owner file, changed only through the owner channel) and, in
+  `next`, a ready `limen ask --kind request` (T-15); this covers, among others, `src/commands/land.ts:204`. (2) The
+  keys `needs-adam` and `needs-adam-on` are cut (`src/picture/tickets.ts:20-29`); the state "waiting for the owner" has
+  one source, the open `limen ask` records (T-05); the board line (today `src/project/lanes.ts:21`) is generated from
+  the records: "waiting for owner since <date>: <question> (Q-NNN)" (z. 22, A-085). Migration: a script turns existing
+  keys into open `request` records with their date, tested on a fixture; a deployment step counts the `needs-adam`
+  occurrences in both projects before the migration. (3) Comments that cite another person's decisions
+  (`src/runtime/start-queue.ts:16-17`, `src/job/task-note.ts:8`) point at the current source (A-, T- or R-) or go
+  (T-09). (4) With A-050, `SECURITY.md` offers contact only through a private GitHub report, with no e-mail address.
+  `LICENSE` stays unchanged.
+- Why: the author wrote himself into the product ("or ask Adam to raise the cap", the key `needs-adam`, the label
+  "Needs Adam"), and on Adrian's seat a model reads "ask Adam" as a false instruction (AU-223).
+- Check: a scan of `src/`, `hook/`, `templates/` and `docs/` finds no person's name (list in `tools/`) outside
+  `LICENSE` and an explicit list of attribution exceptions; a golden test of a refusal with `next`; a test of the board
+  line from an open `limen ask` record; a migration test of `needs-adam` on a fixture.
+- Source: interview round 5, AU-223; departs from the author.
