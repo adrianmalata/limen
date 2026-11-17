@@ -2,8 +2,8 @@
 wdrożenia na seat, pomiary, definicje subagentów i sekcja State. Nowa sesja zaczyna od State i ostatnich wpisów
 changes.md. Stan: bramki 0 i 2 zamknięte i przyjęte (D-001–D-005, decyzje w rewizji 4, w tym A-086: wiadomość
 kontekstowa Limena zamiast system promptu; joby z bridge'em w trybie izolowanym), fakty o Pi 1.5.1 i bridge'u 5.0.3 w
-Engine facts (E-1–E-16), czynności Adriana na seacie w Deployment; etap 3 (taste) zakończony (T-01–T-43, D-006),
-czeka bramka 3. -->
+Engine facts (E-1–E-16), czynności Adriana na seacie w Deployment; bramka 3 przyjęta (T-01–T-43,
+D-006, D-007); następny jest etap 4 (plan) w nowej sesji. -->
 
 # Rebuild plan
 
@@ -44,10 +44,12 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   in isolated mode, so the A-042 fallback applies to them: the project's `AGENTS.md`, if it exists, goes into the
   Limen context message; the job launcher passes the Claude Code executable path and the bridge settings explicitly
   (E-15).
-- 2026-11-17 D-006 (stage 3; in force once Adrian accepts `taste.md` at gate 3): the taste rules T-01–T-43 in
-  `taste.md` → Part B are Adrian's decisions from the interview; where they
+- 2026-11-17 D-006 (stage 3; in force since gate 3, D-007): the taste rules T-01–T-43 in `taste.md` → Part B are
+  Adrian's decisions from the interview; where they
   change a gate-2 decision, the list "Changes to gate 2 decisions made in stage 3" in `taste.md` names each one, and
   the rule holds over the gate-2 wording. Stage 4 builds the tickets from both.
+- 2026-11-17 D-007 (gate 3): Adrian accepted `taste.md` (commit `5e3b97b`). From now on it is a rubric next to the
+  harness principles in `input/`; new taste decisions are added to it with their date and source.
 
 ## Engine facts
 
@@ -172,7 +174,7 @@ Pending (stage 4).
 
 ## State
 
-Updated 2026-11-17, stage 3 (taste) done; waiting at gate 3.
+Updated 2026-11-17, gate 3 accepted (D-007); stage 4 (plan) starts in a new session.
 
 Done:
 - Stage 0 closed at gate 0: test gate `sh adrian-rebuild/tools/gate.sh` (D-001), commit identity (D-002).
@@ -189,12 +191,12 @@ Done:
   `node adrian-rebuild/tools/check.mjs` → 86 findings, 43 taste rules (each with Rule, Why, Check, Source), 457
   taste references, 0 errors; gate `sh adrian-rebuild/tools/gate.sh` → 83/83, exit 0.
 
-Next: Adrian decides at gate 3 (accept `taste.md` or correct it). Then stage 4 (plan) in this or a new session:
+Next: stage 4 (plan), in a new session that starts from this section:
 Vision from `taste.md`, Decisions (copy gate 2 §2 and its constraints, D-006), Stages, Tickets R-NNN (every `fix`
 and every T-NN with a Check gets a ticket), Deployment (order and commands), Measurement (every named metric), Agents
 (the two subagent definitions), then the plan checks in `check.mjs` and a cold read.
 
-Open questions for Adrian: gate 3.
+Open questions for Adrian: none.
 
 Notes for the next session:
 - Progress lives in this section; the Claude Code task list mirrors the open steps when the tool is available.

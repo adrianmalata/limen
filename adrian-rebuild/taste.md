@@ -1,8 +1,8 @@
 <!-- PL: Rubryka taste przebudowy. Część A to jawny inwentarz 80 opinii autora Limena wbudowanych w system (40
 rozstrzygniętych bramką 2); część B to zasady Adriana T-01–T-43 z wywiadu etapu 3, każda z regułą, uzasadnieniem,
 sposobem sprawdzenia i źródłem, oraz fakty z pytań otwartych i lista zmian w decyzjach bramki 2. Po bramce 3 plik
-jest rubryką obok zasad z input/, a nowe decyzje taste dopisuje się tu z datą i źródłem. Stan: etap 3 zakończony,
-czeka bramka 3. -->
+jest rubryką obok zasad z input/, a nowe decyzje taste dopisuje się tu z datą i źródłem. Stan: przyjęty przez
+Adriana na bramce 3 (2026-11-17, D-007). -->
 
 # Taste
 
