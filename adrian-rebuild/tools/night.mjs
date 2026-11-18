@@ -1,15 +1,19 @@
 /* PL: Nocny przebieg przebudowy (D-019), uruchamiany przez Adriana w terminalu, nigdy przez sesję. Przed startem
    odmawia kodem 1: brak lub miniona godzina `--until`, prompt.md bez dokładnej pierwszej wiadomości, brak polecenia
    claude albo blokada żywego night.mjs w .night/lock (porzuconą przejmuje jak w A-017). Każdy przebieg to `claude -p`
-   z pierwszą wiadomością i „Tryb nocny do HH:MM.”, z `--permission-mode dontAsk`, stdin z /dev/null i logiem w .night/;
-   o końcu decyduje wyłącznie pole `reason` w .night/status.json zapisanym po starcie przebiegu (kod 0), a bez niego
-   następuje ponowienie po 30, 60 i 120 min, nigdy od godziny końca (potem kod 3); awaria samego narzędzia daje kod 4.
-   Nie dotyka gita ani plików poza .night/. Stan: działa; test w tools/test-night.mjs. */
+   z pierwszą wiadomością i „Tryb nocny do HH:MM.”, z `--permission-mode dontAsk`, wyjściem stream-json, stdin
+   z /dev/null, logiem w .night/ i CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1 (subagenci tylko na pierwszym planie, D-026);
+   po przebiegu dopisuje do logu liczbę wywołań narzędzi sesji głównej na commit (kanał poboczny: błąd liczenia to
+   linia w logu, nie koniec nocy). O końcu decyduje wyłącznie pole
+   `reason` w .night/status.json zapisanym po starcie przebiegu (kod 0), a bez niego następuje ponowienie po 30, 60
+   i 120 min, nigdy od godziny końca (potem kod 3); awaria samego narzędzia daje kod 4. Nie dotyka gita ani plików
+   poza .night/. Stan: działa; test w tools/test-night.mjs. */
 // Usage: node adrian-rebuild/tools/night.mjs --until HH:MM [--claude <path>]
 //   --until  local time; the end is the next HH:MM, and one more than 18 h ahead has passed (exit 1)
 //   --claude the Claude Code executable (default: claude on PATH); the tests pass a fake
 // Exit 0: a run wrote its reason of the end; 1: refused before the first run; 3: the night ended without a reason;
 //      4: the runner itself failed (the message carries the stack).
+// After each run the log gets "night: run <n>: main-session tool calls: <k>, …" lines, one per commit (D-026).
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
@@ -26,13 +30,16 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { delimiter, join, resolve } from "node:path";
+import { countToolCalls } from "./tool-calls.mjs";
 
 /** The first message of the rebuild prompt (`input/prompt.md`, line 5), word for word. */
 export const FIRST_MESSAGE =
 	"Przeczytaj `adrian-rebuild/input/prompt.md` i wykonaj go od etapu wskazanego w sekcji `## State` pliku " +
 	"`adrian-rebuild/plan.md`; jeśli plik nie istnieje, zacznij od etapu 0.";
-// The reasons of the end that a session writes into `.night/status.json` (night mode of the prompt; D-019).
-const REASONS = ["done", "no-ticket", "failed-twice", "end-time", "dirty-tree"];
+// The reasons of the end that a session writes into `.night/status.json` (night mode of the prompt; D-019, D-026).
+const REASONS = ["done", "no-ticket", "failed-twice", "end-time", "dirty-tree", "cannot-wait"];
+// D-026 (1): Claude Code waits for every subagent; set only for the night's `claude -p`, never in the settings.
+const FOREGROUND = { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1" };
 const RETRY_MINUTES = [30, 60, 120];
 const HORIZON_HOURS = 18;
 const MINUTE = 60_000;
@@ -245,14 +252,50 @@ function readReason(file, since) {
 	return { reason, note: `reason ${reason}, modified ${stamp(modified)}` };
 }
 
-/** One run of claude with stdin on /dev/null and both output streams appended to `log`; resolves to how it ended. */
+/**
+ * One run of claude with stdin on /dev/null, both output streams appended to `log` and every subagent in the
+ * foreground (D-026); resolves to how it ended.
+ */
 function runClaude(command, args, cwd, log) {
 	const fd = openSync(log, "a");
 	return new Promise((done) => {
-		const child = spawn(command, args, { cwd, stdio: ["ignore", fd, fd] });
+		const child = spawn(command, args, { cwd, stdio: ["ignore", fd, fd], env: { ...process.env, ...FOREGROUND } });
 		child.once("error", (error) => done(`could not start (${error.message})`));
 		child.once("exit", (code, signal) => done(code === null ? `ended by ${signal}` : `ended with exit code ${code}`));
 	}).finally(() => closeSync(fd));
+}
+
+/** The size of `log` in bytes, 0 when it does not exist yet. */
+const sizeOf = (log) => statSync(log, { throwIfNoEntry: false })?.size ?? 0;
+
+/**
+ * D-026 (4): the main session's tool calls per commit in what run `run` appended to its log from byte `offset` on;
+ * a log of an earlier night of the same day keeps its own bytes out of the count.
+ */
+function countLines(run, log, offset) {
+	const segments = countToolCalls(readFileSync(log).subarray(offset).toString("utf8"));
+	const last = segments.length - 1;
+	return segments.map(({ calls, commit }, index) => {
+		let where = last === 0 ? "no commit in this run" : "after the last commit";
+		if (index < last) {
+			where = commit === null ? "up to a commit without -m" : `up to the commit ${JSON.stringify(commit)}`;
+		}
+		return `night: run ${run}: main-session tool calls: ${calls}, ${where}`;
+	});
+}
+
+/**
+ * The count is a side channel (T-01, D-026 review round 1): its failure becomes one line in the log and never ends
+ * the night, whose end depends only on `status.json`.
+ */
+function countLinesOrFailure(run, log, offset) {
+	try {
+		return countLines(run, log, offset);
+	} catch (error) {
+		// The code, not the message: a file-system message holds the log's absolute path, a home path that must not
+		// reach plan.md when the day session copies the line (D-026 review round 2).
+		return [`night: run ${run}: tool calls not counted (${error.code ?? error.name})`];
+	}
 }
 
 /** Runs and retries until a run writes its reason (0), the retries are used up or the end comes (3). */
@@ -264,7 +307,8 @@ async function runNight({ root, dir, claude, until, end }, { now, sleep, out }) 
 		"--permission-mode",
 		"dontAsk",
 		"--output-format",
-		"json",
+		"stream-json",
+		"--verbose",
 	];
 	const shown = [claude, ...args].map((arg) => (/\s/.test(arg) ? JSON.stringify(arg) : arg)).join(" ");
 	const hint = `see the run logs in ${NIGHT}/ and plan.md → ## State`;
@@ -276,7 +320,11 @@ async function runNight({ root, dir, claude, until, end }, { now, sleep, out }) 
 		};
 		const started = now();
 		note(`night: run ${run} started ${stamp(started)}, until ${stamp(end)}: ${shown}`);
+		const offset = sizeOf(log);
 		const ending = await runClaude(claude, args, root, log);
+		for (const line of countLinesOrFailure(run, log, offset)) {
+			note(line);
+		}
 		const status = readReason(join(dir, "status.json"), started);
 		note(`night: run ${run} ${ending} at ${stamp(now())}; status.json: ${status.note}`);
 		if (status.reason !== undefined) {

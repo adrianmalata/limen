@@ -7,8 +7,8 @@ pierwszym planie, ticket R-088, kod wyjścia tylko we wspólnym opakowaniu i R-0
 ponownego uruchamiania testu, który raz padł), fakty o silniku,
 wymagania systemowe, 9 etapów z kosztem i efektem, 88 ticketów R-NNN, wdrożenie, pomiary, protokół subagentów
 i polecenia na allow-listę. Stan: etap 5 (przebudowa) w toku, etap planu 1; R-001, R-008, R-010 i R-011 zamknięte;
-18.11 w dzień Adrian odpowiedział na Q-4–Q-7, R-013 wrócił do planned, a sesja dzienna po R-001 zmienia night.mjs
-(D-026) i robi R-088; Adrian dopisuje regułę D-029 do definicji rebuild-implementer. -->
+18.11 w dzień Adrian odpowiedział na Q-4–Q-7, R-013 wrócił do planned, night.mjs ma zmianę D-026, a następny jest
+R-088; Adrian dopisuje regułę D-029 do definicji rebuild-implementer przed R-002. -->
 
 # Rebuild plan
 
@@ -1278,7 +1278,7 @@ Every stage:
 |---|---|
 | everyone: reading | `git status`, `git diff`, `git log`, `git show`, `git ls-files`, `git rev-parse`, `git cat-file`, `git grep`, `git for-each-ref`, `ls`, `cat`, `head`, `tail`, `wc`, `grep`, `find` (without `-delete` and `-exec`), `sed -n`, `sort`, `uniq`, `cmp`, `diff`, `file`, `command -v` |
 | reviewer: checks | `node --test <test file>`, `node bin/limen <args>` on a test fixture (never the full gate, D-015) |
-| main session, implementer: checks | `node adrian-rebuild/tools/gate.mjs`, `npm run check`, `npm run typecheck`, `npx tsc --noEmit`, `npx biome check --error-on-warnings <path>`, `node --test <test file>`, `node adrian-rebuild/tools/check.mjs`, `node --test adrian-rebuild/tools/test-changes-entries.mjs`, `node --test adrian-rebuild/tools/test-review-guard.mjs`, `node --test adrian-rebuild/tools/test-fails-before.mjs`, `node --test adrian-rebuild/tools/test-review-verdict.mjs`, `node --test adrian-rebuild/tools/test-night.mjs`, `sh adrian-rebuild/tools/test-pre-push.sh`, `node bin/limen <args>` on a test fixture |
+| main session, implementer: checks | `node adrian-rebuild/tools/gate.mjs`, `npm run check`, `npm run typecheck`, `npx tsc --noEmit`, `npx biome check --error-on-warnings <path>`, `node --test <test file>`, `node adrian-rebuild/tools/check.mjs`, `node --test adrian-rebuild/tools/test-changes-entries.mjs`, `node --test adrian-rebuild/tools/test-review-guard.mjs`, `node --test adrian-rebuild/tools/test-fails-before.mjs`, `node --test adrian-rebuild/tools/test-review-verdict.mjs`, `node --test adrian-rebuild/tools/test-night.mjs`, `node --test adrian-rebuild/tools/test-tool-calls.mjs`, `sh adrian-rebuild/tools/test-pre-push.sh`, `node bin/limen <args>` on a test fixture |
 | main session, implementer: changes | `npx biome format --write <path>`, `npm ci`; `git rm <path>`, `git rm -r <path>` and `git mv <old> <new>` on the paths a ticket's `## Change` names (the cuts of stage 1, R-042 and R-059 replace files, R-083 renames test files, and others); every deletion and move goes through them, so the list stays the same every night (D-014) |
 | main session only | `node adrian-rebuild/tools/review-guard.mjs snapshot --out <file>`, `snapshot --git --out <file>`, `diff --out <file>`, `compare <file>` and `compare --git <file> <ticket.md>`; `node adrian-rebuild/tools/fails-before.mjs`; `node adrian-rebuild/tools/review-verdict.mjs <reply> <ticket.md>`; `git restore --source=HEAD -- <path>` and `git apply --include=<path> <diff>` (after a void review); `git add <paths>` (`git add -A -- <paths>` for deletions and renames), `git commit`, `git push origin adrian-rebuild`; `sh adrian-rebuild/tools/install-hooks.sh` (after a move or a new clone); at the close of a stage `git tag <tag> <sha>` (local), the gate-time tool of R-011 (`node adrian-rebuild/tools/gate-time.mjs --out <file>`) and, from stage 4, `node adrian-rebuild/tools/context-size.mjs <ref>` |
 
@@ -1417,8 +1417,8 @@ Day session of 2026-11-18, continued (Adrian's answers to Q-4–Q-7 in the conve
   cut with hosted jobs (R-005) and `highlight` (R-006). For Adrian: the same rule in the definition of
   `rebuild-implementer`, which the sessions cannot write (the text is in the day session's reply).
 
-Next (by day): the `night.mjs` change of D-026 with its test and a review, then R-088 (pair). Then R-002–R-007 and
-R-009 in the order of IDs, R-013, R-012 (night or day); R-014 (pair) by day after them. B.2 runs on the seat before
+Next (by day): R-088 (pair). Then R-002–R-007 and R-009 in the order of IDs, R-013, R-012 (night or day), after
+Adrian adds D-029's rule to `.claude/agents/rebuild-implementer.md`; R-014 (pair) by day after them. B.2 runs on the seat before
 a0.1.0 is deployed (B.1 was done on 2026-11-17), after R-088.
 
 Active ticket: none.

@@ -3,7 +3,8 @@
    katalog roboczy, oba strumienie w logu, zwolnienie blokady, ponowienia po 30, 60 i 120 min, kod 3 po trzech
    ponowieniach, brak ponowienia o godzinie końca i po niej oraz po przespanym końcu, status sprzed przebiegu
    i nieznany powód, odmowy kodem 1, przejęcie porzuconej blokady (pid, czas startu, boot id) i kod 4 przy awarii
-   narzędzia. Stan: działa. */
+   narzędzia, a od D-026: stream-json, zmienną CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1 tylko w środowisku claude
+   (nie w ustawieniach repo), powód cannot-wait i liczbę wywołań narzędzi na commit w logu. Stan: działa. */
 // Usage: node --test adrian-rebuild/tools/test-night.mjs
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -26,21 +27,34 @@ const MINUTE = 60_000;
 const work = mkdtempSync(join(tmpdir(), "night-"));
 after(() => rmSync(work, { recursive: true, force: true }));
 
-// The fake claude records each call (arguments, working directory, whether stdin is /dev/null), prints to both
-// streams and acts out the next step of its plan: "done" and "bad" write a status, "none" ends like a window limit.
+// The fake claude records each call (arguments, working directory, whether stdin is /dev/null, the variable of D-026),
+// prints to both streams and acts out the next step of its plan: "done", "cannot-wait" and "bad" write a status,
+// "none" ends like a window limit; a step { status, lines } also prints its lines to stdout, as a stream-json run does,
+// and { unlinkLog: true } removes the run logs, so that the count after the run cannot read its log.
 const fakeScript = (dir) => `#!${process.execPath}
-import { appendFileSync, fstatSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, fstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 const dir = ${JSON.stringify(dir)};
 const calls = readFileSync(dir + "/calls.jsonl", "utf8").split("\\n").filter(Boolean).length;
-const step = JSON.parse(readFileSync(dir + "/plan.json", "utf8"))[calls] ?? "none";
+const planned = JSON.parse(readFileSync(dir + "/plan.json", "utf8"))[calls] ?? "none";
+const step = typeof planned === "string" ? planned : planned.status;
 const stdin = fstatSync(0);
 const stdinNull = stdin.isCharacterDevice() && stdin.rdev === statSync("/dev/null").rdev;
-appendFileSync(dir + "/calls.jsonl", JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), stdinNull }) + "\\n");
+const background = process.env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS ?? null;
+appendFileSync(dir + "/calls.jsonl", JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), stdinNull, background }) + "\\n");
+for (const line of planned.lines ?? []) {
+	process.stdout.write(line + "\\n");
+}
 process.stdout.write("fake stdout " + step + "\\n");
 process.stderr.write("fake stderr " + step + "\\n");
-if (step === "done" || step === "bad") {
+if (planned.unlinkLog) {
+	for (const name of readdirSync("adrian-rebuild/.night").filter((file) => /-run-\\d+\\.log$/.test(file))) {
+		rmSync("adrian-rebuild/.night/" + name);
+	}
+}
+const reasons = { done: "done", "cannot-wait": "cannot-wait", bad: "blocked" };
+if (step in reasons) {
 	mkdirSync("adrian-rebuild/.night", { recursive: true });
-	writeFileSync("adrian-rebuild/.night/status.json", JSON.stringify({ reason: step === "done" ? "done" : "blocked" }));
+	writeFileSync("adrian-rebuild/.night/status.json", JSON.stringify({ reason: reasons[step] }));
 }
 process.exitCode = step === "none" ? 1 : 0;
 `;
@@ -126,9 +140,45 @@ test("claude gets the first message in night mode, dontAsk and no --dangerously-
 		"--permission-mode",
 		"dontAsk",
 		"--output-format",
-		"json",
+		"stream-json",
+		"--verbose",
 	]);
 	assert.ok(!call.argv.includes("--dangerously-skip-permissions"));
+});
+
+test("D-026: claude runs with CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1, so every subagent runs in the foreground", async () => {
+	const setup = fixture(["done"]);
+	// A night session's own commands inherit the variable; set it otherwise here, so only the runner can make it 1.
+	const inherited = process.env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS;
+	process.env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS = "0";
+	try {
+		await run(setup, ["--until", "06:00"]);
+	} finally {
+		if (inherited === undefined) {
+			delete process.env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS;
+		} else {
+			process.env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS = inherited;
+		}
+	}
+	assert.equal(setup.calls()[0].background, "1");
+});
+
+test("D-026: the repository's Claude Code settings do not set the variable, so by day background work stays", () => {
+	const root = join(import.meta.dirname, "..", "..");
+	for (const file of [".claude/settings.local.json", ".claude/settings.json"]) {
+		const path = join(root, file);
+		if (existsSync(path)) {
+			assert.doesNotMatch(readFileSync(path, "utf8"), /CLAUDE_CODE_DISABLE_BACKGROUND_TASKS/, file);
+		}
+	}
+});
+
+test("D-026: the reason cannot-wait ends the night with exit 0 and no retry", async () => {
+	const setup = fixture(["cannot-wait"]);
+	const result = await run(setup, ["--until", "06:00"]);
+	assert.equal(result.code, 0, result.printed);
+	assert.deepEqual(result.sleeps, []);
+	assert.match(runLog(setup, result.start, 1), /the reason cannot-wait/);
 });
 
 test("claude runs with stdin on /dev/null, so claude -p does not wait for input", async () => {
@@ -150,6 +200,65 @@ test("the run log holds the runner's start line and both output streams of claud
 	assert.match(log, /night: run 1 started/);
 	assert.match(log, /fake stdout done/);
 	assert.match(log, /fake stderr done/);
+});
+
+/** stream-json lines of the main session: a tool call, and a Bash `git commit` with its successful result. */
+const toolUse = (id, name = "Read", input = {}) =>
+	JSON.stringify({
+		type: "assistant",
+		message: { content: [{ type: "tool_use", id, name, input }] },
+		parent_tool_use_id: null,
+	});
+const committed = (id, subject) => [
+	toolUse(id, "Bash", { command: `git commit -q -m "${subject}"` }),
+	JSON.stringify({
+		type: "user",
+		message: { content: [{ type: "tool_result", tool_use_id: id, content: "" }] },
+		parent_tool_use_id: null,
+	}),
+];
+
+test("D-026: after a run the log gets the main session's tool calls per commit, and the same lines are printed", async () => {
+	const lines = [toolUse("t1"), ...committed("t2", "R-001: a"), toolUse("t3"), ...committed("t4", "R-002: b")];
+	const setup = fixture([{ status: "done", lines: [...lines, toolUse("t5")] }]);
+	const result = await run(setup, ["--until", "06:00"]);
+	const counts = [
+		'night: run 1: main-session tool calls: 2, up to the commit "R-001: a"',
+		'night: run 1: main-session tool calls: 2, up to the commit "R-002: b"',
+		"night: run 1: main-session tool calls: 1, after the last commit",
+	];
+	const log = runLog(setup, result.start, 1);
+	for (const line of counts) {
+		assert.ok(log.includes(`${line}\n`), `${line}\n--- log ---\n${log}`);
+		assert.ok(result.printed.includes(line), line);
+	}
+});
+
+test("D-026: the count reads only what this run appended to a log that an earlier night of the same day began", async () => {
+	const setup = fixture([{ status: "done", lines: [toolUse("new")] }]);
+	const start = evening();
+	mkdirSync(setup.night, { recursive: true });
+	const earlier = ["e1", "e2", "e3"].map((id) => toolUse(id)).join("\n");
+	writeFileSync(join(setup.night, `${day(start)}-run-1.log`), `${earlier}\n`);
+	const result = await run(setup, ["--until", "06:00"], clock(start));
+	assert.match(runLog(setup, result.start, 1), /night: run 1: main-session tool calls: 1, no commit in this run\n/);
+});
+
+test("D-026: a count that fails is written into the log, and the night still ends by its status", async () => {
+	const setup = fixture([{ status: "done", unlinkLog: true }]);
+	const result = await run(setup, ["--until", "06:00"]);
+	assert.equal(result.code, 0, result.printed);
+	assert.match(runLog(setup, result.start, 1), /night: run 1: tool calls not counted \(ENOENT\)\n/);
+	assert.match(runLog(setup, result.start, 1), /the session ended with the reason done/);
+});
+
+test("D-026: the line of a failed count names the error's code, not a path, so a copy into plan.md holds no home path", async () => {
+	const setup = fixture([{ status: "done", unlinkLog: true }]);
+	const result = await run(setup, ["--until", "06:00"]);
+	const failed = runLog(setup, result.start, 1)
+		.split("\n")
+		.find((line) => line.includes("tool calls not counted"));
+	assert.ok(failed !== undefined && !failed.includes(setup.root), failed);
 });
 
 test("the lock is released when the night ends, with or without a reason", async () => {
