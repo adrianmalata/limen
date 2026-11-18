@@ -1336,9 +1336,12 @@ implementer of R-003, when WSL stopped the distro. `tmux` does not keep WSL aliv
 (`instanceIdleTimeout`, default 15000) and the VM about 60 s after the distro (the previous boot's journal: "System is
 powering down" with no command before it; Windows did not restart). At Adrian's request the main session wrote
 `%UserProfile%\.wslconfig` with `[general] instanceIdleTimeout=-1` and `[wsl2] vmIdleTimeout=-1`; it applies from the
-next WSL start, and Adrian declined a restart and keeps a WSL window open instead. A session Adrian started in the repository took R-003 over at step 3.
-The next handover goes as D-033 says, as `limen-rebuild-3`, once a WSL window is open or WSL started after the
-`.wslconfig` was written (`uptime -s`). Read your context share at every safe point with `cat
+next WSL start, and Adrian declined a restart and keeps a WSL window open instead. A session Adrian started in the
+repository took R-003 over at step 3, closed R-003 and R-004, and handed over at 31 % context to `limen-rebuild-3`,
+started in `tmux` in remote-control mode with the first message of the rebuild prompt. Your first act: send Adrian a
+push notification (PushNotification, one line in Polish) that session `limen-rebuild-3` takes over the rebuild at
+R-005; then go on with `Next`. The next handover is `limen-rebuild-4`, once a WSL window is open or WSL started after
+the `.wslconfig` was written (`uptime -s`). Read your context share at every safe point with `cat
 ~/.claude/context/<session id>.json` (the session id is the UUID in your scratchpad path; `context_used_percentage`,
 `five_hour_used_percentage`, `seven_day_used_percentage`); at 30–50 % hand over, at 50 % at once (D-033, and the
 project memory note on the handover).
