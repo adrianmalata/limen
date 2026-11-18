@@ -7,7 +7,8 @@ niezacommitowanych zmian, odpowiedzi na nocne pytania Q-1–Q-3: R-001 po R-010,
 koordynatora, pole ids w końcowej linii JSON, start nocy przez sesję na prośbę Adriana), fakty o silniku z pomiarem
 B.1 z seata, wymagania systemowe, 9 etapów z kosztem i efektem, 87 ticketów R-NNN, wdrożenie, pomiary, protokół
 subagentów i polecenia na allow-listę. Stan: etap 5 (przebudowa) w toku, etap planu 1; noc 17.11: R-008 i R-010
-zamknięte; 18.11 odpowiedzi D-020–D-023 odblokowały R-001, R-011 i R-013 na kolejną noc. -->
+zamknięte; noc 18.11: R-011 zamknięty, R-001 i R-013 zablokowane na pytaniach Q-4 i Q-7, pytania Q-5 i Q-6 bez
+blokady; noc skończyła się o 02:10 powodem no-ticket. -->
 
 # Rebuild plan
 
@@ -632,7 +633,7 @@ Columns:
 | R-010 | The author's working history leaves the tree; Limen's own test-line cap goes | 1 | T-39, T-11, §6 | — | M | delegated | night | — | — | — | done |
 | R-011 | The same-task runner and the gate-time tool | 1 | H-21, T-11, T-41, §2, D-021 | — | L | delegated | night | — | pi | B.2 | done |
 | R-012 | A root deployment script for a pinned SHA | 1 | D-008, D-010, §7 | R-002 | M | delegated | night | — | — | 1.0 | planned |
-| R-013 | One error type, exit codes as failure classes, a final JSON line | 1 | T-01, T-02, D-022 | — | L | delegated | night | yes | — | — | planned |
+| R-013 | One error type, exit codes as failure classes, a final JSON line | 1 | T-01, T-02, D-022 | — | L | delegated | night | yes | — | — | blocked |
 | R-014 | One command registry, a shared parser and generated help | 1 | T-19, T-18, T-26, T-37 | R-002, R-003, R-004, R-005, R-006, R-007, R-009, R-013 | L | pair | day-after | yes | — | — | planned |
 | R-015 | One configuration reader; settings come only from owner files | 2 | T-03 | R-014 | M | delegated | night | yes | — | — | planned |
 | R-016 | One boundary parsing module with validators; the cast ratchet | 2 | T-27 | R-013 | M | delegated | night | — | — | — | planned |
@@ -1204,9 +1205,9 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-18 (day session after the night run of 2026-11-17), rebuild stage 5 in progress at plan stage 1:
-R-008 and R-010 `done`; Adrian's answers to Q-1–Q-3 and the R-008 point are D-020–D-023, so R-001, R-011 and R-013 are
-`planned` again.
+Updated 2026-11-18, 02:10 (night run until 07:00, ended with `no-ticket`), rebuild stage 5 in progress at plan
+stage 1: R-008, R-010 and R-011 `done`; R-001 and R-013 `blocked` on the night questions Q-4 and Q-7; Q-5 and Q-6 block
+no ticket.
 
 Done:
 - Rebuild stages 0–3 with gates 0, 2 and 3 (D-001–D-007); rebuild stage 1 has no gate.
@@ -1277,13 +1278,26 @@ Night run of 2026-11-18 (until 07:00):
   `.claude/settings.local.json` before the close of stage 1; the main session's choices in R-011 → `ticket.md` →
   `## Decisions` (the tools in `tools/`, the declared protocol, every owner turn answered and counted) are open to
   change at gate 5.1.
+- Q-5 (no ticket blocked): a resumed subagent works in the background, so the main session kept its turn open by
+  running `npx tsc --noEmit` about 150 times; two `grep` calls outside the repository, meant as a longer wait, were
+  denied by the permissions and not worked around. Recommended: a `tools/wait.mjs <seconds>` on the list.
+- Q-6 (no ticket blocked): whether R-011's round-3 notes get a fix ticket before B.2 (recommended: yes, S, `night`).
+- R-013 `blocked`, Q-7: four commands fail by setting `process.exitCode = 1` and returning (`ticket check`, `picture
+  build --strict`, `webhook test`, `github poll`), which the ticket did not list; making them throw breaks item 7's
+  ratchet arithmetic. Recommended: a plain `Error` at the four sites and the ratchet "at most the parent's count".
+  Its `ticket.md` is written (the main session's reading of `code`: an identifier on failure, `0` on success, for
+  Adrian to confirm at gate 5.1); nothing is implemented.
+- Ended at 02:10 with `no-ticket` (`.night/status.json`): every other stage-1 `night` ticket depends on R-001, and
+  R-014 is `pair`. Gate 5.1 is not due: stage 1 has 10 tickets left.
 
-Next (night run): R-013. After Q-4 (by day): R-001, R-002–R-007 and R-009 in the order of IDs, R-012;
-R-014 (pair) by day after them. B.2 runs on the seat before a0.1.0 is deployed (B.1 was done on 2026-11-17).
+Next (by day): Adrian answers Q-4–Q-7 in `adrian-rebuild/.night/questions.md`; the day session moves the answers into
+`ticket.md` → `## Decisions` (and `plan.md` where a row changes), then resumes R-001 and R-013. After R-001: R-002–R-007
+and R-009 in the order of IDs, R-012; R-014 (pair) by day after them. B.2 runs on the seat before a0.1.0 is deployed
+(B.1 was done on 2026-11-17), after Q-6.
 
 Active ticket: none.
 
-Open questions for Adrian: none.
+Open questions for Adrian: Q-4–Q-7 in `adrian-rebuild/.night/questions.md`.
 
 Notes for the next session:
 - Start Claude Code in the repository root, so that it loads `.claude/agents/`.
