@@ -354,6 +354,11 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
     `rebuild-implementer`; the rebuild sessions cannot write `.claude/**`, so Adrian adds it there.
   - Check: the interleaving test (fails before, passes after); a registry test with 41 concurrent registrations and a
     dead lock owner → 41 entries; `check.mjs`: A-087 has every field and a ticket.
+- 2026-11-18 D-030 (Adrian; how the day session talks to him, amends the rebuild prompt's use of `AskUserQuestion`):
+  (1) a message that needs Adrian's action carries everything the action needs (the exact text, the file and the place
+  in it, the command), never a pointer to an earlier message; (2) a decision is asked in a plain message (one matter,
+  the options, the recommendation with its reason, what counts as a full answer), never through `AskUserQuestion`.
+  Night runs keep their questions in `.night/questions.md`. Check: none.
 
 ### Gate 2 §2, copied
 
