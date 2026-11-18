@@ -1397,7 +1397,10 @@ Day session of 2026-11-18, continued (Adrian's answers to Q-4–Q-7 in the conve
   protocol step 2 runs every grep and scan criterion at HEAD. R-001 `planned`.
 - Q-5 → D-026: subagents only in the foreground at night (`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` from
   `night.mjs`), a fresh implementer per night fix round, the reason `cannot-wait`, tool calls per commit counted by
-  `night.mjs`; the protocol in `## Agents` is amended. The change of `night.mjs` itself is not made yet.
+  `night.mjs`; the protocol in `## Agents` is amended. `night.mjs` is changed (commit `6c2cce7`), with the new module
+  `tools/tool-calls.mjs` (the count, a side channel whose failure is a line in the log) and their tests
+  (`evidence/night-runner-d026/`: review FAIL in round 1, PASS in rounds 2 and 3). Unmeasured until the first night
+  with it: that the real `stream-json` has the fields the count reads, and that no subagent runs in the background.
 - Q-6 → D-027: R-088 (`pair`, `day-after`, S) fixes R-011's round-3 notes before B.2.
 - Q-7 → D-028 and `taste.md` → T-02: only the wrapper sets the exit code; R-013's `ticket.md` is rewritten from it,
   and R-013 depends on the cuts R-002–R-007 and R-009. R-014 also cuts `group wait`. R-013 `planned`.
