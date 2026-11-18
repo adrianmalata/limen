@@ -368,6 +368,16 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
 - 2026-11-18 D-032 (Adrian): editor swap files (`.*.swp`) are ignored by `.gitignore`, so an open editor in
   `adrian-rebuild/` no longer fails `check.mjs` (which reads untracked files with `--exclude-standard`) or the review
   guard. Added in R-002's commit. Check: none.
+- 2026-11-18 D-033 (Adrian; the handover of a day session): at a safe point (a ticket committed and pushed, no
+  subagent running, a clean tree, `## State` current) and with the context window 30–50 % used, the day session hands
+  over to a new interactive session in remote-control mode started with the first message of the rebuild prompt, and
+  ends; 50 % is a hard limit, at which it hands over even mid-ticket (after a running subagent returns, with the
+  active ticket and its step in `## State`). The new session's first act is a push notification to Adrian that it
+  takes over. Facts behind it (the Claude Code docs, 2026-11-18): the model cannot read its context share by itself,
+  so Adrian's status line script writes it to a file outside the repository that the session reads; a remote-control
+  session needs a terminal, so it is started in `tmux`; a push reaches the phone only with Remote Control connected
+  and "Push when Claude decides" on; the old session ends through EndConversation only when Adrian confirms at that
+  moment, otherwise he closes it. Check: none.
 
 ### Gate 2 §2, copied
 
@@ -1448,8 +1458,9 @@ Day session of 2026-11-18, continued (Adrian's answers to Q-4–Q-7 in the conve
   for `limen rule` (`src/integrations/coordinator-registration.ts`) until R-034; `src/old-names.ts` is the table of
   old command names (T-18), to which every cut ticket that removes a command adds its entry; `LEFTOVERS` holds four
   paths. Size L (was M). Review PASS in rounds 1 and 2; gate 92/92. The refusal wording is for Adrian at gate 5.1.
-- For Adrian on the seat (not in tracked steps, no seat detail here): the registry check of A-087 (the command is in
-  the day session's reply), and the seat-level files of the removed webhook docs, if they exist.
+- Seat checks by Adrian (2026-11-18): the seat registry holds both projects, both have their `.limen/`, and no
+  registry lock is held (A-087 has caused no loss there); the seat-level files of the removed webhook docs do not
+  apply to the seat.
 - The main session's estimate for a0.1.0 (2026-11-18): about 19–24 hours of work for the ten tickets left (now nine)
   and the close, so 2026-11-19 late or 2026-11-20. D-012's date of 2026-11-21 for a0.5.0 cannot hold (stages 2–5 are
   47 tickets); Adrian takes that decision again on that date (D-012).
