@@ -2,10 +2,8 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { readBoard } from "./board.ts";
 import { readDataset } from "./dataset.ts";
-import { assembleHtml, readViewer } from "./html.ts";
 import { buildModel, type PictureModel } from "./picture-model.ts";
 import { readTickets } from "./tickets.ts";
 
@@ -25,27 +23,9 @@ export async function readPicture(dir: string, root?: string): Promise<PictureMo
 	});
 }
 
-/** The page and its model. `live` is the event stream path that `limen picture serve` gives the page. */
-export async function pictureHtml(
-	dir: string,
-	root?: string,
-	tip?: string,
-	live?: string,
-): Promise<{ model: PictureModel; html: string }> {
+/** The model of the map in `dir` with the tickets and board of `root`; written to `json` only when that is given. */
+export async function buildPicture(dir: string, json: string | undefined, root: string): Promise<PictureModel> {
 	const model = await readPicture(dir, root);
-	const viewer = await readViewer(fileURLToPath(new URL("../../picture/viewer/", import.meta.url)));
-	return { model, html: assembleHtml(model, viewer, tip, live) };
-}
-
-export async function buildPicture(
-	dir: string,
-	out: string,
-	json?: string,
-	tip?: string,
-	root?: string,
-): Promise<PictureModel> {
-	const { model, html } = await pictureHtml(dir, root, tip);
-	await writeAtomic(out, html);
 	if (json !== undefined) {
 		await writeAtomic(json, `${JSON.stringify(model, null, 2)}\n`);
 	}

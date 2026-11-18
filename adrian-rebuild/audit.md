@@ -3,7 +3,9 @@ względem rubryki (etap 2) oraz decyzje Adriana z bramki 2 (pole Decision w każ
 decisions z faktami z seata, decyzjami przekrojowymi G1–G4, S, S1+ i rozstrzygnięciami pytań). Twierdzenia bez dowodu
 trafiają do sekcji To verify. Stan: bramka 2 zamknięta w rewizji 4 decyzji Adriana (86 znalezisk, w tym A-086 o promptach
 ról, które nie docierają przez bridge); 18.11 doszło A-087 (znikające rejestracje seata przy przejęciu martwej blokady,
-decyzja fix w R-019); razem fix 77, rejected 9, rejected / fix 1; pole Final dojdzie w etapie 6. -->
+decyzja fix w R-019) i A-088 (helper testów `waitJob` wraca przed końcem wrappera joba; luka w kodzie, nie zaobserwowana, decyzja fix
+w R-007); razem
+fix 78, rejected 9, rejected / fix 1; pole Final dojdzie w etapie 6. -->
 
 # Audit of Limen at `rebuild-base`
 
@@ -458,6 +460,7 @@ intents: `evidence/audit-pass2/history.md`.
 | A-085 | low | cost | n/a | Duplicated text across templates | K-27 | known | fix |
 | A-086 | critical | reliability | non-compliant | Limen's role prompts and coordinator manual never reach the model under the Claude bridge | none (gate 2 §7 B) | new | fix |
 | A-087 | high | reliability | non-compliant | Seat registrations vanish when processes take over an abandoned registry lock together | none (rebuild stage 5) | new | fix |
+| A-088 | low | cross-cutting | non-compliant | The test helper `waitJob` returns before the job's wrapper has exited, so a test that acts on the finished job races it | none (rebuild stage 5) | new | fix |
 
 ### A-001 Prune deletes the uncommitted work of every finished job, automatically
 - Area: reliability
@@ -1724,6 +1727,21 @@ intents: `evidence/audit-pass2/history.md`.
 - History: Related only: A-017 (locks that wait forever on a reused pid) and A-018 (a stale `poll.lock`) name other locks; no source names a lost registration.
 - Note: Added in rebuild stage 5 (2026-11-18, `plan.md` D-029). The failure was seen once; the main session's protocol no longer runs a failed test again to get a green gate (D-029).
 - Decision: fix — High: a silent loss of a seat registry entry (the project drops out of `seat sweep` and the alerts), z. 1, z. 14, related to A-017 and A-018. The takeover of a dead lock renames it to a unique name (exactly one process wins), then the new lock is created with `wx`; the registry is written as read, change and write under the lock through `atomicWrite` (A-022). The fix belongs to the ticket of the shared lock module (A-018), R-019. A deterministic test: an injection point in the lock module between "found dead" and "taken over"; the test forces the interleaving of two processes and fails before the fix every time; the current test stays. Check: the interleaving test (fails before, passes after); a registry test with 41 concurrent registrations and a dead lock owner → 41 entries; `check.mjs`: A-087 has every field and a ticket (Adrian, 2026-11-18).
+
+### A-088 The test helper `waitJob` returns before the job's wrapper has exited, so a test that acts on the finished job races it
+- Area: cross-cutting
+- Severity: low
+- Location: `test/plant.ts:151`, `src/job/record.ts:58`, `src/job/record.ts:71`, `src/commands/keeper.ts:168`, `src/runtime/reap.ts:40`
+- Evidence: in the code: `finalizeJob` writes the terminal `state` (`src/job/record.ts:58`) before it removes `pid` (`:71`), and `ownerAlive` holds while `pid` names the live wrapper (`src/runtime/reap.ts:40`), so the keeper refuses a job in that window (`src/commands/keeper.ts:168`); since R-006, `waitJob` returns as soon as `state` is terminal, by a child process that watches the file, so a caller can act inside the window. No run has hit it. The failure first cited here was not this race (corrected 2026-11-18, D-034): the implementer of R-007 ran `test/s6-keeper.test.ts` directly, outside the gate's environment, and the laptop's git 2.34.1 lacks `git worktree list --porcelain -z` (`src/project/git.ts`, `listWorktrees`), which only the gate's shim supplies (D-001); the second `limen keeper` failed with `unknown switch 'z'`, and it fails so every time outside the gate, at `a5767dd` too.
+- Rule: z. 17, z. 31
+- Verdict: non-compliant
+- Direction: `waitJob` waits, with a bound, until the job's `state` is terminal and its `pid` is gone, the file `ownerAlive` keys on, so every caller acts on a job whose wrapper has exited; a deterministic test of the helper. Not `born`: `recordBorn` (`src/job/record.ts:120`) reads `state` and then writes `born`, so a job that ends in between keeps a `born` file, and a wait for it would hang until its bound.
+- Scenario: n/a (medium).
+- Candidates: none (found in rebuild stage 5, R-007, 2026-11-18)
+- Status: new
+- History: Related only: R-006 replaced `limen wait` in `waitJob` with a watch of the `state` file; the old command returned at the same point but started a whole process first. A-087 is the one test failure seen in rebuild stage 5.
+- Note: Added in rebuild stage 5 (2026-11-18, `plan.md` D-034) on a failure that turned out to come from the environment; kept, on Adrian's second answer, because the window is in the code.
+- Decision: fix — Low: a window in the code that no run has hit; a test acting in it would fail the gate (z. 17, z. 31); the product's refusal is right, the helper is wrong. The fix goes into R-007 as an explicit addition to its scope: `waitJob` (`test/plant.ts`) waits, with a bound, for a terminal `state` and for `pid` to be gone, and a test of the helper fails before the fix every time. Check: that test (fails before, passes after); R-007's gate (Adrian, 2026-11-18, corrected the same day).
 
 ## Pass 2: hypotheses from the owner's analysis
 

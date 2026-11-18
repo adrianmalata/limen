@@ -11,7 +11,7 @@ import { memberPacket, routeFlags } from "../job/group-packet.ts";
 import { makeJobId, parseDuration, SESSION_ID } from "../job/job.ts";
 import { publishJob } from "../job/publication.ts";
 import { atomicWrite, finalizeJob } from "../job/record.ts";
-import { refuseRemovedFlags, removedFlag } from "../old-names.ts";
+import { refuseRemovedFlags, removedFlag, removedRole } from "../old-names.ts";
 import {
 	addBranchWorktree,
 	addDetachedWorktree,
@@ -62,6 +62,10 @@ type SpawnOptions = {
 	extensions: string[];
 };
 const PACKAGE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
+/**
+ * The project's own `.agents/limen/<role>.md`, else the package's template. With neither, a role a cut removed refuses
+ * with its line from `src/old-names.ts`; spawn and continue call this before the job id and the job folder.
+ */
 export function resolvePreamble(root: string, role: string): string {
 	const places = [`${root}/.agents/limen/${role}.md`, resolve(PACKAGE_ROOT, "templates", `${role}.md`)];
 	for (const path of places) {
@@ -70,7 +74,8 @@ export function resolvePreamble(root: string, role: string): string {
 		}
 	}
 	throw new Error(
-		`no preamble for role ${role} in ${places.join(" or ")}; write .agents/limen/${role}.md to add the role`,
+		removedRole(role) ??
+			`no preamble for role ${role} in ${places.join(" or ")}; write .agents/limen/${role}.md to add the role`,
 	);
 }
 type WorktreePlan =

@@ -13,11 +13,14 @@ export const LIMEN = fileURLToPath(new URL("../bin/limen", import.meta.url));
 const FAKE_ENGINE = fileURLToPath(new URL("./fake-engine.mjs", import.meta.url));
 /**
  * The child `waitJob` runs, so its caller stays synchronous. It watches the job folder (argument 1) and prints the
- * job's state once it is one of the terminal states (argument 2, JSON). A missing state, or one that is neither
- * running nor terminal, fails it. The one-second re-check closes the gap of a watch that starts late, as in `until`.
+ * job's state once it is one of the terminal states (argument 2, JSON) and the wrapper has removed `pid`: the wrapper
+ * writes the state first, and while `pid` names its live process a command such as `limen keeper` refuses the job
+ * (A-088). It does not wait for `born`: `recordBorn` reads the state and then writes that file, so a job that ends in
+ * between keeps it for good. A missing state, or one that is neither running nor terminal, fails it. The one-second re-check closes the
+ * gap of a watch that starts late, as in `until`.
  */
 const WAITER = `
-import { readFileSync, watch } from "node:fs";
+import { existsSync, readFileSync, watch } from "node:fs";
 import { join } from "node:path";
 const [dir, terminal] = [process.argv[1], JSON.parse(process.argv[2])];
 let done = false;
@@ -28,13 +31,14 @@ function settle() {
 		return;
 	}
 	const state = readFileSync(join(dir, "state"), "utf8").trim();
-	if (state === "running") {
+	const ended = terminal.includes(state);
+	if (state === "running" || (ended && existsSync(join(dir, "pid")))) {
 		return;
 	}
 	done = true;
 	watcher.close();
 	clearInterval(recheck);
-	if (terminal.includes(state)) {
+	if (ended) {
 		process.stdout.write(state);
 		return;
 	}
@@ -43,6 +47,8 @@ function settle() {
 }
 settle();
 `;
+/** The bound of one `waitJob`: below the suite's 180-second test timeout, which cannot fire while `spawnSync` blocks. */
+const WAIT_MS = 120_000;
 
 export type Plant = {
 	readonly parent: string;
@@ -180,9 +186,11 @@ export function spawnJob(plant: Plant, task: string, flags: readonly string[] = 
 }
 
 /**
- * Blocks until the job's `state` is terminal and returns it. The job folder is under `options.cwd` when given, as for
- * a job of a workspace or of another checkout, otherwise under the plant root; `options.env` plays no part. A child
- * node process watches the folder, so the caller needs no `await` and nothing sleeps.
+ * Blocks until the job's `state` is terminal and its wrapper removed `pid`, then returns the state, so the caller acts
+ * on a job no process owns any more; a leftover `born` does not hold it (see `WAITER`). The job folder is under
+ * `options.cwd` when given, as for a job of a workspace or of another checkout, otherwise under the plant root;
+ * `options.env` plays no part. A child node process watches the folder, so the caller needs no `await` and nothing
+ * sleeps; the wait ends with an error after `WAIT_MS`.
  */
 export function waitJob(plant: Plant, id: string, options: RunOptions = {}): string {
 	const dir = join(options.cwd ?? plant.root, ".limen", "jobs", id);
@@ -190,9 +198,10 @@ export function waitJob(plant: Plant, id: string, options: RunOptions = {}): str
 	const run = spawnSync(process.execPath, ["--input-type=module", "--eval", WAITER, dir, terminal], {
 		encoding: "utf8",
 		env: {},
+		timeout: WAIT_MS,
 	});
 	if (run.error) {
-		throw run.error;
+		throw new Error(`waiting for job ${id} failed within ${WAIT_MS} ms: ${run.error.message}`, { cause: run.error });
 	}
 	if (run.status !== 0) {
 		throw new Error(`waiting for job ${id} failed: ${run.stderr}`);

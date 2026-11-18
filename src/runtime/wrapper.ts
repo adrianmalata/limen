@@ -28,7 +28,8 @@ import { createStreamParser, type StreamEvent } from "./stream.ts";
 import { readWorkerExtensions } from "./worker-extensions.ts";
 
 const STOP_GRACE_MS = 5_000;
-// Coordinators and the picture watch the job folder; a streamed delta must not rewrite the same word many times a second.
+// Coordinators and `limen picture serve` read the job folder; a streamed delta must not rewrite the same word many
+// times a second.
 const ACTIVITY_REFRESH_MS = 1_000;
 const HOOK = fileURLToPath(new URL("../../hook", import.meta.url));
 // A job is one short turn. These bounds stop a silent runaway from burning a session; they are not a review gate.

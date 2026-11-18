@@ -70,14 +70,6 @@ A completed job does not prove that a feature is finished or that its branch is 
 Workers approve tools automatically and have the same access as your account.
 A Git worktree is not a security sandbox. Read the [security notes](SECURITY.md).
 
-## Picture
-
-After `limen init`, ask the agent:
-
-> Create a Picture map from the code and specs, and open it in my browser.
-
-See the [Picture guide](docs/picture.md) for navigation and updates.
-
 ## Task-note experiment (started 2026-10-22)
 
 The experiment started on 2026-10-22 at 12:17 CEST (UTC+2), when this change landed on `main`. Jobs that started before that time have no note. On 2026-10-23 the note became the plan below (F950). Notes from before that change use the earlier 🔴 / 🟡 / ⚪ marker lines.

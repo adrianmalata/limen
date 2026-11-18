@@ -77,6 +77,52 @@ test("limen status lists a .limen/planning-source left by the cut private planni
 	assert.deepEqual(lines.slice(at, at + 2), [HEADER, "  .limen/planning-source (private planning (R-006))"]);
 });
 
+test("limen status lists the files the cut Picture viewer, map jobs and map watch left, the marked watch hook included", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	// What `picture build`, `picture tick` and `picture watch on` wrote before the cut; the hook carries the watch's marker.
+	writeFileSync(join(p.root, ".limen/picture/map.html"), "<!doctype html>\n");
+	writeFileSync(join(p.root, ".limen/picture/job"), "2026-11-18-map-1a2b3c4d\n");
+	writeFileSync(join(p.root, ".limen/picture/tick.lock"), "4242\n");
+	writeFileSync(join(p.root, ".limen/picture-watch.log"), "2026-11-18T10:00:00Z refs/heads/main moved to 0123abc\n");
+	mkdirSync(join(p.root, ".git/hooks"), { recursive: true });
+	writeFileSync(
+		join(p.root, ".git/hooks/reference-transaction"),
+		'#!/bin/sh\n# limen picture watch {"branch":"main"}\nexit 0\n',
+		{ mode: 0o755 },
+	);
+	const run = limen(p, ["status"]);
+	assert.equal(run.status, 0, run.stderr);
+	const header = "Leftover files (5); check them, then run limen init --drop-leftovers:";
+	const lines = run.stdout.split("\n");
+	assert.ok(lines.includes(header), run.stdout);
+	const at = lines.indexOf(header);
+	assert.deepEqual(lines.slice(at, at + 6), [
+		header,
+		"  .git/hooks/reference-transaction (the map watch (R-007))",
+		"  .limen/picture-watch.log (the map jobs (R-007))",
+		"  .limen/picture/job (the map jobs (R-007))",
+		"  .limen/picture/map.html (the Picture viewer (R-007))",
+		"  .limen/picture/tick.lock (the map jobs (R-007))",
+	]);
+});
+
+test("limen status does not list a reference-transaction hook without the map watch's marker", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	// The project's own hook: Limen did not write it, so it is never listed or dropped.
+	mkdirSync(join(p.root, ".git/hooks"), { recursive: true });
+	writeFileSync(join(p.root, ".git/hooks/reference-transaction"), "#!/bin/sh\n# the project's own hook\nexit 0\n", {
+		mode: 0o755,
+	});
+	const run = limen(p, ["status"]);
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(
+		run.stdout.split("\n").filter((line) => line.startsWith("Leftover files")),
+		[],
+	);
+});
+
 test("limen status prints no Leftover files section when the project has no leftover", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());

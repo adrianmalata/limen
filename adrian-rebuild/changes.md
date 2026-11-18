@@ -1,7 +1,7 @@
 <!-- PL: Dziennik zmian przebudowy Limena: jeden wpis na zamknięty ticket R-NNN, tylko dopisywany, najnowszy na dole.
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
-R-003, R-004. -->
+R-003, R-004, R-005, R-006, R-007. -->
 
 # Changes
 
@@ -100,3 +100,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-01 at the close of stage 1)
 - Commit: R-006
 - Rollback: git revert $(git log --format=%H --grep='^R-006:' adrian-rebuild --) (the leftover file stays until `limen init --drop-leftovers`)
+
+## 2026-11-19 R-007 Cut the Picture viewer and the map jobs
+- What: deleted `picture/viewer/*`, `src/picture/html.ts`, `src/project/picture-tick.ts`, `src/project/picture-watch.ts`, `templates/picture.md` and its history; `src/picture/picture-build.ts` (no page; the model only with `--json`), `src/picture/picture-serve.ts` (only `/activity.json` and `/events`, no map), `src/commands/picture.ts` (build and serve; the jobs of the primary checkout); `src/old-names.ts` (`picture tick`, `picture watch`, `picture build --out`, `picture serve --dir`, the new `OLD_ROLES` with `removedRole`), `src/commands/spawn.ts` (`resolvePreamble` refuses a removed role); `src/project/leftovers.ts` (entries with a `marker`, the watch hook under `.git/hooks/`, four `.limen` paths); `src/main.ts`, `src/runtime/wrapper.ts`, `package.json`, `biome.jsonc`; templates and their history, `templates/picture/CONTRACT.md`, `README.md`, `docs/`; `test/plant.ts` (`waitJob` waits for `pid` to go, A-088) and tests
+- Why: G1.4, §6, A-048, A-088, D-034
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (127/127: 108 − 1 removed with the cut + 20 new); `node adrian-rebuild/tools/fails-before.mjs` → exit 0; the ticket's `git grep -q -i -E 'pictureTick|pictureWatch|…|tick\.lock' -- …` → exit 1 (no match)
+- Measurement: unmeasured (plan.md → Measurement: M-01 at the close of stage 1)
+- Commit: R-007
+- Rollback: git revert $(git log --format=%H --grep='^R-007:' adrian-rebuild --) (the leftover files stay until `limen init --drop-leftovers`)

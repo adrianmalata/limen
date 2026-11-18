@@ -1,9 +1,10 @@
-// The table of old names: a removed command, engine value or flag refuses with one line that names its replacement.
+// The table of old names: a removed command, engine value, flag or role refuses with one line that names its replacement.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -35,6 +36,20 @@ const R006_REFUSALS = {
 	"group status --json":
 		"limen group status --json was removed with the JSON group status (R-006); limen group status shows the run",
 };
+// Each name R-007 removed with its refusal, written out so that a change of wording fails here.
+const R007_REFUSALS = {
+	"picture tick":
+		"limen picture tick was removed with the map jobs (R-007); no job refreshes the map; limen picture build checks it",
+	"picture watch":
+		"limen picture watch was removed with the map watch (R-007); limen status lists a leftover watch hook and limen init --drop-leftovers removes it",
+	"picture build --out":
+		"limen picture build --out was removed with the Picture viewer (R-007); picture build writes no page; --json F writes the model",
+	"picture serve --dir":
+		"limen picture serve --dir was removed with the Picture viewer (R-007); picture serve serves the jobs of the project it runs in, at /activity.json and /events",
+	"role picture": "role picture was removed with the map jobs (R-007); no role maintains the map",
+};
+/** The four route flags `picture tick` and `picture watch on` took. */
+const ROUTE = ["--engine", "pi", "--provider", "p", "--model", "m", "--thinking", "t"];
 /** A job id that names no job: a refusal reads no job record, so the id need not exist. */
 const NO_JOB = "2026-11-18-none-1a2b3c4d";
 
@@ -232,6 +247,98 @@ test("limen group status --json refuses with one removal line before a group id 
 		assert.notEqual(run.status, 0, args.join(" "));
 		assert.equal(run.stderr, `${R006_REFUSALS["group status --json"]}\n`, args.join(" "));
 	}
+	assert.deepEqual(snapshot(join(p.root, ".limen")), before);
+});
+
+test("limen picture tick and limen picture watch refuse with one removal line, whatever words follow, and leave .limen/ and .git/hooks/ unchanged", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	// `picture watch on` wrote its hook here; a Git without hook templates makes no such folder at init.
+	mkdirSync(join(p.root, ".git/hooks"), { recursive: true });
+	const state = () => [snapshot(join(p.root, ".limen")), snapshot(join(p.root, ".git/hooks"))];
+	const before = state();
+	const commands = [
+		["picture tick", ["picture", "tick", ...ROUTE]],
+		["picture watch", ["picture", "watch"]],
+		["picture watch", ["picture", "watch", "on", ...ROUTE]],
+		["picture watch", ["picture", "watch", "off"]],
+	] as const;
+	const refused = commands.map(([name, args]) => {
+		const run = limen(p, args);
+		return [name, run.status !== 0, run.stderr];
+	});
+	assert.deepEqual(
+		refused,
+		commands.map(([name]) => [name, true, `${R007_REFUSALS[name]}\n`]),
+	);
+	assert.deepEqual(state(), before);
+});
+
+test("picture build --out and picture serve --dir refuse with one removal line before anything is read or written", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	mkdirSync(join(p.root, ".git/hooks"), { recursive: true });
+	const state = () => [snapshot(join(p.root, ".limen")), snapshot(join(p.root, ".git/hooks")), readdirSync(p.root)];
+	const before = state();
+	// The serve's `--dir` names a folder with no map, so a serve that read it would fail with another line.
+	const commands = [
+		["picture build --out", ["picture", "build", "--out", "x.html"]],
+		["picture serve --dir", ["picture", "serve", "--dir", "x"]],
+	] as const;
+	const refused = commands.map(([name, args]) => {
+		const run = limen(p, args);
+		return [name, run.status !== 0, run.stderr];
+	});
+	assert.deepEqual(
+		refused,
+		commands.map(([name]) => [name, true, `${R007_REFUSALS[name]}\n`]),
+	);
+	assert.deepEqual(state(), before);
+});
+
+test("resolvePreamble throws the removal line of the role picture in a project without .agents/limen/picture.md", async (t) => {
+	const { resolvePreamble } = await import("../../src/commands/spawn.ts");
+	const root = mkdtempSync(join(tmpdir(), "limen-role-"));
+	t.after(() => rmSync(root, { recursive: true, force: true }));
+	assert.throws(() => resolvePreamble(root, "picture"), { message: R007_REFUSALS["role picture"] });
+});
+
+test("resolvePreamble returns the project's own .agents/limen/picture.md, so a project keeps a role of that name", async (t) => {
+	const { resolvePreamble } = await import("../../src/commands/spawn.ts");
+	const root = mkdtempSync(join(tmpdir(), "limen-role-"));
+	t.after(() => rmSync(root, { recursive: true, force: true }));
+	mkdirSync(join(root, ".agents/limen"), { recursive: true });
+	writeFileSync(join(root, ".agents/limen/picture.md"), "# The project's own picture role\n");
+	assert.equal(resolvePreamble(root, "picture"), `${root}/.agents/limen/picture.md`);
+});
+
+test("spawn --role picture refuses with the removal line and leaves no job, worktree or branch", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const traces = () => [
+		snapshot(join(p.root, ".limen")),
+		git(p.root, "worktree", "list", "--porcelain"),
+		git(p.root, "branch", "--list"),
+	];
+	const before = traces();
+	const run = limen(p, ["spawn", "--role", "picture", "work"]);
+	assert.deepEqual([run.status !== 0, run.stderr], [true, `${R007_REFUSALS["role picture"]}\n`]);
+	assert.deepEqual(traces(), before);
+});
+
+test("continue refuses a job of the role picture once the project's own role file is gone, and leaves .limen/ unchanged", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	// A job started under the project's own role file, as a picture job started before the cut ran on the template.
+	const role = join(p.root, ".agents/limen/picture.md");
+	mkdirSync(dirname(role), { recursive: true });
+	writeFileSync(role, "# The project's own picture role\n");
+	const parent = spawnJob(p, "commit", ["--role", "picture"]);
+	await settled(p, parent);
+	rmSync(role);
+	const before = snapshot(join(p.root, ".limen"));
+	const run = limen(p, ["continue", parent, "x"]);
+	assert.deepEqual([run.status !== 0, run.stderr], [true, `${R007_REFUSALS["role picture"]}\n`]);
 	assert.deepEqual(snapshot(join(p.root, ".limen")), before);
 });
 

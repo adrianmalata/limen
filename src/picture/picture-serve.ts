@@ -1,28 +1,23 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { activityReader } from "./activity.ts";
-import { pictureHtml } from "./picture-build.ts";
 
 const HOST = "127.0.0.1";
+const ACTIVITY = "/activity.json";
 const EVENTS = "/events";
 const READ_MS = 1_000;
 const PING_MS = 15_000;
 
 export type ServeOptions = {
-	readonly dir: string;
-	readonly root: string;
 	readonly jobsRoot: string;
 	readonly port: number;
-	readonly tip: () => string | undefined;
 };
 
 /**
- * Serves the picture on 127.0.0.1 and pushes job activity to the page over Server-Sent Events.
- * The page is built per request, so a reload shows the current tickets and board; activity is read once a second
- * and sent only when it changed.
+ * Serves the job activity of `jobsRoot` on 127.0.0.1: `/activity.json` answers the current snapshot, and `/events`
+ * pushes it over Server-Sent Events. Activity is read once a second and sent only when it changed; the server reads
+ * only the job folders and the group records beside them, never a map, and every other path answers 404.
  */
 export async function servePicture(options: ServeOptions): Promise<{ url: string; close(): Promise<void> }> {
-	// One build before listening, so a missing or broken picture fails the command, not the first page load.
-	await pictureHtml(options.dir, options.root, options.tip(), EVENTS);
 	const read = activityReader(options.jobsRoot);
 	const first = await read();
 	let snapshot = JSON.stringify(first);
@@ -54,7 +49,7 @@ export async function servePicture(options: ServeOptions): Promise<{ url: string
 	const server = createServer();
 	const port = await listen(server, options.port);
 	server.on("request", (request: IncomingMessage, response: ServerResponse) => {
-		respond(request, response, options, port, () => snapshot, clients).catch((error: unknown) => {
+		respond(request, response, port, () => snapshot, clients).catch((error: unknown) => {
 			if (!response.headersSent) {
 				response.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
 			}
@@ -86,7 +81,6 @@ export async function servePicture(options: ServeOptions): Promise<{ url: string
 async function respond(
 	request: IncomingMessage,
 	response: ServerResponse,
-	options: ServeOptions,
 	port: number,
 	snapshot: () => string,
 	clients: Set<ServerResponse>,
@@ -97,16 +91,11 @@ async function respond(
 		return;
 	}
 	const path = new URL(request.url ?? "/", `http://${HOST}`).pathname;
-	if (request.method !== "GET" || !["/", "/activity.json", EVENTS].includes(path)) {
+	if (request.method !== "GET" || ![ACTIVITY, EVENTS].includes(path)) {
 		response.writeHead(404, { "content-type": "text/plain; charset=utf-8" }).end("not found\n");
 		return;
 	}
-	if (path === "/") {
-		const { html } = await pictureHtml(options.dir, options.root, options.tip(), EVENTS);
-		response.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }).end(html);
-		return;
-	}
-	if (path === "/activity.json") {
+	if (path === ACTIVITY) {
 		response
 			.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" })
 			.end(`${snapshot()}\n`);

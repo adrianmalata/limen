@@ -27,16 +27,14 @@
 				// Each function over the limit carries a `biome-ignore` with its reason; search for `biome-ignore lint/complexity` to list them.
 				"noExcessiveCognitiveComplexity": { "level": "error", "options": { "maxAllowedComplexity": 25 } },
 				// A function longer than one screen. Most functions over 70 lines, blank lines not counted, are also over the complexity
-				// limit; at 60 the rule would also flag the keeper command, the sample of the target style. The viewer scripts wrap
-				// their module in an IIFE because `src/picture/html.ts` inlines them into a classic script, so an IIFE does not count.
+				// limit; at 60 the rule would also flag the keeper command, the sample of the target style.
 				"noExcessiveLinesPerFunction": {
 					"level": "error",
 					"options": { "maxLines": 70, "skipBlankLines": true, "skipIifes": true }
 				}
 			},
 			"correctness": {
-				// Preset warnings, raised. tsc already rejects unused names in TypeScript; these two cover the viewer JavaScript and
-				// the bin scripts.
+				// Preset warnings, raised. tsc already rejects unused names in TypeScript; these two cover the bin scripts.
 				"noUnusedVariables": "error",
 				"noUnusedImports": "error"
 			},
@@ -76,18 +74,6 @@
 					"complexity": {
 						// A function the reader cannot hold at once. Split it into named steps.
 						"noExcessiveCognitiveComplexity": { "level": "error", "options": { "maxAllowedComplexity": 20 } }
-					}
-				}
-			}
-		},
-		{
-			// `src/picture/html.ts` inlines these files into a classic `<script>`, not a module, so their "use strict" is
-			// needed although Biome reads them as modules.
-			"includes": ["picture/viewer/*.js"],
-			"linter": {
-				"rules": {
-					"suspicious": {
-						"noRedundantUseStrict": "off"
 					}
 				}
 			}

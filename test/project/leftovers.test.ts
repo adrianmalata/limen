@@ -40,9 +40,10 @@ function packaged(source: string): string {
 
 /**
  * A registry path names something strictly inside the project, in normal form with no trailing slash (so the overlap
- * rule can compare paths by prefix), and never Git's own data.
+ * rule can compare paths by prefix), and never Git's own data, except a hook directly in `.git/hooks/` on an entry
+ * with a marker: the marker keeps a hook Limen did not write from being listed or dropped.
  */
-function insideProject(path: string): boolean {
+function insideProject(path: string, marker?: string): boolean {
 	return (
 		path !== "" &&
 		path !== "." &&
@@ -50,8 +51,7 @@ function insideProject(path: string): boolean {
 		normalize(path) === path &&
 		!path.endsWith("/") &&
 		!path.split("/").includes("..") &&
-		path !== ".git" &&
-		!path.startsWith(".git/")
+		(/^\.git\/hooks\/[^/]+$/.test(path) ? marker !== undefined : path !== ".git" && !path.startsWith(".git/"))
 	);
 }
 
@@ -79,6 +79,7 @@ const FILE = { path: "cut-file.json", feature: "a cut file" };
 const DIRECTORY = { path: "cut-dir", feature: "a cut directory" };
 const LINK = { path: "cut-link", feature: "a cut symlink" };
 const MISSING = { path: "never-made", feature: "a leftover the project does not have" };
+const HOOK = { path: ".git/hooks/cut-hook", feature: "a cut hook", marker: "# written by the cut feature " };
 
 test("listLeftovers lists registry entries present as a file, a directory or a symlink and skips a missing one", () => {
 	const root = project();
@@ -133,6 +134,36 @@ test("dropLeftovers reports each removal before the next one, so a later failure
 	assert.deepEqual(reported, [outer]);
 });
 
+test("dropLeftovers removes a hook that holds the entry's marker and keeps one that does not", () => {
+	const marked = project();
+	const unmarked = project();
+	write(marked, HOOK.path, `#!/bin/sh\n${HOOK.marker}{"branch":"main"}\nexit 0\n`);
+	write(unmarked, HOOK.path, "#!/bin/sh\n# the project's own hook\nexit 0\n");
+	assert.deepEqual([dropLeftovers(marked, [HOOK]), dropLeftovers(unmarked, [HOOK])], [[HOOK], []]);
+	assert.deepEqual(
+		[existsSync(join(marked, HOOK.path)), readFileSync(join(unmarked, HOOK.path), "utf8")],
+		[false, "#!/bin/sh\n# the project's own hook\nexit 0\n"],
+	);
+});
+
+test("listLeftovers finds a marked entry only as a regular file, never as a directory or a symlink", () => {
+	const directory = project();
+	const link = project();
+	mkdirSync(join(directory, HOOK.path), { recursive: true });
+	// The link's target holds the marker; the entry still counts only for a regular file at the path itself.
+	write(link, "target", `${HOOK.marker}\n`);
+	mkdirSync(join(link, dirname(HOOK.path)), { recursive: true });
+	symlinkSync(join(link, "target"), join(link, HOOK.path));
+	assert.deepEqual([listLeftovers(directory, [HOOK]), listLeftovers(link, [HOOK])], [[], []]);
+});
+
+test("listLeftovers finds no marked entry under a .git file, as in a job worktree", () => {
+	const root = project();
+	// A worktree's `.git` is a file naming the shared Git folder, so nothing can lie below it.
+	write(root, ".git", "gitdir: /elsewhere/.git/worktrees/job\n");
+	assert.deepEqual(listLeftovers(root, [HOOK]), []);
+});
+
 test("a second dropLeftovers call removes nothing", () => {
 	const root = project();
 	write(root, FILE.path, "{}\n");
@@ -142,10 +173,14 @@ test("a second dropLeftovers call removes nothing", () => {
 	assert.equal(existsSync(join(root, "README.md")), true);
 });
 
-test("every LEFTOVERS entry has a normalised relative path inside the project, outside .git/, and a feature", () => {
+test("every LEFTOVERS entry has a normalised relative path inside the project, outside .git/ but for a marked hook, and a feature", () => {
 	for (const entry of LEFTOVERS) {
-		assert.ok(insideProject(entry.path), `registry path ${JSON.stringify(entry.path)} is not inside the project`);
+		assert.ok(
+			insideProject(entry.path, entry.marker),
+			`registry path ${JSON.stringify(entry.path)} is not inside the project`,
+		);
 		assert.notEqual(entry.feature.trim(), "", `registry path ${entry.path} names no feature`);
+		assert.notEqual(entry.marker?.trim(), "", `registry path ${entry.path} has an empty marker`);
 	}
 });
 
@@ -160,7 +195,20 @@ test("LEFTOVERS entries overlap neither each other nor a tracked template copy",
 });
 
 test("the registry path rule rejects absolute, parent, unnormalised, root and .git/ paths", () => {
-	const rejected = ["", ".", "/etc/passwd", "..", "../outside", "a/../b", "./a", "a//b", "a/b/", ".git", ".git/config"];
+	const rejected = [
+		"",
+		".",
+		"/etc/passwd",
+		"..",
+		"../outside",
+		"a/../b",
+		"./a",
+		"a//b",
+		"a/b/",
+		".git",
+		".git/config",
+		".git/hooks/reference-transaction",
+	];
 	assert.deepEqual(
 		rejected.filter((path) => insideProject(path)),
 		[],
@@ -169,6 +217,27 @@ test("the registry path rule rejects absolute, parent, unnormalised, root and .g
 	assert.deepEqual(
 		accepted.filter((path) => !insideProject(path)),
 		[],
+	);
+});
+
+test("the registry path rule accepts a path under .git/ only as .git/hooks/<name> on an entry with a marker", () => {
+	const marker = "# written by the cut feature ";
+	const rejected = [
+		".git",
+		".git/config",
+		".git/hooks",
+		".git/hooks/",
+		".git/hooks/a/b",
+		".git/hooksx/a",
+		".git/info/a",
+	];
+	assert.deepEqual(
+		rejected.filter((path) => insideProject(path, marker)),
+		[],
+	);
+	assert.deepEqual(
+		[insideProject(".git/hooks/reference-transaction", marker), insideProject(".git/hooks/reference-transaction")],
+		[true, false],
 	);
 });
 

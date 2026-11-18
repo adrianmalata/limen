@@ -7,9 +7,9 @@ pierwszym planie, ticket R-088, kod wyjścia tylko we wspólnym opakowaniu i R-0
 ponownego uruchamiania testu, który raz padł), fakty o silniku,
 wymagania systemowe, 9 etapów z kosztem i efektem, 88 ticketów R-NNN, wdrożenie, pomiary, protokół subagentów
 i polecenia na allow-listę. Stan: etap 5 (przebudowa) w toku, etap planu 1; R-001–R-006, R-008, R-010,
-R-011 i R-088 zamknięte; 18.11 w dzień doszły decyzje D-025–D-033 (m.in. zasady komunikacji z Adrianem,
-wyjątek dla testu A-087 i przekazywanie sesji); następna sesja zaczyna od R-007, potem R-009, R-013,
-R-012 i R-014. -->
+R-011 i R-088 zamknięte, 19.11 także R-007; 18.11 w dzień doszły decyzje D-025–D-035 (m.in. zasady komunikacji
+z Adrianem, wyjątek dla testu A-087, przekazywanie sesji, poprawka helpera testów A-088 w R-007 i nowy snapshot po
+edycji w trakcie BLOCKED); dalej R-009, R-013 i R-012 (noc z 19.11), potem R-014. -->
 
 # Rebuild plan
 
@@ -379,6 +379,28 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   session needs a terminal, so it is started in `tmux`; a push reaches the phone only with Remote Control connected
   and "Push when Claude decides" on; the old session ends through EndConversation only when Adrian confirms at that
   moment, otherwise he closes it. Check: none.
+- 2026-11-18 D-034 (Adrian, R-007's `BLOCKED`; adds A-088 and widens R-007): `test/s6-keeper.test.ts` ("keeper
+  refuses a running job, then starts on a new branch at the candidate tip") failed once in R-007's implementer run
+  before any source change; read from the code, `waitJob` (`test/plant.ts`, rewritten in R-006) returns at a terminal
+  `state` while the wrapper still holds `pid` and `born`, and the keeper refuses a job whose owner is alive. A-088
+  (`audit.md`), medium, decision fix in R-007, as an explicit addition to its scope (the main session's option c,
+  recommended over a ticket of its own first, which would need R-007's tests set aside, and over the D-031 allowance):
+  `waitJob` waits, with a bound, for a terminal `state` and for `pid` and `born` to be gone. Check: a test of the
+  helper that fails before the fix every time; R-007's gate.
+  - Corrected the same day (Adrian's second answer, option 1): the failure was not the race. The implementer had
+    run the test outside the gate's environment, where the laptop's git 2.34.1 lacks `git worktree list --porcelain
+    -z` and only the gate's shim supplies it (D-001); it fails so every time outside the gate, at `a5767dd` too, so
+    D-029 did not apply. The window itself is in the code (`finalizeJob` writes `state` before it removes `pid`), so
+    A-088 stays, low, with the evidence from the code, and `waitJob` waits for a terminal `state` and for `pid` alone
+    to be gone: `recordBorn` reads `state` and then writes `born`, so a wait for `born` could hang until its bound.
+    The lesson for the protocol: a test run outside `gate.mjs` on this laptop is not evidence of a failure.
+- 2026-11-18 D-035 (Adrian, R-007; changes `## Agents`, step 3): `compare --git` voided R-007's implementer run
+  because the main session had changed three reserved paths (`plan.md`, `audit.md`, R-007's `ticket.md`) while the
+  implementer stood at `BLOCKED`, after the snapshot; HEAD, the refs, the index, git's config and hooks were
+  unchanged, and the diffs of the two tracked files hold only the main session's entries. Adrian accepted the run.
+  Rule: when the main session changes a reserved path while the implementer waits on `BLOCKED`, it takes a new
+  `snapshot --git` before it resumes the implementer, so `compare --git` sees only the implementer's changes.
+  Check: none (protocol).
 
 ### Gate 2 §2, copied
 
@@ -719,7 +741,7 @@ Columns:
 | R-004 | Cut the OMP engine | 1 | G1.7, A-049 | R-001 | L | delegated | night | yes | — | — | done |
 | R-005 | Cut hosted `--tab` jobs; the GitHub module and groups run detached | 1 | G1.8, A-023 | R-001 | L | delegated | night | yes | herdr | 1.2, 1.3 | done |
 | R-006 | Cut private planning, `highlight`, `ticket-author`, `wait`, `ticket series`, `continue --review` and `group status --json` | 1 | G1.12, T-18, T-37, A-079 | R-001 | M | delegated | night | yes | — | — | done |
-| R-007 | Cut the Picture viewer and the map jobs | 1 | G1.4, §6, A-048 | R-001 | L | delegated | night | yes | — | — | planned |
+| R-007 | Cut the Picture viewer and the map jobs | 1 | G1.4, §6, A-048, A-088, D-034 | R-001 | L | delegated | night | yes | — | — | done |
 | R-008 | Cut the macOS branches | 1 | A-083 | — | S | delegated | night | — | — | — | done |
 | R-009 | Cut the scout role and the `jg` cue | 1 | T-33, T-36, A-081 | R-001 | S | delegated | night | yes | — | — | planned |
 | R-010 | The author's working history leaves the tree; Limen's own test-line cap goes | 1 | T-39, T-11, §6 | — | M | delegated | night | — | — | — | done |
@@ -1232,7 +1254,8 @@ Protocol per ticket (rebuild stage 5):
    `info/`, `.claude/settings.local.json`, a file in `input/` or a reserved path changed, or when the index holds anything but deletions and moves of the paths
    `## Change` names; that voids the run (z. 14), and Adrian decides. The allow-list cannot tell the two sessions
    apart, so this check is the guarantee. On `BLOCKED: …` the main session asks Adrian, adds the answer to `ticket.md`
-   → `## Decisions`, and resumes the same agent with `SendMessage` to its ID. `pair`: the main session implements with
+   → `## Decisions`, takes a new `snapshot --git` with the same `--out` once it has changed a reserved path (D-035),
+   and resumes the same agent with `SendMessage` to its ID. `pair`: the main session implements with
    Adrian.
 4. The main session runs `node adrian-rebuild/tools/gate.mjs` itself; its run counts, not a subagent's report. For a
    change of mechanism it also runs `node adrian-rebuild/tools/fails-before.mjs`, which must exit 0 (the new and
@@ -1326,8 +1349,9 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-18, day session, rebuild stage 5 in progress at plan stage 1: R-001–R-006, R-008, R-010,
-R-011 and R-088 `done`; R-007, R-009, R-012, R-013 and R-014 `planned`; no ticket active, no question open.
+Updated 2026-11-19, day session `limen-rebuild-4`, rebuild stage 5 in progress at plan stage 1: R-001–R-008,
+R-010, R-011 and R-088 `done`; R-009, R-012, R-013 and R-014 `planned`; no ticket active, no question open. A night
+run until 07:00 starts after this commit (Adrian, 2026-11-18, D-024).
 
 Handover (D-033): `limen-rebuild-2`, started in `tmux` at 16:17, died at 16:22:59 together with its running
 implementer of R-003, when WSL stopped the distro. `tmux` does not keep WSL alive: without a
@@ -1523,8 +1547,24 @@ Day session of 2026-11-18, continued (Adrian's answers to Q-4–Q-7 in the conve
   `review-verdict.mjs` on its format and sent again); gate 108/108. For Adrian at gate 5.1: the refusal wordings; on
   the seat (optional): `$LIMEN_HOME/.limen/highlight` and `$LIMEN_HOME/.limen/series/` may be deleted.
 
-Next: R-007, R-009 in the order of IDs, then R-013 (after all the cuts, D-028) and R-012
-(all `night`; by day or in a night run); R-014 (pair) by day after them. Each cut ticket that removes a command adds
+- R-007 `done` (delegated, `limen-rebuild-4`): the Picture viewer (`picture/viewer/*`, the page `/`, `map.html`),
+  `picture tick`, `picture watch` and the `picture` role are cut; `picture build` checks the map and writes the model
+  only with `--json`; `picture serve` serves `/activity.json` and `/events` from the primary checkout's jobs, with no
+  map. Refusals: two `OLD_NAMES`, two `OLD_FLAGS` and the new `OLD_ROLES` with `removedRole` (`resolvePreamble`
+  refuses a removed role unless the project defines it), where R-009 adds `scout`. `LEFTOVERS` entries may carry a
+  `marker` (counted only on a regular file that contains it, the folders on its path checked first, since `.git` is a
+  file in a job worktree); the watch hook `.git/hooks/reference-transaction` is one, beside four `.limen` paths.
+  A-088 and D-034 (with its correction): `waitJob` waits for `pid` to go; the keeper test's failure that raised it was
+  environmental (git 2.34.1 without the gate's shim, outside `gate.mjs`), so a direct `node --test` of a test that
+  runs `git worktree list` is no evidence on this laptop. D-035: a new `snapshot --git` after the main session edits
+  a reserved path during `BLOCKED` (this run's `compare --git` was void for that reason; Adrian accepted it). Review
+  PASS in round 1 (nine notes: one fixed in `outcome.md`, eight rejected with their tickets); gate 127/127. For Adrian
+  at gate 5.1: the refusal wordings; outcome → Open points 5 (whether the seat still has a retired
+  `limen-picture.timer`, which `docs/seat/README.md` no longer mentions); on the seat, step 1.1 now also lists a marked
+  watch hook.
+
+Next: R-009, then R-013 (after all the cuts, D-028) and R-012 (all `night`; tonight's night run takes them in the
+order of IDs and dependencies); R-014 (pair) by day after them. Each cut ticket that removes a command adds
 its entry to `src/old-names.ts` and its leftover paths to `LEFTOVERS`. B.2 runs on the seat before a0.1.0 is deployed
 (B.1 was done on 2026-11-17).
 

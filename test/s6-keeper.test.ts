@@ -30,11 +30,20 @@ test("ticket new refuses an unknown place id before any file exists, then takes 
 	assert.ok(existsSync(join(p.root, made.stdout.trim())));
 });
 
-test("picture build --dir takes a plant root from any folder and stops on a folder with no map", () => {
+test("picture build --strict --dir takes a plant root from any folder, prints the place count and writes nothing in the map folder", () => {
+	const map = join(p.root, ".limen/picture");
+	const before = readdirSync(map);
 	const built = limen(p, ["picture", "build", "--strict", "--dir", p.root], { cwd: p.parent });
-	assert.match(`${built.status} ${built.stdout}`, /^0 picture: [1-9]\d* places/, built.stderr);
+	assert.match(`${built.status} ${built.stdout}`, /^0 picture: [1-9]\d* places, \d+ edges\n$/, built.stderr);
+	assert.deepEqual(readdirSync(map), before);
+});
+
+test("picture build stops on a folder with no map with an error that names both paths and nothing else", () => {
 	const { status, stderr } = limen(p, ["picture", "build", "--dir", p.bin]);
-	assert.match(`${status} ${stderr}`, /^1 \S+\/bin has no plant file .+ no map yet in \S+\/bin\/\.limen\/picture\./);
+	assert.deepEqual(
+		[status, stderr],
+		[1, `${p.bin} has no plant file (nodes/*.md with "kind: plant") and no map at ${p.bin}/.limen/picture\n`],
+	);
 });
 
 test("keeper refuses a running job, then starts on a new branch at the candidate tip", async () => {
