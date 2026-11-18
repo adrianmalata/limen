@@ -6,9 +6,9 @@ tools/night.mjs, odpowiedzi na nocne pytania Q-1–Q-7: kryteria tylko w zakresi
 pierwszym planie, ticket R-088, kod wyjścia tylko we wspólnym opakowaniu i R-013 po cięciach; A-087 w R-019 i zakaz
 ponownego uruchamiania testu, który raz padł), fakty o silniku,
 wymagania systemowe, 9 etapów z kosztem i efektem, 88 ticketów R-NNN, wdrożenie, pomiary, protokół subagentów
-i polecenia na allow-listę. Stan: etap 5 (przebudowa) w toku, etap planu 1; R-001, R-008, R-010 i R-011 zamknięte;
-18.11 w dzień Adrian odpowiedział na Q-4–Q-7, R-013 wrócił do planned, night.mjs ma zmianę D-026, a następny jest
-R-088; Adrian dopisuje regułę D-029 do definicji rebuild-implementer przed R-002. -->
+i polecenia na allow-listę. Stan: etap 5 (przebudowa) w toku, etap planu 1; R-001, R-008, R-010, R-011 i R-088
+zamknięte; 18.11 w dzień Adrian odpowiedział na Q-4–Q-7, R-013 wrócił do planned, night.mjs ma zmianę D-026; dalej
+cięcia R-002–R-009, R-013 i R-012, gdy Adrian dopisze regułę D-029 do definicji rebuild-implementer. -->
 
 # Rebuild plan
 
@@ -702,7 +702,7 @@ Columns:
 | R-012 | A root deployment script for a pinned SHA | 1 | D-008, D-010, §7 | R-002 | M | delegated | night | — | — | 1.0 | planned |
 | R-013 | One error type, exit codes as failure classes, a final JSON line | 1 | T-01, T-02, D-022, D-028 | R-002, R-003, R-004, R-005, R-006, R-007, R-009 | L | delegated | night | yes | — | — | planned |
 | R-014 | One command registry, a shared parser and generated help | 1 | T-19, T-18, T-26, T-37, D-028 | R-002, R-003, R-004, R-005, R-006, R-007, R-009, R-013 | L | pair | day-after | yes | — | — | planned |
-| R-088 | The same-task runner leaves no job running after an attempt | 1 | D-027, D-021 | R-011 | S | pair | day-after | — | pi | B.2 | planned |
+| R-088 | The same-task runner leaves no job running after an attempt | 1 | D-027, D-021 | R-011 | S | pair | day-after | — | pi | B.2 | done |
 | R-015 | One configuration reader; settings come only from owner files | 2 | T-03 | R-014 | M | delegated | night | yes | — | — | planned |
 | R-016 | One boundary parsing module with validators; the cast ratchet | 2 | T-27 | R-013 | M | delegated | night | — | — | — | planned |
 | R-017 | One Pi API adapter with type guards, checked against Pi's real types | 2 | T-32 | R-012, R-016 | M | delegated | night | — | pi | 2.2 | planned |
@@ -1420,7 +1420,12 @@ Day session of 2026-11-18, continued (Adrian's answers to Q-4–Q-7 in the conve
   cut with hosted jobs (R-005) and `highlight` (R-006). For Adrian: the same rule in the definition of
   `rebuild-implementer`, which the sessions cannot write (the text is in the day session's reply).
 
-Next (by day): R-088 (pair). Then R-002–R-007 and R-009 in the order of IDs, R-013, R-012 (night or day), after
+- R-088 `done` (pair): Pi is stopped before the jobs at the time limit and at exit 4, a job without `state` or
+  `pid` is stopped again once it has both, the comments state when a job lacks them, and every test waits at most
+  3 s. Review FAIL in rounds 1 and 2 (a false comment each), PASS in round 3; two comment fixes after it without a
+  fourth review (Adrian). B.2 can run on the seat once a0.1.0's other prerequisites hold.
+
+Next: R-002–R-007 and R-009 in the order of IDs, then R-013 and R-012 (all `night`; by day or in a night run), after
 Adrian adds D-029's rule to `.claude/agents/rebuild-implementer.md`; R-014 (pair) by day after them. B.2 runs on the seat before
 a0.1.0 is deployed (B.1 was done on 2026-11-17), after R-088.
 

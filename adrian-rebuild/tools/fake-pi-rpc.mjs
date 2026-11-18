@@ -5,7 +5,8 @@
    dopisuje do pliku sesji odpowiedź, wywołanie basha, linię spoza JSON albo błąd limitu (w errorMessage albo
    w tekście tury); potrafi
    też sam zacząć przebieg po czasie (pobudka), odmówić promptu, bo przebieg już trwa, odpowiedzieć dwa razy albo nie
-   odpowiedzieć wcale, także po wykonaniu kroków przebiegu. Stan: działa. */
+   odpowiedzieć wcale, także po wykonaniu kroków przebiegu. Zadanie dostaje `pid` jak po starcie wrappera (chyba że
+   krok podaje `pid: null`), a zamknięcie stdin zapisuje w rejestrze (R-088). Stan: działa. */
 // Usage (by the tests, through a small executable wrapper): <wrapper> --mode rpc --session-dir <dir> --scenario <file>
 // The scenario is JSON: { "record": "<file>", "runs": [ { "trigger": "prompt" | "wake", … } ] }; see prompt() below.
 import { spawnSync } from "node:child_process";
@@ -76,6 +77,10 @@ const STEPS = {
 		writeFileSync(join(jobDir(step.job), "started-at"), `${new Date().toISOString()}\n`);
 		if (step.state !== null) {
 			writeFileSync(join(jobDir(step.job), "state"), "running\n");
+		}
+		// A set-up job has the pid its wrapper wrote; `pid: null` acts out the window before that write (R-088).
+		if (step.state !== null && step.pid !== null) {
+			writeFileSync(join(jobDir(step.job), "pid"), "4241\n");
 		}
 	},
 	finish(step) {
@@ -181,5 +186,9 @@ input.on("line", (line) => {
 		prompt();
 	}
 });
-// Pi ends when its stdin closes; a wake that is still due does not keep it alive.
-input.on("close", () => process.exit(0));
+// Pi ends when its stdin closes; a wake that is still due does not keep it alive. The record of the close lets a test
+// tell whether Pi was stopped before the jobs (R-088).
+input.on("close", () => {
+	record({ closed: true });
+	process.exit(0);
+});

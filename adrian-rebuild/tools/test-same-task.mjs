@@ -6,7 +6,8 @@
    po pierwszym, i polecenie dla zadania, które go nie dostało), unieważnienie przez limit (także w tekście tury)
    i skażenie (bez własnej ścieżki --out), linię sesji spoza JSON w sessionErrors, trzy liczniki M-05 (także w pętlach
    powłoki), błędy protokołu i zatrzymanie zadań przy kodzie 4, kod 5 błędu wewnętrznego, evaluate, report i odmowy
-   CLI. Stan: działa. */
+   CLI; od R-088 także drugie zatrzymanie zadania, które ma `state`, ale jeszcze nie `pid`, oraz zatrzymanie Pi przed
+   zadaniami. Stan: działa. */
 // Usage: node --test adrian-rebuild/tools/test-same-task.mjs
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -27,8 +28,9 @@ import { evaluate, FIXED_REPLY, isRunning, makeClone, readJobs, report, runAttem
 
 const TOOL = join(import.meta.dirname, "same-task.mjs");
 const FAKE = join(import.meta.dirname, "fake-pi-rpc.mjs");
-// Short times in place of the CLI's 10 s settle, 60 s response limit and 10 s stop grace.
-const TIMING = { settleMs: 150, pollMs: 20, responseMs: 3000, termMs: 1000, killMs: 1000 };
+// Short times in place of the CLI's 10 s settle, 60 s response limit, 10 s stop grace and 10 min wait for a job's
+// state and pid, so that a regression fails within seconds (R-088).
+const TIMING = { settleMs: 150, pollMs: 20, responseMs: 3000, termMs: 1000, killMs: 1000, stateWaitMs: 3000 };
 const ENV = {
 	...process.env,
 	GIT_CONFIG_GLOBAL: "/dev/null",
@@ -101,29 +103,34 @@ const pi = executable(
 let attempts = 0;
 
 /**
- * A Limen package whose bin/limen records its arguments and working directory, then exits with `exit`. With
- * `lateState`, `stop` acts as at `rebuild-base` for a job that finishes setting up just after the stop: with no `state`
- * file it fails and the job then gets `running`; with a `state` it writes `stopped`.
+ * A Limen package whose bin/limen records its arguments, its working directory and whether the fake Pi has already
+ * recorded the close of its stdin (`piClosed`), then exits with `exit`. With `late`, `stop` acts as at `rebuild-base`
+ * for a job that finishes setting up just after the stop: a job without its `state` or its `pid` file makes the stop
+ * fail, and the job then gets the missing ones (`running`, a pid), as `spawn` and the wrapper write them; a stop of a
+ * job with both writes `stopped`.
  */
-function fakeLimen(base, exit, lateState) {
+function fakeLimen(base, { exit = 0, late = false, record }) {
 	const limen = join(base, "limen");
 	mkdirSync(join(limen, "bin"), { recursive: true });
 	const log = join(base, "limen-calls.jsonl");
-	const call = "JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() })";
-	const late = [
-		'const state = ".limen/jobs/" + process.argv[3] + "/state";',
-		"if (!existsSync(state)) {",
-		'\twriteFileSync(state, "running\\n");',
-		'\tconsole.error("fake limen: no state file");',
+	const closed = `existsSync(${JSON.stringify(record)}) && readFileSync(${JSON.stringify(record)}, "utf8").includes('"closed":true')`;
+	const call = `JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), piClosed: ${closed} })`;
+	const lateSetup = [
+		'const job = ".limen/jobs/" + process.argv[3];',
+		'if (!existsSync(job + "/state") || !existsSync(job + "/pid")) {',
+		'\tconst missing = existsSync(job + "/state") ? "pid" : "state";',
+		'\twriteFileSync(job + "/state", "running\\n");',
+		'\twriteFileSync(job + "/pid", "4242\\n");',
+		'\tconsole.error("fake limen: no " + missing + " file");',
 		"\tprocess.exit(1);",
 		"}",
-		'writeFileSync(state, "stopped\\n");',
+		'writeFileSync(job + "/state", "stopped\\n");',
 	];
 	const script = [
 		`#!${process.execPath}`,
-		'import { appendFileSync, existsSync, writeFileSync } from "node:fs";',
+		'import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";',
 		`appendFileSync(${JSON.stringify(log)}, ${call} + "\\n");`,
-		...(lateState ? late : []),
+		...(late ? lateSetup : []),
 		`if (${exit} !== 0) { console.error("fake limen: cannot stop"); }`,
 		`process.exitCode = ${exit};`,
 	];
@@ -140,8 +147,8 @@ async function attempt(runs, setup = {}) {
 	attempts += 1;
 	const base = join(work, `attempt-${attempts}`);
 	mkdirSync(base);
-	const { limen, log } = fakeLimen(base, setup.limenExit ?? 0, setup.lateState === true);
 	const record = join(base, "pi-record.jsonl");
+	const { limen, log } = fakeLimen(base, { exit: setup.limenExit ?? 0, late: setup.late === true, record });
 	const scenario = join(base, "scenario.json");
 	const out = join(base, outName);
 	writeFileSync(scenario, JSON.stringify({ record, runs: typeof runs === "function" ? runs(out) : runs }));
@@ -169,7 +176,10 @@ async function attempt(runs, setup = {}) {
 		limen,
 		result: readJson(join(out, "result.json")),
 		start: seen[0],
-		commands: seen.slice(1).map(({ command }) => command),
+		commands: seen
+			.slice(1)
+			.filter(({ command }) => command !== undefined)
+			.map(({ command }) => command),
 		limenCalls: jsonLines(log),
 	};
 }
@@ -356,12 +366,13 @@ test("a job that never ends reaches the time limit: abort, limen stop for the ru
 	assert.equal(run.code, 0, run.printed);
 	assert.equal(run.result.outcome, "timeout");
 	assert.deepEqual(run.commands.at(-1), { type: "abort" });
-	assert.deepEqual(run.limenCalls, [
-		{ argv: ["stop", "w1", "same-task time limit"], cwd: realpathSync(join(run.out, "clone")) },
-	]);
+	assert.deepEqual(
+		run.limenCalls.map(({ argv, cwd }) => ({ argv, cwd })),
+		[{ argv: ["stop", "w1", "same-task time limit"], cwd: realpathSync(join(run.out, "clone")) }],
+	);
 });
 
-/** A worker with no `state` file yet (still setting up, or queued) when the time limit comes. */
+/** A worker with no `state` file yet (before `spawn` writes it; a queued job has one) when the time limit comes. */
 const SETTING_UP_AT_TIME_LIMIT = [
 	{
 		trigger: "prompt",
@@ -372,8 +383,19 @@ const SETTING_UP_AT_TIME_LIMIT = [
 	},
 ];
 
+/** A worker with its `state` but no `pid` yet (its wrapper has not written it) when the time limit comes. */
+const NO_PID_AT_TIME_LIMIT = [
+	{
+		trigger: "prompt",
+		steps: [
+			{ do: "spawn", job: "w1", role: "worker", pid: null },
+			{ do: "reply", text: "I spawned a worker." },
+		],
+	},
+];
+
 test("a job that gets its state after a limen stop failed on its missing state is stopped by a second stop", async () => {
-	const run = await attempt(SETTING_UP_AT_TIME_LIMIT, { timeLimitMs: 500, lateState: true });
+	const run = await attempt(SETTING_UP_AT_TIME_LIMIT, { timeLimitMs: 500, late: true });
 	assert.equal(run.code, 0, run.printed);
 	assert.deepEqual(
 		run.limenCalls.map(({ argv }) => argv),
@@ -385,11 +407,52 @@ test("a job that gets its state after a limen stop failed on its missing state i
 	assert.equal(readFileSync(join(run.out, "clone", ".limen", "jobs", "w1", "state"), "utf8"), "stopped\n");
 });
 
+test("a job that has its state but no pid when the time limit comes is stopped again once its pid exists", async () => {
+	const run = await attempt(NO_PID_AT_TIME_LIMIT, { timeLimitMs: 500, late: true });
+	assert.equal(run.code, 0, run.printed);
+	assert.deepEqual(
+		run.limenCalls.map(({ argv }) => argv),
+		[
+			["stop", "w1", "same-task time limit"],
+			["stop", "w1", "same-task time limit"],
+		],
+	);
+	assert.equal(readFileSync(join(run.out, "clone", ".limen", "jobs", "w1", "state"), "utf8"), "stopped\n");
+});
+
+/** A set-up worker, with its `state` and `pid`, still running when the time limit comes. */
+const RUNNING_AT_TIME_LIMIT = [
+	{
+		trigger: "prompt",
+		steps: [
+			{ do: "spawn", job: "w1", role: "worker" },
+			{ do: "reply", text: "I spawned a worker." },
+		],
+	},
+];
+
+test("at the time limit Pi is stopped before any job is stopped, so no wake can spawn a job the stops miss", async () => {
+	const run = await attempt(RUNNING_AT_TIME_LIMIT, { timeLimitMs: 500 });
+	assert.equal(run.code, 0, run.printed);
+	assert.ok(run.limenCalls.length > 0, run.printed);
+	assert.deepEqual(
+		run.limenCalls.map(({ piClosed }) => piClosed),
+		run.limenCalls.map(() => true),
+	);
+});
+
 test("a job that never gets a state is named with the limen stop command to run once the wait bound passes", async () => {
 	const run = await attempt(SETTING_UP_AT_TIME_LIMIT, { timeLimitMs: 500, limenExit: 1, timing: { stateWaitMs: 300 } });
 	assert.equal(run.code, 0, run.printed);
 	assert.match(run.printed, /job w1 still has no state after 0\.3 s/);
 	assert.match(run.result.stops.at(-1).next, /limen stop w1 "same-task time limit"$/);
+});
+
+test("a job that never gets a pid is named as lacking its pid once the wait bound passes", async () => {
+	const run = await attempt(NO_PID_AT_TIME_LIMIT, { timeLimitMs: 500, limenExit: 1, timing: { stateWaitMs: 300 } });
+	assert.equal(run.code, 0, run.printed);
+	assert.match(run.printed, /job w1 still has no pid after 0\.3 s/);
+	assert.equal(run.result.stops.at(-1).error, "no pid file");
 });
 
 test("a quota-limit error in a job's session makes the attempt void-limit", async () => {
@@ -554,10 +617,21 @@ const RUNNING_WHEN_PI_FAILS = [
 test("on exit 4 the runner runs limen stop in the clone for every running job", async () => {
 	const run = await attempt(RUNNING_WHEN_PI_FAILS, { timing: { responseMs: 300 } });
 	assert.equal(run.code, 4, run.printed);
-	assert.deepEqual(run.limenCalls, [
-		{ argv: ["stop", "w1", "same-task runner failure"], cwd: realpathSync(join(run.out, "clone")) },
-	]);
+	assert.deepEqual(
+		run.limenCalls.map(({ argv, cwd }) => ({ argv, cwd })),
+		[{ argv: ["stop", "w1", "same-task runner failure"], cwd: realpathSync(join(run.out, "clone")) }],
+	);
 	assert.match(run.printed, /stopped the running jobs: w1/);
+});
+
+test("on exit 4 Pi is stopped before any job is stopped", async () => {
+	const run = await attempt(RUNNING_WHEN_PI_FAILS, { timing: { responseMs: 300 } });
+	assert.equal(run.code, 4, run.printed);
+	assert.ok(run.limenCalls.length > 0, run.printed);
+	assert.deepEqual(
+		run.limenCalls.map(({ piClosed }) => piClosed),
+		run.limenCalls.map(() => true),
+	);
 });
 
 test("on exit 4 a limen stop that fails is named", async () => {

@@ -1,6 +1,6 @@
 <!-- PL: Dziennik zmian przebudowy Limena: jeden wpis na zamknięty ticket R-NNN, tylko dopisywany, najnowszy na dole.
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
-wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001. -->
+wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088. -->
 
 # Changes
 
@@ -51,3 +51,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: measured
 - Commit: R-001
 - Rollback: git revert $(git log --format=%H --grep='^R-001:' adrian-rebuild --)
+
+## 2026-11-18 R-088 The same-task runner leaves no job running after an attempt
+- What: `adrian-rebuild/tools/same-task.mjs` (Pi stopped before the jobs; a second stop once a job has `state` and `pid`; comments), `adrian-rebuild/tools/fake-pi-rpc.mjs`, `adrian-rebuild/tools/test-same-task.mjs`
+- Why: D-027, D-021
+- Proof: `node --test adrian-rebuild/tools/test-same-task.mjs` → exit 0 (39/39); `node adrian-rebuild/tools/gate.mjs` → exit 0 (96/96)
+- Measurement: unmeasured (plan.md → Measurement: M-05)
+- Commit: R-088
+- Rollback: git revert $(git log --format=%H --grep='^R-088:' adrian-rebuild --)

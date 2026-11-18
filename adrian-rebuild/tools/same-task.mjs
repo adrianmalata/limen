@@ -3,10 +3,10 @@
    wiadomość właściciela, na każdą turę właściciela odpowiada stałym zdaniem, kończy próbę, gdy po odpowiedzi nic nie
    postąpiło, albo po limicie czasu (abort i limen stop), i zapisuje atomowo result.json: wynik (też unieważnienie przez
    limit albo skażenie), tury, punkty styku, zadania, kandydata, land, tokeny, liczniki M-05 i nieczytelne linie sesji.
-   Przy limicie czasu i przy awarii (kod 4, a dla błędu wewnętrznego kod 5 ze stosem) zatrzymuje działające zadania,
-   a zadanie bez pliku `state` zatrzymuje ponownie, gdy go dostanie (najwyżej 10 min), albo podaje polecenie do
-   wykonania; `evaluate` kładzie ukryte testy na tip kandydata i uruchamia polecenia, `report` liczy pass^k. Stan:
-   działa; test w tools/test-same-task.mjs. */
+   Przy limicie czasu i przy awarii (kod 4, a dla błędu wewnętrznego kod 5 ze stosem) zatrzymuje najpierw Pi, potem
+   działające zadania, a zadanie bez pliku `state` albo `pid` zatrzymuje ponownie, gdy ma oba (najwyżej 10 min), albo
+   podaje polecenie do wykonania (R-088); `evaluate` kładzie ukryte testy na tip kandydata i uruchamia polecenia,
+   `report` liczy pass^k. Stan: działa; test w tools/test-same-task.mjs. */
 // Usage:
 //   node adrian-rebuild/tools/same-task.mjs run --limen <dir> --project <repo> --commit <sha> --reference <sha>
 //        --ticket <path> --time-limit <minutes> --out <dir> [--pi <path>] -- <engine args>
@@ -30,7 +30,7 @@ const MINUTE = 60_000;
 // D-021 (2): the time limit is 1.5 times the ticket's real time, at least 3 hours.
 const MIN_MINUTES = 180;
 // The settle time after a run ends, the job poll, Pi's response limit and its stop grace times (ticket items 1, 3.5),
-// and the wait for a job's `state` file before a second stop (ticket.md → ## Decisions, review round 2).
+// and the wait for a job's `state` and `pid` files before a second stop (R-011 review round 2; `pid` since R-088).
 const TIMING = {
 	settleMs: 10_000,
 	pollMs: 2_000,
@@ -120,6 +120,7 @@ export function readJobs(dir) {
 				id,
 				role: at("role"),
 				state: at("state"),
+				pid: at("pid"),
 				tip: at("tip"),
 				started: at("started-at"),
 				finished: at("finished-at"),
@@ -127,7 +128,11 @@ export function readJobs(dir) {
 		});
 }
 
-/** A job runs while its state says so, and also before it has a state (still setting up). */
+/**
+ * A job runs while its state says so, and also before it has a state: at `rebuild-base` `spawn` writes `state` after
+ * it creates the worktree and before it starts the wrapper (`src/commands/spawn.ts:445`); a queued job already has
+ * `running`.
+ */
 export const isRunning = (job) => job.state === null || job.state === "running";
 
 /**
@@ -319,41 +324,57 @@ function stopOne({ clone, limen, coordinator, err }, id, reason) {
 	return stop;
 }
 
+/** The file a running job still lacks for `limen stop` at `rebuild-base`: `state`, then `pid`; undefined when none. */
+const missingForStop = (job) => (job.state === null ? "state" : job.pid === null ? "pid" : undefined);
+
 /**
  * `limen stop` for every running job, one record per call. At `rebuild-base` the stop reads the job's `state` file,
- * so it cannot end a job that has none yet (still setting up, or queued): such a job is polled until it has one, for
- * at most `timing.stateWaitMs`, and stopped again; one that still has none is named with the command to run.
+ * then its `pid` file (`src/commands/stop.ts:32`), so it cannot end a job before `spawn` has written `state`
+ * (`src/commands/spawn.ts:445`) and its wrapper has written `pid`. A wrapper that owes setup or queues writes it at
+ * once (`src/runtime/wrapper.ts:102`), which covers every job `spawn` starts, since `spawn` passes `LIMEN_SETUP_KEEP`
+ * (`src/commands/spawn.ts:355`); one with neither, as `limen continue` without setup starts, writes it after its
+ * engine starts (`src/runtime/wrapper.ts:255`). A queued job has both. A job whose stop failed for lack of one of
+ * them is polled until it has both, for at most `timing.stateWaitMs`, and stopped again; one that still lacks a file
+ * is named with the command to run (R-088).
  */
 async function stopJobs(context, reason) {
 	const { clone, limen, now, timing, err } = context;
 	const running = readJobs(jobsDir(clone)).filter(isRunning);
 	const stops = running.map(({ id }) => stopOne(context, id, reason));
-	let waiting = running.filter(({ state }) => state === null).map(({ id }) => id);
+	let waiting = running.filter((job, index) => stops[index].exit !== 0 && missingForStop(job) !== undefined);
 	const until = now() + timing.stateWaitMs;
 	while (waiting.length > 0) {
 		const jobs = new Map(readJobs(jobsDir(clone)).map((job) => [job.id, job]));
-		for (const id of waiting.filter((name) => jobs.get(name)?.state === "running")) {
+		const ready = waiting.filter(({ id }) => jobs.get(id)?.state === "running" && jobs.get(id).pid !== null);
+		for (const { id } of ready) {
 			stops.push(stopOne(context, id, reason));
 		}
-		waiting = waiting.filter((id) => jobs.has(id) && jobs.get(id).state === null);
+		waiting = waiting
+			.filter(({ id }) => jobs.has(id) && isRunning(jobs.get(id)) && missingForStop(jobs.get(id)) !== undefined)
+			.map(({ id }) => jobs.get(id));
 		if (waiting.length === 0 || now() >= until) {
 			break;
 		}
 		await new Promise((resolve) => setTimeout(resolve, timing.pollMs));
 	}
-	for (const id of waiting) {
-		const next = `cd ${clone} && ${join(limen, "bin", "limen")} stop ${id} "${reason}"`;
+	for (const job of waiting) {
+		const missing = missingForStop(job);
+		const next = `cd ${clone} && ${join(limen, "bin", "limen")} stop ${job.id} "${reason}"`;
 		err(
-			`same-task: job ${id} still has no state after ${timing.stateWaitMs / 1000} s, so limen stop cannot end it; run: ${next}`,
+			`same-task: job ${job.id} still has no ${missing} after ${timing.stateWaitMs / 1000} s, so limen stop cannot end it; run: ${next}`,
 		);
-		stops.push({ id, exit: null, error: "no state file", next });
+		stops.push({ id: job.id, exit: null, error: `no ${missing} file`, next });
 	}
 	return stops;
 }
 
-/** Item 3.6: abort the run and stop every running job. */
+/** Stops Pi, so that no wake can start a coordinator run that spawns a job the stops that follow miss (R-088). */
+const stopPi = (pi, { timing }) => pi.stop({ termMs: timing.termMs, killMs: timing.killMs });
+
+/** Item 3.6: abort the run, stop Pi, then stop every running job. */
 async function timeUp(pi, { state }, context) {
 	pi.abort();
+	await stopPi(pi, context);
 	const stops = await stopJobs(context, STOP_REASON);
 	const { clone, env } = context;
 	const last = state.turns.at(-1);
@@ -454,12 +475,13 @@ function summarize(settings, ending, stops) {
 }
 
 /**
- * When the conversation fails, every running job is stopped as at the time limit, so that it stops using the shared
- * subscription; the jobs stopped are named, and `stopJobs` names each stop that failed. The caller then reports the
- * failure itself, so a failure to stop is reported beside it, never in its place.
+ * When the conversation fails, Pi is stopped and then every running job, as at the time limit, so that they stop
+ * using the shared subscription; the jobs stopped are named, and `stopJobs` names each stop that failed. The caller
+ * then reports the failure itself, so a failure to stop is reported beside it, never in its place.
  */
-async function stopAfterFailure(context) {
+async function stopAfterFailure(pi, context) {
 	try {
+		await stopPi(pi, context);
 		const stopped = (await stopJobs(context, FAILURE_REASON)).filter(({ exit }) => exit === 0);
 		if (stopped.length > 0) {
 			context.err(`same-task: stopped the running jobs: ${stopped.map(({ id }) => id).join(", ")}`);
@@ -505,7 +527,7 @@ async function attemptOnce(options, deps) {
 			stops = await timeUp(pi, ending, context);
 		}
 	} catch (error) {
-		await stopAfterFailure(context);
+		await stopAfterFailure(pi, context);
 		throw error;
 	} finally {
 		await pi.stop({ termMs: timing.termMs, killMs: timing.killMs });
