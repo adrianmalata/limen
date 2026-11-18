@@ -2,7 +2,8 @@
 względem rubryki (etap 2) oraz decyzje Adriana z bramki 2 (pole Decision w każdym znalezisku i sekcja Gate 2:
 decisions z faktami z seata, decyzjami przekrojowymi G1–G4, S, S1+ i rozstrzygnięciami pytań). Twierdzenia bez dowodu
 trafiają do sekcji To verify. Stan: bramka 2 zamknięta w rewizji 4 decyzji Adriana (86 znalezisk, w tym A-086 o promptach
-ról, które nie docierają przez bridge; fix 76, rejected 9, rejected / fix 1); pole Final dojdzie w etapie 6. -->
+ról, które nie docierają przez bridge); 18.11 doszło A-087 (znikające rejestracje seata przy przejęciu martwej blokady,
+decyzja fix w R-019); razem fix 77, rejected 9, rejected / fix 1; pole Final dojdzie w etapie 6. -->
 
 # Audit of Limen at `rebuild-base`
 
@@ -328,8 +329,10 @@ from a merged candidate), checked every reference with `tools/check.mjs`, and ve
 and high finding against `rebuild-base` by hand. A cold read by a fresh subagent (`evidence/audit-pass2/cold-read.md`,
 41 remarks) led to the definitions below, the `Note` fields and the merged questions in `## To verify`.
 
-Counts: critical 5, high 12, medium 35, low 34 (86 findings). A-086 was added after gate 2, on 2026-11-17, from the
-source read of Pi 1.5.1 and bridge 5.0.3 (gate 2 §7 B); Adrian decided it in revision 2 of his gate-2 file. Low
+Counts: critical 5, high 13, medium 35, low 34 (87 findings). A-086 was added after gate 2, on 2026-11-17, from the
+source read of Pi 1.5.1 and bridge 5.0.3 (gate 2 §7 B); Adrian decided it in revision 2 of his gate-2 file. A-087
+was added in rebuild stage 5, on 2026-11-18, from a gate run of R-001; Adrian decided it the same day (`plan.md`
+D-029). Low
 findings with verdict `compliant` record mechanisms that hold.
 
 Definitions:
@@ -454,6 +457,7 @@ intents: `evidence/audit-pass2/history.md`.
 | A-084 | low | cross-cutting | non-compliant | Developer docs drift from the code | K-25 | new | fix |
 | A-085 | low | cost | n/a | Duplicated text across templates | K-27 | known | fix |
 | A-086 | critical | reliability | non-compliant | Limen's role prompts and coordinator manual never reach the model under the Claude bridge | none (gate 2 §7 B) | new | fix |
+| A-087 | high | reliability | non-compliant | Seat registrations vanish when processes take over an abandoned registry lock together | none (rebuild stage 5) | new | fix |
 
 ### A-001 Prune deletes the uncommitted work of every finished job, automatically
 - Area: reliability
@@ -1705,6 +1709,21 @@ intents: `evidence/audit-pass2/history.md`.
 - History: Related only: the author ran group teams on `pi-claude/claude-opus-5-5` (`spec/features/active/F952-agents-learn-adam-s-principles-from-work-and-decisions/group/synthesis.md:31`) and stated the role in the team's task text (`spec/features/active/F954-a-private-assessment-combines-verified-collaboration-counts-from-both-session-stores/group/teams/team-2.md:3`). No source in the pass-2 set says that the bridge drops Pi's system prompt.
 - Note: Added after gate 2 (2026-11-17). The defect lies in the pairing of Limen at `rebuild-base` with the engines named in gate 2 §1 (Pi 1.5.1, bridge 5.0.3), not in Limen's code alone. A-037, A-038 and A-040 measured the cost and cache effects of text that never reaches the model on this route. The per-turn cue is a Pi custom message and does reach the model every turn (gate 2 §1, revision 4), so A-077 measured text the model receives. Seat confirmation: `plan.md` → `## Deployment` item 12.
 - Decision: fix — Critical. Under bridge 5.0.3 nothing Limen adds to Pi's system prompt reaches the model (§1). Limen's standing instructions move to the **Limen context message**: at session start the hook sends one message (a Pi custom message, A-034; the model sees it as `user`), marked as Limen's standing instructions, assembled from the package and the published copy (A-011: read-only for agents; the hook code is root-owned, A-025), containing per role the capability frame (A-043), the role prompt or coordinator manual, the registers for that role's audience (A-038), the enabled modules' text (A-040), vision and styleguide where the role gets them, and the owner decisions in scope (A-034). It is frozen for the session (A-037), saved in the job directory (A-079), and re-sent after every compaction (z. 4). Limen stops appending to Pi's system prompt. `AGENTS.override.md` in the working directory was rejected: the file would sit in a directory the agents' account can write, so a job could replace the coordinator's instructions at system-prompt level. `APPEND_SYSTEM.md` was rejected for the same reason and because the global file is per account, not per role. A bridge fork or PR was rejected: outside Limen.
+
+### A-087 Seat registrations vanish when processes take over an abandoned registry lock together
+- Area: reliability
+- Severity: high
+- Location: `src/project/seat.ts:16`, `src/project/seat.ts:58`, `src/project/seat.ts:109`, `test/s9-housekeeping.test.ts:135`
+- Evidence: the test "seat registrations survive a dead-owner registry lock under contention" (40 processes register while the registry lock has a dead owner) failed once in four runs of `node adrian-rebuild/tools/gate.mjs` on 2026-11-18, with nothing else running and no change to the code it runs: the registry held 39 of the 41 expected projects (`R-001-leftover-files/outcome.md`, gate run 3; run 4 on the same tree passed). The update is a read, a change and a write of `.limen/projects` under `withSeatLock` (`src/project/seat.ts:16-34`); the takeover of a dead lock is a check (`statSync`, the `owner` file, `process.kill(owner, 0)`), a claim file keyed by the lock's device and inode, a second check, then a rename (`src/project/seat.ts:109-154`), and a new lock is `mkdirSync` followed by a separate write of `owner` (`src/project/seat.ts:63-66`). A lost entry means two processes held the lock at once; the interleaving that lets them is not located yet (observed, not proven). Neither file changed between `rebuild-base` and the run (`git diff rebuild-base HEAD -- src/project/seat.ts test/s9-housekeeping.test.ts` → no output).
+- Rule: z. 1, z. 14
+- Verdict: non-compliant
+- Direction: Take over a dead lock by renaming it to a unique name, so exactly one process wins, then create the new lock with `wx`; write the registry as a read, change and write under the lock through `atomicWrite` (A-022). Prove it with a deterministic test that forces the interleaving.
+- Scenario: two `limen init` runs, or a registration during the minute sweep, meet a registry lock whose owner died (a reboot during a write). One project's line is lost with no message: the project drops out of `limen seat sweep` and of the alerts, and nothing names it.
+- Candidates: none (observed in rebuild stage 5, the gate runs of R-001, 2026-11-18)
+- Status: new
+- History: Related only: A-017 (locks that wait forever on a reused pid) and A-018 (a stale `poll.lock`) name other locks; no source names a lost registration.
+- Note: Added in rebuild stage 5 (2026-11-18, `plan.md` D-029). The failure was seen once; the main session's protocol no longer runs a failed test again to get a green gate (D-029).
+- Decision: fix — High: a silent loss of a seat registry entry (the project drops out of `seat sweep` and the alerts), z. 1, z. 14, related to A-017 and A-018. The takeover of a dead lock renames it to a unique name (exactly one process wins), then the new lock is created with `wx`; the registry is written as read, change and write under the lock through `atomicWrite` (A-022). The fix belongs to the ticket of the shared lock module (A-018), R-019. A deterministic test: an injection point in the lock module between "found dead" and "taken over"; the test forces the interleaving of two processes and fails before the fix every time; the current test stays. Check: the interleaving test (fails before, passes after); a registry test with 41 concurrent registrations and a dead lock owner → 41 entries; `check.mjs`: A-087 has every field and a ticket (Adrian, 2026-11-18).
 
 ## Pass 2: hypotheses from the owner's analysis
 

@@ -1,13 +1,14 @@
 <!-- PL: Plan przebudowy Limena i punkt wznowienia każdej sesji: wizja, słownik, decyzje Adriana (kopia §2 bramki 2,
-D-008–D-028 z bramki 4 i po niej: wdrożenie po SHA, format changes.md, narzędzia seata w TypeScript, praca nocna,
+D-008–D-029 z bramki 4 i po niej: wdrożenie po SHA, format changes.md, narzędzia seata w TypeScript, praca nocna,
 wznowienie projektów po a0.3.0 jako ryzyko z terminem 21.11.2026, limit tygodniowy, akceptacja planu i definicji,
 uprawnienia w settings.local.json, Claude Code instalowany przez roota, zapis narzędzi przez --out, nocny przebieg
 tools/night.mjs, odpowiedzi na nocne pytania Q-1–Q-7: kryteria tylko w zakresie ticketu, nocą subagenci tylko na
-pierwszym planie, ticket R-088, kod wyjścia tylko we wspólnym opakowaniu i R-013 po cięciach), fakty o silniku,
+pierwszym planie, ticket R-088, kod wyjścia tylko we wspólnym opakowaniu i R-013 po cięciach; A-087 w R-019 i zakaz
+ponownego uruchamiania testu, który raz padł), fakty o silniku,
 wymagania systemowe, 9 etapów z kosztem i efektem, 88 ticketów R-NNN, wdrożenie, pomiary, protokół subagentów
 i polecenia na allow-listę. Stan: etap 5 (przebudowa) w toku, etap planu 1; R-001, R-008, R-010 i R-011 zamknięte;
 18.11 w dzień Adrian odpowiedział na Q-4–Q-7, R-013 wrócił do planned, a sesja dzienna po R-001 zmienia night.mjs
-(D-026) i robi R-088; niestabilna bramka (testy wyścigów) czeka na decyzję Adriana. -->
+(D-026) i robi R-088; Adrian dopisuje regułę D-029 do definicji rebuild-implementer. -->
 
 # Rebuild plan
 
@@ -340,6 +341,19 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   - Check: the scan for `process.exitCode` and `process.exit` outside the wrapper and `bin/limen`; a refusal test for
     each reworked command (the code, the class and `next` in the final line); a test that `group wait`'s time limit
     gives exactly one final line with its code.
+- 2026-11-18 D-029 (Adrian, after R-001's gate runs; adds A-087 and changes `## Agents`):
+  - A-087 (`audit.md`): seat registrations vanish when processes take over an abandoned registry lock together; high,
+    decision fix. The fix belongs to the ticket of the shared lock module (A-018), R-019, which is still open: the
+    takeover renames the dead lock to a unique name (exactly one process wins), then creates the new lock with `wx`;
+    the registry is a read, change and write under the lock through `atomicWrite` (A-022). A deterministic test uses
+    an injection point in the lock module between "found dead" and "taken over", forces the interleaving of two
+    processes and fails before the fix every time; `test/s9-housekeeping.test.ts:135` stays.
+  - A test that failed even once without a change of the code it runs is a finding; nobody runs it again to get a
+    green gate (z. 17). By day the main session asks Adrian; at night it writes a question in `.night/questions.md`
+    and the ticket waits (`## Agents`, protocol step 4). The same rule goes into the definition of
+    `rebuild-implementer`; the rebuild sessions cannot write `.claude/**`, so Adrian adds it there.
+  - Check: the interleaving test (fails before, passes after); a registry test with 41 concurrent registrations and a
+    dead lock owner → 41 entries; `check.mjs`: A-087 has every field and a ticket.
 
 ### Gate 2 §2, copied
 
@@ -693,7 +707,7 @@ Columns:
 | R-016 | One boundary parsing module with validators; the cast ratchet | 2 | T-27 | R-013 | M | delegated | night | — | — | — | planned |
 | R-017 | One Pi API adapter with type guards, checked against Pi's real types | 2 | T-32 | R-012, R-016 | M | delegated | night | — | pi | 2.2 | planned |
 | R-018 | One atomic-write module | 2 | A-022, T-25 | R-013 | M | delegated | night | — | — | — | planned |
-| R-019 | One lock module with process identity and a bounded wait | 2 | A-017, A-018, A-055, A-058, T-25 | R-018 | M | delegated | night | yes | — | — | planned |
+| R-019 | One lock module with process identity and a bounded wait | 2 | A-017, A-018, A-055, A-058, A-087, T-25, D-029 | R-018 | M | delegated | night | yes | — | — | planned |
 | R-020 | A Linux platform adapter and declared system requirements | 2 | A-083, T-12, T-32 | R-013 | M | delegated | night | — | — | — | planned |
 | R-021 | One `record.json` per job, written only by the transition function | 2 | S1+, A-019, A-053, A-056, T-20, T-25 | R-016, R-018, R-019 | L | delegated | night | yes | — | — | planned |
 | R-022 | Exact job references through one resolver | 2 | T-20 | R-014, R-021 | M | delegated | night | yes | — | — | planned |
@@ -803,6 +817,11 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   with `prepare` and `toolStall` (`src/project/limits.ts:7`), and the environment no longer overrides them.
   `LIMEN_WORKER_MODEL` and `LIMEN_REVIEWER_MODEL` stay readable, as the only listed exceptions, until R-062 brings
   `routes.json`; dropping them first would make the silent fallback of A-030 the default.
+- R-019: it also fixes A-087 (D-029): the takeover of a dead lock renames it to a unique name, then creates the new
+  lock with `wx`, and the seat registry is written under the lock through `atomicWrite`; an injection point between
+  "found dead" and "taken over" lets a test force the interleaving of two processes, which fails before the fix every
+  time; `test/s9-housekeeping.test.ts:135` stays, and a registry test asserts 41 entries after 41 concurrent
+  registrations with a dead lock owner.
 - R-020: git is declared by the feature Limen needs (`git worktree list --porcelain -z`), not by a version number, so
   the gate's shim (D-001) satisfies it on the laptop's git 2.34.
 - R-024: `limen stats` of a0.2.0 over a migrated copy of the whole history of both projects is the "before" of M-03,
@@ -1194,7 +1213,10 @@ Protocol per ticket (rebuild stage 5):
    change of mechanism it also runs `node adrian-rebuild/tools/fails-before.mjs`, which must exit 0 (the new and
    changed tests fail at HEAD), and puts its output into the draft `outcome.md` under `## Fails before`. When either
    fails after `DONE`, the main session resumes the implementer with the output; a second failure of the same step goes
-   to Adrian (z. 1).
+   to Adrian (z. 1). The main session starts the gate only after the subagent's completion notification, not on its
+   reply alone, so that no two gates run at once. A test that failed even once without a change of the code it runs
+   is a finding: nobody runs it again to get a green gate (z. 17); by day the main session asks Adrian, at night it
+   writes a question in `.night/questions.md` and the ticket waits (D-029).
 5. Review: `node adrian-rebuild/tools/review-guard.mjs snapshot --out node_modules/.rebuild-review/R-NNN.before` and
    `node adrian-rebuild/tools/review-guard.mjs diff --out node_modules/.rebuild-review/R-NNN.diff` (an ignored
    directory, like the gate's helper, so the guard does not see the files; `--out` creates it and writes atomically,
@@ -1385,13 +1407,15 @@ Day session of 2026-11-18, continued (Adrian's answers to Q-4–Q-7 in the conve
   right after its removal, an overlap rule for the registry, one reason per test, the docs of `status --all`, the
   rule's comment). `LEFTOVERS` is empty; every cut ticket registers its paths, and the registry test rejects an entry
   that overlaps another or a `TRACKED` path.
-- For Adrian, the gate is not stable: one run of the main session failed 93/96 on three tests that run no code of
-  R-001 (`limen highlight …` timed out at 180 s and `hosted Pi stop …`, both `test/s2-hosted.test.ts`; the
-  lock-contention test `test/s9-housekeeping.test.ts:135`), while the implementer's process was still ending and both
-  gates used the same cache directory (the likely cause, guessed); the same tree then passed 96/96. The implementer saw
-  the lock-contention test fail alone once in four runs with nothing else running. A night run counts a second failure
-  of the same step as `failed-twice`, so a flaky test can end a night (z. 1). R-005 cuts the hosted tests; the
-  lock-contention test stays. The main session proposes no change before Adrian decides.
+- The gate was not stable in R-001: the implementer saw the lock-contention test `test/s9-housekeeping.test.ts:135`
+  fail alone once in four runs (39 of 41 registrations); one run of the main session failed 93/96 on that test and on
+  two of `test/s2-hosted.test.ts` (`limen highlight …` timed out at 180 s, `hosted Pi stop …`), started while the
+  implementer's process was still ending, with both gates on the same cache directory (the likely cause, guessed);
+  the main session ran the same tree again and it passed 96/96, before D-029 forbade that. → D-029: A-087 (high, fix
+  in R-019), and the protocol rule that a test that failed once is a finding and is never run again for a green gate;
+  the main session starts the gate only after the subagent's completion notification. The two `s2-hosted` tests are
+  cut with hosted jobs (R-005) and `highlight` (R-006). For Adrian: the same rule in the definition of
+  `rebuild-implementer`, which the sessions cannot write (the text is in the day session's reply).
 
 Next (by day): the `night.mjs` change of D-026 with its test and a review, then R-088 (pair). Then R-002–R-007 and
 R-009 in the order of IDs, R-013, R-012 (night or day); R-014 (pair) by day after them. B.2 runs on the seat before
