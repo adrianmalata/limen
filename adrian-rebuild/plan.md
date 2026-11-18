@@ -1325,9 +1325,16 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-18, end of the day session (handed over to a new session at Adrian's request, to bound the context),
-rebuild stage 5 in progress at plan stage 1: R-001, R-002, R-008, R-010, R-011 and R-088 `done`; R-003–R-007, R-009,
-R-012, R-013 and R-014 `planned`; no ticket active, no question open.
+Updated 2026-11-18, end of the day session, handed over by D-033 at 65 % context (read from Adrian's status line
+probe), rebuild stage 5 in progress at plan stage 1: R-001, R-002, R-008, R-010, R-011 and R-088 `done`; R-003–R-007,
+R-009, R-012, R-013 and R-014 `planned`; no ticket active, no question open.
+
+Handover (D-033): the previous day session started this one in `tmux` as `limen-rebuild-2`, in remote-control mode, with
+the first message of the rebuild prompt. Your first act: send Adrian a push notification (PushNotification, one line
+in Polish) that session `limen-rebuild-2` takes over the rebuild at R-003; then go on with `Next`. Read your context
+share at every safe point with `cat ~/.claude/context/<session id>.json` (the session id is the UUID in your scratchpad
+path; `context_used_percentage`, `five_hour_used_percentage`, `seven_day_used_percentage`); at 30–50 % hand over the
+same way as `limen-rebuild-3`, at 50 % at once (D-033, and the project memory note on the handover).
 
 Done:
 - Rebuild stages 0–3 with gates 0, 2 and 3 (D-001–D-007); rebuild stage 1 has no gate.
