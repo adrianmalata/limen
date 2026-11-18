@@ -74,15 +74,13 @@ export function completionWake(
 	// A start notice the session never got is its own paragraph after the lead, word for word.
 	const lead = [said, waited, open.length ? `Open checks:\n${open.join("\n")}` : ""].filter(Boolean).join("\n\n");
 	const empty = jobProducedNothing(job);
-	const scout = state === "done" && !empty && text(join(job, "role")) === "scout";
 	const facts = empty ? "It produced nothing (0 tool calls, no commits)." : "";
 	let handoff = "The job failed or stopped; inspect the failure before deciding whether to resume work.";
 	if (state === "done") {
-		handoff = scout
-			? "Scout done. Nothing to land: the final message is its evidence packet, leads and not facts."
-			: "Job done. Next step: land it, or name the check that still blocks landing. Done does not mean that review passed.";
+		handoff =
+			"Job done. Next step: land it, or name the check that still blocks landing. Done does not mean that review passed.";
 	}
-	if (open.length && !scout) {
+	if (open.length) {
 		handoff =
 			"The worker left the checks above open. Decide for each before you land: continue the job, start a review, " +
 			"or accept it and tell the user why.";
@@ -98,10 +96,6 @@ export function completionWake(
 		instruction =
 			routeInstruction ??
 			`Inspect the job record, branch diff and commits, log/session, and relevant checks. ${land} If a check blocks landing, name that check and resume a focused fix. ${keeperHint(job, id)} After it lands, continue with the next item on the board. Keep the user informed; ask only when genuine product ambiguity, a scope or risk tradeoff, or an irreversible action needs a human decision.`;
-	}
-	if (scout) {
-		instruction =
-			"Read the packet's top finding once at its path before you act on it, and treat an unlabeled finding as guessed. Then decide and make the change yourself, or put the packet in a worker handoff under `Helper packet (leads, not facts):`. Keep the user informed; ask only when a genuine product decision needs them.";
 	}
 	if (empty) {
 		instruction =

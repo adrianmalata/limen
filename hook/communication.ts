@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { noteStart, recordNote } from "../src/job/task-note.ts";
@@ -26,7 +25,6 @@ const LANGUAGES: Readonly<Record<string, readonly string[]>> = {
 	swift: ["swift"],
 	python: ["py"],
 };
-const jevgrepSeen = new Map<string, boolean>();
 
 type Context = { readonly cwd: string };
 type Message = { readonly customType: string; readonly content: string; readonly display: boolean };
@@ -163,9 +161,6 @@ function guidancePrompt(cwd: string, job: boolean): string {
 	if (register) {
 		parts.push(register);
 	}
-	if (hasJevgrep()) {
-		parts.push(registerCue(cwd, "Search"));
-	}
 	if (!job) {
 		const vision = boundFile(cwd, VISION_FILE, "Vision");
 		if (vision) {
@@ -183,19 +178,6 @@ function guidancePrompt(cwd: string, job: boolean): string {
 		}
 	}
 	return parts.join("\n\n");
-}
-
-/** `jg` is a common name; only Jevgrep's help mentions Jevgrep. Probed once per PATH. */
-function hasJevgrep(): boolean {
-	const path = process.env.PATH ?? "";
-	const seen = jevgrepSeen.get(path);
-	if (seen !== undefined) {
-		return seen;
-	}
-	const help = spawnSync("jg", ["--help"], { encoding: "utf8", timeout: 5000 });
-	const found = !help.error && help.status === 0 && /Jevgrep/.test(help.stdout ?? "");
-	jevgrepSeen.set(path, found);
-	return found;
 }
 
 function turnCue(

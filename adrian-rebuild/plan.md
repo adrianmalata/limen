@@ -7,9 +7,9 @@ pierwszym planie, ticket R-088, kod wyjścia tylko we wspólnym opakowaniu i R-0
 ponownego uruchamiania testu, który raz padł), fakty o silniku,
 wymagania systemowe, 9 etapów z kosztem i efektem, 88 ticketów R-NNN, wdrożenie, pomiary, protokół subagentów
 i polecenia na allow-listę. Stan: etap 5 (przebudowa) w toku, etap planu 1; R-001–R-006, R-008, R-010,
-R-011 i R-088 zamknięte, 19.11 także R-007; 18.11 w dzień doszły decyzje D-025–D-035 (m.in. zasady komunikacji
-z Adrianem, wyjątek dla testu A-087, przekazywanie sesji, poprawka helpera testów A-088 w R-007 i nowy snapshot po
-edycji w trakcie BLOCKED); dalej R-009, R-013 i R-012 (noc z 19.11), potem R-014. -->
+R-011 i R-088 zamknięte, 19.11 także R-007 i (nocą) R-009; 18.11 w dzień doszły decyzje D-025–D-035 (m.in. zasady
+komunikacji z Adrianem, wyjątek dla testu A-087, przekazywanie sesji, poprawka helpera testów A-088 w R-007 i nowy
+snapshot po edycji w trakcie BLOCKED); dalej R-012 i R-013 (noc z 19.11), potem R-014. -->
 
 # Rebuild plan
 
@@ -743,7 +743,7 @@ Columns:
 | R-006 | Cut private planning, `highlight`, `ticket-author`, `wait`, `ticket series`, `continue --review` and `group status --json` | 1 | G1.12, T-18, T-37, A-079 | R-001 | M | delegated | night | yes | — | — | done |
 | R-007 | Cut the Picture viewer and the map jobs | 1 | G1.4, §6, A-048, A-088, D-034 | R-001 | L | delegated | night | yes | — | — | done |
 | R-008 | Cut the macOS branches | 1 | A-083 | — | S | delegated | night | — | — | — | done |
-| R-009 | Cut the scout role and the `jg` cue | 1 | T-33, T-36, A-081 | R-001 | S | delegated | night | yes | — | — | planned |
+| R-009 | Cut the scout role and the `jg` cue | 1 | T-33, T-36, A-081 | R-001 | S | delegated | night | yes | — | — | done |
 | R-010 | The author's working history leaves the tree; Limen's own test-line cap goes | 1 | T-39, T-11, §6 | — | M | delegated | night | — | — | — | done |
 | R-011 | The same-task runner and the gate-time tool | 1 | H-21, T-11, T-41, §2, D-021 | — | L | delegated | night | — | pi | B.2 | done |
 | R-012 | A root deployment script for a pinned SHA | 1 | D-008, D-010, §7 | R-002 | M | delegated | night | — | — | 1.0 | planned |
@@ -1349,9 +1349,8 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-19, day session `limen-rebuild-4`, rebuild stage 5 in progress at plan stage 1: R-001–R-008,
-R-010, R-011 and R-088 `done`; R-009, R-012, R-013 and R-014 `planned`; no ticket active, no question open. A night
-run until 07:00 starts after this commit (Adrian, 2026-11-18, D-024).
+Updated 2026-11-19, night run until 07:00 (started by `night.mjs` at 00:08), rebuild stage 5 in progress at plan
+stage 1: R-001–R-011 and R-088 `done`; R-012, R-013 and R-014 `planned`; no ticket active, no question open.
 
 Handover (D-033): `limen-rebuild-2`, started in `tmux` at 16:17, died at 16:22:59 together with its running
 implementer of R-003, when WSL stopped the distro. `tmux` does not keep WSL alive: without a
@@ -1563,8 +1562,19 @@ Day session of 2026-11-18, continued (Adrian's answers to Q-4–Q-7 in the conve
   `limen-picture.timer`, which `docs/seat/README.md` no longer mentions); on the seat, step 1.1 now also lists a marked
   watch hook.
 
-Next: R-009, then R-013 (after all the cuts, D-028) and R-012 (all `night`; tonight's night run takes them in the
-order of IDs and dependencies); R-014 (pair) by day after them. Each cut ticket that removes a command adds
+Night run of 2026-11-19 (until 07:00; `night.mjs` run 1 started at 00:08:19):
+- R-009 `done` (delegated): the scout role (`templates/scout.md`, the manual's shape, table and escalation line, the
+  scout wake) and the `jg` cue (the `jg --help` probe, `## Cue: Search`, `node:child_process` in the communication
+  hook) are cut; `OLD_ROLES` has `scout`, so a spawn or continuation of the role refuses unless the project defines
+  `.agents/limen/scout.md`. New `test/hook/communication.test.ts` (T-36's golden test: the same context with and
+  without a `jg` on PATH, which never runs). Review PASS in round 1 (five notes: the main session renamed the new test
+  file to mirror its module, T-29 (1), with `git add` and `git mv`, and added its own runs to the outcome) and round 2
+  (one note, rejected); gate 133/133. For Adrian at gate 5.1: the refusal wording ("a survey job"; R-065 brings survey
+  tickets). For R-039: the communication hook can still start `git` through `listDrift` (drift detection, not tool
+  detection), which its T-36 scan meets (`R-009` → `ticket.md` → `## Decisions`).
+
+Next: R-012, then R-013 (after all the cuts, D-028; all `night`; tonight's night run takes them in the order of IDs
+and dependencies); R-014 (pair) by day after them. Each cut ticket that removes a command adds
 its entry to `src/old-names.ts` and its leftover paths to `LEFTOVERS`. B.2 runs on the seat before a0.1.0 is deployed
 (B.1 was done on 2026-11-17).
 

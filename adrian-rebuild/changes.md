@@ -1,7 +1,7 @@
 <!-- PL: Dziennik zmian przebudowy Limena: jeden wpis na zamknięty ticket R-NNN, tylko dopisywany, najnowszy na dole.
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
-R-003, R-004, R-005, R-006, R-007. -->
+R-003, R-004, R-005, R-006, R-007, R-009. -->
 
 # Changes
 
@@ -108,3 +108,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-01 at the close of stage 1)
 - Commit: R-007
 - Rollback: git revert $(git log --format=%H --grep='^R-007:' adrian-rebuild --) (the leftover files stay until `limen init --drop-leftovers`)
+
+## 2026-11-19 R-009 Cut the scout role and the `jg` cue
+- What: deleted `templates/scout.md`; `src/job/wake-text.ts` (no scout wake), `src/old-names.ts` (`OLD_ROLES` gets `scout`); `hook/communication.ts` (no `jg --help` probe, no Search cue, no `node:child_process`); `templates/agents.md` (no scout shape, table or escalation line), `templates/communication.md` (no `## Cue: Search`) and their history; `CONTRIBUTING.md`; new `test/hook/communication.test.ts` (T-36: the same context with and without a `jg` on PATH, which never runs), `test/cli/old-names.test.ts` (four scout refusals), `test/u3-turn-signal.test.ts`
+- Why: T-33, T-36, A-081
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (133/133: 127 − 0 removed with the cut + 6 new); `node adrian-rebuild/tools/fails-before.mjs` → exit 0; the ticket's `git grep -q -I -i scout -- …` and `git grep -q -I -i -E '\bjg\b|jevgrep|Cue: Search' -- …` → exit 1 (no match)
+- Measurement: unmeasured (plan.md → Measurement: M-01 at the close of stage 1)
+- Commit: R-009
+- Rollback: git revert $(git log --format=%H --grep='^R-009:' adrian-rebuild --)

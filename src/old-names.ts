@@ -130,6 +130,13 @@ export const OLD_FLAGS: readonly OldFlag[] = [
  */
 export const OLD_ROLES: readonly OldName[] = [
 	{ name: "picture", feature: "the map jobs", ticket: "R-007", instead: "no role maintains the map" },
+	{
+		name: "scout",
+		feature: "the scout role",
+		ticket: "R-009",
+		instead:
+			"the coordinator answers a short question itself; a long one is a survey job, whose deliverable is a notes file",
+	},
 ];
 
 /**
