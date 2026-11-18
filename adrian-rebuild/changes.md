@@ -1,6 +1,6 @@
 <!-- PL: Dziennik zmian przebudowy Limena: jeden wpis na zamknięty ticket R-NNN, tylko dopisywany, najnowszy na dole.
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
-wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010. -->
+wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011. -->
 
 # Changes
 
@@ -35,3 +35,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: measured
 - Commit: R-010
 - Rollback: git revert $(git log --format=%H --grep='^R-010:' adrian-rebuild --)
+
+## 2026-11-18 R-011 The same-task runner and the gate-time tool
+- What: new in `adrian-rebuild/tools/`: `same-task.mjs` (run, evaluate, report), `same-task-session.mjs`, `pi-rpc.mjs` (the only module of Pi's RPC protocol), `fake-pi-rpc.mjs`, `test-same-task.mjs`, `gate-time.mjs`, `test-gate-time.mjs`
+- Why: H-21, T-11, T-41, §2, D-021
+- Proof: `node --test adrian-rebuild/tools/test-same-task.mjs` → exit 0 (35/35); `node --test adrian-rebuild/tools/test-gate-time.mjs` → exit 0 (4/4); `node adrian-rebuild/tools/gate.mjs` → exit 0 (82/82)
+- Measurement: unmeasured (plan.md → Measurement: M-05)
+- Commit: R-011
+- Rollback: git revert $(git log --format=%H --grep='^R-011:' adrian-rebuild --)

@@ -630,7 +630,7 @@ Columns:
 | R-008 | Cut the macOS branches | 1 | A-083 | — | S | delegated | night | — | — | — | done |
 | R-009 | Cut the scout role and the `jg` cue | 1 | T-33, T-36, A-081 | R-001 | S | delegated | night | yes | — | — | planned |
 | R-010 | The author's working history leaves the tree; Limen's own test-line cap goes | 1 | T-39, T-11, §6 | — | M | delegated | night | — | — | — | done |
-| R-011 | The same-task runner and the gate-time tool | 1 | H-21, T-11, T-41, §2, D-021 | — | L | delegated | night | — | pi | B.2 | planned |
+| R-011 | The same-task runner and the gate-time tool | 1 | H-21, T-11, T-41, §2, D-021 | — | L | delegated | night | — | pi | B.2 | done |
 | R-012 | A root deployment script for a pinned SHA | 1 | D-008, D-010, §7 | R-002 | M | delegated | night | — | — | 1.0 | planned |
 | R-013 | One error type, exit codes as failure classes, a final JSON line | 1 | T-01, T-02, D-022 | — | L | delegated | night | yes | — | — | planned |
 | R-014 | One command registry, a shared parser and generated help | 1 | T-19, T-18, T-26, T-37 | R-002, R-003, R-004, R-005, R-006, R-007, R-009, R-013 | L | pair | day-after | yes | — | — | planned |
@@ -1185,7 +1185,7 @@ Every stage:
 | reviewer: checks | `node --test <test file>`, `node bin/limen <args>` on a test fixture (never the full gate, D-015) |
 | main session, implementer: checks | `node adrian-rebuild/tools/gate.mjs`, `npm run check`, `npm run typecheck`, `npx tsc --noEmit`, `npx biome check --error-on-warnings <path>`, `node --test <test file>`, `node adrian-rebuild/tools/check.mjs`, `node --test adrian-rebuild/tools/test-changes-entries.mjs`, `node --test adrian-rebuild/tools/test-review-guard.mjs`, `node --test adrian-rebuild/tools/test-fails-before.mjs`, `node --test adrian-rebuild/tools/test-review-verdict.mjs`, `node --test adrian-rebuild/tools/test-night.mjs`, `sh adrian-rebuild/tools/test-pre-push.sh`, `node bin/limen <args>` on a test fixture |
 | main session, implementer: changes | `npx biome format --write <path>`, `npm ci`; `git rm <path>`, `git rm -r <path>` and `git mv <old> <new>` on the paths a ticket's `## Change` names (the cuts of stage 1, R-042 and R-059 replace files, R-083 renames test files, and others); every deletion and move goes through them, so the list stays the same every night (D-014) |
-| main session only | `node adrian-rebuild/tools/review-guard.mjs snapshot --out <file>`, `snapshot --git --out <file>`, `diff --out <file>`, `compare <file>` and `compare --git <file> <ticket.md>`; `node adrian-rebuild/tools/fails-before.mjs`; `node adrian-rebuild/tools/review-verdict.mjs <reply> <ticket.md>`; `git restore --source=HEAD -- <path>` and `git apply --include=<path> <diff>` (after a void review); `git add <paths>` (`git add -A -- <paths>` for deletions and renames), `git commit`, `git push origin adrian-rebuild`; `sh adrian-rebuild/tools/install-hooks.sh` (after a move or a new clone); at the close of a stage `git tag <tag> <sha>` (local), the gate-time tool of R-011 and, from stage 4, `node adrian-rebuild/tools/context-size.mjs <ref>` |
+| main session only | `node adrian-rebuild/tools/review-guard.mjs snapshot --out <file>`, `snapshot --git --out <file>`, `diff --out <file>`, `compare <file>` and `compare --git <file> <ticket.md>`; `node adrian-rebuild/tools/fails-before.mjs`; `node adrian-rebuild/tools/review-verdict.mjs <reply> <ticket.md>`; `git restore --source=HEAD -- <path>` and `git apply --include=<path> <diff>` (after a void review); `git add <paths>` (`git add -A -- <paths>` for deletions and renames), `git commit`, `git push origin adrian-rebuild`; `sh adrian-rebuild/tools/install-hooks.sh` (after a move or a new clone); at the close of a stage `git tag <tag> <sha>` (local), the gate-time tool of R-011 (`node adrian-rebuild/tools/gate-time.mjs --out <file>`) and, from stage 4, `node adrian-rebuild/tools/context-size.mjs <ref>` |
 
 In addition, per stage:
 
@@ -1269,8 +1269,16 @@ Night run of 2026-11-18 (until 07:00):
   the ticket's. Recommended: narrow AC-6 to `src`. Nothing implemented; R-002–R-007, R-009 and R-012 wait with it.
 - The day session's note that the `ticket.md` files of R-011 and R-013 were written was wrong: neither folder existed
   at `edaafe2`. The night run writes them from D-021 and D-022.
+- R-011 `done`: the same-task runner (`tools/same-task.mjs` with `run`, `evaluate`, `report`; `pi-rpc.mjs` is the
+  only module of Pi's RPC protocol, declared from Pi's documentation because the tarballs come only in stage 2, so
+  B.2's seat check confirms it first) and the gate-time tool (`tools/gate-time.mjs`). Review FAIL in round 1 (one
+  blocking finding), PASS in rounds 2 and 3 after two rounds of fixes; the four notes of round 3 are Q-6 (a fix ticket
+  before B.2 or not). For Adrian: add `node adrian-rebuild/tools/gate-time.mjs --out <file>` to
+  `.claude/settings.local.json` before the close of stage 1; the main session's choices in R-011 → `ticket.md` →
+  `## Decisions` (the tools in `tools/`, the declared protocol, every owner turn answered and counted) are open to
+  change at gate 5.1.
 
-Next (night run): R-011, then R-013. After Q-4 (by day): R-001, R-002–R-007 and R-009 in the order of IDs, R-012;
+Next (night run): R-013. After Q-4 (by day): R-001, R-002–R-007 and R-009 in the order of IDs, R-012;
 R-014 (pair) by day after them. B.2 runs on the seat before a0.1.0 is deployed (B.1 was done on 2026-11-17).
 
 Active ticket: none.
