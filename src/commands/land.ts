@@ -313,7 +313,7 @@ function extractTicketsAtTip(repository: string, branch: string, tip: string): v
 	});
 	execFileSync("tar", ["-x", "-C", tip], { input: archive });
 }
-/** An added ticket whose F number another ticket at the branch, the plant's archive or its series already uses. */
+/** An added ticket whose F number another ticket at the branch or the plant's archive already uses. */
 function duplicateTicketErrors(
 	repository: string,
 	root: string,

@@ -26,6 +26,8 @@ export const LEFTOVERS: readonly Leftover[] = [
 	{ path: ".agents/limen/linear.md", feature: "the Linear mirror (R-003)" },
 	// The stub `limen init` copied for OMP coordinators; the folders around it may hold the project's own files.
 	{ path: ".omp/extensions/limen.ts", feature: "the OMP engine (R-004)" },
+	// The planning source `limen planning` stored; every project now commits its planning files, and nothing reads it.
+	{ path: ".limen/planning-source", feature: "private planning (R-006)" },
 ];
 
 /**

@@ -23,6 +23,37 @@ export const OLD_NAMES: readonly OldName[] = [
 		ticket: "R-003",
 		instead: "spec/features/ is the only record of ticket state",
 	},
+	{
+		name: "planning",
+		feature: "private planning",
+		ticket: "R-006",
+		instead: "planning files are committed to Git",
+	},
+	{
+		name: "highlight",
+		feature: "the Herdr highlight",
+		ticket: "R-006",
+		instead: "Herdr shows Limen's tabs without a mark",
+	},
+	{
+		name: "ticket-author",
+		feature: "ticket authorship",
+		ticket: "R-006",
+		instead: "git log --diff-filter=A --follow -- <ticket path>",
+	},
+	{
+		name: "wait",
+		feature: "waiting on a job",
+		ticket: "R-006",
+		instead: "the coordinator gets a wake when a job ends",
+	},
+	// A subcommand: `ticket` refuses it itself, because `ticket` is a registered command.
+	{
+		name: "ticket series",
+		feature: "ticket series",
+		ticket: "R-006",
+		instead: "each project numbers its own tickets",
+	},
 ];
 
 /** Every cut ticket that removes a value of `--engine` adds its entry here. */
@@ -49,13 +80,28 @@ export const OLD_FLAGS: readonly OldFlag[] = [
 	{ ...TAB, command: "spawn" },
 	{ ...TAB, command: "continue" },
 	{ ...TAB, command: "group start" },
+	{
+		command: "continue",
+		name: "--review",
+		feature: "reviews in a continued session",
+		ticket: "R-006",
+		instead: "a re-review is a new review job: limen spawn --review",
+	},
+	// `group status` reads its words by hand, so it refuses this flag with `refuseRemovedWords`, before any word is read.
+	{
+		command: "group status",
+		name: "--json",
+		feature: "the JSON group status",
+		ticket: "R-006",
+		instead: "limen group status shows the run",
+	},
 ];
 
 /**
  * The table holds removed commands (`OLD_NAMES`), removed engine values (`OLD_ENGINES`) and removed flags
- * (`OLD_FLAGS`). This is the refusal of a removed command, or `undefined` for a name `OLD_NAMES` does not hold. The
- * caller refuses before anything runs, so a refusal writes nothing (R-013 gives it exit code 2 and `instead` in
- * `next`).
+ * (`OLD_FLAGS`). This is the refusal of a removed command, or `undefined` for a name `OLD_NAMES` does not hold; a
+ * subcommand is named with its command, as `ticket series`. The caller refuses before anything runs, so a refusal
+ * writes nothing (R-013 gives it exit code 2 and `instead` in `next`).
  */
 export function removedCommand(name: string): string | undefined {
 	const old = OLD_NAMES.find((entry) => entry.name === name);
@@ -84,6 +130,18 @@ export function removedFlag(command: string, flag: string): string | undefined {
 export function refuseRemovedFlags(command: string, values: Readonly<Record<string, unknown>>): void {
 	for (const old of OLD_FLAGS) {
 		if (old.command === command && values[old.name.slice(2)] !== undefined) {
+			throw new Error(removedFlag(command, old.name));
+		}
+	}
+}
+
+/**
+ * Throws the refusal of the first removed flag of `command` that `words`, the command's unparsed words, hold. A
+ * command that reads its words by hand calls it before it reads any of them, so the flag is never read as a value.
+ */
+export function refuseRemovedWords(command: string, words: readonly string[]): void {
+	for (const old of OLD_FLAGS) {
+		if (old.command === command && words.includes(old.name)) {
 			throw new Error(removedFlag(command, old.name));
 		}
 	}

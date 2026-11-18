@@ -156,11 +156,15 @@ test("a member's finish completes while another process holds the cabinet; its l
 	await until(jobDir(p, roster.worker1), () => !existsSync(join(jobDir(p, roster.worker1), "pid")));
 	await rm(lock, { recursive: true });
 	// `group status` publishes lifecycle only when it gets the cabinet, and live member hooks take it for a moment, so read
-	// until the event is there; one more read must still show exactly one.
+	// until the event is there; one more read must still show exactly one. Each event is one JSON file in the cabinet.
 	const doneEvents = () => {
-		const status = limen(p, ["group", "status", group, "--json"], { env: LEAD });
+		const status = limen(p, ["group", "status", group], { env: LEAD });
 		assert.equal(status.status, 0, status.stderr);
-		const events: Array<{ author: string; text: string }> = JSON.parse(status.stdout).events;
+		const dir = join(cabinet(), "events");
+		const names = existsSync(dir) ? readdirSync(dir).filter((name) => name.endsWith(".json")) : [];
+		const events: Array<{ author: string; text: string }> = names.map((name) =>
+			JSON.parse(readFileSync(join(dir, name), "utf8")),
+		);
 		return events.filter((event) => event.author === roster.worker1 && event.text.endsWith(": state done")).length;
 	};
 	let seen = 0;

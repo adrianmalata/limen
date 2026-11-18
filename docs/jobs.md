@@ -34,7 +34,7 @@ For a Herdr wake, `limen jobs <id>` shows the result as `herdr-wake`: `turn obse
 
 `limen continue` from a shell with no wake route (no Pi session and no Herdr pane), for example a remote executor, keeps the parent's route: the parent's coordinator gets the continuation's wake.
 
-Both routes carry the same completion facts: the task, branch and repository, stop reason, at most ten commits, the whole final message, and undelivered steers when present. The final message is never cut: the coordinator decides the next step from it. `limen wait` and the group lead's result carry it whole too. A job with zero recorded tool calls and no commits says that it produced nothing. Missing evidence files remain absent from the wake; the route-specific next-step instruction may differ.
+Both routes carry the same completion facts: the task, branch and repository, stop reason, at most ten commits, the whole final message, and undelivered steers when present. The final message is never cut: the coordinator decides the next step from it. The group lead's result carries it whole too. A job with zero recorded tool calls and no commits says that it produced nothing. Missing evidence files remain absent from the wake; the route-specific next-step instruction may differ.
 
 ### Job states
 
@@ -196,28 +196,6 @@ A prepare command that runs out of time is stopped, and the job log records `pre
 `limen sweep` scans registered projects for terminal jobs that nobody heard and for the advisories of running jobs. A running job's notification title names its note, for example `limen: fix login · advisory`. Each event gets one seat notification, also across restarts and concurrent sweeps. Old timestamp receipts stay valid. When an advisory clears and a new one starts, the new one can send a notification again.
 
 If a notification fails in an unclear way, the sweep logs an error and does not send that event again automatically. Seat notifications do not use up coordinator wakes.
-
-## Ticket authorship
-
-`limen ticket-author` shows the name, email, and commit that first added a ticket. Collaborators who share a project can run it:
-
-```bash
-limen ticket-author spec/features/active/F001-auth/ticket.md
-```
-
-It follows renames between lanes when Git recognizes them. Paths are relative to the current directory. Absolute paths in the repository also work. The lookup reads the committed `HEAD` of the current branch. It never reads the Git config or the GitHub session of the current operator, and it writes nothing.
-
-### What the result means
-
-The result is the **author** of the creation commit. It is not the committer or the latest editor. It is **evidence from Git, not a verified human identity**. Shared bot credentials identify the bot, not the person who asked the bot to file the ticket. So if collaborators need different attribution, use different authors on filing commits.
-
-For a GitHub noreply email, the lookup also gives the recorded login. A usual email is still a usable identity, without a GitHub account or network access. Spawn records that creation `@login` on the job for finish routing. If no login is available, spawn records the reason.
-
-### When authorship is not available
-
-For uncommitted paths and shallow history, the lookup says that authorship is not available. It does not guess. So commit a new ticket before you look it up, and fetch the full history for a shallow clone.
-
-A move that Git cannot recognize, a squash, or changed history can lose the original attribution. If you delete a path and create it again, a new ticket history starts. Limen adds no author tags to ticket Markdown.
 
 ## Recovery
 

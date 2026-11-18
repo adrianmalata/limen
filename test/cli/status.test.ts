@@ -64,6 +64,19 @@ test("limen status lists a .omp/extensions/limen.ts left by the cut OMP engine a
 	assert.deepEqual(lines.slice(at, at + 2), [HEADER, "  .omp/extensions/limen.ts (the OMP engine (R-004))"]);
 });
 
+test("limen status lists a .limen/planning-source left by the cut private planning as a leftover file", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	// The planning source that the removed `limen planning private` stored.
+	writeFileSync(join(p.root, ".limen/planning-source"), "private\n");
+	const run = limen(p, ["status"]);
+	assert.equal(run.status, 0, run.stderr);
+	const lines = run.stdout.split("\n");
+	assert.ok(lines.includes(HEADER), run.stdout);
+	const at = lines.indexOf(HEADER);
+	assert.deepEqual(lines.slice(at, at + 2), [HEADER, "  .limen/planning-source (private planning (R-006))"]);
+});
+
 test("limen status prints no Leftover files section when the project has no leftover", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());

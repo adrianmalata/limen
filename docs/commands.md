@@ -18,7 +18,7 @@ Start a worker, a reviewer, or a job in one child repository, or continue a fini
 limen spawn --engine <engine> --provider <provider> --model <model> --thinking <level> "instruction" [--label L] [--branch B] [--role NAME] [--timeout 20m] [--task-file F|-] [--prepare CMD] [--priority 1|2|3] [--detached] [--extension PATH ...]
 limen spawn --engine <engine> --provider <provider> --model <model> --thinking <level> --repo R "instruction" [--label L]
 limen spawn --engine <engine> --provider <provider> --model <model> --thinking <level> --review --detached --branch B --label L [--base REF] [--head REF] "instruction"
-limen continue <id|suffix|label> "follow-up instruction" [--review] [--label L] [--engine pi] [--provider P] [--model M] [--thinking T] [--detached] [--timeout D] [--priority 1|2|3] [--extension PATH ...]
+limen continue <id|suffix|label> "follow-up instruction" [--label L] [--engine pi] [--provider P] [--model M] [--thinking T] [--detached] [--timeout D] [--priority 1|2|3] [--extension PATH ...]
 ```
 
 **Detached.** Every job runs detached, under a wrapper with the limits of [Limits](jobs.md#limits); inside Herdr it also gets a tab that follows its log. `--detached` is accepted and changes nothing.
@@ -102,12 +102,10 @@ After the merge, `land` also closes the active tickets the job works on: the tic
 
 ### Tickets and the board
 
-Show who first added a ticket, close a ticket whose work landed another way, name the plants that share F numbers, and show the board.
+Close a ticket whose work landed another way, and show the board.
 
 ```text
-limen ticket-author <ticket-path>
 limen ticket done FNNN [FNNN ...] [--on YYYY-MM-DD]
-limen ticket series [NAME PLANT [PLANT ...]]
 limen board [--write]
 ```
 
@@ -115,9 +113,7 @@ NOW and PROVEN in `spec/build.md` are generated from the feature lanes: NOW list
 
 **Ticket numbers.** `limen ticket new` takes one more than the highest F number in use. A number is in use when one of these names it: a ticket folder in any lane (`spec/features/<lane>/` or `spec/features/<lane>/<month>/`, `cancelled/` included), a row of `spec/features/archive.tsv`, a local `limen/*` branch, or a job label.
 
-**Shared series.** Plants on one seat can share one F-number series. `limen ticket series NAME PLANT [PLANT ...]` names the plants of series NAME. It replaces the earlier list and refuses a plant that another series names. To take a plant out, name the series again without it. With no arguments, the command shows the series of this plant: its plants, `mark` (the highest number `ticket new` issued in the series) and `next` (the number `ticket new` would take now). The series is seat state in `$LIMEN_HOME/.limen/series/NAME/` (`~/.limen/series/NAME/` by default): `plants` holds one plant root per line, and `mark` holds the mark. In a plant of a series, `ticket new` holds `mark.lock` from reading the mark to writing the ticket folder. The number it takes is above the mark and above every number in use in any plant of the series, so two plants never take the same number. A plant that no series names takes numbers alone, without the mark and the lock.
-
-**Archive register.** A plant that moves closed tickets out of `spec/features/` records them in its tracked `spec/features/archive.tsv`. The first line names the tab-separated columns: `path`, `number`, `title`, `close_month`, `archive_date`, `last_commit`, `manifest_digest`; without that line, Limen reads the columns in this order. Limen reads `path`, `number`, `title` and `close_month`. `number` is `FNNN` or `NNN`. A row whose `path` ends in an `FNNN-slug` folder archives that ticket. A row with another path, such as a high-water row (`high-water`, then the highest number issued), only keeps its number in use. Every row's `number` stays in use for `ticket new`. `limen land` and `limen ticket check` refuse a new ticket whose number an archived ticket holds, or a ticket folder in another plant of the series. `limen close` treats an archived ticket as closed.
+**Archive register.** A plant that moves closed tickets out of `spec/features/` records them in its tracked `spec/features/archive.tsv`. The first line names the tab-separated columns: `path`, `number`, `title`, `close_month`, `archive_date`, `last_commit`, `manifest_digest`; without that line, Limen reads the columns in this order. Limen reads `path`, `number`, `title` and `close_month`. `number` is `FNNN` or `NNN`. A row whose `path` ends in an `FNNN-slug` folder archives that ticket. A row with another path, such as a high-water row (`high-water`, then the highest number issued), only keeps its number in use. Every row's `number` stays in use for `ticket new`. `limen land` and `limen ticket check` refuse a new ticket whose number an archived ticket holds. `limen close` treats an archived ticket as closed.
 
 ### Seat-wide rules
 
@@ -147,7 +143,7 @@ Start a group, and show the status of, publish, wait for, stop, or close it.
 
 ```text
 limen group start FEATURE --team ENGINE:PROVIDER/MODEL:THINKING [--team …] [--rounds draft,critique,revise,final] [--workers N] [--timeout D] [--extension PATH ...] [--team-extension team-N=PATH ...] [--detached]
-limen group status [GROUP-ID] [--json]
+limen group status [GROUP-ID]
 limen group publish [GROUP-ID] [--team team-N] "finding"
 limen group wait [GROUP-ID] [--timeout D]
 limen group stop|close [GROUP-ID]
@@ -171,18 +167,15 @@ You run these one time for each project or seat, or a scheduler runs them.
 
 ### Project setup
 
-Create the project files, set up a parent workspace for child repositories, or choose where group planning files live. `limen init` ends with a `next:` line that names the next step, and says so when the repository has no commit yet.
+Create the project files, or set up a parent workspace for child repositories. `limen init` ends with a `next:` line that names the next step, and says so when the repository has no commit yet.
 
 ```text
 limen init
 limen init --drop-leftovers
 limen workspace init
-limen planning [committed|private]
 ```
 
 `limen init --drop-leftovers` removes the old `limen-*.ts` hook copies, with one `removed <path>` line each. Then it removes the files that `limen status` lists under `Leftover files`: a directory with its content, and a symlink without its target. It prints one `dropped <path> (<feature>)` line right after each removal, so when a removal fails, every file already removed has its line. When there is nothing to remove, it prints `no leftover files`, so a second run prints `no leftover files` and exits 0. A prompt copy that differs from the package stays.
-
-`limen planning` prints the current planning source. `committed` is the default.
 
 ### Seat sweep
 
@@ -191,16 +184,6 @@ Run the seat sweep (see [Seat notifications](jobs.md#seat-notifications)), or in
 ```text
 limen sweep [--install|--uninstall]
 ```
-
-### Herdr highlight
-
-Mark every string that Limen writes into Herdr with `◆`, seat-wide, or print the state and the legend. It is off by default. See [See what Limen added](herdr-status.md#see-what-limen-added).
-
-```text
-limen highlight [on|off]
-```
-
-In a coordinator's Pi session, `/limen highlight on` and `/limen highlight off` do the same.
 
 ### GitHub
 
@@ -222,13 +205,3 @@ Turn the architecture map watch on or off, or print its state.
 ```text
 limen picture watch [off | on --engine E --provider P --model M --thinking T [--branch B] [--dir D]]
 ```
-
-### Scripts
-
-`limen wait` blocks until a job ends, so use it in scripts.
-
-```text
-limen wait <id|suffix|label>
-```
-
-Because it blocks, `wait` refuses a running job under `LIMEN_COORDINATOR=1`. The refusal names the commands for that job: `limen jobs <id>` to read it now, and `limen watch <id>` when the coordinator did not spawn it and so gets no completion wake. The first line is the state, label and id (`DONE label · id …`). The job's ending follows, as a completion wake carries it: stop reason, at most ten commits, the whole final message, and undelivered steers. For a job that already ended, `wait` prints the same in a coordinator too.

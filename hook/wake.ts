@@ -11,15 +11,7 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { coordinatorRegistration } from "../src/integrations/coordinator-registration.ts";
-import {
-	followHighlight,
-	HIGHLIGHT_LEGEND,
-	herdrBinary,
-	highlightOn,
-	limenStateLabel,
-	limenText,
-	saveHighlight,
-} from "../src/integrations/herdr.ts";
+import { herdrBinary } from "../src/integrations/herdr.ts";
 import { closedFeatures, closedJobFeatures, derivePulse, isTerminal, type Pulse, SESSION_ID } from "../src/job/job.ts";
 import { openChecks } from "../src/job/task-note.ts";
 import {
@@ -47,8 +39,9 @@ import {
 	subscribeSession,
 } from "../src/job/wake-delivery.ts";
 import { advisoryWake, completionWake } from "../src/job/wake-text.ts";
+import { removedCommand } from "../src/old-names.ts";
 import { unlandedBranches } from "../src/project/git.ts";
-import { registeredProjects, registerProject } from "../src/project/seat.ts";
+import { registerProject } from "../src/project/seat.ts";
 import { ownerAlive, reapDeadJobs } from "../src/runtime/reap.ts";
 
 type Context = {
@@ -85,7 +78,8 @@ const REFRESH_TICKS = CACHE_REFRESH_MS / SWEEP_MS;
 // Herdr drops pane metadata after its TTL; an unchanged label is re-sent well before then.
 const METADATA_TTL_MS = 180_000;
 const METADATA_REFRESH_MS = 60_000;
-// The tail Limen keeps on the coordinator tab, with or without the highlight mark.
+// The tail Limen keeps on the coordinator tab. The optional `◆` is the mark Limen put in front of the counts before
+// R-006; a tab labelled then may still be open, and its old tail must still be read as one.
 const TAB_TAIL = /(?:\s*·\s*(?:◆\s+)?\d+\s+(?:running|finished))+$/;
 type FinishedJob = { readonly id: string; readonly label: string; readonly state: string; readonly finishedAt: number };
 type HerdrPane = { readonly binary: string; readonly pane: string };
@@ -174,8 +168,7 @@ export default function limenWake(pi: PiApi): void {
 		}
 		const jobs = `${pulses.length} RUNNING · ${watched} watched · ${pulses.length - watched} unwatched`;
 		const label = `${jobs} · ${body}`;
-		const on = highlightOn();
-		const agent = limenText(herdrDisplayAgent(pulses, session?.isIdle() === true), on);
+		const agent = herdrDisplayAgent(pulses, session?.isIdle() === true);
 		const signature = `${title}\0${label}\0${agent}`;
 		if (signature === herdrMetadata && Date.now() - herdrMetadataAt < METADATA_REFRESH_MS) {
 			return;
@@ -185,15 +178,15 @@ export default function limenWake(pi: PiApi): void {
 		const change = body
 			? [
 					"--title",
-					limenText(title, on),
+					title,
 					"--display-agent",
 					agent,
 					"--token",
-					`limen=${limenText(label, on)}`,
+					`limen=${label}`,
 					"--state-label",
-					limenStateLabel("idle", label, on),
+					`idle=${label}`,
 					"--state-label",
-					limenStateLabel("done", label, on),
+					`done=${label}`,
 				]
 			: ["--clear-title", "--display-agent", agent, "--clear-token", "limen", "--clear-state-labels"];
 		herdrSeq += 1;
@@ -362,7 +355,7 @@ export default function limenWake(pi: PiApi): void {
 			({ id, finishedAt }) => finishedAt >= ownerTurnAt && text(join(jobs, id, "origin-tab")) === tab,
 		).length;
 		const counts = [count > 0 ? `${count} running` : "", fresh > 0 ? `${fresh} finished` : ""].filter(Boolean);
-		const tail = counts.length ? ` · ${limenText(counts.join(" · "))}` : "";
+		const tail = counts.length ? ` · ${counts.join(" · ")}` : "";
 		if (tail === tabTail) {
 			return;
 		}
@@ -402,7 +395,7 @@ export default function limenWake(pi: PiApi): void {
 			clearStatus();
 			return;
 		}
-		statusBody = limenText(next.status);
+		statusBody = next.status;
 		herdrReport(next.summary, next.title, next.pulses, next.watched);
 		drawStatus();
 	};
@@ -416,7 +409,7 @@ export default function limenWake(pi: PiApi): void {
 		herdrCall([
 			"notification",
 			"show",
-			limenText(`limen: ${label} ${headline}`),
+			`limen: ${label} ${headline}`,
 			"--body",
 			state === "done" ? `job ${id} · branch ${branch} · ${done.next}` : `job ${id} · branch ${branch}`,
 			"--sound",
@@ -970,23 +963,17 @@ export default function limenWake(pi: PiApi): void {
 		return;
 	}
 	pi.registerCommand?.("limen", {
-		description: "Mute or resume limen job display and wakes for this session; highlight on|off marks Limen's text",
+		description: "Mute or resume limen job display and wakes for this session",
 		getArgumentCompletions(prefix) {
-			const items = ["on", "off", "highlight on", "highlight off"]
-				.filter((value) => value.startsWith(prefix))
-				.map((value) => ({ value, label: value }));
+			const items = ["on", "off"].filter((value) => value.startsWith(prefix)).map((value) => ({ value, label: value }));
 			return items.length ? items : null;
 		},
 		handler(args, commandContext) {
 			const request = args.trim();
-			const highlight = /^highlight(?:\s+(on|off))?$/.exec(request);
-			if (highlight) {
-				// The seat-wide switch, as `limen highlight`: this pane follows on its next sweep, open job tabs follow now.
-				if (highlight[1]) {
-					saveHighlight(highlight[1] === "on");
-					void followHighlight(registeredProjects()).catch(() => {});
-				}
-				commandContext.ui.notify(`limen highlight ${highlightOn() ? "on" : "off"}\n${HIGHLIGHT_LEGEND}`, "info");
+			// A removed command typed here gets its removal line; any other word would toggle the mute state below.
+			const removed = removedCommand(request.split(/\s+/)[0] ?? "");
+			if (removed) {
+				commandContext.ui.notify(removed, "info");
 				return;
 			}
 			if (request === "on") {

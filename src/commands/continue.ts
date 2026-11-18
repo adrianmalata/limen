@@ -27,13 +27,7 @@ import {
 	workspaceRepository,
 	workspaceRoot,
 } from "../project/git.ts";
-import {
-	inheritedPlanning,
-	type PlanningSource,
-	privatePlanningTask,
-	recordedPlanningSource,
-	ticketPointers,
-} from "../project/planning.ts";
+import { inheritedPlanning } from "../project/planning.ts";
 import {
 	defaultModel,
 	type EngineId,
@@ -63,7 +57,6 @@ export async function continueCommand(args: readonly string[], cwd: string, roun
 	await continueJob(args, cwd, round !== undefined, round);
 }
 type ContinueOptions = {
-	readonly review: boolean;
 	readonly label: string | undefined;
 	readonly model: string | undefined;
 	readonly provider: string | undefined;
@@ -79,8 +72,8 @@ function parseContinueArgs(args: readonly string[]): ContinueOptions {
 	const { values, positionals } = parseFlags(
 		args,
 		{
-			review: { type: "boolean" },
 			// Removed: refused after parsing (src/old-names.ts).
+			review: { type: "boolean" },
 			tab: { type: "boolean" },
 			// Every job is detached; the flag stays accepted and changes nothing.
 			detached: { type: "boolean" },
@@ -109,11 +102,9 @@ function parseContinueArgs(args: readonly string[]): ContinueOptions {
 	if (!query || !instruction) {
 		throw new Error('continue requires <id|suffix|label> "follow-up instruction"');
 	}
-	const review = values.review ?? false;
 	const { model, provider, thinking } = values;
 	const engine = values.engine?.trim();
 	return {
-		review,
 		label,
 		model,
 		provider,
@@ -147,7 +138,6 @@ type ContinuationRecord = {
 	readonly model: string | undefined;
 	readonly extensions: readonly string[];
 	readonly priority: number;
-	readonly source: PlanningSource;
 	readonly membership: GroupIdentity | undefined;
 	readonly group: ContinuationGroup | undefined;
 };
@@ -161,7 +151,6 @@ type Continuation = {
 	readonly preamble: string;
 	readonly role: string;
 	readonly parentId: string;
-	readonly review: boolean;
 	readonly model: string | undefined;
 	readonly provider: string | undefined;
 	readonly thinking: string | undefined;
@@ -171,8 +160,8 @@ type Continuation = {
 };
 async function continueJob(args: readonly string[], cwd: string, locked = false, round?: number): Promise<void> {
 	const options = parseContinueArgs(args);
-	const { review, label, model, provider, thinking } = options;
-	const chosenModel = model ?? defaultModel(review);
+	const { label, model, provider, thinking } = options;
+	const chosenModel = model ?? defaultModel(false);
 
 	// A job that continues from its own worktree resolves jobs in its canonical root.
 	const inherited = workspaceRoot(cwd) ? undefined : inheritedPlanning(repoRoot(cwd));
@@ -190,12 +179,10 @@ async function continueJob(args: readonly string[], cwd: string, locked = false,
 	const profile = engineProfile(parent.engine);
 	const extensions = await continuationExtensions(parentDir, membership, options.selected, cwd);
 	preflightEngine(profile, chosenModel, provider);
-	const source = recordedPlanningSource(parentDir);
-	const followUp = await continuationTask(root, parentDir, options.instruction, source);
 	const finalLabel = label ?? `${(await text(`${parentDir}/label`)) || parentId} · continue`;
 	const id = makeJobId(finalLabel);
 	const jobDir = `${root}/.limen/jobs/${id}`;
-	const role = review ? "reviewer" : (await text(`${parentDir}/role`)) || "worker";
+	const role = (await text(`${parentDir}/role`)) || "worker";
 	const preamble = resolvePreamble(root, role);
 	const slot = round === undefined ? "worker" : "coordinator";
 	const member = membership?.member
@@ -213,7 +200,7 @@ async function continueJob(args: readonly string[], cwd: string, locked = false,
 		jobDir,
 		parent,
 		repository,
-		task: followUp,
+		task: options.instruction,
 		label: finalLabel,
 		role,
 		engine: profile.id,
@@ -221,7 +208,6 @@ async function continueJob(args: readonly string[], cwd: string, locked = false,
 		extensions,
 		// A continuation keeps its parent's place in the start-queue order unless it names its own.
 		priority: options.priority ?? (await jobPriority(parentDir)),
-		source,
 		membership,
 		group,
 	});
@@ -235,7 +221,6 @@ async function continueJob(args: readonly string[], cwd: string, locked = false,
 		preamble,
 		role,
 		parentId,
-		review,
 		model: chosenModel,
 		provider,
 		thinking,
@@ -370,24 +355,6 @@ async function continuationExtensions(
 	}
 	return extensions;
 }
-/** Private planning: carry the parent's canonical ticket and check every pointer before a record exists. */
-async function continuationTask(
-	root: string,
-	parentDir: string,
-	instruction: string,
-	source: PlanningSource,
-): Promise<string> {
-	let followUp = instruction;
-	if (source !== "private") {
-		return followUp;
-	}
-	const parentTicket = ticketPointers(await readFile(`${parentDir}/task.md`, "utf8"))[0]?.path;
-	if (parentTicket && ticketPointers(followUp).length === 0) {
-		followUp += `\n\nTicket: ${parentTicket}`;
-	}
-	followUp = await privatePlanningTask(root, followUp);
-	return followUp;
-}
 /** Writes the starting record: the parent's session, branch and worktree, and where its finish is reported. */
 async function publishContinuation(record: ContinuationRecord): Promise<void> {
 	const { jobDir, parent, repository, membership } = record;
@@ -420,7 +387,6 @@ async function publishContinuation(record: ContinuationRecord): Promise<void> {
 		priority: record.priority,
 		extensions: record.extensions,
 		...(record.model ? { model: record.model } : {}),
-		planningSource: record.source,
 		parent: parent.id,
 		session: { source: `${parent.dir}/session/${parent.session}`, name: parent.session ?? "" },
 		...(parent.repo ? { repo: parent.repo } : {}),
@@ -450,7 +416,7 @@ async function restoreParentWorktree(
 	}
 }
 async function startDetachedContinuation(continuation: Continuation): Promise<void> {
-	const { jobDir, id, label, root, review, parentId, versions, group } = continuation;
+	const { jobDir, id, label, root, parentId, versions, group } = continuation;
 	await openWatchTab({ jobDir, label, cwd: root, logPath: `${jobDir}/log`, role: continuation.role });
 	const environment: Record<string, string> = {
 		LIMEN_JOB_DIR: jobDir,
@@ -496,11 +462,7 @@ async function startDetachedContinuation(continuation: Continuation): Promise<vo
 	if (queued) {
 		console.log(queued);
 	}
-	console.log(
-		review
-			? `continued ${label} as reviewer in ${parentId}'s session — shares prior context; this review is not independent`
-			: `continued ${label} in ${parentId}'s session`,
-	);
+	console.log(`continued ${label} in ${parentId}'s session`);
 	console.log(id);
 }
 

@@ -67,7 +67,6 @@ type NewJob = {
 	/** The model the spawner asked for, compared with the served model in `limen jobs <id>`. */
 	readonly model?: string;
 	readonly extensions?: readonly string[];
-	readonly planningSource: string;
 	readonly repo?: string;
 	readonly notificationSession?: string;
 	readonly originTab?: string;
@@ -99,7 +98,6 @@ export async function publishJob(jobDir: string, job: NewJob): Promise<void> {
 			role: `${job.role}\n`,
 			engine: `${job.engine}\n`,
 			"extensions.json": `${JSON.stringify(job.extensions ?? [])}\n`,
-			"planning-source": `${job.planningSource}\n`,
 			"tool-calls": "0\n",
 			"last-tool": "",
 			activity: "think\n",

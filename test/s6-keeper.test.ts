@@ -1,11 +1,11 @@
-// S6 · Spec keeper. Ticket numbers in one plant and in a series of two, place ids, the keeper's start rules and
-// ticket-author paths, all through the real CLI. The strict ticket gate is s5's land refusal and u1's diagnostics.
+// S6 · Spec keeper. Ticket numbers, place ids and the keeper's start rules, all through the real CLI. The strict
+// ticket gate is s5's land refusal and u1's diagnostics.
 import assert from "node:assert/strict";
 import { existsSync, readdirSync } from "node:fs";
-import { mkdir, symlink, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import { git, jobDir, jobFile, limen, plant, release, repository, spawnJob, start, TICKET, waitJob } from "./plant.ts";
+import { git, jobDir, jobFile, limen, plant, release, spawnJob, TICKET, waitJob } from "./plant.ts";
 
 const p = await plant();
 after(p.cleanup);
@@ -60,25 +60,7 @@ test("keeper refuses a running job, then starts on a new branch at the candidate
 	assert.match(again.stderr, new RegExp(keeperBranch));
 });
 
-test("ticket-author resolves aliased paths and invents no author for others", async () => {
-	const alias = join(p.parent, "alias");
-	await symlink(p.root, alias, "dir");
-	const commit = git(p.root, "log", "--format=%H", "--diff-filter=A", "--", TICKET);
-	for (const [cwd, path] of [
-		[p.root, join(alias, TICKET)],
-		[join(alias, "spec/features/active"), "F001-demo/ticket.md"],
-	] as const) {
-		const found = limen(p, ["ticket-author", path], { cwd });
-		assert.ok(found.stdout.includes(commit), `${found.stdout}${found.stderr}`);
-	}
-	for (const path of ["spec/features/planned/F010-x/ticket.md", "missing.md", "spec", "../outside.md"]) {
-		const result = limen(p, ["ticket-author", path]);
-		assert.equal(result.status, 1, path);
-		assert.equal(result.stdout, "", path);
-	}
-});
-
-test("cancelled and archived numbers stay taken, a series never gives a number twice, and readers follow", async () => {
+test("cancelled and archived numbers stay taken, and readers follow", async () => {
 	await mkdir(join(p.root, "spec/features/cancelled/F011-c"), { recursive: true });
 	assert.match(limen(p, ["ticket", "new", "c"]).stdout, /F012-c/);
 	// Branch dup takes F010 and F012 out of main's lanes; F012 goes to the archive register, still taken and closed.
@@ -90,13 +72,6 @@ test("cancelled and archived numbers stay taken, a series never gives a number t
 	assert.match(limen(p, ["ticket", "new", "a"]).stdout, /F013-a/);
 	assert.match(limen(p, ["close", "F012"]).stderr, /herdr is not available/);
 	assert.match(limen(p, ["board"]).stdout, /`F012-c` \(🟢 PROVEN\): c\n- 2026-09: 1 landed\. \S+archive\.tsv\n/);
-	const q = join(p.parent, "api");
-	await repository(q);
-	await mkdir(join(q, "spec/features/done/2026-09/F010-q"), { recursive: true });
-	assert.equal(limen(p, ["ticket", "series", "pair", p.root, q]).status, 0);
-	const made = await Promise.all([p.root, q, p.root, q].map((cwd) => start(p, ["ticket", "new", "z"], { cwd }).done));
-	assert.deepEqual(made.map((run) => /F\d+/.exec(run.stdout)?.[0]).sort(), ["F014", "F015", "F016", "F017"]);
-	assert.match(limen(p, ["ticket", "series"]).stdout, /pair\nplant \S+repo\nplant \S+api\nmark F017\nnext F018\n$/);
 	const check = limen(p, ["ticket", "check", "dup"]);
-	assert.match(`${check.status} ${check.stderr}`, /^1 .*F010-x.*\/api\/\S+\/F010-q.*\n.*F012-c.*archive\.tsv:2/s);
+	assert.match(`${check.status} ${check.stderr}`, /^1 .*F012-c.*archive\.tsv:2/s);
 });

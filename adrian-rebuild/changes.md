@@ -92,3 +92,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-01 at the close of stage 1; seat steps 1.2 and 1.3)
 - Commit: R-005
 - Rollback: git revert $(git log --format=%H --grep='^R-005:' adrian-rebuild --)
+
+## 2026-11-18 R-006 Cut private planning, `highlight`, `ticket-author`, `wait`, `ticket series`, `continue --review` and `group status --json`
+- What: deleted `src/commands/planning-source.ts`, `highlight.ts`, `ticket-author.ts`, `wait.ts`; `src/project/planning.ts` (committed mode only), `src/project/series.ts` (no series), `src/project/git.ts` (`ticketAuthor`), `src/project/lanes.ts`; `src/commands/spawn.ts`, `continue.ts` (no `--review`), `group.ts` (no `--json`), `ticket.ts`, `land.ts`; `src/job/group-packet.ts`, `group-cabinet.ts`, `publication.ts`; `src/integrations/herdr.ts` (highlight helpers); `hook/wake.ts` (the `/limen` refusal of removed words), `hook/communication.ts`; `src/main.ts`; `src/old-names.ts` (five `OLD_NAMES`, two `OLD_FLAGS`, `refuseRemovedWords`); `LEFTOVERS` gets `.limen/planning-source`; templates and their history, `README.md`, `docs/`; `test/plant.ts` (`waitJob` watches `state` in a child process) and tests
+- Why: G1.12, T-18, T-37, A-079
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (108/108: 102 − 1 removed with the cut + 7 new); `node adrian-rebuild/tools/fails-before.mjs` → exit 0; the ticket's `git grep -q -i -E 'highlight|ticket-author|…|continue --review' -- …` → exit 1 (no match)
+- Measurement: unmeasured (plan.md → Measurement: M-01 at the close of stage 1)
+- Commit: R-006
+- Rollback: git revert $(git log --format=%H --grep='^R-006:' adrian-rebuild --) (the leftover file stays until `limen init --drop-leftovers`)

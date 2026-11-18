@@ -4,14 +4,12 @@ import { continueCommand } from "./commands/continue.ts";
 import { diffCommand } from "./commands/diff.ts";
 import { githubCommand } from "./commands/github.ts";
 import { groupCommand } from "./commands/group.ts";
-import { highlightCommand } from "./commands/highlight.ts";
 import { initCommand, workspaceCommand } from "./commands/init.ts";
 import { jobsCommand } from "./commands/jobs.ts";
 import { keeperCommand } from "./commands/keeper.ts";
 import { landCommand } from "./commands/land.ts";
 import { openCommand } from "./commands/open.ts";
 import { pictureCommand } from "./commands/picture.ts";
-import { planningCommand } from "./commands/planning-source.ts";
 import { pruneCommand } from "./commands/prune.ts";
 import { queueCommand } from "./commands/queue.ts";
 import { endDueRules, ruleCommand } from "./commands/rule.ts";
@@ -21,8 +19,6 @@ import { steerCommand } from "./commands/steer.ts";
 import { stopCommand } from "./commands/stop.ts";
 import { sweepCommand } from "./commands/sweep.ts";
 import { ticketCommand } from "./commands/ticket.ts";
-import { ticketAuthorCommand } from "./commands/ticket-author.ts";
-import { waitCommand } from "./commands/wait.ts";
 import { unwatchCommand, watchCommand } from "./commands/watch.ts";
 import { removedCommand } from "./old-names.ts";
 import { failInternalJob, runInternalJob } from "./runtime/wrapper.ts";
@@ -31,7 +27,6 @@ type Command = (args: readonly string[], cwd: string) => Promise<void>;
 const COMMANDS = {
 	init: initCommand,
 	workspace: workspaceCommand,
-	planning: planningCommand,
 	github: githubCommand,
 	group: groupCommand,
 	spawn: spawnCommand,
@@ -39,7 +34,6 @@ const COMMANDS = {
 	diff: diffCommand,
 	steer: steerCommand,
 	stop: stopCommand,
-	wait: waitCommand,
 	land: landCommand,
 	board: boardCommand,
 	keeper: keeperCommand,
@@ -54,13 +48,10 @@ const COMMANDS = {
 	picture: pictureCommand,
 	close: closeCommand,
 	sweep: sweepCommand,
-	highlight: highlightCommand,
-	"ticket-author": ticketAuthorCommand,
 	ticket: ticketCommand,
 } as const satisfies Record<
 	| "init"
 	| "workspace"
-	| "planning"
 	| "spawn"
 	| "continue"
 	| "github"
@@ -68,7 +59,6 @@ const COMMANDS = {
 	| "diff"
 	| "steer"
 	| "stop"
-	| "wait"
 	| "land"
 	| "board"
 	| "keeper"
@@ -83,8 +73,6 @@ const COMMANDS = {
 	| "picture"
 	| "close"
 	| "sweep"
-	| "highlight"
-	| "ticket-author"
 	| "ticket",
 	Command
 >;
@@ -95,10 +83,9 @@ usage:
   limen init
   limen init --drop-leftovers
   limen workspace init
-  limen planning [committed|private]                # inspect or persist the project planning source; default committed
   limen group start FEATURE --team ENGINE:PROVIDER/MODEL:THINKING [--team …] [--rounds draft,critique,revise,final; default draft] [--workers N; default 0] [--timeout D; default 90m] [--extension PATH ...] [--team-extension team-N=PATH ...] [--detached]
                                   # one agent per --team on its own route; Limen runs the rounds and tells the lead the result once
-  limen group status [GROUP-ID] [--json]  # rounds and roster by default; --json keeps the full record
+  limen group status [GROUP-ID]  # the rounds and the roster with each member's state
   limen group publish [GROUP-ID] [--team team-N] "finding"  # members inherit verified membership; lead supplies ID
   limen group wait [GROUP-ID] [--timeout D]
   limen group stop|close [GROUP-ID]
@@ -109,11 +96,10 @@ usage:
   limen spawn --engine <engine> --provider <provider> --model <model> --thinking <level> --detached "…"  # --detached is accepted and changes nothing: every job is detached
   limen spawn --engine <engine> --provider <provider> --model <model> --thinking <level> --repo R "Implement FNNN: <outcome>. Ticket: spec/features/active/FNNN-slug/ticket.md" [--label L]
   limen spawn --engine <engine> --provider <provider> --model <model> --thinking <level> --review --detached --branch B --label L [--base SHA] [--head SHA] "Review the FNNN candidate against spec/features/active/FNNN-slug/ticket.md"
-  limen continue <id|suffix|label> "follow-up instruction" [--review] [--label L] [--engine pi] [--provider P] [--model X] [--thinking T] [--detached] [--priority 1|2|3; default the parent's] [--extension PATH ...; replaces ordinary Pi list, group list stays fixed]
+  limen continue <id|suffix|label> "follow-up instruction" [--label L] [--engine pi] [--provider P] [--model X] [--thinking T] [--detached] [--priority 1|2|3; default the parent's] [--extension PATH ...; replaces ordinary Pi list, group list stays fixed]
                                   # resume a finished job in its own engine session — full context, same worktree; detached, also in Herdr
   limen steer <id|suffix|label> | --running "correction"
   limen diff <id|suffix|label>
-  limen wait <id|suffix|label>
   limen land <id|suffix|label> [--onto BRANCH] [--yes] [--keep-open]  # merge a done job onto the current branch and close its active ticket; --keep-open when more slices remain
   limen keeper <ticket-path> (--job ID [--job ID ...] | --group GROUP-ID) [--candidate BRANCH] --engine E --provider P --model M --thinking T [--timeout D]  # after the work: a short job fixes ticket, board and map links on its own branch
   limen stop <id|suffix|label> [reason]
@@ -129,14 +115,11 @@ usage:
   limen unwatch <id|suffix|label> | --all
   limen open <id|suffix|label>
   limen close <FNNN>
-  limen ticket-author <ticket-path>                 # creation-commit author, following Git renames
-  limen ticket new "what becomes true" [--lane planned|active] [--touches id,id]  # next unused F number across lanes, archive.tsv, limen/* branches, job labels and the plant's series
+  limen ticket new "what becomes true" [--lane planned|active] [--touches id,id]  # next unused F number across lanes, archive.tsv, limen/* branches and job labels
   limen ticket check [BRANCH]                    # land gate on demand: tickets BRANCH adds or changes; run before a hand git merge
   limen ticket done FNNN [FNNN ...]             # landed without limen land: active ticket moves to done/ with a landed date
-  limen ticket series [NAME PLANT [PLANT ...]]  # plants on this seat that share one F-number series; no arguments: this plant's series
   limen board [--write]                          # the board with NOW and PROVEN from the lanes and each ticket's jobs; --write rewrites them in spec/build.md
   limen sweep [--install|--uninstall]
-  limen highlight [on|off]                       # seat-wide, off by default: ◆ marks every string Limen writes into Herdr
   limen github connect|disconnect|status|doctor  # bind projects and diagnose seat safety
   limen github ensure [registered-root]       # require a live registered Herdr coordinator
   limen github poll                           # run one polling pass as the isolated App user

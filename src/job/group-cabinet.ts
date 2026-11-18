@@ -6,7 +6,6 @@ import { dirname, isAbsolute } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { limenRoot } from "../project/git.ts";
-import type { PlanningSource } from "../project/planning.ts";
 import { processAlive, processInfo } from "../runtime/contain.ts";
 import { SESSION_ID } from "./job.ts";
 
@@ -25,7 +24,6 @@ export type GroupRun = {
 	id: string;
 	root: string;
 	feature: string;
-	planningSource?: PlanningSource;
 	lead: string;
 	/** The Herdr pane the lead started the group from; the group result goes there when the lead hook is not running. */
 	leadPane?: string;

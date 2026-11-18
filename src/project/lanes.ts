@@ -3,7 +3,6 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { readTickets, type TicketRecord } from "../picture/tickets.ts";
 import { commitPaths, dirtyPaths, isGitRepository } from "./git.ts";
-import { planningSource } from "./planning.ts";
 import { ARCHIVE, type ArchiveRow, archiveRows } from "./series.ts";
 
 /** PROVEN names this many landed features; every month folder keeps a count line below them. */
@@ -95,7 +94,7 @@ export async function writeBoard(root: string): Promise<boolean> {
 }
 
 /**
- * Moves each named active ticket to `done/<month>/` with a `landed` date and rebuilds the board. In committed planning
+ * Moves each named active ticket to `done/<month>/` with a `landed` date and rebuilds the board. In a Git repository
  * the move and the board are one commit, `Close FNNN: <reason>`; a board or ticket another session is editing stops the
  * close before anything moves.
  */
@@ -112,7 +111,7 @@ export async function closeTickets(
 	if (tickets.length === 0) {
 		return { moved: [] };
 	}
-	const committed = planningSource(root) === "committed" && isGitRepository(root);
+	const committed = isGitRepository(root);
 	const folders = tickets.map((ticket) => dirname(ticket.path));
 	if (committed) {
 		const busy = dirtyPaths(root).paths.filter(

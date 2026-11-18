@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import type { GroupIdentity, GroupMember, GroupRun, TeamRoute } from "../job/group-cabinet.ts";
@@ -17,12 +17,11 @@ import {
 	startGroupAdvance,
 	teamRoute,
 } from "../job/group-cabinet.ts";
-import { acceptBatch, acceptTransport, groupEvents, publishEvent, syncLifecycle } from "../job/group-events.ts";
+import { acceptBatch, acceptTransport, publishEvent, syncLifecycle } from "../job/group-events.ts";
 import { roundNames, routeFlags } from "../job/group-packet.ts";
 import { parseDuration, SESSION_ID } from "../job/job.ts";
-import { refuseRemovedFlags, removedFlag } from "../old-names.ts";
+import { refuseRemovedFlags, refuseRemovedWords, removedFlag } from "../old-names.ts";
 import { commitHasFile, headCommit, limenRoot, repoRoot, worktreeState } from "../project/git.ts";
-import { type PlanningSource, planningSource, privatePlanningFile } from "../project/planning.ts";
 import { preflightEngine, resolveSpawnEngine } from "../runtime/engine.ts";
 import { normalizeWorkerExtensions } from "../runtime/worker-extensions.ts";
 import { parseFlags } from "./flags.ts";
@@ -117,7 +116,6 @@ type GroupSettings = {
 };
 type GroupActivation = {
 	readonly feature: string;
-	readonly source: PlanningSource;
 	readonly lead: string;
 	readonly settings: GroupSettings;
 	readonly options: GroupStartOptions;
@@ -138,11 +136,10 @@ export async function startGroup(args: readonly string[], cwd: string): Promise<
 	// Deliberately ignore inherited LIMEN_CONTEXT_ROOT for new activation.
 	const root = repoRoot(cwd);
 	const feature = groupFeature(root, cwd, featureArgument);
-	const source = await groupPlanningSource(root, feature, featureArgument);
 	const lead = await liveGroupLead(root);
 	const settings = await groupSettings(options);
-	await checkGroupPacket(root, feature, settings.teams, source);
-	const activated = await activateGroup(root, cwd, { feature, source, lead, settings, options });
+	checkGroupPacket(root, feature, settings.teams);
+	const activated = await activateGroup(root, cwd, { feature, lead, settings, options });
 	if (activated.created) {
 		await spawnTeamCoordinators(root, activated.run);
 	}
@@ -156,18 +153,6 @@ function groupFeature(root: string, cwd: string, featureArgument: string): strin
 		);
 	}
 	return feature;
-}
-/** A repeated start resumes the feature's open run, so it keeps that run's planning source. */
-async function groupPlanningSource(root: string, feature: string, featureArgument: string): Promise<PlanningSource> {
-	const latest = (await runs(root)).filter((run) => run.feature === feature).at(-1);
-	const open = latest && !latest.stopped && !latest.closed ? latest : undefined;
-	const source = open ? (open.planningSource ?? "committed") : planningSource(root);
-	if (source === "private" && featureArgument.split(/[\\/]/).includes("..")) {
-		throw new Error(
-			"private planning feature path must not contain '..'; run limen group start spec/features/active/FEATURE from the project root",
-		);
-	}
-	return source;
 }
 /** The interactive coordinator registered as lead, whose group-peer hook is alive. */
 async function liveGroupLead(root: string): Promise<string> {
@@ -216,13 +201,8 @@ async function groupSettings({ routes, rounds, workers, timeout }: GroupStartOpt
 		timeout: timeoutMs,
 	};
 }
-/** The ticket must exist; a brief and approach notes are optional. Committed at HEAD, or readable inside the root when private. */
-async function checkGroupPacket(
-	root: string,
-	feature: string,
-	teams: readonly string[],
-	source: PlanningSource,
-): Promise<void> {
+/** The ticket must exist; a brief and approach notes are optional. Each packet file that exists is committed at HEAD. */
+function checkGroupPacket(root: string, feature: string, teams: readonly string[]): void {
 	const ticket = `${feature}/ticket.md`;
 	if (!existsSync(`${root}/${ticket}`)) {
 		throw new Error(`group packet is missing ${ticket}; create it, then run limen group start ${feature}`);
@@ -235,9 +215,7 @@ async function checkGroupPacket(
 		if (!existsSync(`${root}/${path}`)) {
 			continue;
 		}
-		if (source === "private") {
-			await privatePlanningFile(root, path);
-		} else if (!commitHasFile(root, headCommit(root), path)) {
+		if (!commitHasFile(root, headCommit(root), path)) {
 			throw new Error(`group packet ${path} is not committed; run git add ${path} and commit before starting`);
 		}
 	}
@@ -300,7 +278,7 @@ async function teamExtensionPathsByTeam(
 }
 function newGroupRun(
 	root: string,
-	{ feature, source, lead, settings }: GroupActivation,
+	{ feature, lead, settings }: GroupActivation,
 	teamExtensions: Record<string, string[]>,
 ): GroupRun {
 	const leadPane = herdrWakePane(undefined);
@@ -308,7 +286,6 @@ function newGroupRun(
 		id: randomUUID(),
 		root,
 		feature,
-		planningSource: source,
 		lead,
 		...(leadPane ? { leadPane } : {}),
 		startedAt: Date.now(),
@@ -327,7 +304,7 @@ function newGroupRun(
 }
 /** Each team's first-round job. A failed launch is recorded and ends the start. */
 async function spawnTeamCoordinators(root: string, run: GroupRun): Promise<void> {
-	const ticket = run.planningSource === "private" ? `${root}/${run.feature}/ticket.md` : `${run.feature}/ticket.md`;
+	const ticket = `${run.feature}/ticket.md`;
 	for (const team of run.teams) {
 		const route = teamRoute(run, team);
 		try {
@@ -407,6 +384,10 @@ async function runGroupCommand(args: readonly string[], cwd: string): Promise<vo
 		await advanceGroup(limenRoot(cwd), rest[0] ?? "");
 		return;
 	}
+	// Before the lead's first word is read as the group id, and before status publishes lifecycle events.
+	if (command === "status") {
+		refuseRemovedWords("group status", rest);
+	}
 	const explicit = process.env.LIMEN_GROUP_ID ? undefined : rest.shift();
 	const identity = await groupIdentity(cwd, explicit);
 	if (!identity) {
@@ -457,9 +438,11 @@ async function printGroupWait(identity: GroupIdentity, rest: readonly string[]):
 		await acceptTransport(identity, token);
 	}
 }
+/** `group status` takes at most the group id, which the lead gives and a member omits. */
 async function printGroupStatus(identity: GroupIdentity, rest: readonly string[]): Promise<void> {
-	if (rest.length && (rest.length !== 1 || rest[0] !== "--json")) {
-		throw new Error(`invalid group status arguments; run limen group status ${identity.run.id} --json`);
+	if (rest.length) {
+		const id = identity.member ? "" : ` ${identity.run.id}`;
+		throw new Error(`invalid group status arguments; run limen group status${id}`);
 	}
 	await syncLifecycle(identity.run, "skip");
 	const run = await readRun(identity.run.root, identity.run.id);
@@ -472,12 +455,6 @@ async function printGroupStatus(identity: GroupIdentity, rest: readonly string[]
 				).trim() || "no job record yet",
 		})),
 	);
-	if (rest[0] === "--json") {
-		console.log(
-			JSON.stringify({ ...run, members, events: await groupEvents(run), receipts: await allReceipts(run) }, null, 2),
-		);
-		return;
-	}
 	const round = run.rounds[run.round] ?? "";
 	console.log(`Group ${run.feature} (${run.id})`);
 	console.log(
@@ -594,13 +571,4 @@ async function closeGroup(identity: GroupIdentity): Promise<void> {
 		console.log(line);
 	}
 	console.log("group closed; clean member paths released for ordinary pruning");
-}
-async function allReceipts(run: GroupRun): Promise<unknown[]> {
-	const receipts: unknown[] = [];
-	for (const recipient of await readdir(`${groupPath(run)}/receipts`).catch(() => [])) {
-		for (const name of await readdir(`${groupPath(run)}/receipts/${recipient}`)) {
-			receipts.push(JSON.parse(await readFile(`${groupPath(run)}/receipts/${recipient}/${name}`, "utf8")));
-		}
-	}
-	return receipts;
 }

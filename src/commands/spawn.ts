@@ -26,13 +26,7 @@ import {
 	workspaceRoot,
 	worktreeForBranch,
 } from "../project/git.ts";
-import {
-	inheritedPlanning,
-	type PlanningSource,
-	planningSource,
-	privatePlanningTask,
-	ticketPointers,
-} from "../project/planning.ts";
+import { inheritedPlanning, ticketPointers } from "../project/planning.ts";
 import { signalProcessGroup, waitForProcessGroup } from "../runtime/contain.ts";
 import {
 	defaultModel,
@@ -114,7 +108,6 @@ type SpawnPlace = {
 	readonly workspace: string | undefined;
 	readonly currentRoot: string;
 	readonly root: string;
-	readonly source: PlanningSource;
 	readonly repository: string;
 	readonly repo: string | undefined;
 };
@@ -174,7 +167,7 @@ async function spawnJob(args: readonly string[], cwd: string, group?: SpawnGroup
 	// A group member never subscribes a session, so its pane stays recorded even under Pi: it is the lead's route when the group hook is not running.
 	const coordinatorPane = herdrWakePane(group ? undefined : notificationSession);
 	const place = resolveSpawnPlace(cwd, group, options.repo);
-	const task = await spawnTaskText(loaded, options.repo, place);
+	const task = spawnTaskText(loaded, options.repo, place);
 	await recordSpawnedJob({
 		cwd,
 		options,
@@ -250,10 +243,9 @@ async function launchExtensions(
 function resolveSpawnPlace(cwd: string, group: SpawnGroup | undefined, repoFlag: string | undefined): SpawnPlace {
 	const workspace = group ? undefined : workspaceRoot(cwd);
 	const currentRoot = workspace ?? repoRoot(cwd);
-	// A job that spawns from its own worktree keeps its canonical root, recorded planning source, and repository.
+	// A job that spawns from its own worktree keeps its canonical root and repository.
 	const inherited = group || workspace ? undefined : inheritedPlanning(currentRoot);
 	const root = group?.run.root ?? inherited?.root ?? currentRoot;
-	const source = group ? (group.run.planningSource ?? "committed") : (inherited?.source ?? planningSource(root));
 	if (workspace && !repoFlag) {
 		throw new Error("workspace spawn requires --repo <immediate-child>");
 	}
@@ -266,24 +258,18 @@ function resolveSpawnPlace(cwd: string, group: SpawnGroup | undefined, repoFlag:
 	} else if (group) {
 		repository = root;
 	}
-	return { workspace, currentRoot, root, source, repository, repo: repoFlag ?? inherited?.repo };
+	return { workspace, currentRoot, root, repository, repo: repoFlag ?? inherited?.repo };
 }
-async function spawnTaskText(loaded: SpawnTask, repoFlag: string | undefined, place: SpawnPlace): Promise<string> {
-	const { root, source } = place;
-	let task = loaded.text;
+function spawnTaskText(loaded: SpawnTask, repoFlag: string | undefined, place: SpawnPlace): string {
 	if (!loaded.raw && place.workspace) {
-		task = workspaceTask(loaded.text, root, repoFlag ?? "");
+		return workspaceTask(loaded.text, place.root, repoFlag ?? "");
 	}
-	// Private planning: check every pointer now, before a job record or worktree exists.
-	if (source === "private") {
-		task = await privatePlanningTask(root, task);
-	}
-	return task;
+	return loaded.text;
 }
 /** Plans the worktree, claims the member slot, writes the job record and prints its ID, then creates the worktree and starts the job. */
 async function recordSpawnedJob(launch: SpawnLaunch): Promise<void> {
 	const { options, group, place, task } = launch;
-	const { root, repository, source } = place;
+	const { root, repository } = place;
 	const role = options.review ? "reviewer" : (group?.role ?? options.role ?? "worker");
 	const pinnedBase = options.base ? resolveCommit(repository, options.base, "--base") : undefined;
 	const pinnedHead = options.head ? resolveCommit(repository, options.head, "--head") : undefined;
@@ -308,9 +294,7 @@ async function recordSpawnedJob(launch: SpawnLaunch): Promise<void> {
 		throw new Error(`pinned review head moved before spawn: ${branch} is not at ${pinnedHead}`);
 	}
 	const baseCommit = plan.kind === "add-new" ? spawnBaseCommit(repository) : branchCommit(repository, branch);
-	if (source === "committed") {
-		assertTicketsAtBase(repository, baseCommit, task);
-	}
+	assertTicketsAtBase(repository, baseCommit, task);
 	const member = group ? await claimMember(group.run, group.team, group.role, id) : undefined;
 	await noteRunningJobs(jobsRoot, options.label);
 	const jobDir = `${jobsRoot}/${id}`;
@@ -368,10 +352,9 @@ async function jobTaskBody(
 	candidate: string | undefined,
 	member: GroupMember | undefined,
 ): Promise<string | Uint8Array> {
-	const { task, loaded, group, place } = launch;
-	// Private planning may rewrite ticket pointers, so its task is the checked text, not the raw bytes.
+	const { task, loaded, group } = launch;
 	let taskBody: string | Uint8Array = `${task.trim()}\n`;
-	if (loaded.raw && place.source === "committed") {
+	if (loaded.raw) {
 		taskBody = loaded.bytes;
 	} else if (candidate) {
 		taskBody = `${task.trim()}\n\nCandidate commit: ${candidate}.\n`;
@@ -395,7 +378,6 @@ async function publishSpawnedJob(launch: SpawnLaunch, record: SpawnRecord): Prom
 		priority: launch.options.priority ?? DEFAULT_PRIORITY,
 		...(launch.model ? { model: launch.model } : {}),
 		extensions: launch.extensions,
-		planningSource: place.source,
 		...(place.repo ? { repo: place.repo } : {}),
 		...(!group && notificationSession ? { notificationSession } : {}),
 		...(coordinatorTab ? { originTab: coordinatorTab } : {}),

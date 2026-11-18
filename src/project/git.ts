@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
-import { basename, dirname, relative, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { basename, resolve } from "node:path";
 export type GitWorktree = {
 	readonly path: string;
 	readonly branch?: string;
@@ -322,43 +322,6 @@ export function worktreeState(cwd: string): "clean" | "dirty" | "none" {
 export function liveDiffstat(cwd: string, branch: string): string {
 	const result = git(cwd, ["diff", "--stat", `HEAD...${branch}`]);
 	return result.status === 0 ? result.stdout.trim() : `(unavailable: ${result.stderr.trim() || "git diff failed"})`;
-}
-export function ticketAuthor(
-	cwd: string,
-	ticket: string,
-): { path: string; commit: string; name: string; email: string } {
-	const root = repoRoot(cwd);
-	const absolute = resolve(realpathSync(cwd), ticket);
-	// Git reports the physical root (e.g. /private/var on macOS). Resolve directory
-	// aliases too, but leave the filename literal so tracked symlinks keep their identity.
-	const parent = dirname(absolute);
-	const path = relative(root, resolve(existsSync(parent) ? realpathSync(parent) : parent, basename(absolute)));
-	if (!path || path === ".." || path.startsWith("../")) {
-		throw new Error("ticket path must be a file inside this repository");
-	}
-	if (git(root, ["cat-file", "-t", `HEAD:${path}`]).stdout.trim() !== "blob") {
-		throw new Error(`ticket author unavailable: ${path} is not a committed file at HEAD`);
-	}
-	if (requireGit(root, ["rev-parse", "--is-shallow-repository"]).stdout.trim() === "true") {
-		throw new Error("ticket author unavailable: shallow history; fetch complete history first");
-	}
-	// A copy files a new ticket; follow renames, but stop at copies.
-	const [commit, name, email] = requireGit(root, [
-		"log",
-		"--follow",
-		"--diff-filter=AC",
-		"-1",
-		"--format=%H%x00%an%x00%ae",
-		"HEAD",
-		"--",
-		`:(literal)${path}`,
-	])
-		.stdout.trimEnd()
-		.split("\0");
-	if (!commit || !name || !email) {
-		throw new Error(`ticket author unavailable: no creation author found for ${path}`);
-	}
-	return { path, commit, name, email };
 }
 function requireGit(cwd: string, args: readonly string[], input?: string): GitResult {
 	const result = git(cwd, args, input);

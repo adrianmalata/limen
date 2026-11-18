@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { privatePlanningFile } from "../project/planning.ts";
 import type { GroupMember, GroupRun, TeamRoute } from "./group-cabinet.ts";
 import { teamRoute } from "./group-cabinet.ts";
 
@@ -60,7 +59,7 @@ export async function memberPacket(run: GroupRun, team: string, member: GroupMem
 	}
 	return lines.join("\n");
 }
-/** Ticket always; brief and approach note when the lead wrote them. Private planning names canonical paths only. */
+/** Ticket always; brief and approach note when the lead wrote them. The approach note goes inline, the rest as paths. */
 async function packetFiles(run: GroupRun, team: string): Promise<string[]> {
 	const lines: string[] = [];
 	const files = [
@@ -72,9 +71,7 @@ async function packetFiles(run: GroupRun, team: string): Promise<string[]> {
 		if (!existsSync(`${run.root}/${path}`)) {
 			continue;
 		}
-		if (run.planningSource === "private") {
-			lines.push(`${name}: ${await privatePlanningFile(run.root, path)}`);
-		} else if (name === "Approach note") {
+		if (name === "Approach note") {
 			lines.push(`Approach note:\n${(await readFile(`${run.root}/${path}`, "utf8")).trim()}`);
 		} else {
 			lines.push(`${name}: ${path}`);

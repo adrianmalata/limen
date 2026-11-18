@@ -1,15 +1,48 @@
 // The shared throwaway plant every scenario runs on: a temp Git repo after a real `limen init`, an environment built
 // from an allowlist, the scripted fake engine (test/fake-engine.mjs) as `pi`, and a fetch sink that records
-// every request a Limen process makes. Scenarios wait on `limen wait`, file events and FIFOs; nothing here sleeps.
+// every request a Limen process makes. Scenarios wait on file events and FIFOs; nothing here sleeps.
 import { type ChildProcess, execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, watch } from "node:fs";
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { TERMINAL_STATES } from "../src/job/job.ts";
 
 export const LIMEN = fileURLToPath(new URL("../bin/limen", import.meta.url));
 const FAKE_ENGINE = fileURLToPath(new URL("./fake-engine.mjs", import.meta.url));
+/**
+ * The child `waitJob` runs, so its caller stays synchronous. It watches the job folder (argument 1) and prints the
+ * job's state once it is one of the terminal states (argument 2, JSON). A missing state, or one that is neither
+ * running nor terminal, fails it. The one-second re-check closes the gap of a watch that starts late, as in `until`.
+ */
+const WAITER = `
+import { readFileSync, watch } from "node:fs";
+import { join } from "node:path";
+const [dir, terminal] = [process.argv[1], JSON.parse(process.argv[2])];
+let done = false;
+const watcher = watch(dir, () => settle());
+const recheck = setInterval(() => settle(), 1000);
+function settle() {
+	if (done) {
+		return;
+	}
+	const state = readFileSync(join(dir, "state"), "utf8").trim();
+	if (state === "running") {
+		return;
+	}
+	done = true;
+	watcher.close();
+	clearInterval(recheck);
+	if (terminal.includes(state)) {
+		process.stdout.write(state);
+		return;
+	}
+	console.error("job state", JSON.stringify(state), "is neither running nor terminal");
+	process.exitCode = 1;
+}
+settle();
+`;
 
 export type Plant = {
 	readonly parent: string;
@@ -146,13 +179,25 @@ export function spawnJob(plant: Plant, task: string, flags: readonly string[] = 
 	return id;
 }
 
-/** Blocks on `limen wait <id>` and returns the terminal state. */
+/**
+ * Blocks until the job's `state` is terminal and returns it. The job folder is under `options.cwd` when given, as for
+ * a job of a workspace or of another checkout, otherwise under the plant root; `options.env` plays no part. A child
+ * node process watches the folder, so the caller needs no `await` and nothing sleeps.
+ */
 export function waitJob(plant: Plant, id: string, options: RunOptions = {}): string {
-	const run = limen(plant, ["wait", id], options);
-	if (run.status !== 0) {
-		throw new Error(`wait failed: ${run.stderr}`);
+	const dir = join(options.cwd ?? plant.root, ".limen", "jobs", id);
+	const terminal = JSON.stringify(TERMINAL_STATES);
+	const run = spawnSync(process.execPath, ["--input-type=module", "--eval", WAITER, dir, terminal], {
+		encoding: "utf8",
+		env: {},
+	});
+	if (run.error) {
+		throw run.error;
 	}
-	return run.stdout.split(" ")[0]?.toLowerCase() ?? "";
+	if (run.status !== 0) {
+		throw new Error(`waiting for job ${id} failed: ${run.stderr}`);
+	}
+	return run.stdout;
 }
 
 export function jobDir(plant: Plant, id: string): string {
@@ -168,7 +213,7 @@ export function jobFile(plant: Plant, id: string, name: string): string {
 /**
  * Resolves once `check()` holds, re-checked on every file event below `dir`; bounded only by the test timeout.
  * macOS starts a directory watch asynchronously, so a file made just after `watch()` can raise no event; the
- * one-second re-check closes that gap, as `limen wait` does. Nothing here waits for time to pass.
+ * one-second re-check closes that gap, as the watcher of `waitJob` does. Nothing here waits for time to pass.
  */
 export function until(dir: string, check: () => boolean): Promise<void> {
 	const { promise, resolve } = Promise.withResolvers<void>();

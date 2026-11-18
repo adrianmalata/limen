@@ -3,12 +3,7 @@ import { existsSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { noteStart, recordNote } from "../src/job/task-note.ts";
 import { formatDrift, inheritFile, listDrift, packageRoot, readOptional } from "../src/project/inherit.ts";
-import {
-	planningSource,
-	privatePlanningGuidance,
-	recordedPlanningSource,
-	ticketPointers,
-} from "../src/project/planning.ts";
+import { ticketPointers } from "../src/project/planning.ts";
 import { activeRules, ruleLine } from "../src/project/seat-rules.ts";
 import { assistantStopReason } from "../src/runtime/stream.ts";
 
@@ -158,9 +153,6 @@ function guidancePrompt(cwd: string, job: boolean): string {
 	if (frame) {
 		parts.push(boundText(frame, `limen/${CAPABILITY_FILE}`, "Capability"));
 	}
-	if (privatePlanning(cwd, job)) {
-		parts.push(privatePlanningGuidance(cwd));
-	}
 	if (!job) {
 		const shop = readInheritedAgents(cwd);
 		if (shop) {
@@ -229,14 +221,11 @@ function turnCue(
 		if (ticket) {
 			lines.push(`Ticket: ${ticket}`);
 		}
-		const prefix = privatePlanning(cwd, job) ? `${cwd}/` : "";
 		if (readOptional(join(cwd, VISION_FILE)) !== undefined) {
-			lines.push(
-				`Vision (read-only): \`${prefix}spec/vision.md\` — durable intent. Load it before choosing or starting work.`,
-			);
+			lines.push("Vision (read-only): `spec/vision.md` — durable intent. Load it before choosing or starting work.");
 		}
 		if (readOptional(join(cwd, "spec/build.md")) !== undefined) {
-			lines.push(`Board (read-only): \`${prefix}spec/build.md\` — consult before reporting work; do not edit.`);
+			lines.push("Board (read-only): `spec/build.md` — consult before reporting work; do not edit.");
 		}
 	}
 	if (lastTouch) {
@@ -262,13 +251,6 @@ function turnCue(
 		}
 	}
 	return ["<limen-project-context>", ...lines, "</limen-project-context>"].join("\n\n");
-}
-
-/** A job follows the planning source recorded at its spawn; the coordinator follows the project setting. */
-function privatePlanning(root: string, job: boolean): boolean {
-	const id = process.env.LIMEN_JOB_ID;
-	const source = job && id ? recordedPlanningSource(join(root, ".limen/jobs", id)) : planningSource(root);
-	return source === "private";
 }
 
 function readRegister(cwd: string): string {
