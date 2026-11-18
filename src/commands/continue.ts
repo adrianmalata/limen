@@ -322,7 +322,7 @@ async function checkGroupContinuation(
 		throw new Error("group continuation requires recorded engine/provider/model/reasoning explicitly");
 	}
 }
-/** The finished parent job: worktree, branch, repo, newest session transcript and engine, checked in that order. */
+/** The finished parent job: worktree, branch, repo, engine, newest session transcript and `--engine`, in that order. */
 async function readParentJob(
 	root: string,
 	parentId: string,
@@ -346,12 +346,8 @@ async function readParentJob(
 		throw new Error(`parent record ${parentId} has no branch`);
 	}
 	const repo = await text(`${parentDir}/repo`);
-	const parentEngine = (await text(`${parentDir}/engine`)) || "pi";
-	if (parentEngine === "devin") {
-		throw new Error(
-			`limen continue cannot resume a devin job; spawn a new --engine devin job with --branch ${branch} instead`,
-		);
-	}
+	// Checked before the transcript: a record of a removed engine may hold none, and it refuses with its own line.
+	const parentEngine = engineProfile((await text(`${parentDir}/engine`)) || "pi").id;
 	const sessions = (await readdir(`${parentDir}/session`).catch(() => [])).filter((name) => name.endsWith(".jsonl"));
 	if (sessions.length === 0) {
 		throw new Error(`parent record ${parentId} has no session transcript to continue`);

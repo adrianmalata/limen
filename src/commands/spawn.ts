@@ -33,7 +33,6 @@ import {
 	ticketPointers,
 } from "../project/planning.ts";
 import { signalProcessGroup, waitForProcessGroup } from "../runtime/contain.ts";
-import { preflightDevin } from "../runtime/devin.ts";
 import {
 	defaultModel,
 	type EngineId,
@@ -163,9 +162,6 @@ type SpawnedJob = {
 async function spawnJob(args: readonly string[], cwd: string, group?: SpawnGroup): Promise<void> {
 	const parsed = parseSpawnArgs(args);
 	const profile = resolveSpawnEngine(parsed.engine);
-	if (profile.id === "devin") {
-		preflightDevin(parsed, group !== undefined);
-	}
 	await checkLaunchAuthority(parsed, group);
 	const hosted = chooseHostedLaunch(parsed, group !== undefined);
 	const loaded = await readSpawnTask(parsed.task, parsed.taskFile, cwd);
@@ -174,12 +170,9 @@ async function spawnJob(args: readonly string[], cwd: string, group?: SpawnGroup
 		task: loaded.text,
 		label: parsed.label ?? (loaded.text.trim().split(/\r?\n/, 1)[0]?.trim().slice(0, 80) || "job"),
 	};
-	// Devin's API takes a mode, not a model; without --model the organization's default mode runs.
-	const model = profile.id === "devin" ? options.model : (options.model ?? defaultModel(options.review));
+	const model = options.model ?? defaultModel(options.review);
 	const extensions = await launchExtensions(group, options.extensions, cwd, profile.id);
-	if (profile.id !== "devin") {
-		preflightEngine(profile, model, options.provider);
-	}
+	preflightEngine(profile, model, options.provider);
 	const notificationSession = currentNotificationSession();
 	const coordinatorTab = process.env.HERDR_TAB_ID?.trim();
 	// A group member never subscribes a session, so its pane stays recorded even under Pi: it is the lead's route when the group hook is not running.

@@ -38,10 +38,9 @@ export async function stopCommand(args: readonly string[], cwd: string): Promise
 	if (queued) {
 		await writeFile(`${jobDir}/stop-requested`, `${reason}\n`);
 	}
-	// Complete the bounded ownership snapshot while the parent chain is intact, then signal. A Devin job's wrapper and a
-	// queued one run no engine child, so they have no process tree to search and an empty one is no attribution loss.
-	const childless = queued || (await text(`${jobDir}/engine`)) === "devin";
-	const escaped = childless ? [] : await discoverEscapedDescendants(jobDir, pid, "during stop");
+	// Complete the bounded ownership snapshot while the parent chain is intact, then signal. A queued wrapper runs no
+	// engine child, so it has no process tree to search and an empty one is no attribution loss.
+	const escaped = queued ? [] : await discoverEscapedDescendants(jobDir, pid, "during stop");
 	const result = signalProcessGroup(pid, "SIGTERM");
 	void containEscapedDescendants(jobDir, escaped, "after stop").catch((error: unknown) =>
 		appendLimenLog(

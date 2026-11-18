@@ -37,6 +37,18 @@ test("limen status lists a .limen/finish-webhook.env left by the cut finish webh
 	assert.deepEqual(lines.slice(at, at + 2), [HEADER, "  .limen/finish-webhook.env (finish webhooks (R-002))"]);
 });
 
+test("limen status lists a spec/linear.md left by the cut Linear mirror as a leftover file", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	writeFileSync(join(p.root, "spec/linear.md"), "# Linear mirror\nTeam: T\nProject: P\n");
+	const run = limen(p, ["status"]);
+	assert.equal(run.status, 0, run.stderr);
+	const lines = run.stdout.split("\n");
+	assert.ok(lines.includes(HEADER), run.stdout);
+	const at = lines.indexOf(HEADER);
+	assert.deepEqual(lines.slice(at, at + 2), [HEADER, "  spec/linear.md (the Linear mirror (R-003))"]);
+});
+
 test("limen status prints no Leftover files section when the project has no leftover", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());

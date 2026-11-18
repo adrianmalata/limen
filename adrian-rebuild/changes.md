@@ -1,6 +1,7 @@
 <!-- PL: Dziennik zmian przebudowy Limena: jeden wpis na zamknięty ticket R-NNN, tylko dopisywany, najnowszy na dole.
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
-wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002. -->
+wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
+R-003. -->
 
 # Changes
 
@@ -67,3 +68,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: measured
 - Commit: R-002
 - Rollback: git revert $(git log --format=%H --grep='^R-002:' adrian-rebuild --) (the leftover files stay until `limen init --drop-leftovers`)
+
+## 2026-11-18 R-003 Cut Devin and the Linear mirror
+- What: deleted `src/runtime/devin.ts`, `test/s11-devin.test.ts`, `src/commands/linear.ts`, `templates/linear.md`; `src/runtime/engine.ts` (engines `pi` and `omp` only), `src/commands/spawn.ts`, `src/runtime/wrapper.ts`, `src/commands/stop.ts`, `src/commands/continue.ts` (the recorded engine checked before the transcript), `src/commands/group.ts`, `src/main.ts`; `src/old-names.ts` (the `linear` entry, `OLD_ENGINES` and `removedEngine`); `LEFTOVERS` gets three Linear paths; `templates/agents.md` and its history, `.gitignore`, `README.md`, `docs/commands.md`, `docs/jobs.md`, `docs/setup.md`; tests in `test/s1-spawn.test.ts`, `test/cli/old-names.test.ts`, `test/cli/continue.test.ts`, `test/cli/status.test.ts`
+- Why: G1.5, G1.6, A-049, T-18
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (95/95: 92 − 2 removed with the cut + 5 new); `node adrian-rebuild/tools/fails-before.mjs` → exit 0; the ticket's `git grep -q -i -E 'devin|linear' -- …` → exit 1 (no match)
+- Measurement: measured
+- Commit: R-003
+- Rollback: git revert $(git log --format=%H --grep='^R-003:' adrian-rebuild --) (the leftover files stay until `limen init --drop-leftovers`)

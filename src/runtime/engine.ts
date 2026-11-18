@@ -3,11 +3,12 @@ import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { mkdir, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
+import { removedEngine } from "../old-names.ts";
 
-export type EngineId = "pi" | "omp" | "devin";
+export type EngineId = "pi" | "omp";
 export type EngineProfile = {
 	readonly id: EngineId;
-	readonly binaryEnv: "LIMEN_PI" | "LIMEN_OMP" | "LIMEN_DEVIN";
+	readonly binaryEnv: "LIMEN_PI" | "LIMEN_OMP";
 	readonly binaryDefault: EngineId;
 	readonly herdrKind: EngineId;
 	readonly projectTrust: boolean;
@@ -52,31 +53,19 @@ export const ENGINES: { readonly [K in EngineId]: EngineProfile } = {
 		noTitle: true,
 		authCheck: false,
 	},
-	// A Devin job runs in Devin's cloud through its API; the `devin` CLI only lends its login and reports its version.
-	devin: {
-		id: "devin",
-		binaryEnv: "LIMEN_DEVIN",
-		binaryDefault: "devin",
-		herdrKind: "devin",
-		projectTrust: false,
-		toolYolo: false,
-		sessionName: false,
-		noTitle: false,
-		authCheck: false,
-	},
 };
 export function engineProfile(id: string): EngineProfile {
-	if (id === "pi" || id === "omp" || id === "devin") {
+	if (id === "pi" || id === "omp") {
 		return ENGINES[id];
 	}
-	throw new Error(`unknown engine ${id}`);
+	throw new Error(removedEngine(id) ?? `unknown engine ${id}`);
 }
 export function resolveSpawnEngine(flag?: string): EngineProfile {
 	const raw = (flag ?? process.env.LIMEN_ENGINE)?.trim() || "pi";
-	if (raw === "pi" || raw === "omp" || raw === "devin") {
+	if (raw === "pi" || raw === "omp") {
 		return ENGINES[raw];
 	}
-	throw new Error("--engine must be pi, omp or devin");
+	throw new Error(removedEngine(raw) ?? "--engine must be pi or omp");
 }
 export function engineBinary(profile: EngineProfile): string {
 	return process.env[profile.binaryEnv] ?? profile.binaryDefault;

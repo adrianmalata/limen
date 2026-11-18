@@ -20,7 +20,6 @@ import {
 	processInfo,
 	signalProcessGroup,
 } from "./contain.ts";
-import { runDevinJob } from "./devin.ts";
 import { argvFor, engineBinary, jobProfile, prepareSkillConfig } from "./engine.ts";
 import { setUpJob, worktreeMissing } from "./job-setup.ts";
 import { observeToolStall, ownedToolDescendants, type ToolStallWatch, toolStallMs } from "./stalled-tool.ts";
@@ -93,8 +92,8 @@ export async function runInternalJob(): Promise<void> {
 		}
 	});
 	const profile = await jobProfile(jobDir);
-	// A group member runs on its group's deadline and a Devin job runs in the cloud; both start at once.
-	const gate = !(membership || profile.id === "devin") && (await enterStartQueue(jobDir));
+	// A group member runs on its group's deadline, so it starts at once.
+	const gate = !membership && (await enterStartQueue(jobDir));
 	// Spawn waits for this handshake, not for the queue or setup, so it returns before prune and --prepare run.
 	// One handshake per run: a second one races the first one's `born` write and can crash the wrapper.
 	const early = Boolean(process.env.LIMEN_SETUP_KEEP || gate);
@@ -128,21 +127,6 @@ export async function runInternalJob(): Promise<void> {
 	const timeoutMs = membership
 		? Math.max(1, Math.min(configuredTimeout, (membership.member?.deadline ?? membership.run.deadline) - Date.now()))
 		: configuredTimeout;
-	if (profile.id === "devin") {
-		await runDevinJob({
-			jobDir,
-			worktree,
-			taskFile,
-			preamble,
-			jobId,
-			label,
-			platform: process.env.LIMEN_PROVIDER ?? "",
-			mode: process.env.LIMEN_MODEL ?? "",
-			timeoutMs,
-			stop: stop.signal,
-		});
-		return;
-	}
 	let exhaustionTermination = Promise.resolve();
 	const exhaust = (reason: string, captured?: readonly JobProcess[]) => {
 		if (exhausted || stopRequested) {

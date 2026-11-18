@@ -20,6 +20,10 @@ export const LEFTOVERS: readonly Leftover[] = [
 	{ path: ".limen/outbox", feature: "finish webhooks (R-002)" },
 	{ path: ".limen/webhook-rejected", feature: "finish webhooks (R-002)" },
 	{ path: ".limen/coordinator-events", feature: "coordinator signals (R-002)" },
+	// The mirror's config, on or parked, and the project's override of the cut templates/linear.md.
+	{ path: "spec/linear.md", feature: "the Linear mirror (R-003)" },
+	{ path: "spec/linear.md.off", feature: "the Linear mirror (R-003)" },
+	{ path: ".agents/limen/linear.md", feature: "the Linear mirror (R-003)" },
 ];
 
 /**

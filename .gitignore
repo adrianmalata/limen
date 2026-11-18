@@ -5,9 +5,6 @@ coverage/
 /tmp/evidence/
 /Users/
 
-# operator-local Linear mirror config (per-project, never shared)
-spec/linear.md*
-
 # rebuild inputs: local only, never published
 adrian-rebuild/input/
 

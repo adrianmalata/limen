@@ -9,7 +9,6 @@ import { initCommand, workspaceCommand } from "./commands/init.ts";
 import { jobsCommand } from "./commands/jobs.ts";
 import { keeperCommand } from "./commands/keeper.ts";
 import { landCommand } from "./commands/land.ts";
-import { linearCommand } from "./commands/linear.ts";
 import { openCommand } from "./commands/open.ts";
 import { pictureCommand } from "./commands/picture.ts";
 import { planningCommand } from "./commands/planning-source.ts";
@@ -57,7 +56,6 @@ const COMMANDS = {
 	close: closeCommand,
 	sweep: sweepCommand,
 	highlight: highlightCommand,
-	linear: linearCommand,
 	"ticket-author": ticketAuthorCommand,
 	ticket: ticketCommand,
 } as const satisfies Record<
@@ -87,7 +85,6 @@ const COMMANDS = {
 	| "close"
 	| "sweep"
 	| "highlight"
-	| "linear"
 	| "ticket-author"
 	| "ticket",
 	Command
@@ -114,7 +111,6 @@ usage:
   limen spawn --engine <engine> --provider <provider> --model <model> --thinking <level> --detached "…"  # detached, as the default
   limen spawn --engine <engine> --provider <provider> --model <model> --thinking <level> --repo R "Implement FNNN: <outcome>. Ticket: spec/features/active/FNNN-slug/ticket.md" [--label L]
   limen spawn --engine <engine> --provider <provider> --model <model> --thinking <level> --review --detached --branch B --label L [--base SHA] [--head SHA] "Review the FNNN candidate against spec/features/active/FNNN-slug/ticket.md"
-  limen spawn --engine devin [--provider macos|linux] [--model MODE] "…" [--label L] [--task-file F|-]  # a Devin cloud session on the job branch; detached only, no --thinking
   limen continue <id|suffix|label> "follow-up instruction" [--review] [--label L] [--engine pi|omp] [--provider P] [--model X] [--thinking T] [--tab|--detached] [--priority 1|2|3; default the parent's] [--extension PATH ...; replaces ordinary Pi list, group list stays fixed]
                                   # resume a finished job in its own engine session — full context, same worktree; Herdr default is hosted
   limen steer <id|suffix|label> | --running "correction"
@@ -143,7 +139,6 @@ usage:
   limen board [--write]                          # the board with NOW and PROVEN from the lanes and each ticket's jobs; --write rewrites them in spec/build.md
   limen sweep [--install|--uninstall]
   limen highlight [on|off]                       # seat-wide, off by default: ◆ marks every string Limen writes into Herdr
-  limen linear [on [--team T --project P]|off|status]   # Linear mirror toggle — renames spec/linear.md ↔ .off; --team/--project write a fresh config
   limen github connect|disconnect|status|doctor  # bind projects and diagnose seat safety
   limen github ensure [registered-root]       # require a live registered Herdr coordinator
   limen github poll                           # run one polling pass as the isolated App user
