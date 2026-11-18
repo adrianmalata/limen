@@ -20,7 +20,7 @@ Where code lives:
 - `src/job/` — the job record: its model, lookup, rendering, and `record.ts`, which owns state files and finalization
 - `src/runtime/` — starting and supervising an engine: launch profiles, stream parsing, the detached runner, the hosted supervisor, process containment, stall detection, reaping, recovery
 - `src/project/` — the project around jobs: Git and worktrees, template inheritance, the seat registry
-- `src/integrations/` — systems outside files and Git: Herdr, the GitHub doorbell, finish webhooks and their receipts
+- `src/integrations/` — systems outside files and Git: Herdr, the GitHub doorbell, and the coordinator sessions that Limen wakes and registers
 - `hook/` — only the extensions Pi and OMP load by path (`wake`, `communication`, `steering`, `hosted`). Installed project stubs and job launches name these paths; do not move them
 
 - Capability — start, wait, stop, observe — belongs in `src/`

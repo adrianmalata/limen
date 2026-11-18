@@ -435,9 +435,6 @@ async function publishContinuation(record: ContinuationRecord): Promise<void> {
 		: coordinatorPane
 			? undefined
 			: (await text(`${parent.dir}/origin-session`)) || undefined;
-	// Resume the parent's opt-in (or absence), not the current shell's destination.
-	const finishConfig = await text(`${parent.dir}/finish-webhook-env`);
-	const finishAuthor = await text(`${parent.dir}/finish-webhook-author`);
 	const carried: Record<string, string> = {};
 	for (const name of ["note.md", "note.first.md"]) {
 		const body = await text(`${parent.dir}/${name}`);
@@ -465,8 +462,6 @@ async function publishContinuation(record: ContinuationRecord): Promise<void> {
 		...(coordinatorTab ? { originTab: coordinatorTab } : {}),
 		...(coordinatorPane ? { originPane: coordinatorPane } : {}),
 		...(record.group ? { group: record.group } : {}),
-		...(finishConfig ? { finishConfig } : {}),
-		...(finishAuthor ? { finishAuthor } : {}),
 		carried,
 	});
 }

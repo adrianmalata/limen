@@ -1,6 +1,5 @@
 import { appendFile, open, readdir, readFile, rename, rm } from "node:fs/promises";
 import { promptCoordinator } from "../integrations/coordinator-wake.ts";
-import { deliverFinishWebhook } from "../integrations/finish-webhook.ts";
 import { settleJobTab } from "../integrations/herdr.ts";
 import { commitList, headCommit } from "../project/git.ts";
 import { processAlive, processInfo } from "../runtime/contain.ts";
@@ -77,19 +76,12 @@ export async function finalizeJob(
 			await rm(`${jobDir}/${name}`, { force: true });
 		}
 	}
-	// The Herdr prompt is the coordinator's wake; the finish webhook is an opt-in side channel and never stands in for it.
-	// Queuing the finish ping takes milliseconds; a detached deliverer sends it outside this shutdown grace. A group
-	// member's wake decides there whether group events carry it.
-	await Promise.all([
-		promptCoordinator(jobDir, shutdownDeadline).catch(() =>
-			appendLimenLog(jobDir, "coordinator wake via Herdr: could not be recorded; inspect notify/herdr-prompt").catch(
-				() => {},
-			),
+	// The Herdr prompt is the coordinator's wake. A group member's wake decides there whether group events carry it.
+	await promptCoordinator(jobDir, shutdownDeadline).catch(() =>
+		appendLimenLog(jobDir, "coordinator wake via Herdr: could not be recorded; inspect notify/herdr-prompt").catch(
+			() => {},
 		),
-		deliverFinishWebhook(jobDir, detail).catch(() =>
-			appendLimenLog(jobDir, "finish webhook: could not be queued; inspect finish-webhook-attempt").catch(() => {}),
-		),
-	]);
+	);
 	await settleJobTab(jobDir);
 }
 export async function recordCommits(jobDir: string): Promise<void> {

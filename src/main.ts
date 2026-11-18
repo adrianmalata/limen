@@ -25,8 +25,7 @@ import { ticketCommand } from "./commands/ticket.ts";
 import { ticketAuthorCommand } from "./commands/ticket-author.ts";
 import { waitCommand } from "./commands/wait.ts";
 import { unwatchCommand, watchCommand } from "./commands/watch.ts";
-import { webhookCommand } from "./commands/webhook.ts";
-import { resendNearbyPings } from "./integrations/webhook-queue.ts";
+import { removedCommand } from "./old-names.ts";
 import { runHostedSupervisor } from "./runtime/supervisor.ts";
 import { failInternalJob, runInternalJob } from "./runtime/wrapper.ts";
 
@@ -61,7 +60,6 @@ const COMMANDS = {
 	linear: linearCommand,
 	"ticket-author": ticketAuthorCommand,
 	ticket: ticketCommand,
-	webhook: webhookCommand,
 } as const satisfies Record<
 	| "init"
 	| "workspace"
@@ -91,10 +89,11 @@ const COMMANDS = {
 	| "highlight"
 	| "linear"
 	| "ticket-author"
-	| "ticket"
-	| "webhook",
+	| "ticket",
 	Command
 >;
+/** The registered command names; the table of old names (`src/old-names.ts`) must not hold any of them. */
+export const COMMAND_NAMES: readonly string[] = Object.keys(COMMANDS);
 const HELP = `limen — isolated coding jobs with files and git
 usage:
   limen init
@@ -144,8 +143,6 @@ usage:
   limen board [--write]                          # the board with NOW and PROVEN from the lanes and each ticket's jobs; --write rewrites them in spec/build.md
   limen sweep [--install|--uninstall]
   limen highlight [on|off]                       # seat-wide, off by default: ◆ marks every string Limen writes into Herdr
-  limen webhook test                             # send one test ping to this plant's finish webhook targets
-  limen webhook deliver <receipt-folder>         # internal: send one queued ping, retrying with backoff
   limen linear [on [--team T --project P]|off|status]   # Linear mirror toggle — renames spec/linear.md ↔ .off; --team/--project write a fresh config
   limen github connect|disconnect|status|doctor  # bind projects and diagnose seat safety
   limen github ensure [registered-root]       # require a live registered Herdr coordinator
@@ -175,16 +172,12 @@ export async function main(args: readonly string[], cwd = process.cwd()): Promis
 			return;
 		}
 		if (!(name in COMMANDS)) {
-			throw new Error(`unknown command ${JSON.stringify(name)}\n\n${HELP}`);
+			throw new Error(removedCommand(name) ?? `unknown command ${JSON.stringify(name)}\n\n${HELP}`);
 		}
 		const flags = rest.slice(0, rest.includes("--") ? rest.indexOf("--") : undefined);
 		if (flags.includes("--help") || flags.includes("-h")) {
 			console.log(commandHelp(name));
 			return;
-		}
-		// A webhook is a side channel: a bad queue entry never stops the command the human asked for.
-		if (!(name === "webhook" && rest[0] === "deliver")) {
-			await resendNearbyPings(cwd).catch(() => {});
 		}
 		// A rule whose timer died still ends once; this only starts a detached timer.
 		try {

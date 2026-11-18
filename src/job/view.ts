@@ -33,7 +33,6 @@ export type JobRecord = {
 	readonly tokens?: string;
 	readonly cleanup?: string;
 	readonly herdrWake?: string;
-	readonly finishWebhook?: string;
 	readonly diffstat?: string;
 	readonly logTail?: string;
 };
@@ -162,7 +161,6 @@ export function humanDetail(record: JobRecord, paint: Paint): string {
 	put("diff", record.diffstat);
 	put("cleanup", record.cleanup);
 	put("herdr-wake", record.herdrWake);
-	put("finish-hook", record.finishWebhook);
 	put("log", renderLogTail(record.logTail ?? "", paint));
 	return lines.join("\n");
 }

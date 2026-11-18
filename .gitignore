@@ -13,3 +13,6 @@ adrian-rebuild/input/
 
 # night runs: lock, run logs, status.json and questions.md of tools/night.mjs (D-019)
 adrian-rebuild/.night/
+
+# editor swap files: an open editor must not fail check.mjs or a review guard (D-032)
+.*.swp

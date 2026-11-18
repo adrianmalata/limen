@@ -3,7 +3,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { captureFinishAuthor, finishWebhookEnv } from "../integrations/finish-webhook.ts";
 import { herdrAvailable, herdrBinary, openHostedTab, openWatchTab } from "../integrations/herdr.ts";
 import type { GroupMember, GroupRun } from "../job/group-cabinet.ts";
 import { claimMember, groupIdentity, groupLock, groupPath, teamRoute } from "../job/group-cabinet.ts";
@@ -411,9 +410,8 @@ async function jobTaskBody(
 	return taskBody;
 }
 async function publishSpawnedJob(launch: SpawnLaunch, record: SpawnRecord): Promise<void> {
-	const { cwd, group, place, notificationSession, coordinatorTab, coordinatorPane } = launch;
+	const { group, place, notificationSession, coordinatorTab, coordinatorPane } = launch;
 	const { member, candidate } = record;
-	const finishConfig = finishWebhookEnv(place.root, cwd);
 	await publishJob(record.jobDir, {
 		task: record.taskBody,
 		label: launch.options.label,
@@ -426,7 +424,6 @@ async function publishSpawnedJob(launch: SpawnLaunch, record: SpawnRecord): Prom
 		...(launch.model ? { model: launch.model } : {}),
 		extensions: launch.extensions,
 		planningSource: place.source,
-		finishAuthor: captureFinishAuthor(cwd, launch.loaded.text, Boolean(place.workspace)),
 		...(place.repo ? { repo: place.repo } : {}),
 		...(launch.hosted ? { agentName: hostedAgentName(record.id) } : {}),
 		...(!group && notificationSession ? { notificationSession } : {}),
@@ -434,7 +431,6 @@ async function publishSpawnedJob(launch: SpawnLaunch, record: SpawnRecord): Prom
 		...(coordinatorPane ? { originPane: coordinatorPane } : {}),
 		...(group && member ? { group: { id: group.run.id, team: group.team, deadline: member.deadline } } : {}),
 		...(candidate ? { candidate } : {}),
-		...(finishConfig ? { finishConfig } : {}),
 	});
 }
 /** Marks the job running, then starts it in a Herdr pane or as a detached wrapper. */

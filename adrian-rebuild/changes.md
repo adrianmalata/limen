@@ -1,6 +1,6 @@
 <!-- PL: Dziennik zmian przebudowy Limena: jeden wpis na zamknięty ticket R-NNN, tylko dopisywany, najnowszy na dole.
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
-wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088. -->
+wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002. -->
 
 # Changes
 
@@ -59,3 +59,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-05)
 - Commit: R-088
 - Rollback: git revert $(git log --format=%H --grep='^R-088:' adrian-rebuild --)
+
+## 2026-11-18 R-002 Cut finish webhooks, coordinator signals and the finish ping
+- What: deleted `src/integrations/finish-webhook.ts`, `webhook-queue.ts`, `finish-receipt.ts`, `finish-turn.ts`, `src/commands/webhook.ts`, `bin/tony-finish-ping.sh`, `docs/finish-webhooks.md`, `test/s7-webhooks.test.ts`, `test/u2-webhook-trust.test.ts`; `src/integrations/coordinator-signal.ts` → `coordinator-registration.ts` (the registration `limen rule` reads); new `src/old-names.ts` (the table of old command names, T-18); `LEFTOVERS` gets four paths; call sites in `src/`, `hook/`, templates, tests and docs; `.gitignore` ignores `.*.swp` (D-032)
+- Why: G1.3, A-027, A-060, A-076, A-085, D-031, D-032
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (92/92: 96 − 9 removed with the cut + 5 new); `node adrian-rebuild/tools/fails-before.mjs` → exit 0; the ticket's `git grep -q -E '…'` → exit 1 (no match)
+- Measurement: measured
+- Commit: R-002
+- Rollback: git revert $(git log --format=%H --grep='^R-002:' adrian-rebuild --) (the leftover files stay until `limen init --drop-leftovers`)

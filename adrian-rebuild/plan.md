@@ -1,14 +1,14 @@
 <!-- PL: Plan przebudowy Limena i punkt wznowienia każdej sesji: wizja, słownik, decyzje Adriana (kopia §2 bramki 2,
-D-008–D-029 z bramki 4 i po niej: wdrożenie po SHA, format changes.md, narzędzia seata w TypeScript, praca nocna,
+D-008–D-032 z bramki 4 i po niej: wdrożenie po SHA, format changes.md, narzędzia seata w TypeScript, praca nocna,
 wznowienie projektów po a0.3.0 jako ryzyko z terminem 21.11.2026, limit tygodniowy, akceptacja planu i definicji,
 uprawnienia w settings.local.json, Claude Code instalowany przez roota, zapis narzędzi przez --out, nocny przebieg
 tools/night.mjs, odpowiedzi na nocne pytania Q-1–Q-7: kryteria tylko w zakresie ticketu, nocą subagenci tylko na
 pierwszym planie, ticket R-088, kod wyjścia tylko we wspólnym opakowaniu i R-013 po cięciach; A-087 w R-019 i zakaz
 ponownego uruchamiania testu, który raz padł), fakty o silniku,
 wymagania systemowe, 9 etapów z kosztem i efektem, 88 ticketów R-NNN, wdrożenie, pomiary, protokół subagentów
-i polecenia na allow-listę. Stan: etap 5 (przebudowa) w toku, etap planu 1; R-001, R-008, R-010, R-011 i R-088
-zamknięte; 18.11 w dzień Adrian odpowiedział na Q-4–Q-7, R-013 wrócił do planned, night.mjs ma zmianę D-026; dalej
-cięcia R-002–R-009, R-013 i R-012, gdy Adrian dopisze regułę D-029 do definicji rebuild-implementer. -->
+i polecenia na allow-listę. Stan: etap 5 (przebudowa) w toku, etap planu 1; R-001, R-002, R-008, R-010, R-011
+i R-088 zamknięte; 18.11 w dzień doszły decyzje D-025–D-032 (m.in. zasady komunikacji z Adrianem i wyjątek dla
+testu A-087); następna sesja zaczyna od R-003, potem pozostałe cięcia, R-013, R-012 i R-014. -->
 
 # Rebuild plan
 
@@ -359,6 +359,15 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   in it, the command), never a pointer to an earlier message; (2) a decision is asked in a plain message (one matter,
   the options, the recommendation with its reason, what counts as a full answer), never through `AskUserQuestion`.
   Night runs keep their questions in `.night/questions.md`. Check: none.
+- 2026-11-18 D-031 (Adrian; an exception to D-029 until R-019): when the gate fails only on the lock-contention test
+  of A-087 (`test/s9-housekeeping.test.ts:135`), the main session records the failure in the ticket's `outcome.md` as
+  an occurrence of A-087 (the gate's output line and the count it reports) and runs the gate once more; any other
+  failure, or a second failure of that test in the same ticket, follows D-029. The failure already has a finding, a
+  decision and a ticket, so the run hides nothing, and the records give R-019 the rate. R-019's commit removes the
+  exception from `## Agents`. Check: none (the outcome records each occurrence).
+- 2026-11-18 D-032 (Adrian): editor swap files (`.*.swp`) are ignored by `.gitignore`, so an open editor in
+  `adrian-rebuild/` no longer fails `check.mjs` (which reads untracked files with `--exclude-standard`) or the review
+  guard. Added in R-002's commit. Check: none.
 
 ### Gate 2 §2, copied
 
@@ -582,7 +591,7 @@ questions; their number cannot be known in advance.
 
 | Stage | Tag | Tickets: S / M / L | Pair (Run) | Expected decisions | Seat steps |
 |---|---|---|---|---|---|
-| 1 | a0.1.0 | 15: 4 / 7 / 4 | 2: R-014, R-088 (day-after) | 4: gate 5.1; the golden help of R-014 (the wording is set by T-19, Adrian confirms the output); the same-task ticket before B.2 (R-011); the leftover list before `--drop-leftovers` (1.1) | 4 (1.0 bootstrap), plus B.1 and B.2 before it |
+| 1 | a0.1.0 | 15: 4 / 5 / 6 | 2: R-014, R-088 (day-after) | 4: gate 5.1; the golden help of R-014 (the wording is set by T-19, Adrian confirms the output); the same-task ticket before B.2 (R-011); the leftover list before `--drop-leftovers` (1.1) | 4 (1.0 bootstrap), plus B.1 and B.2 before it |
 | 2 | a0.2.0 | 11: 0 / 9 / 2 | 0 | 3: gate 5.2; id collisions in the record migration report (2.1); the `LIMEN_*` variables to remove (2.4) | 5, plus B.3 |
 | 3 | a0.3.0 | 13: 0 / 9 / 4 | 0 | 3, plus one per unlanded job: gate 5.3; the account names (3.3); `continue` or `abandon` for each finished job with unlanded work (3.6) | 12 |
 | 4 | a0.4.0 | 10: 2 / 6 / 2 | 2: R-041, R-046 (day-after) | 4: gate 5.4; the cue wording (R-041); the role prompt texts and their glossary of terms (T-14, R-046); the modules to switch on (4.9) | 10 |
@@ -694,7 +703,7 @@ Columns:
 | ID | Title | Stage | Sources | Depends | Size | Mode | Run | Mig. | API | Seat | Status |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | R-001 | Leftover files of cut features are listed and can be dropped | 1 | A-042 | R-010 | S | delegated | night | — | — | — | done |
-| R-002 | Cut finish webhooks, coordinator signals and the finish ping | 1 | G1.3, A-027, A-060, A-076 | R-001 | M | delegated | night | yes | — | — | planned |
+| R-002 | Cut finish webhooks, coordinator signals and the finish ping | 1 | G1.3, A-027, A-060, A-076 | R-001 | L | delegated | night | yes | — | — | done |
 | R-003 | Cut Devin and the Linear mirror | 1 | G1.5, G1.6, A-049 | R-001 | M | delegated | night | yes | — | — | planned |
 | R-004 | Cut the OMP engine | 1 | G1.7, A-049 | R-001 | M | delegated | night | yes | — | — | planned |
 | R-005 | Cut hosted `--tab` jobs; the GitHub module and groups run detached | 1 | G1.8, A-023 | R-001 | L | delegated | night | yes | herdr | 1.2, 1.3 | planned |
@@ -1221,7 +1230,9 @@ Protocol per ticket (rebuild stage 5):
    to Adrian (z. 1). The main session starts the gate only after the subagent's completion notification, not on its
    reply alone, so that no two gates run at once. A test that failed even once without a change of the code it runs
    is a finding: nobody runs it again to get a green gate (z. 17); by day the main session asks Adrian, at night it
-   writes a question in `.night/questions.md` and the ticket waits (D-029).
+   writes a question in `.night/questions.md` and the ticket waits (D-029). Until R-019, a gate that fails only on
+   A-087's test (`test/s9-housekeeping.test.ts:135`) is recorded in `outcome.md` as an occurrence of A-087 and run
+   once more; a second such failure in the same ticket follows D-029 (D-031).
 5. Review: `node adrian-rebuild/tools/review-guard.mjs snapshot --out node_modules/.rebuild-review/R-NNN.before` and
    `node adrian-rebuild/tools/review-guard.mjs diff --out node_modules/.rebuild-review/R-NNN.diff` (an ignored
    directory, like the gate's helper, so the guard does not see the files; `--out` creates it and writes atomically,
@@ -1304,10 +1315,9 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-18, 09:01 (start of the day session; the night run until 07:00 ended at 02:08 with `no-ticket`),
-rebuild stage 5 in progress at plan
-stage 1: R-008, R-010 and R-011 `done`; R-001 and R-013 `blocked` on the night questions Q-4 and Q-7; Q-5 and Q-6 block
-no ticket.
+Updated 2026-11-18, end of the day session (handed over to a new session at Adrian's request, to bound the context),
+rebuild stage 5 in progress at plan stage 1: R-001, R-002, R-008, R-010, R-011 and R-088 `done`; R-003–R-007, R-009,
+R-012, R-013 and R-014 `planned`; no ticket active, no question open.
 
 Done:
 - Rebuild stages 0–3 with gates 0, 2 and 3 (D-001–D-007); rebuild stage 1 has no gate.
@@ -1429,10 +1439,25 @@ Day session of 2026-11-18, continued (Adrian's answers to Q-4–Q-7 in the conve
   `pid` is stopped again once it has both, the comments state when a job lacks them, and every test waits at most
   3 s. Review FAIL in rounds 1 and 2 (a false comment each), PASS in round 3; two comment fixes after it without a
   fourth review (Adrian). B.2 can run on the seat once a0.1.0's other prerequisites hold.
+- D-030 (how the day session talks to Adrian; also in the project memory): a message that needs his action carries
+  the full text, file, place and command; decisions are asked in plain messages, never through `AskUserQuestion`.
+- Adrian pasted D-029's rule into `.claude/agents/rebuild-implementer.md` (commit `175d75a`).
+- D-031: until R-019, a gate that fails only on A-087's test is recorded in the outcome as an occurrence and run once
+  more (`## Agents`, step 4). D-032: `.gitignore` ignores `.*.swp` (an open editor had failed `check.mjs`).
+- R-002 `done`: finish webhooks, coordinator signals and the finish ping are cut; the coordinator registration stays
+  for `limen rule` (`src/integrations/coordinator-registration.ts`) until R-034; `src/old-names.ts` is the table of
+  old command names (T-18), to which every cut ticket that removes a command adds its entry; `LEFTOVERS` holds four
+  paths. Size L (was M). Review PASS in rounds 1 and 2; gate 92/92. The refusal wording is for Adrian at gate 5.1.
+- For Adrian on the seat (not in tracked steps, no seat detail here): the registry check of A-087 (the command is in
+  the day session's reply), and the seat-level files of the removed webhook docs, if they exist.
+- The main session's estimate for a0.1.0 (2026-11-18): about 19–24 hours of work for the ten tickets left (now nine)
+  and the close, so 2026-11-19 late or 2026-11-20. D-012's date of 2026-11-21 for a0.5.0 cannot hold (stages 2–5 are
+  47 tickets); Adrian takes that decision again on that date (D-012).
 
-Next: R-002–R-007 and R-009 in the order of IDs, then R-013 and R-012 (all `night`; by day or in a night run), after
-Adrian adds D-029's rule to `.claude/agents/rebuild-implementer.md`; R-014 (pair) by day after them. B.2 runs on the seat before
-a0.1.0 is deployed (B.1 was done on 2026-11-17), after R-088.
+Next: R-003, R-004, R-005, R-006, R-007, R-009 in the order of IDs, then R-013 (after all the cuts, D-028) and R-012
+(all `night`; by day or in a night run); R-014 (pair) by day after them. Each cut ticket that removes a command adds
+its entry to `src/old-names.ts` and its leftover paths to `LEFTOVERS`. B.2 runs on the seat before a0.1.0 is deployed
+(B.1 was done on 2026-11-17).
 
 Active ticket: none.
 

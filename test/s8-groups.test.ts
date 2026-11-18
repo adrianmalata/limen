@@ -19,7 +19,6 @@ import {
 	plant,
 	type Run,
 	release,
-	requests,
 	start,
 	TICKET,
 	until,
@@ -50,11 +49,6 @@ before(async () => {
 	await writeFile(join(p.root, ROUNDS, "ticket.md"), "# F002 · rounds\n");
 	git(p.root, "add", "-A");
 	git(p.root, "commit", "-q", "-m", "group packet");
-	await writeFile(
-		join(p.root, ".limen/finish-webhook.env"),
-		"LIMEN_FINISH_WEBHOOK_URL='https://hooks.s8.test/finish'\nLIMEN_FINISH_WEBHOOK_AUTH='Bearer s8'\n",
-		{ mode: 0o600 },
-	);
 	// The owner-facing lead: an interactive session with the group hook, held open on a FIFO until the story ends.
 	lead = join(p.parent, "lead");
 	await mkdir(lead);
@@ -83,7 +77,6 @@ const as = (id: string, team: string) => ({
 	LIMEN_TEAM_ID: team,
 });
 const delivered = () => engineEvents(lead).filter((entry) => entry.text?.startsWith("[limen-group-delivery:"));
-const pings = (step: string) => requests(p).filter((request) => JSON.parse(request.body).job === `F001 lead ${step}`);
 
 test("a stale lead registration starts nothing; two concurrent activations by the lead start one roster in one cabinet; the lead hears every last-round result whole", async () => {
 	// A registration no running hook refreshes is not a lead: no update would reach it.
@@ -159,7 +152,8 @@ test("a member's finish completes while another process holds the cabinet; its l
 	});
 	await release(jobDir(p, roster.worker1));
 	assert.equal(waitJob(p, roster.worker1), "done");
-	await until(jobDir(p, roster.worker1), () => /^accepted/.test(jobFile(p, roster.worker1, "finish-webhook")));
+	// The finish removes the job's pid file after its lifecycle step, so the step skipped the held cabinet.
+	await until(jobDir(p, roster.worker1), () => !existsSync(join(jobDir(p, roster.worker1), "pid")));
 	await rm(lock, { recursive: true });
 	// `group status` publishes lifecycle only when it gets the cabinet, and live member hooks take it for a moment, so read
 	// until the event is there; one more read must still show exactly one.
@@ -176,7 +170,7 @@ test("a member's finish completes while another process holds the cabinet; its l
 	assert.deepEqual([seen, doneEvents()], [1, 1]);
 });
 
-test("each recipient reads a finding once, the lead hears it as a followUp, and a synthesis write sends a lead-step ping", async () => {
+test("each recipient reads a finding once, and the lead hears it as a followUp", async () => {
 	const author = as(roster.coordinator2, "team-2"),
 		reader = as(roster.coordinator1, "team-1");
 	assert.equal(limen(p, ["group", "publish", "s8 first finding"], { env: author }).status, 0);
@@ -184,16 +178,12 @@ test("each recipient reads a finding once, the lead hears it as a followUp, and 
 	while (!read.includes("s8 first finding")) {
 		read += limen(p, ["group", "wait"], { env: reader }).stdout;
 	}
-	await writeFile(join(p.root, FEATURE, "group/synthesis.md"), "# Synthesis\n\nTeam 1 wins.\n");
 	// A later finding orders the counts: a repeat of the first would have arrived before it.
 	assert.equal(limen(p, ["group", "publish", "s8 later finding"], { env: author }).status, 0);
 	const later = limen(p, ["group", "wait"], { env: reader }).stdout;
 	assert.match(later, /s8 later finding/);
 	assert.doesNotMatch(later, /s8 first finding/);
-	await until(
-		lead,
-		() => delivered().some((entry) => entry.text?.includes("s8 later finding")) && pings("synthesis").length > 0,
-	);
+	await until(lead, () => delivered().some((entry) => entry.text?.includes("s8 later finding")));
 	assert.equal(delivered().filter((entry) => entry.text?.includes("s8 first finding")).length, 1);
 	// A group update wakes an idle lead without interrupting a busy one: only followUp does both.
 	assert.deepEqual([...new Set(delivered().map((entry) => entry.event))], ["followUp"]);
@@ -218,7 +208,7 @@ test("a second group runs two routes through draft, critique and final, and the 
 	assert.ok(!delivered().some((entry) => entry.text?.includes("| lifecycle |")));
 });
 
-test("close refuses a member with uncommitted work until it is clean; each lead step pings once", async () => {
+test("close refuses a member with uncommitted work until it is clean", async () => {
 	assert.equal(limen(p, ["group", "stop", group], { env: LEAD }).status, 0);
 	const dirty = join(jobFile(p, roster.coordinator2, "worktree"), "recovery.txt");
 	await writeFile(dirty, "keep me\n");
@@ -228,10 +218,7 @@ test("close refuses a member with uncommitted work until it is clean; each lead 
 	await rm(join(jobFile(p, roster.worker2, "worktree"), ".git")); // a folder a prune race left: no Git work in it
 	limen(p, ["group", "close", group], { env: LEAD });
 	assert.equal(JSON.parse(readFileSync(join(cabinet(), "run.json"), "utf8")).closed, true);
-	// The lead's next turn after close is its last: one close ping, and still one synthesis ping. The ping is queued at
-	// that turn and its own deliverer sends it, so it can land just after the session exits.
+	// The story ends here: the lead's last turn ends its session, which the gate held open since the start.
 	await release(lead);
 	await once(session, "exit");
-	await until(p.parent, () => pings("close").length > 0);
-	assert.deepEqual([pings("synthesis").length, pings("close").length], [1, 1]);
 });

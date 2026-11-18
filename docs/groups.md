@@ -66,7 +66,7 @@ limen group status
 
 Members inherit verified membership and omit the group ID. The lead supplies it after the subcommand, for example `limen group status GROUP-ID` or `limen group publish GROUP-ID 'Lead checkpoint: …'`.
 
-Publication writes only `.limen/groups/GROUP-ID/`, never the primary checkout's tracked packet. Member starts, terminal states and advisory changes are derived automatically from job records and reach only the member's own team. An uncertain tool-stall observation stays in the job record for the operator and is not broadcast. Findings attach to members' normal tool results; the lead receives findings and the result as compact, agent-attributed custom messages. No manual `watch` or `steer` setup is needed. Recorded seat and finish-webhook opt-ins are not repurposed as peer transports.
+Publication writes only `.limen/groups/GROUP-ID/`, never the primary checkout's tracked packet. Member starts, terminal states and advisory changes are derived automatically from job records and reach only the member's own team. An uncertain tool-stall observation stays in the job record for the operator and is not broadcast. Findings attach to members' normal tool results; the lead receives findings and the result as compact, agent-attributed custom messages. No manual `watch` or `steer` setup is needed. Recorded seat opt-ins are not repurposed as peer transports.
 
 A team with live workers stays inside its turn. When idle, it re-enters `group wait` after a normal timeout until its workers are done, the group stops or its deadline expires. Each call lasts at most 20 seconds, including an actual CLI-process watchdog. If that watchdog cuts off an in-flight cabinet operation, inspect its uncertain receipt before deliberate recovery. Waits and acknowledgments publish no new events. A hosted team job with live children is not idle-closed; unread events alone never keep a finished worker alive.
 
@@ -108,7 +108,7 @@ The real-agent proof is separate from native regressions. Prepare, but do not au
 node /path/to/candidate/bin/limen-group-fixture.mjs /absolute/new/disposable/repository
 ```
 
-The generator commits a small ticket and its acceptance test, with no remote or finish webhook, and prints the interactive-lead setup and a three-team draft, critique and final command. The task source intentionally does not exist yet; the teams write it. No dependency install is needed for the fixture's native Node tests.
+The generator commits a small ticket and its acceptance test, with no remote, and prints the interactive-lead setup and a three-team draft, critique and final command. The task source intentionally does not exist yet; the teams write it. No dependency install is needed for the fixture's native Node tests.
 
 A pass needs: every round's jobs on their recorded routes, each later round's task naming the earlier results, the final result committed on the first team's branch with `npm test` green, and exactly one result message in the lead's session after the last round, with no wake for any team job. Retain the candidate SHA, fixture path, command, group and member IDs, round folders, `result-delivery`, real check output and the lead transcript excerpt. Queue acceptance or a clean worker exit is not a pass. Quota or engine failure preserves evidence without changing models. Detached proof does not establish hosted real-agent transport.
 

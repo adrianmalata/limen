@@ -60,8 +60,6 @@ Open groups replace individual member candidates with one line: `group <feature>
 
 When the project has leftover files, a section `Leftover files (N); check them, then run limen init --drop-leftovers:` comes before the `Older:` line, or before `Coordinator tabs:` with `--all`, with one line `<path> (<feature>)` for each file. It lists each path that a cut feature left in the project (a file, a directory or a symlink), and each copy of a package prompt (`AGENTS.md`, `.agents/limen/worker.md`, `.agents/limen/reviewer.md`, `.agents/limen/communication.md`) that is byte-identical to the package's template, as `identical copy of the package's templates/<name>`. When the project has no leftover files, the section is not shown. The list only reads files; it removes nothing.
 
-When a webhook target refused a ping with HTTP 401 or 403, the first line after the plant is `Finish webhook rejects: invalid key (…)`. It names the target, the event, the time and the receipt folder. A later ping that every target accepts, or a passing `limen webhook test`, removes it.
-
 In a terminal, `jobs` shows an aligned table for people. Through a pipe, it prints the compact format that tools read. `LIMEN_VIEW=human|compact` selects a view. `NO_COLOR` removes the color.
 
 The default compact `jobs` view lists running jobs and recent empty jobs. It hides empty jobs that ended more than 7 days ago and prints `N older empty jobs hidden`. `limen jobs --all` shows every job. An unknown job ID exits 1 with `no job matches "<id>"`.
@@ -189,7 +187,7 @@ limen planning [committed|private]
 
 ### Seat sweep
 
-Run the seat sweep (see [Seat notifications](jobs.md#seat-notifications)), or install or remove it. Each pass also sends the `coordinator.exited` webhook for a registered coordinator whose process died without a normal exit (see [Plant events](finish-webhooks.md#plant-events)).
+Run the seat sweep (see [Seat notifications](jobs.md#seat-notifications)), or install or remove it. Each pass also removes the registration under `.limen/coordinators/` of a coordinator whose process died, so that folder does not grow.
 
 ```text
 limen sweep [--install|--uninstall]
@@ -204,14 +202,6 @@ limen highlight [on|off]
 ```
 
 In a coordinator's Pi session, `/limen highlight on` and `/limen highlight off` do the same.
-
-### Finish webhook test
-
-Send one `webhook.test` event to this plant's finish webhook targets. The sender prints one line per target. It never prints a URL or a credential.
-
-```text
-limen webhook test
-```
 
 ### Linear
 

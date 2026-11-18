@@ -1,5 +1,9 @@
-import { GITHUB_NOREPLY } from "../integrations/finish-receipt.ts";
 import { ticketAuthor } from "../project/git.ts";
+
+/** A GitHub login without its `@`. */
+const GITHUB_LOGIN = "[a-z\\d](?:[a-z\\d-]{0,37}[a-z\\d])?";
+/** A GitHub noreply email; group 1 is the login. */
+const GITHUB_NOREPLY = new RegExp(`^(?:\\d+\\+)?(${GITHUB_LOGIN})@users\\.noreply\\.github\\.com$`, "i");
 
 export async function ticketAuthorCommand(args: readonly string[], cwd: string): Promise<void> {
 	const ticket = args[0];

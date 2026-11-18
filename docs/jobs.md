@@ -34,7 +34,7 @@ For a Herdr wake, `limen jobs <id>` shows the result as `herdr-wake`: `turn obse
 
 `limen continue` from a shell with no wake route (no Pi session and no Herdr pane), for example a remote executor, keeps the parent's route: the parent's coordinator gets the continuation's wake.
 
-Both routes carry the same completion facts: the task, branch and repository, stop reason, at most ten commits, the whole final message, and undelivered steers when present. The final message is never cut: the coordinator decides the next step from it. `limen wait`, the finish webhook's `handoff` and the group lead's result carry it whole too. A job with zero recorded tool calls and no commits says that it produced nothing. Missing evidence files remain absent from the wake; the route-specific next-step instruction may differ.
+Both routes carry the same completion facts: the task, branch and repository, stop reason, at most ten commits, the whole final message, and undelivered steers when present. The final message is never cut: the coordinator decides the next step from it. `limen wait` and the group lead's result carry it whole too. A job with zero recorded tool calls and no commits says that it produced nothing. Missing evidence files remain absent from the wake; the route-specific next-step instruction may differ.
 
 ### Job states
 
@@ -43,9 +43,9 @@ Both routes carry the same completion facts: the task, branch and repository, st
 | `done` | The run ended cleanly. The selected engine exited 0, or a hosted session ended, and the last stop reason was not `error` or `aborted`. |
 | `failed` | The run had a provider error, and Limen records the reason. A limit also records `failed` (see [Limits](#limits)). A failed job keeps its worktree and transcript. |
 
-A `done` job whose final "Note check" leaves an item open is `done with open checks`. Limen keeps the `done` state and writes one line for each open item to `open-checks` in the job record: an item marked not proven, changed, dropped or broken, a proven item with no proof that its command ran in the session and no such file, or a check that was sent and not answered. A command counts only when one recorded bash call ended with exit 0 and joined its simple commands with `&&` alone, and no pipe follows the command; any other call may have skipped it or hidden its failure, and the open line names the reason. The wake and the finish webhook's handoff list these lines and ask the coordinator to continue the job, start a review, or accept each item with a reason before it lands. `limen jobs` and `limen status` show the same state.
+A `done` job whose final "Note check" leaves an item open is `done with open checks`. Limen keeps the `done` state and writes one line for each open item to `open-checks` in the job record: an item marked not proven, changed, dropped or broken, a proven item with no proof that its command ran in the session and no such file, or a check that was sent and not answered. A command counts only when one recorded bash call ended with exit 0 and joined its simple commands with `&&` alone, and no pipe follows the command; any other call may have skipped it or hidden its failure, and the open line names the reason. The wake lists these lines and asks the coordinator to continue the job, start a review, or accept each item with a reason before it lands. `limen jobs` and `limen status` show the same state.
 
-Failed rows use the recorded `stop-reason`, not a later webhook or tab-close log line. Rate-limit rows show the HTTP status and approximate retry minutes; `jobs <id>` retains the full provider reason. Older records without `stop-reason` use the last `failed:` or `stopped:` log entry.
+Failed rows use the recorded `stop-reason`, not a later tab-close log line. Rate-limit rows show the HTTP status and approximate retry minutes; `jobs <id>` retains the full provider reason. Older records without `stop-reason` use the last `failed:` or `stopped:` log entry.
 
 **Neither state is approval.** Neither state means that the ticket is finished or that the branch is safe to merge, because `done` only means that the run exited cleanly. The coordinator reads the record, the diff, and the checks. Then, under the review policy of the project, it merges, or resumes a repair, or asks you.
 
@@ -199,7 +199,7 @@ A prepare command that runs out of time is stopped, and the job log records `pre
 
 `limen sweep` scans registered projects for terminal jobs that nobody heard, hosted-stall advisories and persistent ownership uncertainty. A running job's notification title names its note kind, for example `limen: fix login · blocked`. Changes to an unresolved uncertainty diagnostic keep the same seat receipt and do not ring again. Each event gets one seat notification, also across restarts and concurrent sweeps. Old timestamp receipts stay valid. When an advisory clears and a new one starts, the new one can send a notification again.
 
-If a notification fails in an unclear way, the sweep logs an error and does not send that event again automatically. Seat notifications do not use up coordinator wakes or finish webhooks.
+If a notification fails in an unclear way, the sweep logs an error and does not send that event again automatically. Seat notifications do not use up coordinator wakes.
 
 ## Ticket authorship
 

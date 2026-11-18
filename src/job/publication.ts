@@ -85,8 +85,6 @@ type NewJob = {
 	readonly parent?: string;
 	readonly continueTask?: string;
 	readonly candidate?: string;
-	readonly finishAuthor?: string;
-	readonly finishConfig?: string;
 	readonly session?: { readonly source: string; readonly name: string };
 	/** Files a continuation carries from its parent's job folder, such as the task note. */
 	readonly carried?: Readonly<Record<string, string>>;
@@ -162,20 +160,10 @@ export async function publishJob(jobDir: string, job: NewJob): Promise<void> {
 		if (job.candidate) {
 			files.candidate = `${job.candidate}\n`;
 		}
-		if (job.finishAuthor) {
-			files["finish-webhook-author"] = `${job.finishAuthor}\n`;
-		}
 		await mkdir(`${publishing}/notify/subscribers`, { recursive: true });
 		// Sequential writes settle before cleanup on failure; no write can outlive the hidden directory.
 		for (const [name, body] of Object.entries(files)) {
 			await writeFile(`${publishing}/${name}`, body, { flag: "wx", flush: true });
-		}
-		if (job.finishConfig) {
-			await writeFile(`${publishing}/finish-webhook-env`, `${job.finishConfig}\n`, {
-				flag: "wx",
-				mode: 0o600,
-				flush: true,
-			});
 		}
 		if (job.session) {
 			await mkdir(`${publishing}/session`);

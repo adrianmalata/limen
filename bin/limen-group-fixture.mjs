@@ -42,7 +42,7 @@ const files = {
 	),
 	".gitignore": "/.limen/\n",
 	"README.md":
-		"# Disposable group proof\n\nNo remote, finish webhook, or autonomous landing. The teams implement the committed ticket; src/clamp.ts intentionally does not exist yet.\n",
+		"# Disposable group proof\n\nNo remote or autonomous landing. The teams implement the committed ticket; src/clamp.ts intentionally does not exist yet.\n",
 	[`${feature}/ticket.md`]:
 		"# F001 · clamp keeps a number inside a range\n\nWrite `clamp(value, min, max)` in `src/clamp.ts`, with no dependencies. It returns `value` when `min <= value <= max`, else the nearer bound. It throws a `RangeError` when any argument is not a finite number or when `min > max`. Run `npm test` and commit `src/clamp.ts` with a passing test run. Keep it short.\n",
 	"test/clamp.test.ts": `import assert from "node:assert/strict";

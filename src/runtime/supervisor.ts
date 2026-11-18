@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
 import { readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { deliverJobStall } from "../integrations/finish-webhook.ts";
 import {
 	type HerdrPlace,
 	type HostedAgentStatus,
@@ -26,7 +25,6 @@ import {
 	textFile,
 	writeHandshake,
 } from "../job/record.ts";
-import { noteKind } from "../job/view.ts";
 import { worktreeState } from "../project/git.ts";
 import { argvFor, type EngineId, type EngineProfile, jobProfile, prepareSkillConfig } from "./engine.ts";
 import {
@@ -475,18 +473,13 @@ function stallLine(errored: boolean, stop: string, status: HostedAgentStatus, co
 		? `blocked after ${count} tool calls, session still open`
 		: `idle ${duration} after ${count} tool calls, session still open`;
 }
-/** Writes the result, commits and standing advisory once per stall; a new kind of stall also goes to the finish webhook. */
+/** Writes the result, commits and standing advisory once per stall. */
 async function publishHostedStall(jobDir: string, watch: HostedIdleWatch, line: string): Promise<void> {
 	await writeHostedResult(jobDir);
 	await recordCommits(jobDir).catch(() => {});
-	// A recovered supervisor re-arms on a stall it already reported; the same kind of standing note is not a new event.
-	const before = await textFile(`${jobDir}/advisory`);
 	await atomicWrite(`${jobDir}/advisory`, `${line}\n`);
 	watch.armed = false;
 	await appendLimenLog(jobDir, `advisory: ${line}`).catch(() => {});
-	if (!before || noteKind(before) !== noteKind(line)) {
-		void deliverJobStall(jobDir, line).catch(() => {});
-	}
 }
 /** Shows the stall in the pane; rings the coordinator again only after the re-ring interval and before a wake landed. */
 async function ringHostedStall(jobDir: string, watch: HostedIdleWatch, now: number, duration: string): Promise<void> {

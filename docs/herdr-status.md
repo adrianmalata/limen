@@ -18,8 +18,6 @@ heading. Both lists cover the last seven days; `Older: N records` counts the
 rest, and `limen status --all` lists them under the same headings.
 Open groups appear once with their member-branch count and `limen group status <id>`;
 the lead decides what lands. Closed groups leave the inbox.
-A finish webhook key that a receiver refused (HTTP 401 or 403) shows first, as
-`Finish webhook rejects: invalid key`, with the receipt folder of the refused ping.
 The status command also lists agent tabs whose working directory is the plant or one of its
 repositories. If global Herdr agent discovery fails, `status` checks recent
 recorded origin tabs directly and labels them incomplete: a visible tab is not
@@ -188,21 +186,3 @@ turn, gets an assistant answer without error/abort, and Pi settles. The records
 under a job's `notify/claims/` and `notify/delivered/` distinguish pending from
 confirmed delivery. Confirmation is not the owner's review or proof that a separate
 recipient observed a notification.
-
-Automatic per-project finish delivery is a separate channel. Use the canonical
-[setup instructions](finish-webhooks.md#automatic-job-delivery) and
-[receipt/retry guide](finish-webhooks.md#inspect-failures-and-deliberately-retry),
-not a second sender or a routine manual ping.
-
-| Job record | What it proves |
-| --- | --- |
-| No `finish-webhook-env` | Not configured for this job. Existing jobs without a snapshot remain opted out, even if project config is added later. Do not retrofit them. |
-| `finish-webhook`: `attempting` | The automatic attempt was claimed, not confirmed. An interrupted attempt may already have reached the endpoint. |
-| `finish-webhook`: `accepted` | The sender reported HTTP acceptance. The recipient's wake remains unobserved until separately confirmed. |
-| `finish-webhook`: `failed` | The send failed or could not complete within its bound; the job outcome is unchanged. |
-
-A selected config without a receipt is not acceptance; finalization may still be
-in progress or may have been interrupted. Follow the canonical guide before any
-deliberate retry: an ambiguous attempt is not permission to send a duplicate.
-HTTP acceptance, an observed owner wake, local `notify/delivered/` confirmation,
-and the owner's review are four separate facts.

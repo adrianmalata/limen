@@ -1,8 +1,6 @@
-import { createHash } from "node:crypto";
-import { mkdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
-import { deliverLeadStepWebhook } from "../src/integrations/finish-webhook.ts";
-import type { GroupIdentity, GroupRun } from "../src/job/group-cabinet.ts";
-import { groupIdentity, groupPath, runs } from "../src/job/group-cabinet.ts";
+import { mkdir, rm, utimes, writeFile } from "node:fs/promises";
+import type { GroupIdentity } from "../src/job/group-cabinet.ts";
+import { groupIdentity, runs } from "../src/job/group-cabinet.ts";
 import { acceptBatch, acceptTransport, observeBatch, releaseBatch } from "../src/job/group-events.ts";
 import { SESSION_ID } from "../src/job/job.ts";
 import { repoRoot } from "../src/project/git.ts";
@@ -50,9 +48,6 @@ export default function groupPeer(pi: PiApi): void {
 	const observed = new Map<string, { identity: GroupIdentity; token: string }>();
 	const leased = new Map<string, { identity: GroupIdentity; token: string }>();
 	const seenTokens = new Set<string>();
-	// What the lead's groups looked like at the last turn end; a turn's group step is the difference.
-	const seenSynthesis = new Map<string, string>();
-	const seenClosed = new Set<string>();
 	const identities = async (context: Context): Promise<GroupIdentity[]> => {
 		if (context.agent?.kind === "sub") {
 			return [];
@@ -67,38 +62,6 @@ export default function groupPeer(pi: PiApi): void {
 		return (await runs(leadRoot))
 			.filter((run) => !run.closed && run.lead === leadSession)
 			.map((run) => ({ run, recipient: `lead-${leadSession}` }));
-	};
-	const leadSteps = async (): Promise<{ run: GroupRun; step: "synthesis" | "close"; receipt: string }[]> => {
-		if (!leadRoot || !leadSession || process.env.LIMEN_COORDINATOR !== "1" || process.env.LIMEN_JOB === "1") {
-			return [];
-		}
-		const mine = (await runs(leadRoot)).filter((run) => run.lead === leadSession);
-		const steps: { run: GroupRun; step: "synthesis" | "close"; receipt: string }[] = [];
-		for (const run of mine) {
-			if (!run.closed || seenClosed.has(run.id)) {
-				continue;
-			}
-			seenClosed.add(run.id);
-			steps.push({ run, step: "close", receipt: `${run.id}-close` });
-		}
-		// A feature folder may hold several runs; its synthesis belongs to the newest one. A synthesis older than that run is not its step.
-		for (const run of new Map(mine.map((run) => [run.feature, run])).values()) {
-			const path = `${run.root}/${run.feature}/group/synthesis.md`;
-			const [text, info] = await Promise.all([
-				readFile(path).catch(() => undefined),
-				stat(path).catch(() => undefined),
-			]);
-			const hash =
-				text && info && info.mtimeMs >= run.startedAt
-					? createHash("sha256").update(text).digest("hex").slice(0, 16)
-					: "";
-			const before = seenSynthesis.get(run.feature);
-			seenSynthesis.set(run.feature, hash);
-			if (hash && hash !== before && !run.closed) {
-				steps.push({ run, step: "synthesis", receipt: `${run.id}-synthesis-${hash}` });
-			}
-		}
-		return steps;
 	};
 	pi.on("session_start", async (_event, context) => {
 		if (process.env.LIMEN_JOB === "1" || context.agent?.kind === "sub") {
@@ -116,7 +79,6 @@ export default function groupPeer(pi: PiApi): void {
 		const registration = `${leadRoot}/.limen/group-leads/${leadSession}`;
 		await mkdir(`${leadRoot}/.limen/group-leads`, { recursive: true });
 		await writeFile(registration, `${process.pid}\n`, { flush: true });
-		await leadSteps();
 		const deliver = async () => {
 			for (const identity of await identities(context)) {
 				if ([...leased.values()].some((entry) => entry.identity.run.id === identity.run.id)) {
@@ -234,16 +196,6 @@ export default function groupPeer(pi: PiApi): void {
 			leased.delete(entry.token);
 		}
 		observed.clear();
-		// A failed or mid-tool message leaves the marks alone, so the next finished turn still sends its group step.
-		if (failed || event.message.stopReason === "toolUse") {
-			return;
-		}
-		for (const { run, step, receipt } of await leadSteps()) {
-			await deliverLeadStepWebhook(`${groupPath(run)}/lead-steps/${receipt}`, run.root, run.feature, step).catch(
-				(error: unknown) =>
-					context.ui.notify(`lead step finish webhook requires inspection: ${String(error)}`, "warning"),
-			);
-		}
 	});
 	pi.on("session_shutdown", async () => {
 		clearInterval(timer);

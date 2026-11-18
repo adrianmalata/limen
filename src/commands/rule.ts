@@ -3,7 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { type LiveCoordinator, liveCoordinators } from "../integrations/coordinator-signal.ts";
+import { type LiveCoordinator, liveCoordinators } from "../integrations/coordinator-registration.ts";
 import { promptPane } from "../integrations/coordinator-wake.ts";
 import { herdrBinary } from "../integrations/herdr.ts";
 import { spawnerLine } from "../job/publication.ts";

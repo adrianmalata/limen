@@ -14,7 +14,13 @@ export type Leftover = { readonly path: string; readonly feature: string };
  * holds a tracked path would silently delete a changed copy of a template, which the drop must keep. Second, an
  * overlap lists one file twice, and the drop fails on its second removal.
  */
-export const LEFTOVERS: readonly Leftover[] = [];
+export const LEFTOVERS: readonly Leftover[] = [
+	// The webhook targets and their bearer tokens (A-027).
+	{ path: ".limen/finish-webhook.env", feature: "finish webhooks (R-002)" },
+	{ path: ".limen/outbox", feature: "finish webhooks (R-002)" },
+	{ path: ".limen/webhook-rejected", feature: "finish webhooks (R-002)" },
+	{ path: ".limen/coordinator-events", feature: "coordinator signals (R-002)" },
+];
 
 /**
  * The registry entries present under `root`, plus every project copy that is byte-identical to the packaged template

@@ -66,7 +66,6 @@ export async function plant(): Promise<Plant> {
 		LIMEN_HUNK: "0",
 		GIT_CONFIG_GLOBAL: "/dev/null",
 		GIT_CONFIG_NOSYSTEM: "1",
-		LIMEN_WEBHOOK_RETRY_MS: "100",
 		// Without start-reading.json the reading is unknown and the gate is open; a test writes the file to close it.
 		LIMEN_START_GATE: '{"settle":"1ms"}',
 		LIMEN_START_READING: join(parent, "start-reading.json"),

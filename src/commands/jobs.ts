@@ -1,6 +1,5 @@
 import type { Stats } from "node:fs";
 import { open, readdir, readFile, stat } from "node:fs/promises";
-import { inspectFinishWebhook } from "../integrations/finish-receipt.ts";
 import { hostedAgentStatus } from "../integrations/herdr.ts";
 import { derivePulse, type Job, type Pulse, parseJob, producedNothing, renderJob } from "../job/job.ts";
 import { resolveJob } from "../job/lookup.ts";
@@ -248,7 +247,6 @@ type JobEvidence = {
 	readonly openChecks: string;
 	readonly versions: string;
 	readonly cleanup: string;
-	readonly finishWebhook: string;
 	readonly herdrWake: string;
 	/** Detail only: who ran the spawn; older records have only `spawned-by`, a job id. */
 	readonly spawnedBy: string;
@@ -367,7 +365,6 @@ async function readJobEvidence(
 		: ["", ""];
 	const [taskStat, logStat] = await Promise.all([optionalStat(`${jobDir}/task.md`), optionalStat(`${jobDir}/log`)]);
 	const cleanup = detailed ? await text(`${jobDir}/cleanup`) : "";
-	const finishWebhook = detailed && fields.state !== "running" ? await inspectFinishWebhook(jobDir) : "";
 	const herdrWake = detailed ? await text(`${jobDir}/notify/herdr-prompt`) : "";
 	const [spawner, spawnerJob] = detailed
 		? await Promise.all([text(`${jobDir}/spawner`), text(`${jobDir}/spawned-by`)])
@@ -386,7 +383,6 @@ async function readJobEvidence(
 			openChecks,
 			versions,
 			cleanup,
-			finishWebhook,
 			herdrWake,
 			spawnedBy,
 			model,
@@ -488,7 +484,6 @@ function jobBlocks(loaded: LoadedJob, facts: JobFacts): string[] {
 		["commits", detailed ? evidence.commits : ""],
 		["result", evidence.result],
 		["herdr-wake", evidence.herdrWake],
-		["finish-webhook", evidence.finishWebhook],
 		["cleanup", evidence.cleanup],
 	];
 	for (const [name, body] of sections) {
@@ -540,7 +535,6 @@ function recordedEvidence(loaded: LoadedJob, diffstat: string): Partial<JobRecor
 		...(evidence.tokens ? { tokens: evidence.tokens } : {}),
 		...(evidence.cleanup ? { cleanup: evidence.cleanup } : {}),
 		...(evidence.herdrWake ? { herdrWake: evidence.herdrWake } : {}),
-		...(evidence.finishWebhook ? { finishWebhook: evidence.finishWebhook } : {}),
 		...(diffstat ? { diffstat } : {}),
 		...(log.tail ? { logTail: log.tail } : {}),
 	};
