@@ -20,7 +20,7 @@ import {
 	processInfo,
 	signalProcessGroup,
 } from "./contain.ts";
-import { argvFor, engineBinary, jobProfile, prepareSkillConfig } from "./engine.ts";
+import { argvFor, engineBinary, jobProfile } from "./engine.ts";
 import { setUpJob, worktreeMissing } from "./job-setup.ts";
 import { observeToolStall, ownedToolDescendants, type ToolStallWatch, toolStallMs } from "./stalled-tool.ts";
 import { enterStartQueue, waitForStart } from "./start-queue.ts";
@@ -153,11 +153,9 @@ export async function runInternalJob(): Promise<void> {
 			await finalizeJob(jobDir, "failed", reason, shutdownDeadline);
 		})();
 	};
-	const skillConfig = profile.id === "omp" ? await prepareSkillConfig(worktree, jobDir) : undefined;
 	const args = argvFor(profile, {
 		jsonMode: true,
 		jobDir,
-		...(skillConfig ? { skillConfig } : {}),
 		label,
 		preamble,
 		extensions: [
@@ -165,7 +163,7 @@ export async function runInternalJob(): Promise<void> {
 			`${HOOK}/steering.ts`,
 			`${HOOK}/communication.ts`,
 			...((await jobMembership(jobDir)) ? [`${HOOK}/group-peer.ts`] : []),
-			...(await readWorkerExtensions(jobDir, profile.id)),
+			...(await readWorkerExtensions(jobDir)),
 		],
 		...(process.env.LIMEN_PROVIDER ? { provider: process.env.LIMEN_PROVIDER } : {}),
 		...(process.env.LIMEN_MODEL ? { model: process.env.LIMEN_MODEL } : {}),

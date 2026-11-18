@@ -1,12 +1,13 @@
 // `limen status` lists the leftover files of cut features in the project it reports on.
 import assert from "node:assert/strict";
-import { copyFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { limen, plant } from "../plant.ts";
 
 const AGENTS_TEMPLATE = fileURLToPath(new URL("../../templates/agents.md", import.meta.url));
+const STUB_TEMPLATE = fileURLToPath(new URL("../../templates/limen-extension.ts", import.meta.url));
 const HEADER = "Leftover files (1); check them, then run limen init --drop-leftovers:";
 
 test("limen status lists an AGENTS.md identical to the package's template as a leftover file before Older", async (t) => {
@@ -47,6 +48,20 @@ test("limen status lists a spec/linear.md left by the cut Linear mirror as a lef
 	assert.ok(lines.includes(HEADER), run.stdout);
 	const at = lines.indexOf(HEADER);
 	assert.deepEqual(lines.slice(at, at + 2), [HEADER, "  spec/linear.md (the Linear mirror (R-003))"]);
+});
+
+test("limen status lists a .omp/extensions/limen.ts left by the cut OMP engine as a leftover file", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	// The extension stub that `limen init` copied for OMP coordinators before the cut.
+	mkdirSync(join(p.root, ".omp/extensions"), { recursive: true });
+	copyFileSync(STUB_TEMPLATE, join(p.root, ".omp/extensions/limen.ts"));
+	const run = limen(p, ["status"]);
+	assert.equal(run.status, 0, run.stderr);
+	const lines = run.stdout.split("\n");
+	assert.ok(lines.includes(HEADER), run.stdout);
+	const at = lines.indexOf(HEADER);
+	assert.deepEqual(lines.slice(at, at + 2), [HEADER, "  .omp/extensions/limen.ts (the OMP engine (R-004))"]);
 });
 
 test("limen status prints no Leftover files section when the project has no leftover", async (t) => {

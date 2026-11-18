@@ -28,6 +28,7 @@ export const OLD_NAMES: readonly OldName[] = [
 /** Every cut ticket that removes a value of `--engine` adds its entry here. */
 export const OLD_ENGINES: readonly OldName[] = [
 	{ name: "devin", feature: "Devin cloud jobs", ticket: "R-003", instead: "use --engine pi" },
+	{ name: "omp", feature: "the OMP engine", ticket: "R-004", instead: "use --engine pi" },
 ];
 
 /**

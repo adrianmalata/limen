@@ -9,7 +9,11 @@ import { limen, plant } from "../plant.ts";
 const REFUSAL = "limen webhook was removed with finish webhooks (R-002); the coordinator gets a wake when a job ends";
 const LINEAR_REFUSAL =
 	"limen linear was removed with the Linear mirror (R-003); spec/features/ is the only record of ticket state";
-const DEVIN_REFUSAL = "engine devin was removed with Devin cloud jobs (R-003); use --engine pi";
+// Each removed engine value with its refusal, written out so that a change of wording fails here.
+const ENGINE_REFUSALS = {
+	devin: "engine devin was removed with Devin cloud jobs (R-003); use --engine pi",
+	omp: "engine omp was removed with the OMP engine (R-004); use --engine pi",
+};
 
 /** Every path under `dir` with a digest of its content, so a write, a new path or a removal shows as a difference. */
 function snapshot(dir: string): Record<string, string> {
@@ -58,17 +62,19 @@ test("limen linear status and limen linear off refuse with one removal line and 
 	assert.deepEqual([snapshot(join(p.root, ".limen")), snapshot(join(p.root, "spec"))], before);
 });
 
-test("spawn with --engine devin or with LIMEN_ENGINE=devin refuses with one removal line and makes no job", async (t) => {
+test("spawn with a removed engine in --engine or in LIMEN_ENGINE refuses with one removal line and makes no job", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const before = snapshot(join(p.root, ".limen"));
-	for (const [args, env] of [
-		[["spawn", "--engine", "devin", "work"], {}],
-		[["spawn", "work"], { LIMEN_ENGINE: "devin" }],
-	] as const) {
-		const run = limen(p, args, { env });
-		assert.notEqual(run.status, 0, args.join(" "));
-		assert.equal(run.stderr, `${DEVIN_REFUSAL}\n`, args.join(" "));
+	for (const [engine, refusal] of Object.entries(ENGINE_REFUSALS)) {
+		for (const [args, env] of [
+			[["spawn", "--engine", engine, "work"], {}],
+			[["spawn", "work"], { LIMEN_ENGINE: engine }],
+		] as const) {
+			const run = limen(p, args, { env });
+			assert.notEqual(run.status, 0, args.join(" "));
+			assert.equal(run.stderr, `${refusal}\n`, args.join(" "));
+		}
 	}
 	assert.deepEqual(snapshot(join(p.root, ".limen")), before);
 });

@@ -39,3 +39,16 @@ test("limen continue of a finished job recorded with the removed engine devin re
 	assert.equal(run.stderr, "engine devin was removed with Devin cloud jobs (R-003); use --engine pi\n");
 	assert.deepEqual(readdirSync(join(p.root, ".limen/jobs")), [parent]);
 });
+
+test("limen continue of a finished job recorded with the removed engine omp refuses with its line and starts no job", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const parent = spawnJob(p, "commit");
+	await ended(p, parent);
+	// An OMP job's record names its engine and keeps the session transcript that OMP wrote.
+	writeFileSync(join(jobDir(p, parent), "engine"), "omp\n");
+	const run = limen(p, ["continue", parent, "say continued"]);
+	assert.notEqual(run.status, 0, run.stdout);
+	assert.equal(run.stderr, "engine omp was removed with the OMP engine (R-004); use --engine pi\n");
+	assert.deepEqual(readdirSync(join(p.root, ".limen/jobs")), [parent]);
+});

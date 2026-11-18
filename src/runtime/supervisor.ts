@@ -26,7 +26,7 @@ import {
 	writeHandshake,
 } from "../job/record.ts";
 import { worktreeState } from "../project/git.ts";
-import { argvFor, type EngineId, type EngineProfile, jobProfile, prepareSkillConfig } from "./engine.ts";
+import { argvFor, type EngineId, type EngineProfile, jobProfile } from "./engine.ts";
 import {
 	hostedBindingInPane,
 	hostedBindingSupported,
@@ -96,7 +96,8 @@ export async function runHostedSupervisor(): Promise<void> {
 		toolWatch: { tool: "", born: "", started: 0 },
 	};
 	const engine = (await jobProfile(jobDir)).id;
-	// An engine or platform that never binds has no ownership to lose; a standing note there would hide real blocked or errored jobs.
+	// A platform that never binds has no ownership to lose; a standing note there would hide real blocked or errored
+	// jobs.
 	const bindable = hostedBindingSupported(engine);
 	if ((await textFile(`${jobDir}/advisory`)).startsWith("tool stall observation uncertain")) {
 		const since = await stat(`${jobDir}/advisory`).then(
@@ -351,8 +352,6 @@ async function hostedEngineLaunch(jobDir: string): Promise<{ profile: EngineProf
 	const taskFile = requiredEnvironment("LIMEN_TASK_FILE");
 	const continueFile = process.env.LIMEN_CONTINUE_FILE?.trim();
 	const profile = await jobProfile(jobDir);
-	const worktree = requiredEnvironment("LIMEN_WORKTREE");
-	const skillConfig = profile.id === "omp" ? await prepareSkillConfig(worktree, jobDir) : undefined;
 	const membership = await jobMembership(jobDir);
 	if (
 		membership &&
@@ -364,7 +363,6 @@ async function hostedEngineLaunch(jobDir: string): Promise<{ profile: EngineProf
 	const args = argvFor(profile, {
 		jsonMode: false,
 		jobDir,
-		...(skillConfig ? { skillConfig } : {}),
 		label: requiredEnvironment("LIMEN_LABEL"),
 		preamble: requiredEnvironment("LIMEN_PREAMBLE"),
 		extensions: [
@@ -375,7 +373,7 @@ async function hostedEngineLaunch(jobDir: string): Promise<{ profile: EngineProf
 				"communication",
 				...((await jobMembership(jobDir)) ? ["group-peer"] : []),
 			].map((name) => `${PACKAGE_ROOT}/hook/${name}.ts`),
-			...(await readWorkerExtensions(jobDir, profile.id)),
+			...(await readWorkerExtensions(jobDir)),
 		],
 		...(process.env.LIMEN_PROVIDER ? { provider: process.env.LIMEN_PROVIDER } : {}),
 		...(process.env.LIMEN_MODEL ? { model: process.env.LIMEN_MODEL } : {}),

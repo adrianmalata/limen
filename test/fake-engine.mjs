@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The one fake pi/omp. It loads the real hook extensions Limen passes, runs the task text as a script, and records
+// The one fake pi. It loads the real hook extensions Limen passes, runs the task text as a script, and records
 // what it saw in the record dir (the parent of --session-dir, so a job's own dir). Script lines:
 //   commit · fail <code> · error (assistant stop reason "error") · say <text> · tool <command> · block · orphan · finish <handoff, \n ends a line>
 //   · idle (a bash tool whose one child waits without CPU) · /<command> <args> (runs a command a hook registered, as a user typing it)
@@ -13,9 +13,6 @@ import { dirname, join } from "node:path";
 const args = process.argv.slice(2);
 if (args[0] === "--version") {
 	process.exit(console.log("0.0.0-test") ?? 0);
-}
-if (args[0] === "config") {
-	process.exit(console.log(JSON.stringify({ value: [] })) ?? 0);
 }
 const flag = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
 const dir = dirname(flag("--session-dir") ?? join(process.cwd(), "session"));

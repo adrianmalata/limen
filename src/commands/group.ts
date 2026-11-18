@@ -310,7 +310,6 @@ async function teamExtensionPathsByTeam(
 		teamExtensions[team] = await normalizeWorkerExtensions(
 			[...options.extensions, ...(options.teamSelections[team] ?? [])],
 			cwd,
-			resolveSpawnEngine(settings.routes[team]?.engine).id,
 		);
 	}
 	return teamExtensions;

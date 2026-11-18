@@ -1,12 +1,26 @@
-// `limen init --drop-leftovers` removes the leftover files of cut features and names each one.
+// `limen init` writes the Pi extension stub, and `limen init --drop-leftovers` removes the leftover files of cut features.
 import assert from "node:assert/strict";
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { limen, plant } from "../plant.ts";
+import { limen, plant, repository } from "../plant.ts";
 
 const template = (name: string) => fileURLToPath(new URL(`../../templates/${name}`, import.meta.url));
+
+test("limen init in a new repository writes the Pi extension stub and no .omp/ folder", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const fresh = join(p.parent, "fresh");
+	await repository(fresh);
+	const run = limen(p, ["init"], { cwd: fresh });
+	assert.equal(run.status, 0, run.stderr);
+	const stub = readFileSync(join(fresh, ".pi/extensions/limen.ts"));
+	assert.deepEqual(
+		[stub.equals(readFileSync(template("limen-extension.ts"))), existsSync(join(fresh, ".omp"))],
+		[true, false],
+	);
+});
 
 test("limen init --drop-leftovers drops an identical AGENTS.md, keeps a changed worker prompt and names the drop", async (t) => {
 	const p = await plant();

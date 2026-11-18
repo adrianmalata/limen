@@ -1,7 +1,7 @@
 <!-- PL: Dziennik zmian przebudowy Limena: jeden wpis na zamknięty ticket R-NNN, tylko dopisywany, najnowszy na dole.
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
-R-003. -->
+R-003, R-004. -->
 
 # Changes
 
@@ -76,3 +76,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: measured
 - Commit: R-003
 - Rollback: git revert $(git log --format=%H --grep='^R-003:' adrian-rebuild --) (the leftover files stay until `limen init --drop-leftovers`)
+
+## 2026-11-18 R-004 Cut the OMP engine
+- What: deleted `.omp/extensions/limen.ts`; `src/runtime/engine.ts` (Pi only; OMP's skill configuration, bridge route and bridge path go), `src/runtime/wrapper.ts`, `src/runtime/supervisor.ts`, `src/runtime/worker-extensions.ts` and its callers in `src/commands/spawn.ts`, `continue.ts`, `group.ts`; `src/job/session-commands.ts` (OMP's persistent shell); `hook/communication.ts` (multi-file edit, read selector), `hook/finish.ts` (`session_stop`); `src/picture/activity.ts`, `src/project/picture-watch.ts`, `src/commands/init.ts`, `src/main.ts`; comments in `spawn.ts`, `watch.ts`, `group-cabinet.ts`, `wake-text.ts`, `github-review.ts`, `hosted-binding.ts`; `src/old-names.ts` (`omp` in `OLD_ENGINES`); `LEFTOVERS` gets `.omp/extensions/limen.ts`; templates and their history; `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `docs/` (with the seat runbook, variant a); tests and fixtures
+- Why: G1.7, A-049, T-18
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (96/96: 95 − 2 removed with the cut + 3 new); `node adrian-rebuild/tools/fails-before.mjs` → exit 0; the ticket's `git grep -q -i -E '\bomp\b|oh-my-pi|LIMEN_OMP|\.omp/' -- …` → exit 1 (no match)
+- Measurement: measured
+- Commit: R-004
+- Rollback: git revert $(git log --format=%H --grep='^R-004:' adrian-rebuild --) (the leftover file stays until `limen init --drop-leftovers`)

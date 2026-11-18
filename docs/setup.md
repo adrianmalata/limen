@@ -8,8 +8,8 @@ Install Limen, define the project, and ask an agent to do the work.
 
 - **Operating system:** Linux. Limen supports no other operating system.
 - **Tools:** Node.js 24 or later, and Git.
-- **Engine:** Pi (`pi`, the default) or OMP (`omp`) on `PATH`.
-- **Last known-good versions:** pi 1.2.0, omp 18.4.4 and Herdr 0.9.1. Limen records the versions on each job, but it does not refuse other versions.
+- **Engine:** Pi (`pi`) on `PATH`.
+- **Last known-good versions:** pi 1.2.0 and Herdr 0.9.1. Limen records the versions on each job, but it does not refuse other versions.
 
 ## Install
 
@@ -24,11 +24,10 @@ npm install
 npm link
 ```
 
-For interactive jobs in Herdr, install the integration for each engine you use:
+For interactive jobs in Herdr, install the Pi integration:
 
 ```bash
 herdr integration install pi
-herdr integration install omp
 ```
 
 `npm link` puts that clone on `PATH`. The binary reads `hook/` and `templates/` from the directory next to it. Projects do not copy those files, so when you update the clone, every project on that computer gets the update. After `git pull` on the clone, `/reload` the coordinator.
@@ -56,8 +55,8 @@ You can also ask the agent to help define the vision and styleguide before it ch
 ### What `limen init` does
 
 - **Project files:** It creates the files that the project owns: the vision, the board, the feature lanes, and the styleguide (see [Project files](#project-files)). It does not overwrite existing project files.
-- **Hook stubs:** It creates package-hook stubs in `.pi/extensions/` and `.omp/extensions/`. A Herdr coordinator needs its engine's stub for communication, wake, and steering, so in an existing project, run `limen init` again before you start one.
-- **Old hook copies:** It deletes old `limen-*.ts` hook copies in both extension directories, so that they cannot load next to the stubs.
+- **Hook stub:** It creates the package-hook stub `.pi/extensions/limen.ts`. A Herdr coordinator needs that stub for communication, wake, and steering, so in an existing project, run `limen init` again before you start one.
+- **Old hook copies:** It deletes old `limen-*.ts` hook copies, so that they cannot load next to the stub.
 - **Leftover files:** `limen status` lists the files that cut features left in the project and the prompt copies that are still the same as the package. `limen init --drop-leftovers` deletes the files in that list. It keeps a prompt copy that differs from the package.
 
 ### The coordinator session
@@ -78,18 +77,7 @@ The agent you talk to is the coordinator. Give it the task in plain language. It
 
 ### Project skills
 
-Put project skills in `.agents/skills/<name>/SKILL.md`. Each engine finds skills in these places:
-
-| Location | Found by |
-|---|---|
-| `.agents/skills/<name>/SKILL.md` | All engines |
-| `.omp/skills/<name>/SKILL.md` | OMP |
-| `.pi/skills/<name>/SKILL.md` | Pi |
-| `.pi/skills/<name>.md` (older flat files) | Pi |
-
-**Old Pi skills in OMP jobs.** For OMP jobs, Limen makes a per-job view of old Pi skills outside the worktree. Limen gives that view to OMP as a skill directory. When two skills have the same name, the skill in `.agents/skills` or `.omp/skills` wins over the old copy. This applies to workers, reviewers, and continuations in both launch modes. It also applies to jobs in a repository next to a non-Git coordinator workspace.
-
-The next launch finds new or changed old skills, so the plant needs no links that you keep by hand. Pi finds skills the same way as before.
+Put project skills in `.agents/skills/<name>/SKILL.md`. Pi also finds skills in `.pi/skills/<name>/SKILL.md` and in older flat files, `.pi/skills/<name>.md`.
 
 ## Models
 
@@ -101,16 +89,7 @@ Project choices are in `spec/build.md`. The board records the engine, provider, 
 
 The coordinator must pass the board choices explicitly. Package fallbacks apply when command flags and environment variables do not select a setting.
 
-**Engine.** `--engine pi|omp` selects the job's agent: the Pi or OMP binary on the seat. The order of priority is:
-
-1. `--engine pi|omp`
-2. `LIMEN_ENGINE` (for example, `LIMEN_ENGINE=omp` selects OMP)
-3. Pi, for new jobs, when neither is set
-
-Two exceptions apply:
-
-- Old job records without an engine stay on Pi, for compatibility.
-- A continuation keeps the engine of its parent. `limen continue` refuses a different `--engine`, so to continue a Pi transcript, you still need Pi.
+**Engine.** Every job runs Pi, the `pi` binary on the seat. `limen spawn` takes `--engine pi` or `LIMEN_ENGINE=pi` and refuses any other value of either before a job exists. Old job records without an engine stay on Pi. A continuation keeps its parent's engine, and refuses a parent recorded with a removed engine.
 
 **Model.** The order of priority is:
 
@@ -118,9 +97,9 @@ Two exceptions apply:
 2. `LIMEN_WORKER_MODEL` (or `LIMEN_REVIEWER_MODEL` for `--review`)
 3. the built-in `openai-codex/gpt-6-astra:high`
 
-**`pi-claude` on both engines.** A `pi-claude` model runs on the Claude Code bridge, which Limen names with `--extension`, because jobs otherwise start with `--no-extensions`. Pi loads the `pi-claude-bridge` package that `pi install` put under `~/.pi/agent/npm/node_modules` (scoped or not), and takes `--provider pi-claude --model claude-opus-5-5` or `--model pi-claude/claude-opus-5-5` as given. OMP loads the local bridge at `~/.omp/local/pi-claude-bridge` and has no `pi-claude` provider: a command that requires `--provider` takes `--provider pi-claude`, and Limen keeps it in the job record and off the OMP command line, so `--provider pi-claude --model claude-opus-5-5` means `--model pi-claude/claude-opus-5-5`. `spawn`, `continue` and `group start` refuse a missing bridge before any job exists. On OMP they also refuse a `pi-claude` provider with another provider's model. With `LIMEN_PREFLIGHT=auth`, a bridged route skips `pi auth check`, because the bridge signs in through Claude Code.
+**The `pi-claude` bridge.** A `pi-claude` model runs on the Claude Code bridge, which Limen names with `--extension`, because jobs otherwise start with `--no-extensions`. Pi loads the `pi-claude-bridge` package that `pi install` put under `~/.pi/agent/npm/node_modules` (scoped or not), and takes `--provider pi-claude --model claude-opus-5-5` or `--model pi-claude/claude-opus-5-5` as given. `spawn`, `continue` and `group start` refuse a missing bridge before any job exists. With `LIMEN_PREFLIGHT=auth`, a bridged route skips `pi auth check`, because the bridge signs in through Claude Code.
 
-**Auth.** Pi and OMP keep separate auth stores (`~/.pi` and `~/.omp`). Authenticate each engine you use. Limen does not change the settings or credentials of either engine. One wrapper and one stream parser serve both engines.
+**Auth.** Pi keeps its auth store in `~/.pi`; authenticate Pi before the first job. Limen does not change Pi's settings or credentials.
 
 ### Personal model routes and Pi extensions
 
@@ -180,7 +159,6 @@ spec/vision.md                        durable product intent
 spec/build.md                         TRACK / NOW / NEXT / PROVEN; NOW and PROVEN generated from the lanes
 spec/features/                        planned, active, done, and dropped work
 .pi/extensions/limen.ts               Pi stub: load hooks from the package
-.omp/extensions/limen.ts              OMP stub: load the same hooks
 .limen/jobs/<id>/                     runtime evidence
 ```
 

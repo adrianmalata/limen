@@ -209,7 +209,7 @@ async function continueJob(args: readonly string[], cwd: string, locked = false,
 	}
 	const parent = await readParentJob(root, parentId, parentDir, membership, options.engine);
 	const profile = engineProfile(parent.engine);
-	const extensions = await continuationExtensions(parentDir, membership, options.selected, cwd, profile.id);
+	const extensions = await continuationExtensions(parentDir, membership, options.selected, cwd);
 	preflightEngine(profile, chosenModel, provider);
 	const source = recordedPlanningSource(parentDir);
 	const followUp = await continuationTask(root, parentDir, options.instruction, source);
@@ -378,21 +378,20 @@ async function continuationExtensions(
 	membership: GroupIdentity | undefined,
 	selected: readonly string[],
 	cwd: string,
-	engine: EngineId,
 ): Promise<string[]> {
 	const recorded = membership?.run.teamExtensions?.[membership.member?.team ?? ""];
 	const extensions = recorded
-		? await normalizeWorkerExtensions(recorded, cwd, engine)
+		? await normalizeWorkerExtensions(recorded, cwd)
 		: selected.length
-			? await normalizeWorkerExtensions(selected, cwd, engine)
-			: await readWorkerExtensions(parentDir, engine);
+			? await normalizeWorkerExtensions(selected, cwd)
+			: await readWorkerExtensions(parentDir);
 	if (recorded) {
-		if (JSON.stringify(await readWorkerExtensions(parentDir, engine)) !== JSON.stringify(extensions)) {
+		if (JSON.stringify(await readWorkerExtensions(parentDir)) !== JSON.stringify(extensions)) {
 			throw new Error("group continuation parent does not match the recorded team extensions");
 		}
 		if (
 			selected.length &&
-			JSON.stringify(await normalizeWorkerExtensions(selected, cwd, engine)) !== JSON.stringify(extensions)
+			JSON.stringify(await normalizeWorkerExtensions(selected, cwd)) !== JSON.stringify(extensions)
 		) {
 			throw new Error("group continuation requires the recorded team extensions; omit --extension to inherit them");
 		}

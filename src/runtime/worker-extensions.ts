@@ -1,17 +1,9 @@
 import { readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
-import type { EngineId } from "./engine.ts";
 
 /** Resolve only local paths. Pi, not Limen, interprets the selected module or package. */
-export async function normalizeWorkerExtensions(
-	paths: readonly string[],
-	cwd: string,
-	engine: EngineId,
-): Promise<string[]> {
-	if (paths.length && engine !== "pi") {
-		throw new Error("--extension is supported only for Pi workers; use --engine pi");
-	}
+export async function normalizeWorkerExtensions(paths: readonly string[], cwd: string): Promise<string[]> {
 	const selected: string[] = [];
 	for (const input of paths) {
 		if (
@@ -40,7 +32,7 @@ export async function normalizeWorkerExtensions(
 }
 
 /** Missing records belong to legacy jobs; all other record errors must reach launch failure handling. */
-export async function readWorkerExtensions(jobDir: string, engine: EngineId): Promise<string[]> {
+export async function readWorkerExtensions(jobDir: string): Promise<string[]> {
 	const record = `${jobDir}/extensions.json`;
 	let body: string;
 	try {
@@ -60,5 +52,5 @@ export async function readWorkerExtensions(jobDir: string, engine: EngineId): Pr
 	if (!Array.isArray(paths) || !paths.every((path) => typeof path === "string" && isAbsolute(path))) {
 		throw new Error(`invalid ${record}: expected a JSON array of absolute local paths`);
 	}
-	return normalizeWorkerExtensions(paths, jobDir, engine);
+	return normalizeWorkerExtensions(paths, jobDir);
 }

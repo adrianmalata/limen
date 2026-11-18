@@ -1,6 +1,6 @@
 // U11: what the live picture says a job does. A record that says running is never shown as working when its owner is
-// gone or it has been silent too long; finished jobs leave the page after an hour; job folders of both engines read
-// the same way; a coordinator's workers and a group's teams nest as one tree.
+// gone or it has been silent too long; finished jobs leave the page after an hour; detached and hosted job folders
+// read the same way; a coordinator's workers and a group's teams nest as one tree.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
@@ -23,7 +23,7 @@ const job = (over: Partial<JobFiles>): JobFiles => ({
 	spawning: false,
 	owner: "alive",
 	label: "F932 follow-up for F780",
-	engine: "omp",
+	engine: "pi",
 	model: "pi-claude/claude-opus-5-5",
 	activity: "tool",
 	lastTool: "bash",
@@ -92,19 +92,14 @@ test("the reader reads detached and hosted job folders the same way", async () =
 		log: "think\nbash npm test\n",
 		[session]: '{"type":"session"}\n{"type":"model_change","provider":"openai-codex","modelId":"gpt-6-sol"}\n',
 	});
-	await folder(jobs, "2026-10-08-f932-hosted-00000002", {
-		...running,
-		engine: "omp\n",
-		"tool-detail": "git log\n",
-		[session]: '{"type":"title"}\n{"type":"model_change","model":"pi-claude/claude-opus-5-5"}\n',
-	});
+	await folder(jobs, "2026-10-08-f932-hosted-00000002", { ...running, "tool-detail": "git log\n" });
 	await folder(jobs, "2026-10-08-f932-gone-00000003", { ...running, pid: `${gone}\n` });
 	const snapshot = await activityReader(jobs)();
 	const rows = snapshot.jobs.map((live) => [live.id.slice(16, -9), live.state, live.doing, live.detail, live.model]);
 	assert.deepEqual(rows.sort(), [
 		["detached", "working", "running tests and checks", "npm test", "openai-codex/gpt-6-sol"],
 		["gone", "dead", "running a command", "", ""],
-		["hosted", "working", "running a command", "git log", "pi-claude/claude-opus-5-5"],
+		["hosted", "working", "running a command", "git log", ""],
 	]);
 });
 

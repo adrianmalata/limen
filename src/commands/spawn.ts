@@ -35,7 +35,6 @@ import {
 import { signalProcessGroup, waitForProcessGroup } from "../runtime/contain.ts";
 import {
 	defaultModel,
-	type EngineId,
 	type EngineProfile,
 	engineBinary,
 	preflightEngine,
@@ -171,7 +170,7 @@ async function spawnJob(args: readonly string[], cwd: string, group?: SpawnGroup
 		label: parsed.label ?? (loaded.text.trim().split(/\r?\n/, 1)[0]?.trim().slice(0, 80) || "job"),
 	};
 	const model = options.model ?? defaultModel(options.review);
-	const extensions = await launchExtensions(group, options.extensions, cwd, profile.id);
+	const extensions = await launchExtensions(group, options.extensions, cwd);
 	preflightEngine(profile, model, options.provider);
 	const notificationSession = currentNotificationSession();
 	const coordinatorTab = process.env.HERDR_TAB_ID?.trim();
@@ -255,14 +254,13 @@ async function launchExtensions(
 	group: SpawnGroup | undefined,
 	requested: readonly string[],
 	cwd: string,
-	engine: EngineId,
 ): Promise<string[]> {
 	const recorded = group?.run.teamExtensions?.[group.team];
-	const extensions = await normalizeWorkerExtensions(recorded ?? requested, cwd, engine);
+	const extensions = await normalizeWorkerExtensions(recorded ?? requested, cwd);
 	if (
 		recorded &&
 		requested.length &&
-		JSON.stringify(await normalizeWorkerExtensions(requested, cwd, engine)) !== JSON.stringify(extensions)
+		JSON.stringify(await normalizeWorkerExtensions(requested, cwd)) !== JSON.stringify(extensions)
 	) {
 		throw new Error("group launches require the recorded team extensions; omit --extension to inherit them");
 	}
@@ -802,8 +800,8 @@ export function currentNotificationSession(): string | undefined {
 	return value || undefined;
 }
 /**
- * OMP does not export its session to tool commands, so a Herdr coordinator without a Pi session is woken on its pane.
- * `limen watch` and `steer --running` use the same route through `origin-pane`.
+ * A Herdr coordinator without a Pi session (`PI_SESSION_ID` unset in its commands) has no session to subscribe, so it
+ * is woken on its pane. `limen watch` and `steer --running` use the same route through `origin-pane`.
  */
 export function herdrWakePane(notificationSession: string | undefined): string | undefined {
 	const pane = process.env.HERDR_PANE_ID?.trim();

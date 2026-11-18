@@ -3,7 +3,7 @@
 // and names the pane's foreground process after the engine it launched, as real Herdr does.
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, rename, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join } from "node:path";
@@ -87,14 +87,12 @@ const engineArgv = (pane: string): string[] => {
 	return start.slice(start.indexOf("--") + 1);
 };
 const pane = (id: string) => jobFile(p, id, "herdr/pane");
-const starts = (id: string) => jobFile(p, id, "log").match(/hosted supervisor started/g)?.length ?? 0;
 type Fake = { agents: Record<string, { status: string }>; tabs: Record<string, { label?: string }> };
 const state = () => JSON.parse(readFileSync(join(herdr, "state.json"), "utf8")) as Fake;
 const saveState = async (next: unknown) => {
 	await writeFile(join(herdr, "state.tmp"), JSON.stringify(next));
 	await rename(join(herdr, "state.tmp"), join(herdr, "state.json"));
 };
-const alive = (pid: number) => spawnSync("kill", ["-0", String(pid)]).status === 0;
 /** Runs the CLI without blocking the event loop, so two sweeps can race. */
 const limenAsync = async (args: readonly string[]) => (await start(p, args, { env }).done).status;
 
@@ -116,43 +114,6 @@ before(async () => {
 	};
 });
 after(() => p.cleanup().finally(() => socket.close()));
-
-let second = "";
-test("a live OMP job stays running while Herdr reports done, then after Herdr loses its agent row (88fd5ac)", async () => {
-	second = spawnJob(p, "block\nfinish\nfinish omp done", ["--tab", "--engine", "omp", "--label", "F001 omp"], { env });
-	await until(jobDir(p, second), () => existsSync(join(jobDir(p, second), "fake-blocked-1")));
-	const target = pane(second);
-	const start = named("agent", "start").find((args) => args.includes(target)) ?? [];
-	assert.equal(start[start.indexOf("--kind") + 1], "omp");
-	// Herdr says the agent is done (unseen idle); only the session or the process ending finishes a hosted job.
-	await until(herdr, () => named("agent", "get").filter((args) => args[2] === target).length >= 2);
-	assert.equal(jobFile(p, second, "state"), "running", "Herdr done is not job completion");
-	const seen = named("pane", "process-info").length;
-	await saveState({ ...state(), agents: {} }); // Herdr loses the job's agent row; its engine runs on.
-	// Each missing sample probes the pane once; four probes is past the three-sample missing window.
-	const probes = () => named("pane", "process-info").filter((args, at) => at >= seen && args.includes(target)).length;
-	await until(herdr, () => probes() >= 4 || jobFile(p, second, "state") !== "running");
-	assert.equal(jobFile(p, second, "state"), "running", `a lost agent row must not end the job on ${target}`);
-});
-
-test("two competing sweeps start exactly one replacement for a killed hosted supervisor (5754dad)", async () => {
-	const dir = jobDir(p, second);
-	assert.equal(starts(second), 1);
-	const supervisor = Number(jobFile(p, second, "pid"));
-	// pid 0 would signal this test's own process group.
-	assert.ok(supervisor > 0 && jobFile(p, second, "state") === "running", "the OMP job is still supervised");
-	process.kill(supervisor, "SIGKILL");
-	// SIGKILL leaves no finalizer; the sweeps must see a dead owner, so wait for the kernel to drop the pid.
-	while (alive(supervisor)) {
-		await new Promise((resolve) => setImmediate(resolve));
-	}
-	assert.deepEqual(await Promise.all([limenAsync(["jobs"]), limenAsync(["jobs"])]), [0, 0]);
-	await until(dir, () => starts(second) >= 2);
-	assert.equal(jobFile(p, second, "state"), "running");
-	await release(dir);
-	assert.deepEqual([waitJob(p, second, { env }), jobFile(p, second, "result")], ["done", "omp done"]);
-	assert.deepEqual([starts(second), jobFile(p, second, "log").includes("failed:")], [2, false], "one replacement");
-});
 
 test("in Herdr a spawn with no mode flag runs detached under its --timeout; queued, it tells its pane once that it started", async () => {
 	const reading = join(p.parent, "start-reading.json");
@@ -247,5 +208,5 @@ test("hosted Pi stop records stopped once and closes the job's tab", async () =>
 	await until(herdr, () => named("tab", "close").some((args) => args[2] === jobFile(p, third, "herdr/tab")));
 	assert.equal(jobFile(p, third, "log").match(/\] stopped: enough/g)?.length, 1);
 	const made = [named("tab", "create").length, named("workspace", "create").length];
-	assert.deepEqual(made, [3, 1], "one tab per job, one role space");
+	assert.deepEqual(made, [2, 1], "one tab per job, one role space");
 });
