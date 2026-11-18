@@ -3,7 +3,8 @@ w `limen status` i usuwanie przez `limen init --drop-leftovers` (decyzja A-042).
 dopisują do rejestru swoje ścieżki; cięcie śledzenia dryfu i porady w prompcie należy do R-040. Stan: zablokowany
 w nocy 17.11 limitem 3500 linii w `test/` (pytanie Q-1); 18.11 Adrian zdecydował, że R-001 zależy od R-010 (D-020),
 a R-010 limit już usunął. W nocy 18.11 implementer zatrzymał się przed zmianą na błędnym AC-6 (pytanie Q-4);
-ticket znów jest zablokowany, nic nie zaimplementowano. -->
+18.11 Adrian zdecydował (D-025), że AC-6 sprawdza tylko ścieżki z ## Change, a pełne sprawdzenie należy do R-040.
+Ticket jest gotowy do wznowienia; nic jeszcze nie zaimplementowano. -->
 
 # R-001 Leftover files of cut features are listed and can be dropped
 
@@ -43,8 +44,8 @@ Relied on:
      by path. It reads no git history (unlike `listDrift`, which computes revisions for overlays) and writes nothing.
    - `dropLeftovers(root, registry = LEFTOVERS)`: removes every entry `listLeftovers` returns (a directory
      recursively; a symlink itself, never its target) and returns the removed entries.
-   - The tracked template list stays one list shared with `src/project/inherit.ts`, not a copy (T-25); exporting it or
-     moving it is the implementer's choice.
+   - The tracked template list stays one list in `src/project/inherit.ts` (`TRACKED`, exported), not a copy (T-25):
+     `leftovers.ts` imports it (D-025; AC-6).
 2. `limen status` (`src/commands/status.ts`): when `listLeftovers` finds at least one leftover under the root that
    status reports on its first line, it prints, after `Unconfirmed jobs` and before `Older:`:
    ```
@@ -91,7 +92,9 @@ Relied on:
 - AC-5: `node adrian-rebuild/tools/gate.mjs` → exit 0 with `fail 0`; the reported test count is at least 82 (the 83
   of `evidence/baseline.md` minus the cap test that R-010 removed) plus the new tests, so every file of
   `test/*.test.ts` still runs.
-- AC-6: `git grep -n '"templates/agents.md"' -- src hook` → exactly one line: the tracked template list is not copied.
+- AC-6: `git grep -q '"templates/agents.md"' -- src/project/leftovers.ts src/commands/status.ts src/commands/init.ts`
+  → exit 1 (no match): the paths of `## Change` hold no copy of the tracked template list (D-025; the global check
+  over `src` and `hook` belongs to R-040, which removes `hook/communication.ts:307`).
 - AC-7: `node adrian-rebuild/tools/check.mjs` → exit 0; `npx biome check --error-on-warnings adrian-rebuild` → exit 0.
 - AC-8 (judgment): the listing in `limen status` writes nothing and waits for nothing (T-04), and `listLeftovers` reads
   no git history.
@@ -129,3 +132,10 @@ only `src/commands/init.ts`).
   and `hook/communication.ts:307` (the `AGENTS.md` fallback of `readInheritedAgents`, cut by R-040, out of scope); the
   main session confirmed both lines. `review-guard.mjs compare --git` → "within its limits". The question is Q-4 of
   the night's `adrian-rebuild/.night/questions.md` (recommended: narrow AC-6 to `src`); the answer goes here.
+- 2026-11-18 (Adrian, Q-4 → `plan.md` D-025): "a criterion checks only the ticket's scope, and a global property is
+  closed by the ticket that makes it true." AC-6 becomes `git grep -q '"templates/agents.md"' -- <the paths of
+  ## Change>` → exit 1; the full check over `src` and `hook` → exit 1 joins R-040's criteria. The expected result is
+  an exit code, with no `!` before the command. Rejected: excluding a file (it would hide a new reference) and
+  expecting a given line (it moves with an edit). The main session's consequence: `TRACKED` stays in
+  `src/project/inherit.ts` and is exported (item 1), so that the paths AC-6 covers hold no list at all; AC-6 run at
+  HEAD → exit 1, and no other criterion of this ticket scans beyond its paths.

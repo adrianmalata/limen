@@ -3,9 +3,9 @@
    oraz plan: etapy z tagami, tickety (źródła, zależności, rozmiar, tryb, kroki weryfikacji na seacie), pokrycie
    każdego znaleziska `fix` i każdej reguły T-NN ticketem, zgodność kopii §2 z audit.md, wywołanie skryptu wdrożenia
    w każdym etapie (D-008), brak przekierowań `>` w poleceniach narzędzi (D-018) i definicje pomiarów M-NN. Sprawdza też polskie streszczenia plików w adrian-rebuild/
-   i .claude/agents/, a od etapu 5 foldery ticketów (szablon ticket.md) i wpisy changes.md według D-009
-   (changes-entries.mjs); status ticketu może być też `blocked` z trybu nocnego. Stan: działa; kończy się kodem 1
-   i listą błędów. */
+   i .claude/agents/, a od etapu 5 foldery ticketów (szablon ticket.md, kryteria bez `!` przed poleceniem, D-025)
+   i wpisy changes.md według D-009 (changes-entries.mjs); status ticketu może być też `blocked` z trybu nocnego.
+   Stan: działa; kończy się kodem 1 i listą błędów. */
 // Usage: node adrian-rebuild/tools/check.mjs   (run from the repository root)
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -551,6 +551,10 @@ function checkTicketFile(file, id) {
 		present.some((name, index) => headings.indexOf(name) < headings.indexOf(present[index - 1] ?? name))
 	) {
 		errors.push(`${file}: sections must be ${TICKET_SECTIONS.map((name) => `## ${name}`).join(", ")}, in this order`);
+	}
+	// D-025: a criterion states its expected result as an exit code, never as a negated command.
+	for (const [, id] of text.matchAll(/^- (AC-\d+)[^:\n]*: `!/gm)) {
+		errors.push(`${file}: ${id} starts its command with "!"; state the expected exit code instead (D-025)`);
 	}
 }
 

@@ -1,9 +1,9 @@
 <!-- PL: Ticket R-013 etapu 1 przebudowy: jeden typ błędu Limena (klasa, kod, komunikat, następne polecenie), kody
 wyjścia 0–5 jako klasy porażek (T-02) i końcowa linia JSON każdego polecenia z opcjonalnym polem ids (D-022), czytana
-tylko przez jedną funkcję klienta; do tego zapadki liczby catch i gołych throw new Error. Sesja główna przyjęła
-odczytanie pola code: identyfikator porażki (np. LAND_NOT_DONE), a przy sukcesie 0, do potwierdzenia na bramce 5.1.
-Stan: zablokowany w nocy 18.11 przed zmianą (pytanie Q-7: cztery komendy kończą się przez process.exitCode);
-nic nie zaimplementowano. -->
+tylko przez jedną funkcję klienta; kod wyjścia ustawia wyłącznie wspólne opakowanie, a polecenia zwracają wynik albo
+rzucają błąd z klasą (D-028). Do tego skan process.exit oraz zapadki liczby catch i gołych throw new Error. Stan:
+zablokowany w nocy 18.11 (pytanie Q-7); 18.11 Adrian rozstrzygnął Q-7 (D-028), a R-013 czeka na cięcia etapu 1
+(R-002–R-007, R-009); nic nie zaimplementowano. -->
 
 # R-013 One error type, exit codes as failure classes, a final JSON line
 
@@ -40,6 +40,24 @@ Relied on (quoted):
   line (a test with output that has text before the JSON line)".
 - T-28 (1) and T-29 (2): refusals are "typed errors with an ID (T-01, T-03), declared in the registry entry"; a test
   that proves a refusal "starts with its identifier, e.g. "LAND_NOT_DONE: land refuses a job that is not done"".
+- D-028 (Adrian, 2026-11-18, night question Q-7): "only the shared wrapper sets the exit code and prints the final
+  line; a command returns its result or throws an error with its type and class (T-01, T-03, AU-209).
+  `process.exitCode` and `process.exit` appear only in the wrapper and in the entry point `bin/limen` (a scan)."
+  Classes: "`ticket check` and `picture build --strict` with problems found are a refusal (1) with the list in the
+  text and the fix in `next`; `github poll` by its cause (the network 3; a missing configuration or credential 4)";
+  `webhook test` is cut by R-002 first. "`group wait`: in R-013 its time limit rejects the operation with a typed
+  error through the wrapper, with no `process.exit` from a timer; the command itself is cut by the registry ticket
+  (R-014)." "`ids.job` also for `github review` and `github work`." The two doc lines change "when they describe the
+  output contract" R-013 changes. Order: "R-013 depends on every cut of stage 1 (R-002–R-007, R-009), so it reworks
+  no code that a cut removes". Check: "the scan for `process.exitCode` and `process.exit` outside the wrapper and
+  `bin/limen`; a refusal test for each reworked command (the code, the class and `next` in the final line); a test
+  that `group wait`'s time limit gives exactly one final line with its code."
+- D-025 (Adrian, 2026-11-18, night question Q-4): "a criterion checks only the ticket's scope; a global property is
+  closed by the ticket that makes it true. (…) The expected result is an exit code, with no `!` before the command."
+- Today four commands fail by setting `process.exitCode = 1` and returning normally (`src/commands/ticket.ts:176`,
+  `src/commands/picture.ts:91`, `src/commands/webhook.ts:25`, `src/integrations/github-poller.ts:765`), and the
+  safety cap of `group wait` ends the process with `process.exit(0)` from a timer (`src/commands/group.ts:403-408`).
+  Under item 2 a command that only returns would print the `ok` line and exit 0: a false success.
 - The class names are those of the help draft of rebuild stage 3, `evidence/taste/help-registry.mjs:103`: "Exit codes:
   0 ok · 1 refused · 2 usage · 3 transient · 4 environment · 5 internal."
 - `plan.md` → `## Tickets`, notes, R-013: "until R-082, the `catch` scan of T-01 is a ratchet over the author's 148
@@ -73,7 +91,8 @@ quoted text holds as written.
 2. `src/main.ts`: a command returns `Promise<Success | undefined>` (undefined means `{ next: "" }`), and `main` ends
    every command process with exactly one final line: on success on stdout, after the command's own lines; on a failure
    on stderr, after the message (as today) and, for `internal`, after the stack. `process.exitCode` is the class's exit
-   code. The help (`limen`, `--help`, `-h`, `help`, and `<command> --help`) ends with the success line. An unknown
+   code, and `main` is the only place in `src/` and `hook/` that sets it (D-028): no command sets `process.exitCode` or
+   calls `process.exit`; a command that fails throws (items 3, 10 and 11). The help (`limen`, `--help`, `-h`, `help`, and `<command> --help`) ends with the success line. An unknown
    command is `usage`, code `UNKNOWN_COMMAND`, `next` `limen --help`, with today's message. The internal runs
    (`LIMEN_INTERNAL_RUN`, `LIMEN_INTERNAL_HOSTED`) print no final line and keep their exit behaviour; they are not
    commands. A command called in-process by another command (`keeper` calls `spawnCommand`) prints no line of its own;
@@ -82,24 +101,29 @@ quoted text holds as written.
    `LimenError` of class `usage`, code `BAD_FLAG`, with the command's own message and `next` `limen --help`.
 4. `ids` and `next` on success: every command whose success creates exactly one job returns `ids: { job: <full id> }`
    and `next` `End your turn; Limen wakes you when the job ends.` (D-022's text for `spawn`; the implementer lists the
-   commands it finds, at least `spawn`, `continue` and `keeper`). `ticket new` returns `ids: { ticket: <FNNN> }`. Every
+   commands it finds, at least `spawn`, `continue`, `keeper`, `github review` and `github work`, D-028). `ticket new`
+   returns `ids: { ticket: <FNNN> }`. Every
    other command returns nothing, so its line has `next` `""`. The text lines a command prints for people stay as they
    are (out of scope).
-5. Callers of the CLI read the final line only through `readOutcome`: `src/project/picture-tick.ts:134` and every test
-   named in `## Problem`. A test that needs an id no `ids` key carries (for example a group's id) reads it from the
+5. Callers of the CLI read the final line only through `readOutcome`: every caller that the cuts leave (the
+   implementer finds them with AC-4's command; of those named in `## Problem`, `src/project/picture-tick.ts:134` goes
+   with `picture tick` in R-007, `test/s2-hosted.test.ts` with R-005 and `test/s7-webhooks.test.ts` with R-002). A test that needs an id no `ids` key carries (for example a group's id) reads it from the
    records under `.limen/`, not from a text line. Tests that assert exit code 1 for a flag error or an unknown command
    assert 2 now; tests of refusals keep 1.
 6. `bin/limen`: the Node version check exits 4 (environment) and prints, as the last stderr line,
    `{"class":"environment","code":"NODE_VERSION","next":"install Node.js 24 or newer"}`; it cannot import
    `src/outcome.ts` on an old Node, so the line is literal there.
 7. Scans in `test/structure.test.ts`, each its own test named after its rule:
-   - "T-02: …": no `process.exit(…)` or `process.exitCode = …` in `src/`, `hook/` or `bin/` with a literal outside
-     0–5;
+   - "T-02: …" (D-028): `process.exitCode` and `process.exit` occur in `src/`, `hook/` and `bin/` only in `src/main.ts`
+     (the wrapper) and `bin/limen` (the entry point), and every literal exit code there is within 0–5;
+   - "T-26 (4): …": only `src/outcome.ts` builds the final line (no `JSON.stringify({ class` or
+     `JSON.stringify({class` elsewhere in `src/`, `hook/` or `bin/`);
    - "T-01: …": the counts of `catch {` and of `.catch(() => {})` in `src/` and `hook/` are at most their counts at
      this ticket's parent commit (constants in the test, whose comment names R-082 as the ticket that brings them to
      zero); `src/outcome.ts` adds none;
    - the count of `throw new Error(` in `src/` and `hook/` is at most its count at this ticket's parent commit, minus
-     the sites this ticket converts (the ratchet of the untyped refusals, R-082).
+     the sites this ticket converts, which the test's comment names (the ratchet of the untyped refusals, R-082); the
+     failures of items 10 and 11 are `LimenError`, so they add none.
 8. Tests, written first and failing at HEAD:
    - `test/outcome.test.ts` (the subject is `src/outcome.ts`): `finalLine` gives the key order and leaves out absent
      `ids`; `failureOf` maps a `LimenError`, a plain `Error` (`refused`, `UNTYPED`, 1) and a `TypeError` (`internal`,
@@ -112,22 +136,52 @@ quoted text holds as written.
    - `test/s1-spawn.test.ts`: the golden final line of a detached `spawn`, `{"class":"ok","code":0,"next":"End your
      turn; Limen wakes you when the job ends.","ids":{"job":"<id>"}}` with the id of the job directory that spawn
      created, read with `readOutcome`.
+   - A refusal test for each command of item 10 (D-028): on a plant, the command with problems found exits with its
+     class's code, its last stderr line read with `readOutcome` has the class, the code and the `next` of item 10, and
+     the list of problems is in the text before it; `github poll` once with a network failure (3) and once with a
+     missing configuration or credential (4), with GitHub replaced by a local fake or a fetch stub (no network).
+   - `group wait` (item 11): through `bin/limen` with a short `--timeout`, the process ends with exactly one final
+     line, `class` `transient`, code `GROUP_WAIT_TIMEOUT`, exit 3; the cap helper rejects a stalled operation after a
+     short bound passed in-process (no 20-second wait in the test).
 9. Docs: `docs/commands.md` gets a short section on exit codes and the final line (the six classes with their codes,
    the fields, `ids`, which stream carries the line), and its sentences that say a failure exits 1 or that spawn's last
-   line is the id say what the code does now.
+   line is the id say what the code does now. `docs/jobs.md:96` ("The last line of `spawn` output is the durable job
+   ID") and `docs/seat/agent-setup.md:254` (`github doctor`'s stderr "ends with" a text line) describe the output
+   contract this ticket changes, so they change with it (D-028).
+10. The commands that fail by setting the exit code today throw a `LimenError` instead (D-028); the text lines they
+    print for people stay, and the error's message is one summary line:
+    - `ticket check` with failing tickets (`src/commands/ticket.ts:176`): `refused`, code `TICKET_CHECK_FAILED`, the
+      failing lines on stderr as today, `next` `fix the tickets listed above, then run limen ticket check <branch>`.
+    - `picture build --strict` with an error diagnostic (`src/commands/picture.ts:91`, in the form R-007 leaves it):
+      `refused`, code `PICTURE_INVALID`, the diagnostics on stderr as today, `next` `fix the errors listed above, then
+      run limen picture build --strict`.
+    - `github poll` (`src/integrations/github-poller.ts:765`): the poll goes on with the other projects as today and
+      then throws the most severe failure among the projects (the highest exit code), each project's failure still
+      printed on its own stderr line. The causes: a rejected `fetch` and HTTP 429 or 5xx from the one request function
+      (`src/integrations/github-poller.ts:86-98`) are `transient`, code `GITHUB_NETWORK`; a missing or invalid
+      setting or credential (the checks before the loop at `:735-756`, the App key and id of `appJwt`, an installation
+      token GitHub does not issue, HTTP 401 or 403) is `environment`, code `GITHUB_CONFIG`; both with `next` `limen
+      github doctor`. Any other failure keeps the mapping of `failureOf`.
+11. `group wait` (`src/commands/group.ts:392-415`): its safety cap no longer calls `process.exit(0)` from a timer. The
+    operation races a cap promise (a small exported helper that takes the bound, so a test can pass a short one),
+    which rejects with a `LimenError` `transient`, code `GROUP_WAIT_TIMEOUT`, `next` `limen group status <group>`; the
+    requested `--timeout` that ends the wait before the group finishes gives the same error, so both limits fail one
+    way, and `main` prints the one final line. R-014 cuts the command (D-028).
 
 ## Out of scope
 
 - The command registry, the declaration of `ids` keys and refusal IDs per command, and the test that a command returns
   only its declared keys (R-014, D-022, T-19).
 - The text lines for people, among them the bare job id that `spawn` and `continue` print (D-022: "the label and the
-  token"), and the `next` texts of commands other than those of item 4: R-014 (`pair`, with Adrian).
-- Typing the author's refusals with their own IDs (the `UNTYPED` ratchet goes to zero with R-082), and the sites of
-  `transient` and `environment` beyond item 6: a lock after its wait (R-019), a missing tool (R-020), the transition
-  write (R-021).
+  token"), and the `next` texts of commands other than those of items 4, 10 and 11: R-014 (`pair`, with Adrian).
+- Typing the author's other refusals with their own IDs (the `UNTYPED` ratchet goes to zero with R-082), and the sites
+  of `transient` and `environment` beyond items 6, 10 and 11: a lock after its wait (R-019), a missing tool (R-020),
+  the transition write (R-021).
+- Cutting `group wait` (R-014, D-028).
 - `bestEffort` and `src/side.ts` (T-01; the record's `sideFailures` come with R-021, the conversion of swallowed errors
   with R-082).
-- The cut commands (R-002–R-007, R-009); they get the final line through `main` like every other command.
+- The cut commands (R-002–R-007, R-009): they are gone before this ticket (D-028), and their refusal with a pointer
+  gets the final line through `main` like every other failure.
 - `package.json`'s test glob (R-001) and renaming test files (R-083).
 
 ## Acceptance
@@ -135,19 +189,23 @@ quoted text holds as written.
 - AC-1: `node --test test/outcome.test.ts` → exit 0.
 - AC-2: `node adrian-rebuild/tools/gate.mjs` → exit 0 with `fail 0`, and at least 82 tests plus the new ones.
 - AC-3: `node adrian-rebuild/tools/fails-before.mjs` → exit 0: the new and changed test files fail at HEAD.
-- AC-4: `git grep -n -E 'stdout\.trim\(\)\.split\(' -- src test` → no output: no caller takes a line of a command's
-  stdout as its result.
-- AC-5: `git grep -n -E 'JSON\.stringify\(\{ ?class' -- src hook bin` → only `src/outcome.ts`, and `git grep -n
-  'readOutcome' -- src hook` → only `src/outcome.ts` and the callers of item 5.
+- AC-4: `git grep -q -E 'stdout\.trim\(\)\.split\(' -- src test` → exit 1 (no match): no caller takes a line of a
+  command's stdout as its result. Every match at the parent is a caller this ticket converts (item 5), so the scan is
+  this ticket's own (D-025).
+- AC-5: `node --test test/structure.test.ts` → exit 0: the scans of item 7 (the `process.exit` scan of D-028, the
+  final line built only in `src/outcome.ts`, the ratchets).
 - AC-6: `node adrian-rebuild/tools/check.mjs` → exit 0; `npx biome check --error-on-warnings adrian-rebuild` → exit 0.
 - AC-7 (judgment): `main` prints exactly one final line per command process; an in-process call (`keeper` →
   `spawnCommand`) prints none; the internal runs print none.
 - AC-8 (judgment): the docs of item 9 say what the code does: the classes, the fields, `ids` and the stream.
+- AC-9 (judgment): each command of items 10 and 11 fails only by throwing, with the class, code and `next` given
+  there, and still prints its list of problems for people.
 
 ## Migration
 
 No on-disk format changes and no command is removed. The CLI change is the final line and exit code 2 for flag errors
-and an unknown command (was 1). Every caller in the repository moves to `readOutcome` in this ticket (item 5). The
+and an unknown command (was 1); `github poll` exits 3 or 4 by cause (was 1), and `group wait` at its limit exits 3
+(was 0). The seat's `github poll` unit treats any non-zero exit as a failure, as before. Every caller in the repository moves to `readOutcome` in this ticket (item 5). The
 seat's callers read only zero and non-zero, which the classes keep: the poller's `limen github ensure`
 (`src/integrations/github-poller.ts:567-570`, `ensure.status !== 0`) and the systemd units (`docs/seat/*.service`); no
 seat script parses Limen's output (`docs/seat/bell.sh` reads `.limen/jobs/*/state`). The coordinator model reads the
@@ -183,3 +241,14 @@ text lines, which stay, plus one JSON line at the end of each tool result.
   four sites, the ratchet "at most the parent's count"), with the implementer's further points (`group wait`'s
   `process.exit(0)`, `ids.job` for `github review` and `github work`, `docs/jobs.md:96`,
   `docs/seat/agent-setup.md:254`); the answer goes here.
+- 2026-11-18 (Adrian, Q-7 → `plan.md` D-028, quoted in `## Problem`): only the wrapper sets the exit code; the four
+  sites throw typed errors with the classes of D-028; `webhook test` goes with R-002; `group wait`'s limit rejects with
+  a typed error and R-014 cuts the command; `ids.job` for `github review` and `github work`; the two doc lines change.
+  A follow-up of the same day: R-013 depends on R-002–R-007 and R-009. Applied in items 2, 4, 5, 7–11, AC-4, AC-5 and
+  AC-9; the plain-`Error` option and the ratchet "at most the parent's count" of the night question are not taken.
+- 2026-11-18 (main session, for Adrian to confirm at gate 5.1): the codes `TICKET_CHECK_FAILED`, `PICTURE_INVALID`,
+  `GITHUB_NETWORK`, `GITHUB_CONFIG` and `GROUP_WAIT_TIMEOUT` and their `next` texts in items 10 and 11; HTTP 429 and
+  5xx count as the network, 401 and 403 as a credential; `github poll` throws its most severe project failure;
+  `group wait`'s requested `--timeout` fails like its cap (exit 3, was 0), so that both limits fail one way.
+- 2026-11-18 (main session, D-025): AC-4 states its result as an exit code; AC-5 becomes the scan test of item 7, so no
+  criterion expects a given list of files.

@@ -3,7 +3,7 @@ rozstrzygniętych bramką 2); część B to zasady Adriana T-01–T-43 z wywiadu
 sposobem sprawdzenia i źródłem, oraz fakty z pytań otwartych i lista zmian w decyzjach bramki 2. Po bramce 3 plik
 jest rubryką obok zasad z input/, a nowe decyzje taste dopisuje się tu z datą i źródłem. Stan: przyjęty przez
 Adriana na bramce 3 (2026-11-17, D-007); 18.11 T-37 dostała pole ids w końcowej linii JSON (nocne pytanie Q-3,
-D-022). -->
+D-022), a T-02 zasadę, że kod wyjścia ustawia tylko wspólne opakowanie (nocne pytanie Q-7, D-028). -->
 
 # Taste
 
@@ -658,12 +658,17 @@ the author's choice. Taste decisions taken after this interview are added here w
   last stderr line, a JSON object with `class`, `code` and `next`, which timers and tests read; on success the same
   line, with `next`, ends stdout. Timers retry 3 at their
   next run and ring only after several in a row; 2, 4 and 5 ring at once; 1 is a normal state.
+- Where the code is set (2026-11-18, Adrian, night question Q-7; `plan.md` D-028): only the shared wrapper sets the
+  exit code and prints the final line; a command returns its result or throws an error with its type and class.
+  `process.exitCode` and `process.exit` appear only in the wrapper and in the entry point `bin/limen`; a command that
+  sets the exit code and returns, or ends the process from a timer, is a defect.
 - Why: under G3 the coordinator, the owner channel's timer and `limen-sweep` must tell a refusal from a failure
   without parsing prose (AU-209: the author has only 0 and 1); z. 2, z. 12.
 - Check: a test for every refusal and failure path asserts the exit code and the `code` field; a script forbids exit
-  codes 126–255; the code table is generated from the code into the docs (A-084).
+  codes 126–255; the code table is generated from the code into the docs (A-084); a scan finds `process.exitCode`
+  and `process.exit` only in the wrapper and `bin/limen` (D-028).
 - Source: interview round 1, AU-209 (the `next` line on success: round 2); departs from the author; refines the
-  classes of T-01.
+  classes of T-01. Where the code is set: night question Q-7, 2026-11-18.
 
 ### T-03 Settings come only from owner files
 - Rule: Limen's names fall into three kinds. **Settings** (anything that affects agents or limits) come only from the

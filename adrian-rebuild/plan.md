@@ -1,14 +1,13 @@
 <!-- PL: Plan przebudowy Limena i punkt wznowienia każdej sesji: wizja, słownik, decyzje Adriana (kopia §2 bramki 2,
-D-008–D-024 z bramki 4 i po niej: wdrożenie po SHA, format changes.md, narzędzia seata w TypeScript, praca nocna,
+D-008–D-028 z bramki 4 i po niej: wdrożenie po SHA, format changes.md, narzędzia seata w TypeScript, praca nocna,
 wznowienie projektów po a0.3.0 jako ryzyko z terminem 21.11.2026, limit tygodniowy, akceptacja planu i definicji,
-uprawnienia w settings.local.json, Claude Code instalowany przez roota,
-zapis narzędzi przez --out bez przekierowań, nocny przebieg tools/night.mjs z formatem status.json i zasadą dla
-niezacommitowanych zmian, odpowiedzi na nocne pytania Q-1–Q-3: R-001 po R-010, próba same-task jako sesja
-koordynatora, pole ids w końcowej linii JSON, start nocy przez sesję na prośbę Adriana), fakty o silniku z pomiarem
-B.1 z seata, wymagania systemowe, 9 etapów z kosztem i efektem, 87 ticketów R-NNN, wdrożenie, pomiary, protokół
-subagentów i polecenia na allow-listę. Stan: etap 5 (przebudowa) w toku, etap planu 1; noc 17.11: R-008 i R-010
-zamknięte; noc 18.11: R-011 zamknięty, R-001 i R-013 zablokowane na pytaniach Q-4 i Q-7, pytania Q-5 i Q-6 bez
-blokady; noc skończyła się o 02:08 powodem no-ticket; dzień zaczyna się od wypchniętego c733f0e. -->
+uprawnienia w settings.local.json, Claude Code instalowany przez roota, zapis narzędzi przez --out, nocny przebieg
+tools/night.mjs, odpowiedzi na nocne pytania Q-1–Q-7: kryteria tylko w zakresie ticketu, nocą subagenci tylko na
+pierwszym planie, ticket R-088, kod wyjścia tylko we wspólnym opakowaniu i R-013 po cięciach), fakty o silniku,
+wymagania systemowe, 9 etapów z kosztem i efektem, 88 ticketów R-NNN, wdrożenie, pomiary, protokół subagentów
+i polecenia na allow-listę. Stan: etap 5 (przebudowa) w toku, etap planu 1; R-008, R-010 i R-011 zamknięte;
+18.11 w dzień Adrian odpowiedział na Q-4–Q-7, więc R-001 i R-013 wróciły do planned, a sesja dzienna wznawia R-001,
+po nim zmienia night.mjs (D-026) i robi R-088. -->
 
 # Rebuild plan
 
@@ -288,6 +287,59 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   `adrian-rebuild/.night/launcher.log`, in the background; from then on it changes nothing in the repository until
   Adrian writes, and on "sprawdź" it only reads the runner's processes, logs and `status.json`. First used on
   2026-11-17 at 22:09.
+- 2026-11-18 D-025 (Adrian, night question Q-4; the shape of acceptance criteria): a criterion checks only the
+  ticket's scope; a global property is closed by the ticket that makes it true. R-001's AC-6 becomes `git grep -q
+  '"templates/agents.md"' -- <the paths of R-001's ## Change>` → exit 1 (no match); the full check `git grep -q
+  '"templates/agents.md"' -- src hook` → exit 1 joins R-040's criteria, because R-040 removes
+  `hook/communication.ts:307`. The expected result is an exit code, with no `!` before the command (the rules of the
+  allow-list, D-016). Rejected: excluding a file (it would hide a new reference) and expecting a given line (it moves
+  with an edit). Every criterion of stage 1 is checked the same way: a global grep or scan that only a subsequent ticket
+  makes true moves to that ticket (`## Tickets` → notes; the R-013 scan of D-028 is closed by R-013's dependency on
+  the cuts). Check: `check.mjs` rejects a criterion whose command starts with `!`; when the main session writes
+  `ticket.md` (protocol step 2), it runs every grep and scan criterion at HEAD and confines it to the paths of
+  `## Change` unless every match it finds is one the ticket removes.
+- 2026-11-18 D-026 (Adrian, night question Q-5; changes the night mode and `## Agents`): in a night run subagents run
+  only in the foreground.
+  - (1) `night.mjs` sets `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` in the environment of `claude -p` (per the Claude
+    Code docs, Claude then waits for every subagent; it also disables background commands, which a night run should
+    not have). The variable is not in `.claude/settings.local.json`, so that by day background work runs as before.
+  - (2) No resumption through `SendMessage` at night (a resumed subagent works in the background): a fix round is a
+    fresh foreground `rebuild-implementer` with the paths of `ticket.md` and `review.md` (z. 19); by day `SendMessage`
+    stays.
+  - (3) No command stands in for waiting. When waiting is impossible, the session updates `## State` and ends with the
+    reason `cannot-wait` in `status.json` (Adrian, a follow-up of the same day), which `night.mjs` accepts as a known
+    reason.
+  - (4) The morning summary gives the main session's tool calls per ticket. `night.mjs` counts them (Adrian, a
+    follow-up of the same day): a run uses `--output-format stream-json --verbose`, and after the run the runner
+    appends to its log one line per commit with the number of the main session's tool calls (events without a parent
+    tool call) since the previous commit, and the commit's subject; calls after the last commit form one more line.
+    The day session copies the lines into `## State`. The stream's format is the one of the Claude Code docs; the
+    first night run with it confirms it.
+  - Check: `tools/test-night.mjs` asserts that the environment of `claude -p` holds
+    `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`, that `.claude/settings.local.json` and `.claude/settings.json` do not,
+    that `cannot-wait` ends the night with exit 0, and the count per commit on a fake stream.
+- 2026-11-18 D-027 (Adrian, night question Q-6): the four round-3 notes of R-011's review get a fix ticket before B.2:
+  R-088, stage 1, size S, by day: `pair`, so it runs in a day session and never in a night run; its `Run` is
+  `day-after` because it depends on R-011, a `night` ticket of stage 1 that is done.
+- 2026-11-18 D-028 (Adrian, night question Q-7; changes R-013 and adds to T-02): only the shared wrapper sets the exit
+  code and prints the final line; a command returns its result or throws an error with its type and class (T-01, T-03,
+  AU-209). `process.exitCode` and `process.exit` appear only in the wrapper and in the entry point `bin/limen` (a
+  scan).
+  - Classes: `ticket check` and `picture build --strict` with problems found are a refusal (1) with the list in the
+    text and the fix in `next`; `github poll` by its cause (the network 3; a missing configuration or credential 4);
+    `webhook test` is cut by R-002 before R-013, so R-013 leaves it alone.
+  - `group wait`: in R-013 its time limit rejects the operation with a typed error through the wrapper, with no
+    `process.exit` from a timer; the command itself is cut by the registry ticket (R-014; T-19 names `group start`,
+    `status`, `stop` and `land`, and `wait` is rejected).
+  - `ids.job` also for `github review` and `github work` (the rule of D-022). `docs/jobs.md:96` and
+    `docs/seat/agent-setup.md:254` change in R-013 when they describe the output contract it changes.
+  - Order (Adrian, a follow-up of the same day): R-013 depends on every cut of stage 1 (R-002–R-007, R-009), so it
+    reworks no code that a cut removes (`webhook test` and `bin/tony-finish-ping.sh` in R-002, `picture tick` with
+    `src/project/picture-tick.ts:134` in R-007, the hosted tests in R-005), and its `process.exit` scan holds over
+    `src`, `hook` and `bin` at its own commit (D-025).
+  - Check: the scan for `process.exitCode` and `process.exit` outside the wrapper and `bin/limen`; a refusal test for
+    each reworked command (the code, the class and `next` in the final line); a test that `group wait`'s time limit
+    gives exactly one final line with its code.
 
 ### Gate 2 §2, copied
 
@@ -511,7 +563,7 @@ questions; their number cannot be known in advance.
 
 | Stage | Tag | Tickets: S / M / L | Pair (Run) | Expected decisions | Seat steps |
 |---|---|---|---|---|---|
-| 1 | a0.1.0 | 14: 3 / 7 / 4 | 1: R-014 (day-after) | 4: gate 5.1; the golden help of R-014 (the wording is set by T-19, Adrian confirms the output); the same-task ticket before B.2 (R-011); the leftover list before `--drop-leftovers` (1.1) | 4 (1.0 bootstrap), plus B.1 and B.2 before it |
+| 1 | a0.1.0 | 15: 4 / 7 / 4 | 2: R-014, R-088 (day-after) | 4: gate 5.1; the golden help of R-014 (the wording is set by T-19, Adrian confirms the output); the same-task ticket before B.2 (R-011); the leftover list before `--drop-leftovers` (1.1) | 4 (1.0 bootstrap), plus B.1 and B.2 before it |
 | 2 | a0.2.0 | 11: 0 / 9 / 2 | 0 | 3: gate 5.2; id collisions in the record migration report (2.1); the `LIMEN_*` variables to remove (2.4) | 5, plus B.3 |
 | 3 | a0.3.0 | 13: 0 / 9 / 4 | 0 | 3, plus one per unlanded job: gate 5.3; the account names (3.3); `continue` or `abandon` for each finished job with unlanded work (3.6) | 12 |
 | 4 | a0.4.0 | 10: 2 / 6 / 2 | 2: R-041, R-046 (day-after) | 4: gate 5.4; the cue wording (R-041); the role prompt texts and their glossary of terms (T-14, R-046); the modules to switch on (4.9) | 10 |
@@ -542,7 +594,8 @@ Remove the features cut at gate 2 (G1, §6) and the author's working history (T-
 lists the leftover files of cut features. The root deployment script (D-008) deploys every tag from a0.1.0 on. The
 same-task runner can run the "before" measurement on `rebuild-base`. Then the two foundations the registry needs: one
 error type with exit codes as failure classes and a final JSON line (R-013), and one command registry with the help in
-groups (R-014, `pair`, by day after the night run of the cuts, D-011). Tickets R-001–R-014.
+groups (R-014, `pair`, by day after the night run of the cuts, D-011); R-013 comes after the cuts (D-028). R-088
+fixes the same-task runner before B.2 (D-027). Tickets R-001–R-014 and R-088.
 
 ### Stage 2 — Foundations (a0.2.0)
 
@@ -621,7 +674,7 @@ Columns:
 
 | ID | Title | Stage | Sources | Depends | Size | Mode | Run | Mig. | API | Seat | Status |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| R-001 | Leftover files of cut features are listed and can be dropped | 1 | A-042 | R-010 | S | delegated | night | — | — | — | blocked |
+| R-001 | Leftover files of cut features are listed and can be dropped | 1 | A-042 | R-010 | S | delegated | night | — | — | — | planned |
 | R-002 | Cut finish webhooks, coordinator signals and the finish ping | 1 | G1.3, A-027, A-060, A-076 | R-001 | M | delegated | night | yes | — | — | planned |
 | R-003 | Cut Devin and the Linear mirror | 1 | G1.5, G1.6, A-049 | R-001 | M | delegated | night | yes | — | — | planned |
 | R-004 | Cut the OMP engine | 1 | G1.7, A-049 | R-001 | M | delegated | night | yes | — | — | planned |
@@ -633,8 +686,9 @@ Columns:
 | R-010 | The author's working history leaves the tree; Limen's own test-line cap goes | 1 | T-39, T-11, §6 | — | M | delegated | night | — | — | — | done |
 | R-011 | The same-task runner and the gate-time tool | 1 | H-21, T-11, T-41, §2, D-021 | — | L | delegated | night | — | pi | B.2 | done |
 | R-012 | A root deployment script for a pinned SHA | 1 | D-008, D-010, §7 | R-002 | M | delegated | night | — | — | 1.0 | planned |
-| R-013 | One error type, exit codes as failure classes, a final JSON line | 1 | T-01, T-02, D-022 | — | L | delegated | night | yes | — | — | blocked |
-| R-014 | One command registry, a shared parser and generated help | 1 | T-19, T-18, T-26, T-37 | R-002, R-003, R-004, R-005, R-006, R-007, R-009, R-013 | L | pair | day-after | yes | — | — | planned |
+| R-013 | One error type, exit codes as failure classes, a final JSON line | 1 | T-01, T-02, D-022, D-028 | R-002, R-003, R-004, R-005, R-006, R-007, R-009 | L | delegated | night | yes | — | — | planned |
+| R-014 | One command registry, a shared parser and generated help | 1 | T-19, T-18, T-26, T-37, D-028 | R-002, R-003, R-004, R-005, R-006, R-007, R-009, R-013 | L | pair | day-after | yes | — | — | planned |
+| R-088 | The same-task runner leaves no job running after an attempt | 1 | D-027, D-021 | R-011 | S | pair | day-after | — | pi | B.2 | planned |
 | R-015 | One configuration reader; settings come only from owner files | 2 | T-03 | R-014 | M | delegated | night | yes | — | — | planned |
 | R-016 | One boundary parsing module with validators; the cast ratchet | 2 | T-27 | R-013 | M | delegated | night | — | — | — | planned |
 | R-017 | One Pi API adapter with type guards, checked against Pi's real types | 2 | T-32 | R-012, R-016 | M | delegated | night | — | pi | 2.2 | planned |
@@ -736,7 +790,15 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   subagent in the coordinator's session does not hold; the manual recommends no subagent. A short question is the
   coordinator's own, a long one is a survey ticket (T-34).
 - R-013: until R-082, the `catch` scan of T-01 is a ratchet over the author's 148 sites (40 `.catch(() => {})`, 108
-  `catch {`, T-01 → Why).
+  `catch {`, T-01 → Why). It depends on the cuts of stage 1 (D-028), so it reworks no code a cut removes and its
+  `process.exit` scan holds over `src`, `hook` and `bin` at its own commit (D-025).
+- R-014: it also cuts `group wait` (T-19 names `group start`, `status`, `stop` and `land`; `wait` is rejected), whose
+  time limit R-013 turns into a typed error (D-028).
+- R-040: its criteria include `git grep -q '"templates/agents.md"' -- src hook` → exit 1, the global check that R-001
+  confines to its own paths, because R-040 removes the `AGENTS.md` fallback of `hook/communication.ts:307` (D-025).
+- R-088: the four round-3 notes of R-011's review (`R-011-same-task-runner/review.md` → Round 3): wait for `pid` as
+  well before the second stop, stop Pi before the job stops (or read the job list again after them), correct the
+  comment on a queued job's `state`, and give the test of the second stop a short bound (D-027).
 - R-015: from a0.2.0 the settings live in the project's `.agents/limen/limits.json`, which exists at `rebuild-base`
   with `prepare` and `toolStall` (`src/project/limits.ts:7`), and the environment no longer overrides them.
   `LIMEN_WORKER_MODEL` and `LIMEN_REVIEWER_MODEL` stay readable, as the only listed exceptions, until R-062 brings
@@ -874,6 +936,7 @@ commit, outside `/opt/limen`, and points it at the `rebuild-base` checkout in `/
 - **B.2** The same-task baseline: the same-task runner of R-011 with `rebuild-base`, k attempts (M-05). First the
   seat check of R-011 (D-021): the coordinator started headless through Pi's RPC mode loads Limen's hooks and
   receives a wake; Adrian gives the candidate ticket's real time from the M1 records, which sets the time limit.
+  After every attempt, the runner's stderr names no job left running (R-088, D-027).
 - **B.3** After a0.2.0 is deployed: `limen stats` of a0.2.0 over a migrated copy of each project's `.limen/` from the
   snapshot taken before the first deployment (R-024; M-03, M-04, M-06–M-11).
 
@@ -1112,7 +1175,11 @@ Template of `ticket.md` (`check.mjs` requires these headings in every ticket fol
 Protocol per ticket (rebuild stage 5):
 1. The next ticket is the lowest `planned` ID of the current stage whose dependencies are all `done`: in a night run
    only among the `night` tickets; by day among the `day` and `day-after` tickets as well (D-011).
-2. The main session writes `adrian-rebuild/R-NNN-<slug>/ticket.md` and sets the ticket's status to `active`.
+2. The main session writes `adrian-rebuild/R-NNN-<slug>/ticket.md` and sets the ticket's status to `active`. A
+   criterion checks only the ticket's scope, with its expected result as an exit code and no `!` before the command;
+   the main session runs every grep and scan criterion at HEAD and confines it to the paths of `## Change` unless
+   every match is one the ticket removes; a global property that a subsequent ticket makes true is that ticket's criterion
+   (D-025).
 3. `delegated`: the main session runs `node adrian-rebuild/tools/review-guard.mjs snapshot --git --out
    node_modules/.rebuild-review/R-NNN.git`, starts
    `rebuild-implementer` by its name (not a fork) with the ticket folder's path, changes nothing in the working tree
@@ -1152,6 +1219,11 @@ Protocol per ticket (rebuild stage 5):
 - In a night run, every "Adrian decides" and "asks Adrian" of steps 3, 4 and 6 follows the night mode that Adrian adds
   to the rebuild prompt before rebuild stage 5; a ticket that stops waits for the day, and so do the tickets that depend
   on it. There is no night run before that addition.
+- In a night run subagents run only in the foreground (D-026): `night.mjs` sets `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`,
+  and the main session never resumes a subagent with `SendMessage`. Where steps 4 and 6 resume the implementer, a night
+  run starts a fresh `rebuild-implementer` by its name with the paths of `ticket.md` and `review.md` (and, in step 4,
+  the failing output in `ticket.md` → `## Decisions`); by day `SendMessage` stays. No command stands in for waiting:
+  when the session cannot wait for a subagent, it updates `## State` and ends with the reason `cannot-wait`.
 
 ## Commands
 
@@ -1296,14 +1368,27 @@ Start of the day session (checked 2026-11-18, 09:01): the night's last commit `c
 `origin/adrian-rebuild`), the tree is clean, no `night.mjs` runs and its lock is released. The day session starts from
 the commit that records this, whose parent is `c733f0e`.
 
-Next (by day): Adrian answers Q-4–Q-7 in `adrian-rebuild/.night/questions.md`; the day session moves the answers into
-`ticket.md` → `## Decisions` (and `plan.md` where a row changes), then resumes R-001 and R-013. After R-001: R-002–R-007
-and R-009 in the order of IDs, R-012; R-014 (pair) by day after them. B.2 runs on the seat before a0.1.0 is deployed
-(B.1 was done on 2026-11-17), after Q-6.
+Day session of 2026-11-18, continued (Adrian's answers to Q-4–Q-7 in the conversation, written into
+`.night/questions.md`, whose entries are marked resolved):
+- Q-4 → D-025: a criterion checks only the ticket's scope, with an exit code and no `!`; R-001's AC-6 covers the
+  paths of its `## Change`, the global check goes to R-040; `check.mjs` rejects a criterion that starts with `!`;
+  protocol step 2 runs every grep and scan criterion at HEAD. R-001 `planned`.
+- Q-5 → D-026: subagents only in the foreground at night (`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` from
+  `night.mjs`), a fresh implementer per night fix round, the reason `cannot-wait`, tool calls per commit counted by
+  `night.mjs`; the protocol in `## Agents` is amended. The change of `night.mjs` itself is not made yet.
+- Q-6 → D-027: R-088 (`pair`, `day-after`, S) fixes R-011's round-3 notes before B.2.
+- Q-7 → D-028 and `taste.md` → T-02: only the wrapper sets the exit code; R-013's `ticket.md` is rewritten from it,
+  and R-013 depends on the cuts R-002–R-007 and R-009. R-014 also cuts `group wait`. R-013 `planned`.
+- The stage-1 criteria were checked under D-025: R-001's AC-6 and R-013's AC-4 and AC-5 changed; no other written
+  `ticket.md` of stage 1 has a criterion that a subsequent ticket makes true.
+
+Next (by day): R-001 (fresh `rebuild-implementer`), then the `night.mjs` change of D-026 with its test and a review,
+then R-088 (pair). Then R-002–R-007 and R-009 in the order of IDs, R-013, R-012 (night or day); R-014 (pair) by day
+after them. B.2 runs on the seat before a0.1.0 is deployed (B.1 was done on 2026-11-17), after R-088.
 
 Active ticket: none.
 
-Open questions for Adrian: Q-4–Q-7 in `adrian-rebuild/.night/questions.md`.
+Open questions for Adrian: none.
 
 Notes for the next session:
 - Start Claude Code in the repository root, so that it loads `.claude/agents/`.
