@@ -1,9 +1,10 @@
 import { constants } from "node:fs";
-import { access, appendFile, copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, appendFile, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { hasCommit, isGitRepository, NO_COMMIT, repoRoot, workspaceRoot } from "../project/git.ts";
 import { formatDrift, listDrift, removeHookCopies } from "../project/inherit.ts";
+import { dropLeftovers, LEFTOVERS } from "../project/leftovers.ts";
 import { registerProject } from "../project/seat.ts";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
@@ -20,13 +21,9 @@ export async function initCommand(args: readonly string[], cwd: string): Promise
 		for (const path of removeHookCopies(root)) {
 			console.log(`removed ${path}`);
 		}
-		const leftovers = listDrift(root).filter((item) => item.kind === "leftover");
-		if (!leftovers.length) {
-			console.log("no leftover copies");
-		}
-		for (const item of leftovers) {
-			await rm(`${root}/${item.path}`);
-			console.log(`dropped ${item.path}`);
+		const dropped = dropLeftovers(root, LEFTOVERS, (entry) => console.log(`dropped ${entry.path} (${entry.feature})`));
+		if (!dropped.length) {
+			console.log("no leftover files");
 		}
 		return;
 	}

@@ -12,7 +12,8 @@ export function packageRoot(): string {
 	return process.env.LIMEN_PACKAGE?.trim() || fileURLToPath(new URL("../..", import.meta.url));
 }
 
-const TRACKED = [
+/** Each project copy of a packaged template and its source; the one list, read by drift and by leftovers.ts (T-25). */
+export const TRACKED = [
 	["AGENTS.md", "templates/agents.md"],
 	[".agents/limen/worker.md", "templates/worker.md"],
 	[".agents/limen/reviewer.md", "templates/reviewer.md"],

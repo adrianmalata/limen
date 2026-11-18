@@ -139,3 +139,23 @@ only `src/commands/init.ts`).
   expecting a given line (it moves with an edit). The main session's consequence: `TRACKED` stays in
   `src/project/inherit.ts` and is exported (item 1), so that the paths AC-6 covers hold no list at all; AC-6 run at
   HEAD → exit 1, and no other criterion of this ticket scans beyond its paths.
+- 2026-11-18 (main session, review round 1, `review.md`): fix these notes, each with a test that fails before the fix
+  where the fix is in code:
+  1. `limen init --drop-leftovers` prints each `dropped <path> (<feature>)` line right after that entry's removal, so
+     a removal that fails part-way leaves a line for every entry already removed (a test where the second removal
+     fails and the first line is printed).
+  2. The registry test rejects an entry that equals or lies under another entry or a `TRACKED` path, or that holds a
+     `TRACKED` path, and the rule itself is tested on bad examples (as the path rule is), so that a cut ticket cannot
+     register an overlapping entry.
+  3. The first unit test of `listLeftovers` gives its fixture registry in path order, so only the sort test checks
+     the sort (T-29).
+  4. `docs/commands.md`: the section comes before `Older:`, or before `Coordinator tabs:` with `--all`.
+  Rejected: a missing packaged template failing `limen status` (T-01: a broken install is loud) and the edit between
+  the comparison and the removal (guessed, one synchronous call, as at HEAD). The `## Fails before` section of
+  `outcome.md` is the main session's.
+- 2026-11-18 (main session, review round 2, `review.md`): the second and last round of fixes. Fix: the comment on the
+  overlap rule (`test/project/leftovers.test.ts:58-61`, and `src/project/leftovers.ts` where it states the same
+  reason) names both harms, first that an entry holding a tracked path would silently delete a changed copy that
+  item 3 keeps, then the double listing and the failing second removal (T-30). No code changes. Accepted gap: no CLI
+  test with a failing removal (the unit test proves the callback's order; a CLI fault needs a permission trick that
+  fails under root, or a test knob).

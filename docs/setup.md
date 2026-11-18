@@ -58,7 +58,7 @@ You can also ask the agent to help define the vision and styleguide before it ch
 - **Project files:** It creates the files that the project owns: the vision, the board, the feature lanes, and the styleguide (see [Project files](#project-files)). It does not overwrite existing project files.
 - **Hook stubs:** It creates package-hook stubs in `.pi/extensions/` and `.omp/extensions/`. A Herdr coordinator needs its engine's stub for communication, wake, and steering, so in an existing project, run `limen init` again before you start one.
 - **Old hook copies:** It deletes old `limen-*.ts` hook copies in both extension directories, so that they cannot load next to the stubs.
-- **Leftover prompts:** `limen init --drop-leftovers` deletes only prompt copies that are still the same as the package.
+- **Leftover files:** `limen status` lists the files that cut features left in the project and the prompt copies that are still the same as the package. `limen init --drop-leftovers` deletes the files in that list. It keeps a prompt copy that differs from the package.
 
 ### The coordinator session
 

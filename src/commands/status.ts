@@ -7,6 +7,7 @@ import { type GroupIdentity, jobMembership } from "../job/group-cabinet.ts";
 import { isTerminal } from "../job/job.ts";
 import { type JobRecord, noteKind } from "../job/view.ts";
 import { limenRoot, unlandedBranches, workspaceRepository, workspaceRoot } from "../project/git.ts";
+import { listLeftovers } from "../project/leftovers.ts";
 import { confirmDeadJobs } from "../runtime/reap.ts";
 import { RECENT_MS, renderJobDirectory, shownState } from "./jobs.ts";
 
@@ -120,11 +121,24 @@ export async function statusCommand(args: readonly string[], cwd: string): Promi
 			`Needs a decision (${decide.length}):`,
 			...(decide.length ? decide : ["  none"]),
 			...(scan.uncertain.length ? ["Unconfirmed jobs:", ...scan.uncertain] : []),
+			...leftoverLines(root),
 			...(all ? [] : [`Older: ${scan.older} record${scan.older === 1 ? "" : "s"} (limen status --all)`]),
 			"Coordinator tabs:",
 			...coordinators,
 		].join("\n"),
 	);
+}
+
+/** The leftover files of cut features, for the owner to check before the drop (A-042); empty when there are none. */
+function leftoverLines(root: string): string[] {
+	const found = listLeftovers(root);
+	if (!found.length) {
+		return [];
+	}
+	return [
+		`Leftover files (${found.length}); check them, then run limen init --drop-leftovers:`,
+		...found.map((entry) => `  ${entry.path} (${entry.feature})`),
+	];
 }
 
 /** True for `--all`. Status takes no other argument. */

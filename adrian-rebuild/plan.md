@@ -5,9 +5,9 @@ uprawnienia w settings.local.json, Claude Code instalowany przez roota, zapis na
 tools/night.mjs, odpowiedzi na nocne pytania Q-1–Q-7: kryteria tylko w zakresie ticketu, nocą subagenci tylko na
 pierwszym planie, ticket R-088, kod wyjścia tylko we wspólnym opakowaniu i R-013 po cięciach), fakty o silniku,
 wymagania systemowe, 9 etapów z kosztem i efektem, 88 ticketów R-NNN, wdrożenie, pomiary, protokół subagentów
-i polecenia na allow-listę. Stan: etap 5 (przebudowa) w toku, etap planu 1; R-008, R-010 i R-011 zamknięte;
-18.11 w dzień Adrian odpowiedział na Q-4–Q-7, więc R-001 i R-013 wróciły do planned, a sesja dzienna wznawia R-001,
-po nim zmienia night.mjs (D-026) i robi R-088. -->
+i polecenia na allow-listę. Stan: etap 5 (przebudowa) w toku, etap planu 1; R-001, R-008, R-010 i R-011 zamknięte;
+18.11 w dzień Adrian odpowiedział na Q-4–Q-7, R-013 wrócił do planned, a sesja dzienna po R-001 zmienia night.mjs
+(D-026) i robi R-088; niestabilna bramka (testy wyścigów) czeka na decyzję Adriana. -->
 
 # Rebuild plan
 
@@ -674,7 +674,7 @@ Columns:
 
 | ID | Title | Stage | Sources | Depends | Size | Mode | Run | Mig. | API | Seat | Status |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| R-001 | Leftover files of cut features are listed and can be dropped | 1 | A-042 | R-010 | S | delegated | night | — | — | — | planned |
+| R-001 | Leftover files of cut features are listed and can be dropped | 1 | A-042 | R-010 | S | delegated | night | — | — | — | done |
 | R-002 | Cut finish webhooks, coordinator signals and the finish ping | 1 | G1.3, A-027, A-060, A-076 | R-001 | M | delegated | night | yes | — | — | planned |
 | R-003 | Cut Devin and the Linear mirror | 1 | G1.5, G1.6, A-049 | R-001 | M | delegated | night | yes | — | — | planned |
 | R-004 | Cut the OMP engine | 1 | G1.7, A-049 | R-001 | M | delegated | night | yes | — | — | planned |
@@ -1380,11 +1380,22 @@ Day session of 2026-11-18, continued (Adrian's answers to Q-4–Q-7 in the conve
 - Q-7 → D-028 and `taste.md` → T-02: only the wrapper sets the exit code; R-013's `ticket.md` is rewritten from it,
   and R-013 depends on the cuts R-002–R-007 and R-009. R-014 also cuts `group wait`. R-013 `planned`.
 - The stage-1 criteria were checked under D-025: R-001's AC-6 and R-013's AC-4 and AC-5 changed; no other written
-  `ticket.md` of stage 1 has a criterion that a subsequent ticket makes true.
+  `ticket.md` of stage 1 has a criterion that a subsequent ticket makes true. Commit `e8c9a47`.
+- R-001 `done` (a fresh `rebuild-implementer`; review PASS in rounds 1–3, two rounds of fixes: each `dropped` line
+  right after its removal, an overlap rule for the registry, one reason per test, the docs of `status --all`, the
+  rule's comment). `LEFTOVERS` is empty; every cut ticket registers its paths, and the registry test rejects an entry
+  that overlaps another or a `TRACKED` path.
+- For Adrian, the gate is not stable: one run of the main session failed 93/96 on three tests that run no code of
+  R-001 (`limen highlight …` timed out at 180 s and `hosted Pi stop …`, both `test/s2-hosted.test.ts`; the
+  lock-contention test `test/s9-housekeeping.test.ts:135`), while the implementer's process was still ending and both
+  gates used the same cache directory (the likely cause, guessed); the same tree then passed 96/96. The implementer saw
+  the lock-contention test fail alone once in four runs with nothing else running. A night run counts a second failure
+  of the same step as `failed-twice`, so a flaky test can end a night (z. 1). R-005 cuts the hosted tests; the
+  lock-contention test stays. The main session proposes no change before Adrian decides.
 
-Next (by day): R-001 (fresh `rebuild-implementer`), then the `night.mjs` change of D-026 with its test and a review,
-then R-088 (pair). Then R-002–R-007 and R-009 in the order of IDs, R-013, R-012 (night or day); R-014 (pair) by day
-after them. B.2 runs on the seat before a0.1.0 is deployed (B.1 was done on 2026-11-17), after R-088.
+Next (by day): the `night.mjs` change of D-026 with its test and a review, then R-088 (pair). Then R-002–R-007 and
+R-009 in the order of IDs, R-013, R-012 (night or day); R-014 (pair) by day after them. B.2 runs on the seat before
+a0.1.0 is deployed (B.1 was done on 2026-11-17), after R-088.
 
 Active ticket: none.
 

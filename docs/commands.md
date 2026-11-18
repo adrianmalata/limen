@@ -58,6 +58,8 @@ limen open <id|suffix|label>
 
 Open groups replace individual member candidates with one line: `group <feature>: N member branches; the lead decides (limen group status <id>)`. Closed groups leave the inbox. Work outside groups keeps its ordinary candidate or decision row.
 
+When the project has leftover files, a section `Leftover files (N); check them, then run limen init --drop-leftovers:` comes before the `Older:` line, or before `Coordinator tabs:` with `--all`, with one line `<path> (<feature>)` for each file. It lists each path that a cut feature left in the project (a file, a directory or a symlink), and each copy of a package prompt (`AGENTS.md`, `.agents/limen/worker.md`, `.agents/limen/reviewer.md`, `.agents/limen/communication.md`) that is byte-identical to the package's template, as `identical copy of the package's templates/<name>`. When the project has no leftover files, the section is not shown. The list only reads files; it removes nothing.
+
 When a webhook target refused a ping with HTTP 401 or 403, the first line after the plant is `Finish webhook rejects: invalid key (…)`. It names the target, the event, the time and the receipt folder. A later ping that every target accepts, or a passing `limen webhook test`, removes it.
 
 In a terminal, `jobs` shows an aligned table for people. Through a pipe, it prints the compact format that tools read. `LIMEN_VIEW=human|compact` selects a view. `NO_COLOR` removes the color.
@@ -180,6 +182,8 @@ limen init --drop-leftovers
 limen workspace init
 limen planning [committed|private]
 ```
+
+`limen init --drop-leftovers` removes the old `limen-*.ts` hook copies, with one `removed <path>` line each. Then it removes the files that `limen status` lists under `Leftover files`: a directory with its content, and a symlink without its target. It prints one `dropped <path> (<feature>)` line right after each removal, so when a removal fails, every file already removed has its line. When there is nothing to remove, it prints `no leftover files`, so a second run prints `no leftover files` and exits 0. A prompt copy that differs from the package stays.
 
 `limen planning` prints the current planning source. `committed` is the default.
 

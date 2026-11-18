@@ -1,6 +1,6 @@
 <!-- PL: Dziennik zmian przebudowy Limena: jeden wpis na zamknięty ticket R-NNN, tylko dopisywany, najnowszy na dole.
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
-wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011. -->
+wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001. -->
 
 # Changes
 
@@ -43,3 +43,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-05)
 - Commit: R-011
 - Rollback: git revert $(git log --format=%H --grep='^R-011:' adrian-rebuild --)
+
+## 2026-11-18 R-001 Leftover files of cut features are listed and can be dropped
+- What: new `src/project/leftovers.ts` (the registry `LEFTOVERS`, `listLeftovers`, `dropLeftovers`); `src/project/inherit.ts` (`TRACKED` exported); `src/commands/status.ts` (the `Leftover files` section); `src/commands/init.ts` (`--drop-leftovers` through the module); `package.json` (the test glob `'test/**/*.test.ts'`); new `test/project/leftovers.test.ts`, `test/cli/status.test.ts`, `test/cli/init.test.ts`; `docs/commands.md`, `docs/setup.md`
+- Why: A-042, D-025
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (96/96); `node adrian-rebuild/tools/fails-before.mjs` → exit 0; `git grep -q '"templates/agents.md"' -- src/project/leftovers.ts src/commands/status.ts src/commands/init.ts` → exit 1 (no match)
+- Measurement: measured
+- Commit: R-001
+- Rollback: git revert $(git log --format=%H --grep='^R-001:' adrian-rebuild --)
