@@ -8,7 +8,7 @@ koordynatora, pole ids w końcowej linii JSON, start nocy przez sesję na prośb
 B.1 z seata, wymagania systemowe, 9 etapów z kosztem i efektem, 87 ticketów R-NNN, wdrożenie, pomiary, protokół
 subagentów i polecenia na allow-listę. Stan: etap 5 (przebudowa) w toku, etap planu 1; noc 17.11: R-008 i R-010
 zamknięte; noc 18.11: R-011 zamknięty, R-001 i R-013 zablokowane na pytaniach Q-4 i Q-7, pytania Q-5 i Q-6 bez
-blokady; noc skończyła się o 02:10 powodem no-ticket. -->
+blokady; noc skończyła się o 02:08 powodem no-ticket; dzień zaczyna się od wypchniętego c733f0e. -->
 
 # Rebuild plan
 
@@ -1205,7 +1205,8 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-18, 02:10 (night run until 07:00, ended with `no-ticket`), rebuild stage 5 in progress at plan
+Updated 2026-11-18, 09:01 (start of the day session; the night run until 07:00 ended at 02:08 with `no-ticket`),
+rebuild stage 5 in progress at plan
 stage 1: R-008, R-010 and R-011 `done`; R-001 and R-013 `blocked` on the night questions Q-4 and Q-7; Q-5 and Q-6 block
 no ticket.
 
@@ -1264,7 +1265,7 @@ marked resolved):
 - The R-008 point → D-023: the LaunchAgent installer goes with R-032.
 - D-024: the main session starts the night runner when Adrian asks for it in the conversation.
 
-Night run of 2026-11-18 (until 07:00):
+Night run of 2026-11-18 (until 07:00; the runner's log: 00:19:25–02:08:14; commits `40846ea`, `f688cb4`, `c733f0e`):
 - R-001 `blocked`, Q-4: AC-6 (`git grep -n '"templates/agents.md"' -- src hook` → one line) fails at HEAD, because
   `hook/communication.ts:307` (the `AGENTS.md` fallback that R-040 cuts) matches besides the tracked list; the error is
   the ticket's. Recommended: narrow AC-6 to `src`. Nothing implemented; R-002–R-007, R-009 and R-012 wait with it.
@@ -1287,8 +1288,13 @@ Night run of 2026-11-18 (until 07:00):
   ratchet arithmetic. Recommended: a plain `Error` at the four sites and the ratchet "at most the parent's count".
   Its `ticket.md` is written (the main session's reading of `code`: an identifier on failure, `0` on success, for
   Adrian to confirm at gate 5.1); nothing is implemented.
-- Ended at 02:10 with `no-ticket` (`.night/status.json`): every other stage-1 `night` ticket depends on R-001, and
-  R-014 is `pair`. Gate 5.1 is not due: stage 1 has 10 tickets left.
+- Ended at 02:08 with `no-ticket` (`.night/status.json` modified at 02:07:57, the run's end at 02:08:14 in
+  `.night/launcher.log`; the session's own "02:10" was a guess, as D-019 expects): every other stage-1 `night`
+  ticket depends on R-001, and R-014 is `pair`. Gate 5.1 is not due: stage 1 has 10 tickets left.
+
+Start of the day session (checked 2026-11-18, 09:01): the night's last commit `c733f0e` is pushed (`HEAD` =
+`origin/adrian-rebuild`), the tree is clean, no `night.mjs` runs and its lock is released. The day session starts from
+the commit that records this, whose parent is `c733f0e`.
 
 Next (by day): Adrian answers Q-4–Q-7 in `adrian-rebuild/.night/questions.md`; the day session moves the answers into
 `ticket.md` → `## Decisions` (and `plan.md` where a row changes), then resumes R-001 and R-013. After R-001: R-002–R-007
