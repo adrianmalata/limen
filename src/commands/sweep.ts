@@ -3,10 +3,8 @@ import { isAbsolute, join } from "node:path";
 import { removeDeadCoordinators } from "../integrations/coordinator-registration.ts";
 import { showSeatNotification } from "../integrations/herdr.ts";
 import { isTerminal } from "../job/job.ts";
-import { noteKind } from "../job/view.ts";
 import { receiptFamily } from "../job/wake-delivery.ts";
 import { installSeatSweep, uninstallSeatSweep, updateRegisteredProjects } from "../project/seat.ts";
-import { HOSTED_UNCERTAINTY_MS, readHostedUncertainty } from "../runtime/hosted-uncertainty.ts";
 import { confirmDeadJobs } from "../runtime/reap.ts";
 
 const text = (path: string) => (fs.existsSync(path) ? fs.readFileSync(path, "utf8").trim() : "");
@@ -65,7 +63,7 @@ async function sweepProject(root: string): Promise<void> {
 	}
 }
 type SeatEvent = { readonly since: number; readonly event: string; readonly headline: string };
-/** What the seat has not heard about a job yet: hosted ownership uncertainty, an advisory, or its terminal state. */
+/** What the seat has not heard about a job yet: an advisory of a running job, or its terminal state. */
 function seatEvent(job: string): SeatEvent | undefined {
 	const statePath = join(job, "state");
 	const state = text(statePath);
@@ -73,19 +71,7 @@ function seatEvent(job: string): SeatEvent | undefined {
 		? fs.readdirSync(join(job, "notify", "delivered"))
 		: [];
 	const heard = new Set(delivered.map(receiptFamily));
-	const running = state === "running";
-	const advisoryText = running ? text(join(job, "advisory")) : "";
-	const uncertainty = running && !advisoryText ? readHostedUncertainty(job) : undefined;
-	if (uncertainty) {
-		if (Date.now() - uncertainty.since < HOSTED_UNCERTAINTY_MS) {
-			return;
-		}
-		if (heard.has("_uncertainty") || !metadata(join(job, "ownership-uncertainty"))) {
-			return;
-		}
-		return { since: uncertainty.since, event: `_uncertainty.${uncertainty.since}`, headline: " · ownership" };
-	}
-	if (running) {
+	if (state === "running") {
 		if (heard.has("_advisory")) {
 			return;
 		}
@@ -93,11 +79,7 @@ function seatEvent(job: string): SeatEvent | undefined {
 		if (!stamp) {
 			return;
 		}
-		return {
-			since: stamp.mtimeMs,
-			event: `_advisory.${stamp.mtimeMs}.${stamp.birthtimeMs}`,
-			headline: ` · ${noteKind(advisoryText)}`,
-		};
+		return { since: stamp.mtimeMs, event: `_advisory.${stamp.mtimeMs}.${stamp.birthtimeMs}`, headline: " · advisory" };
 	}
 	if (!isTerminal(state) || heard.has("_completion")) {
 		return;

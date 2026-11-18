@@ -152,7 +152,7 @@ function startTimer(rule: SeatRule): void {
 	const child = spawn(process.execPath, [LIMEN, "rule", "timer", ruleFolder(rule.name), rule.version], {
 		detached: true,
 		stdio: "ignore",
-		env: { ...process.env, LIMEN_INTERNAL_RUN: undefined, LIMEN_INTERNAL_HOSTED: undefined },
+		env: { ...process.env, LIMEN_INTERNAL_RUN: undefined },
 	});
 	child.once("error", () => {});
 	child.unref();

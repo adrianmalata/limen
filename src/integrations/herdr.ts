@@ -5,15 +5,13 @@ import { basename, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { closedFeatures, closedJobFeatures } from "../job/job.ts";
 import { seatDir } from "../project/seat.ts";
-import { ENGINES, type EngineId, engineProfile } from "../runtime/engine.ts";
 
 export type HerdrPlace = {
 	readonly workspace: string;
 	readonly tab: string;
 	readonly pane: string;
-	readonly mode: "watch" | "log" | "hosted" | "diff";
+	readonly mode: "watch" | "log" | "diff";
 };
-export type HostedAgentStatus = "idle" | "working" | "blocked" | "done" | "unknown" | "missing";
 
 /** `limen highlight on` puts this mark in front of every string Limen writes into Herdr; unmarked text is native. */
 const LIMEN_MARK = "◆";
@@ -70,291 +68,6 @@ export async function openWatchTab(input: {
 	return createTab({ ...input, label: `${input.label} · running`, mode: "watch", follow: true, focus: false });
 }
 
-export async function openHostedTab(input: {
-	readonly jobDir: string;
-	readonly label: string;
-	readonly cwd: string;
-	readonly workspaceCwd?: string;
-	readonly role: string;
-	readonly env: Readonly<Record<string, string>>;
-}): Promise<HerdrPlace> {
-	if (!herdrAvailable()) {
-		throw new Error("hosted spawn requires Herdr (HERDR_ENV=1); use an ordinary job instead");
-	}
-	const place = await createTab({
-		jobDir: input.jobDir,
-		// Herdr reports a pane waiting for input as idle; the label carries the job state.
-		label: `${input.label} · running`,
-		cwd: input.cwd,
-		workspaceCwd: input.workspaceCwd ?? input.cwd,
-		logPath: `${input.jobDir}/log`,
-		mode: "hosted",
-		follow: false,
-		focus: false,
-		role: input.role,
-		env: input.env,
-		shellOnly: true,
-	});
-	if (!place) {
-		throw new Error("herdr skipped opening the hosted tab");
-	}
-	return place;
-}
-
-export function startHostedPi(input: {
-	readonly place: HerdrPlace;
-	readonly name: string;
-	readonly kind: string;
-	readonly args: readonly string[];
-	readonly timeoutMs?: number;
-	readonly coordinatorTab?: string;
-	readonly stopped?: () => boolean;
-	readonly log?: (message: string) => void;
-}): string {
-	const herdr = requireHerdr();
-	const readyMs = input.timeoutMs ?? 5_000;
-	assertHostedStartActive(input.stopped);
-	waitForShell(herdr, input.place.pane, 60_000, input.stopped);
-	assertHostedStartActive(input.stopped);
-	// Herdr 0.8 will not start an agent in a background pane. Focus, start, then restore.
-	call(herdr, ["tab", "focus", input.place.tab]);
-	try {
-		assertHostedStartActive(input.stopped);
-		waitForShell(herdr, input.place.pane, 15_000, input.stopped);
-		assertHostedStartActive(input.stopped);
-		let failed: unknown;
-		for (const attempt of [1, 2] as const) {
-			assertHostedStartActive(input.stopped);
-			input.log?.(`hosted agent start attempt ${attempt}`);
-			try {
-				const started = call(
-					herdr,
-					[
-						"agent",
-						"start",
-						input.name,
-						"--kind",
-						input.kind,
-						"--pane",
-						input.place.pane,
-						"--timeout",
-						String(readyMs),
-						"--",
-						...input.args,
-					],
-					readyMs + 250,
-				);
-				return agentTarget(started) || input.place.pane;
-			} catch (error) {
-				failed = error;
-				const paneShellFailure =
-					error instanceof Error && error.message === `agent target pane ${input.place.pane} is not an available shell`;
-				if (attempt === 1 && paneShellFailure) {
-					input.log?.(`hosted agent start attempt 1 failed: ${error.message}; waiting for shell before attempt 2`);
-					try {
-						waitForShell(herdr, input.place.pane, 15_000, input.stopped);
-					} catch (waitError) {
-						failed = waitError;
-						break;
-					}
-					continue;
-				}
-				break;
-			}
-		}
-		const live = locateHostedAgent(input.place.pane, engineProfile(input.kind).id);
-		if (live) {
-			input.log?.(
-				`hosted agent ready after start warning: ${failed instanceof Error ? failed.message : String(failed)}`,
-			);
-			return live;
-		}
-		throw failed;
-	} finally {
-		const coordinator = input.coordinatorTab?.trim();
-		if (coordinator && coordinator !== input.place.tab) {
-			restoreCoordinatorFocus(herdr, input.place.tab, coordinator, input.log);
-		}
-	}
-}
-
-function assertHostedStartActive(stopped?: () => boolean): void {
-	if (stopped?.()) {
-		throw Object.assign(new Error("hosted start stopped by request"), { code: "hosted_start_stopped" });
-	}
-}
-
-/** Give the coordinator its tab back only when the human has not already focused elsewhere during the start window. */
-function restoreCoordinatorFocus(
-	herdr: string,
-	jobTab: string,
-	coordinatorTab: string,
-	log?: (message: string) => void,
-): void {
-	let focused: boolean | undefined;
-	try {
-		const row = asRecord(asRecord(call(herdr, ["tab", "get", jobTab])).tab);
-		focused = typeof row.focused === "boolean" ? row.focused : undefined;
-	} catch (error) {
-		log?.(`focus check failed after hosted start: ${error instanceof Error ? error.message : String(error)}`);
-	}
-	if (focused === false) {
-		log?.("focus restore skipped: another tab took focus during hosted start");
-		return;
-	}
-	try {
-		const sep = coordinatorTab.indexOf(":");
-		if (sep > 0) {
-			call(herdr, ["workspace", "focus", coordinatorTab.slice(0, sep)]);
-		}
-		call(herdr, ["tab", "focus", coordinatorTab]);
-		log?.(`coordinator tab restored${focused === undefined ? " (focus state unknown)" : ""}`);
-	} catch (error) {
-		log?.(`focus restore failed: ${error instanceof Error ? error.message : String(error)}; the job tab keeps focus`);
-	}
-}
-
-/** True when a hosted agent is still present on the pane or under the given name. */
-export function hostedAgentAlive(target: string): boolean {
-	// Herdr `done` is unseen idle (tab never focused), not process exit. Only missing is gone.
-	return hostedAgentStatus(target) !== "missing";
-}
-
-/** Hosted jobs end when the session ends or the agent is gone. Herdr idle/done is unseen background, not completion. */
-export function hostedTerminalReason(
-	status: HostedAgentStatus,
-	sessionEnded: boolean,
-): "hosted session ended" | "hosted agent ended" | undefined {
-	if (sessionEnded) {
-		return "hosted session ended";
-	}
-	if (status === "missing") {
-		return "hosted agent ended";
-	}
-}
-
-/** Live target for a hosted job whose recorded target stopped resolving cleanly: the agent found under a moved pane ID, or an unclassifiable but present process on the recorded pane. Undefined means genuinely gone. With read "fresh", returns "unknown" when Herdr cannot tell. */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: split pending: hosted agent pane lookup
-export function locateHostedAgent(
-	target: string,
-	engine: EngineId,
-	agentName = "",
-	read: "cached" | "fresh" = "cached",
-): string | undefined {
-	const concrete = read === "fresh";
-	const status = hostedAgentStatus(target, read);
-	if (concrete && status === "unknown") {
-		return "unknown";
-	}
-	if (status !== "missing") {
-		return target;
-	}
-	const herdr = herdrBinary();
-	if (!herdr) {
-		return concrete ? "unknown" : undefined;
-	}
-	let uncertain = false;
-	try {
-		const agents = asRecord(call(herdr, ["agent", "list"])).agents;
-		if (Array.isArray(agents)) {
-			for (const row of agents) {
-				const agent = asRecord(row);
-				if (agent.pane_id === target) {
-					return target;
-				}
-				const name = String(asRecord(agent.agent).name ?? agent.name ?? "");
-				const rowPane = typeof agent.pane_id === "string" ? agent.pane_id : undefined;
-				if (agentName && rowPane && (name === agentName || name.startsWith(`${agentName}-`))) {
-					return rowPane;
-				}
-			}
-		} else {
-			uncertain = true;
-		}
-	} catch {
-		uncertain = true;
-	}
-	try {
-		const info = asRecord(asRecord(call(herdr, ["pane", "process-info", "--pane", target])).process_info);
-		const foreground = Array.isArray(info.foreground_processes) ? info.foreground_processes : [];
-		const names = foreground.map((row) => String(asRecord(row).name ?? "").toLowerCase());
-		if (names.some((n) => n === ENGINES[engine].binaryDefault || n === "node")) {
-			return target;
-		}
-		if (!Array.isArray(info.foreground_processes)) {
-			uncertain = true;
-		}
-	} catch (error) {
-		if (!["target_not_found", "pane_not_found", "agent_not_found"].includes(String(errorCode(error)))) {
-			uncertain = true;
-		}
-	}
-	if (concrete && uncertain) {
-		return "unknown";
-	}
-}
-
-const SHELL_NAMES = new Set(["zsh", "bash", "sh", "fish", "nu", "pwsh", "powershell"]);
-/** Pane must be at an interactive shell before `agent start`; new tabs often still run prompt hooks. */
-function waitForShell(herdr: string, pane: string, timeoutMs: number, stopped?: () => boolean): void {
-	const deadline = Date.now() + timeoutMs;
-	let last = "";
-	while (Date.now() < deadline) {
-		assertHostedStartActive(stopped);
-		try {
-			const info = asRecord(asRecord(call(herdr, ["pane", "process-info", "--pane", pane])).process_info);
-			const foreground = Array.isArray(info.foreground_processes) ? info.foreground_processes : [];
-			const only = asRecord(foreground[0]);
-			const name = String(only.name ?? "")
-				.replace(/^-/, "")
-				.toLowerCase();
-			const pid = Number(only.pid);
-			last = name || "none";
-			const aligned =
-				!Number.isFinite(pid) ||
-				[info.shell_pid, info.foreground_process_group_id].every(
-					(value) => !Number.isFinite(Number(value)) || Number(value) === pid,
-				);
-			if (foreground.length === 1 && SHELL_NAMES.has(name) && aligned) {
-				return;
-			}
-		} catch (error) {
-			last = error instanceof Error ? error.message : String(error);
-		}
-		spawnSync("sleep", ["0.2"], { stdio: "ignore" });
-	}
-	throw new Error(`hosted pane ${pane} did not become an idle shell (last: ${last})`);
-}
-
-const lastHostedStatus = new Map<string, HostedAgentStatus>();
-const lastHostedFault = new Map<string, string>();
-
-export function hostedAgentStatus(target: string, read: "cached" | "fresh" = "cached"): HostedAgentStatus {
-	const fresh = read === "fresh";
-	const herdr = herdrBinary();
-	if (!herdr) {
-		return fresh ? "unknown" : noteHostedFault(target, "herdr_unavailable");
-	}
-	try {
-		const row = asRecord(call(herdr, ["agent", "get", target]));
-		const raw = asRecord(row.agent).agent_status ?? row.agent_status;
-		const status =
-			raw === "idle" || raw === "working" || raw === "blocked" || raw === "done" || raw === "unknown" ? raw : "unknown";
-		lastHostedStatus.set(target, status);
-		lastHostedFault.delete(target);
-		return status;
-	} catch (error) {
-		const rawCode = errorCode(error);
-		const code = typeof rawCode === "string" && rawCode ? rawCode : "herdr_error";
-		if (code === "agent_not_found" || code === "target_not_found") {
-			lastHostedStatus.delete(target);
-			lastHostedFault.delete(target);
-			return "missing";
-		}
-		return fresh ? "unknown" : noteHostedFault(target, code);
-	}
-}
-
 function errorCode(error: unknown): unknown {
 	if (typeof error !== "object" || error === null) {
 		return;
@@ -363,113 +76,6 @@ function errorCode(error: unknown): unknown {
 		return;
 	}
 	return error.code;
-}
-
-function noteHostedFault(target: string, code: string): HostedAgentStatus {
-	if (lastHostedFault.get(target) !== code) {
-		lastHostedFault.set(target, code);
-		const jobDir = process.env.LIMEN_JOB_DIR?.trim();
-		if (jobDir) {
-			void appendFile(`${jobDir}/log`, `[limen ${new Date().toISOString()}] herdr agent get failed: ${code}\n`);
-		}
-	}
-	return lastHostedStatus.get(target) ?? "unknown";
-}
-
-export function hostedLaunchParent(target: string): number {
-	try {
-		const info = asRecord(
-			asRecord(call(requireHerdr(), ["pane", "process-info", "--pane", target], 2_000)).process_info,
-		);
-		return Number(info.shell_pid);
-	} catch {
-		return 0;
-	}
-}
-export function hostedForegroundPid(target: string, pid: number): "present" | "mismatch" | "unavailable" {
-	const herdr = herdrBinary();
-	if (!herdr) {
-		return "unavailable";
-	}
-	try {
-		const info = asRecord(asRecord(call(herdr, ["pane", "process-info", "--pane", target], 2_000)).process_info);
-		if (!Array.isArray(info.foreground_processes)) {
-			return "unavailable";
-		}
-		return info.foreground_processes.some((value) => asRecord(value).pid === pid) ? "present" : "mismatch";
-	} catch {
-		return "unavailable";
-	}
-}
-
-export function stopHostedAgent(target: string): void {
-	const herdr = herdrBinary();
-	if (!herdr) {
-		return;
-	}
-	try {
-		call(herdr, ["agent", "send-keys", target, "ctrl+c"]);
-		spawnSync("sleep", ["0.2"], { stdio: "ignore" });
-		call(herdr, ["agent", "send-keys", target, "ctrl+c"]);
-	} catch {
-		// Best-effort; supervisor finalizes when the agent disappears.
-	}
-}
-
-/** Make a hosted stall visible without depending on a coordinator session. */
-export function reportHostedStall(input: {
-	readonly pane: string;
-	readonly label: string;
-	readonly duration: string;
-	readonly notify: boolean;
-}): void {
-	const herdr = herdrBinary();
-	if (!herdr) {
-		return;
-	}
-	const stalled = `⚠ stalled ${input.duration}`;
-	const on = highlightOn();
-	if (input.pane) {
-		advisoryCall(herdr, [
-			"pane",
-			"report-metadata",
-			input.pane,
-			"--source",
-			"limen",
-			"--display-agent",
-			limenText(stalled, on),
-			...["idle", "done", "blocked"].flatMap((state) => ["--state-label", limenStateLabel(state, stalled, on)]),
-		]);
-	}
-	if (input.notify) {
-		advisoryCall(herdr, [
-			"notification",
-			"show",
-			limenText(`limen: ${input.label} stalled`, on),
-			"--body",
-			stalled,
-			"--sound",
-			"request",
-		]);
-	}
-}
-
-/** Restore the role description installed by the hosted hook after a stall recovers. */
-export function restoreHostedPane(pane: string, role: string): void {
-	const herdr = herdrBinary();
-	if (!herdr) {
-		return;
-	}
-	advisoryCall(herdr, [
-		"pane",
-		"report-metadata",
-		pane,
-		"--source",
-		"limen",
-		"--display-agent",
-		limenText(`limen ${role}`),
-		"--clear-state-labels",
-	]);
 }
 
 /** Terminal jobs leave no open tabs. A detached closer does the close so finalize never waits on Herdr; the closer records the result in the job log. */
@@ -626,7 +232,6 @@ export async function openJobPlace(input: {
 	}
 	const label = (await text(`${input.jobDir}/label`)) || basename(input.jobDir);
 	const recorded = await readPlace(input.jobDir);
-	const hosted = Boolean(await text(`${input.jobDir}/hosted`));
 	try {
 		if (recorded && tabExists(herdr, recorded.tab)) {
 			call(herdr, ["tab", "focus", recorded.tab]);
@@ -635,16 +240,14 @@ export async function openJobPlace(input: {
 	} catch (error) {
 		await skip(input.jobDir, error instanceof Error ? error.message : String(error));
 	}
-	// Hosted agents die with their tab; reopen is always a log view, never a resurrection.
 	const state = (await text(`${input.jobDir}/state`)) || "done";
-	const watch = input.running && !hosted;
 	const place = await createTab({
 		jobDir: input.jobDir,
 		label: `${label} · ${state}`,
 		cwd: input.cwd,
 		logPath: `${input.jobDir}/log`,
-		mode: watch ? "watch" : "log",
-		follow: watch,
+		mode: input.running ? "watch" : "log",
+		follow: input.running,
 		focus: true,
 		herdr,
 	});
@@ -705,7 +308,6 @@ async function createTab(input: {
 	readonly focus: boolean;
 	readonly role?: string;
 	readonly herdr?: string;
-	readonly env?: Readonly<Record<string, string>>;
 	readonly shellOnly?: boolean;
 	readonly record?: "diff";
 }): Promise<HerdrPlace | undefined> {
@@ -721,7 +323,6 @@ async function createTab(input: {
 			input.role ??
 				((await text(`${input.jobDir}/role`)) || ((await text(`${input.jobDir}/candidate`)) ? "reviewer" : "worker")),
 		);
-		const envArgs = Object.entries(input.env ?? {}).flatMap(([key, value]) => ["--env", `${key}=${value}`]);
 		const created = call(herdr, [
 			"tab",
 			"create",
@@ -731,7 +332,6 @@ async function createTab(input: {
 			limenText(input.label),
 			"--cwd",
 			input.cwd,
-			...envArgs,
 			input.focus ? "--focus" : "--no-focus",
 		]);
 		const place: HerdrPlace = {
@@ -866,21 +466,6 @@ function id(result: unknown, object: string, field: string): string {
 	return value;
 }
 
-function agentTarget(result: unknown): string | undefined {
-	const row = asRecord(result);
-	const agent = asRecord(row.agent);
-	for (const key of ["pane_id", "name", "agent_id", "target"] as const) {
-		const value = agent[key] ?? row[key];
-		if (typeof value === "string" && value) {
-			return value;
-		}
-	}
-	const pane = asRecord(row.pane).pane_id;
-	if (typeof pane === "string" && pane) {
-		return pane;
-	}
-}
-
 function asRecord(value: unknown): Record<string, unknown> {
 	return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
 }
@@ -895,12 +480,13 @@ async function recordPlace(jobDir: string, place: HerdrPlace, record?: "diff"): 
 	);
 }
 
+/** The recorded place, or none when a file is missing or the mode is one this version does not open (an old record's). */
 async function readPlace(jobDir: string, record?: "diff"): Promise<HerdrPlace | undefined> {
 	const directory = record ? `${jobDir}/herdr/${record}` : `${jobDir}/herdr`;
 	const [workspace, tab, pane, mode] = await Promise.all(
 		(["workspace", "tab", "pane", "mode"] as const).map((name) => text(`${directory}/${name}`)),
 	);
-	if (!workspace || !tab || !pane || (mode !== "watch" && mode !== "log" && mode !== "hosted" && mode !== "diff")) {
+	if (!workspace || !tab || !pane || (mode !== "watch" && mode !== "log" && mode !== "diff")) {
 		return;
 	}
 	return { workspace, tab, pane, mode };

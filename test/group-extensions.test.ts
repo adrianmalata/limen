@@ -5,35 +5,23 @@ import { mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { type GroupRun, readRun } from "../src/job/group-cabinet.ts";
-import { git, jobDir, limen, plant, type RunOptions, TICKET, waitJob } from "./plant.ts";
+import { git, jobDir, jobFile, limen, plant, type RunOptions, TICKET, waitJob } from "./plant.ts";
 
 const lead = { PI_SESSION_ID: "extension-lead" };
 const route = ["--engine", "pi", "--provider", "fixture", "--model", "fixture", "--thinking", "high"];
 const team = "pi:fixture/fixture:high";
 const settings = ["--team", team, "--team", team, "--workers", "3", "--timeout", "30m"];
-// Exercise the hosted supervisor and its real launch argv without a GUI or provider.
+// A Herdr that opens log tabs: role spaces and tabs get IDs; every other verb, such as the tail command, answers empty.
 const herdr = `#!/usr/bin/env node
-const fs = require('node:fs');
 const { randomUUID } = require('node:crypto');
-const { execFileSync } = require('node:child_process');
 const args = process.argv.slice(2);
 const ok = (result) => console.log(JSON.stringify({ result }));
 if (args[0] === 'workspace' && args[1] === 'list') ok({ workspaces: [] });
 else if (args[0] === 'workspace' && args[1] === 'create') ok({ workspace: { workspace_id: 'w1' } });
 else if (args[0] === 'tab' && args[1] === 'create') { const id = randomUUID(); ok({ tab: { tab_id: 'w1:t' + id }, root_pane: { pane_id: 'w1:p' + id } }); }
-else if (args[0] === 'tab' && args[1] === 'get') ok({ tab: { tab_id: args[2], focused: true } });
-else if (args[0] === 'pane' && args[1] === 'process-info') ok({ process_info: { foreground_process_group_id: 1, shell_pid: 1, foreground_processes: [{ name: 'zsh', pid: 1 }] } });
-else if (args[0] === 'agent' && args[1] === 'start') {
-  const selected = args.slice(args.indexOf('--') + 1);
-  execFileSync(process.env.GROUP_FAKE_PI, selected);
-  const session = selected[selected.indexOf('--session-dir') + 1];
-  fs.writeFileSync(session + '/../session-ended', 'fixture ended');
-  ok({ pane: { pane_id: args[args.indexOf('--pane') + 1] } });
-} else if (args[0] === 'agent' && args[1] === 'get') { console.log(JSON.stringify({ error: { code: 'agent_not_found' } })); process.exit(1); }
-else if (args[0] === 'agent' && args[1] === 'list') ok({ agents: [] });
 else ok({});
 `;
-async function fixture(hosted = false) {
+async function fixture() {
 	const p = await plant();
 	const feature = dirname(TICKET);
 	await mkdir(join(p.root, feature, "group/teams"), { recursive: true });
@@ -53,12 +41,9 @@ async function fixture(hosted = false) {
 	}
 	await symlink(common, join(extensions, "alias.ts"));
 	await writeFile(join(p.parent, "herdr"), herdr, { mode: 0o755 });
-	const env = hosted
-		? { ...lead, HERDR_ENV: "1", LIMEN_HERDR: join(p.parent, "herdr"), GROUP_FAKE_PI: join(p.bin, "pi") }
-		: lead;
-	const mode = hosted ? "--tab" : "--detached";
+	const mode = "--detached";
 	const run = (args: readonly string[], options: RunOptions = {}) =>
-		limen(p, args, { ...options, env: { ...env, ...options.env } });
+		limen(p, args, { ...options, env: { ...lead, ...options.env } });
 	const start = (...extra: string[]) => run(["group", "start", feature, ...settings, mode, ...extra]);
 	const member = (run: GroupRun, team: string) => ({
 		LIMEN_JOB: "1",
@@ -79,7 +64,6 @@ async function fixture(hosted = false) {
 		for (const hook of ["finish", "steering", "communication", "group-peer"]) {
 			assert.equal(loaded.filter((path) => path?.endsWith(`/hook/${hook}.ts`)).length, 1);
 		}
-		assert.equal(loaded.filter((path) => path?.endsWith("/hook/hosted.ts")).length, Number(hosted));
 		const chosen = loaded.filter((path) => path?.startsWith(extensions));
 		assert.deepEqual(chosen, selected);
 	};
@@ -87,59 +71,72 @@ async function fixture(hosted = false) {
 }
 const lastLine = (stdout: string) => stdout.trim().split("\n").at(-1) ?? "";
 
-for (const hosted of [false, true]) {
-	test(`${hosted ? "hosted" : "detached"} Pi teams keep common and private selections through workers, reviews and continuation`, async (context) => {
-		const f = await fixture(hosted);
-		context.after(f.cleanup);
-		const started = f.start(
-			"--extension",
-			f.common,
-			"--extension",
-			join(f.extensions, "alias.ts"),
-			"--team-extension",
-			`team-2=${f.privatePath}`,
-			"--team-extension",
-			`team-2=${f.common}`,
+test("Pi teams keep common and private selections through workers, reviews and continuation", async (context) => {
+	const f = await fixture();
+	context.after(f.cleanup);
+	const started = f.start(
+		"--extension",
+		f.common,
+		"--extension",
+		join(f.extensions, "alias.ts"),
+		"--team-extension",
+		`team-2=${f.privatePath}`,
+		"--team-extension",
+		`team-2=${f.common}`,
+	);
+	assert.equal(started.status, 0, started.stderr);
+	const run = await readRun(f.root, lastLine(started.stdout));
+	assert.deepEqual({ ...run.teamExtensions }, { "team-1": [f.common], "team-2": [f.common, f.privatePath] });
+	for (const coordinator of run.members) {
+		const expected = run.teamExtensions?.[coordinator.team] ?? [];
+		await f.checkJob(coordinator.id, expected);
+		const refused = f.launch(run, coordinator.team, "--extension", f.privatePath);
+		assert.match(`${refused.status} ${refused.stderr}`, /^1 .*recorded team extensions/s);
+		const child = f.launch(
+			run,
+			coordinator.team,
+			...(coordinator.team === "team-1" ? expected.flatMap((path) => ["--extension", path]) : []),
 		);
-		assert.equal(started.status, 0, started.stderr);
-		const run = await readRun(f.root, lastLine(started.stdout));
-		assert.deepEqual({ ...run.teamExtensions }, { "team-1": [f.common], "team-2": [f.common, f.privatePath] });
-		for (const coordinator of run.members) {
-			const expected = run.teamExtensions?.[coordinator.team] ?? [];
-			await f.checkJob(coordinator.id, expected);
-			const refused = f.launch(run, coordinator.team, "--extension", f.privatePath);
-			assert.match(`${refused.status} ${refused.stderr}`, /^1 .*recorded team extensions/s);
-			const child = f.launch(
-				run,
-				coordinator.team,
-				...(coordinator.team === "team-1" ? expected.flatMap((path) => ["--extension", path]) : []),
-			);
-			assert.equal(child.status, 0, child.stderr);
-			const id = lastLine(child.stdout);
-			await f.checkJob(id, expected);
-			const bad = f.resume(id, "--extension", f.privatePath);
-			assert.match(`${bad.status} ${bad.stderr}`, /^1 .*recorded team extensions/s);
-			const record = join(jobDir(f, id), "extensions.json");
-			await writeFile(record, "[]\n");
-			assert.match(f.resume(id).stderr, /parent does not match/);
-			await writeFile(record, JSON.stringify(expected));
-			const continued = f.resume(id);
-			assert.equal(continued.status, 0, continued.stderr);
-			const continuedId = lastLine(continued.stdout);
-			await f.checkJob(continuedId, expected);
-			const entry = (await readRun(f.root, run.id)).members.find((entry) => entry.id === continuedId);
-			assert.deepEqual([entry?.parent, entry?.team], [id, coordinator.team]);
-			assert.ok(entry && entry.deadline <= run.deadline - run.reserveMs);
-			const branch = readFileSync(join(jobDir(f, id), "branch"), "utf8").trim();
-			assert.equal(f.launch(run, coordinator.team, "--review", "--branch", "main").status, 1);
-			const review = f.launch(run, coordinator.team, "--review", "--branch", branch);
-			assert.equal(review.status, 0, review.stderr);
-			await f.checkJob(lastLine(review.stdout), expected);
-			assert.equal(f.resume(continuedId).status, 1, "continuation uses the total launch allowance");
-			assert.match(f.resume(coordinator.id).stderr, /next group round/);
-		}
-	});
-}
+		assert.equal(child.status, 0, child.stderr);
+		const id = lastLine(child.stdout);
+		await f.checkJob(id, expected);
+		const bad = f.resume(id, "--extension", f.privatePath);
+		assert.match(`${bad.status} ${bad.stderr}`, /^1 .*recorded team extensions/s);
+		const record = join(jobDir(f, id), "extensions.json");
+		await writeFile(record, "[]\n");
+		assert.match(f.resume(id).stderr, /parent does not match/);
+		await writeFile(record, JSON.stringify(expected));
+		const continued = f.resume(id);
+		assert.equal(continued.status, 0, continued.stderr);
+		const continuedId = lastLine(continued.stdout);
+		await f.checkJob(continuedId, expected);
+		const entry = (await readRun(f.root, run.id)).members.find((entry) => entry.id === continuedId);
+		assert.deepEqual([entry?.parent, entry?.team], [id, coordinator.team]);
+		assert.ok(entry && entry.deadline <= run.deadline - run.reserveMs);
+		const branch = readFileSync(join(jobDir(f, id), "branch"), "utf8").trim();
+		assert.equal(f.launch(run, coordinator.team, "--review", "--branch", "main").status, 1);
+		const review = f.launch(run, coordinator.team, "--review", "--branch", branch);
+		assert.equal(review.status, 0, review.stderr);
+		await f.checkJob(lastLine(review.stdout), expected);
+		assert.equal(f.resume(continuedId).status, 1, "continuation uses the total launch allowance");
+		assert.match(f.resume(coordinator.id).stderr, /next group round/);
+	}
+});
+
+test("a group started inside Herdr with no mode flag runs each team job detached, with a log tab", async (context) => {
+	const f = await fixture();
+	context.after(f.cleanup);
+	const inside = { HERDR_ENV: "1", LIMEN_HERDR: join(f.parent, "herdr") };
+	const started = f.run(["group", "start", f.feature, ...settings], { env: inside });
+	assert.equal(started.status, 0, started.stderr);
+	const run = await readRun(f.root, lastLine(started.stdout));
+	assert.equal(run.members.length, 2);
+	for (const member of run.members) {
+		// `watch` is the mode of the log tab that follows a detached job's log.
+		assert.equal(jobFile(f, member.id, "herdr/mode"), "watch", member.id);
+		await f.checkJob(member.id, []);
+	}
+});
 
 test("invalid group selections never activate or consume jobs, including later teams", async (context) => {
 	const f = await fixture();

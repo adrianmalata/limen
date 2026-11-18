@@ -24,7 +24,7 @@ npm install
 npm link
 ```
 
-For interactive jobs in Herdr, install the Pi integration:
+For the coordinator pane in Herdr, install the Pi integration:
 
 ```bash
 herdr integration install pi
@@ -112,7 +112,7 @@ limen spawn --engine pi --provider <provider> --model <model> --thinking <level>
   --extension /path/to/trusted-entry.ts --label "what this changes" "instruction"
 ```
 
-`--extension` accepts local files and package directories in both hosted and detached modes. Limen does not install or import them; Pi loads them. A directory can expose several extensions and other package resources, so prefer the exact entry file when that is the intended selection. Ambient extensions stay disabled. See [command details](commands.md#start-and-continue-jobs) for path rules and continuation replacement.
+`--extension` accepts local files and package directories. Limen does not install or import them; Pi loads them. A directory can expose several extensions and other package resources, so prefer the exact entry file when that is the intended selection. Ambient extensions stay disabled. See [command details](commands.md#start-and-continue-jobs) for path rules and continuation replacement.
 
 Extensions run with the worker process's permissions and can read files, credentials and session data. Path validation does not prove API compatibility, provider availability, instruction forwarding or successful inference. Keep installation, native model-catalog registration and a successful worker check as separate claims. The optional `LIMEN_PREFLIGHT=auth` check does not load session extensions and can reject an extension-only provider; Limen does not bypass it. For native Pi groups, the owner selects common or team-only extensions at `group start`; members inherit the fixed team lists. See [group selection](groups.md#prepare-and-start). Ordinary selections do not automatically propagate to GitHub launches, picture jobs or native subagents.
 
@@ -137,7 +137,7 @@ limen spawn --engine <engine> \
   --label "what this changes · FNNN" 'Implement FNNN: <outcome>. Ticket: spec/features/active/FNNN-slug/ticket.md'
 ```
 
-This job is detached, also in Herdr: a log-tail tab, a 90-minute timeout (change it with `--timeout`), a tool-call cap and process containment. Use `--tab` when a person will type into the worker. In both modes, `--provider`, `--model`, and `--thinking` go to the selected engine as separate flag and value pairs. `limen continue` accepts the same flags.
+This job is detached, also in Herdr: a log-tail tab, a 90-minute timeout (change it with `--timeout`), a tool-call cap and process containment. To correct a running job, use `limen steer`; to give a finished one more work, use `limen continue`. `--provider`, `--model`, and `--thinking` go to the selected engine as separate flag and value pairs. `limen continue` accepts the same flags.
 
 ## Adjacent-repository workspaces
 

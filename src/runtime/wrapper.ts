@@ -38,9 +38,6 @@ const toolCallCap = (): number => Number(process.env.LIMEN_MAX_TOOL_CALLS) || MA
 export async function launchWrapper(environment: Readonly<Record<string, string>>): Promise<number> {
 	return launchDetached({ ...environment, LIMEN_INTERNAL_RUN: "1" });
 }
-export async function launchHostedSupervisor(environment: Readonly<Record<string, string>>): Promise<number> {
-	return launchDetached({ LIMEN_HOSTED_RECOVER: "", ...environment, LIMEN_INTERNAL_HOSTED: "1" });
-}
 async function launchDetached(environment: Readonly<Record<string, string>>): Promise<number> {
 	const executable = fileURLToPath(new URL("../../bin/limen", import.meta.url));
 	const child = spawn(process.execPath, [executable], {
@@ -154,7 +151,6 @@ export async function runInternalJob(): Promise<void> {
 		})();
 	};
 	const args = argvFor(profile, {
-		jsonMode: true,
 		jobDir,
 		label,
 		preamble,
@@ -178,9 +174,8 @@ export async function runInternalJob(): Promise<void> {
 		LIMEN_JOB_ID: jobId,
 		LIMEN_JOB_LABEL: label,
 	};
-	// A detached job started from a hosted pane's shell must not read itself as hosted.
 	const privateEnvironment =
-		"LIMEN_INTERNAL_RUN LIMEN_JOB_DIR LIMEN_WORKTREE LIMEN_TASK_FILE LIMEN_PREAMBLE LIMEN_TIMEOUT_MS LIMEN_MODEL LIMEN_PROVIDER LIMEN_THINKING LIMEN_LABEL LIMEN_SETUP_KEEP LIMEN_SETUP_PREPARE LIMEN_HOSTED PI_SESSION_ID PI_SESSION_FILE PI_PROVIDER PI_MODEL PI_REASONING_LEVEL";
+		"LIMEN_INTERNAL_RUN LIMEN_JOB_DIR LIMEN_WORKTREE LIMEN_TASK_FILE LIMEN_PREAMBLE LIMEN_TIMEOUT_MS LIMEN_MODEL LIMEN_PROVIDER LIMEN_THINKING LIMEN_LABEL LIMEN_SETUP_KEEP LIMEN_SETUP_PREPARE PI_SESSION_ID PI_SESSION_FILE PI_PROVIDER PI_MODEL PI_REASONING_LEVEL";
 	for (const name of privateEnvironment.split(" ")) {
 		delete childEnvironment[name];
 	}

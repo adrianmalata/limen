@@ -22,13 +22,11 @@ type PiApi = {
 };
 
 /**
- * `finish` for every Limen job, hosted or detached. A detached job resumed from a hosted session keeps the hosted
- * transcript, and the model calls `finish` again. The handoff becomes the job result, and the session ends after this
- * turn.
+ * `finish` for every Limen job. The handoff becomes the job result, and the session ends after this turn.
  *
  * Once per job, before the finish, the agent gets its task note to check: the first `finish` call answers with the
- * check, and a detached run that ends without `finish` gets it as one more turn. Pi gives that turn from 1.2.0
- * (`agent_before_settle`). A hosted run ends at each owner message, so only `finish` asks.
+ * check, and a run that ends without `finish` gets it as one more turn. Pi gives that turn from 1.2.0
+ * (`agent_before_settle`).
  */
 export default function limenFinish(pi: PiApi): void {
 	const root = process.env.LIMEN_CONTEXT_ROOT;
@@ -68,7 +66,6 @@ export default function limenFinish(pi: PiApi): void {
 				if (handoff) {
 					writeFileSync(join(jobDir, "result"), `${handoff}\n`);
 				}
-				writeFileSync(join(jobDir, "session-ended"), `${new Date().toISOString()}\n`);
 			} catch {
 				// The engine's exit still ends the job; only the handoff text is lost.
 			}
@@ -76,9 +73,6 @@ export default function limenFinish(pi: PiApi): void {
 			return { content: [{ type: "text", text: "done" }], details: {} };
 		},
 	});
-	if (process.env.LIMEN_HOSTED === "1") {
-		return;
-	}
 	pi.on("agent_before_settle", (event) => {
 		const ask = event.outcome === "completed" ? check(false) : undefined;
 		if (!ask) {

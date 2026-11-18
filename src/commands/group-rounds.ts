@@ -151,7 +151,6 @@ async function startRound(run: GroupRun, team: string, round: number): Promise<v
 	if (!parent || lastJob(run, round, team)) {
 		return;
 	}
-	const hosted = existsSync(`${run.root}/.limen/jobs/${parent.id}/hosted`);
 	try {
 		await continueCommand(
 			[
@@ -160,7 +159,6 @@ async function startRound(run: GroupRun, team: string, round: number): Promise<v
 				"--label",
 				teamJobLabel(run, team, round),
 				...routeFlags(teamRoute(run, team)).split(" "),
-				hosted ? "--tab" : "--detached",
 			],
 			run.root,
 			round,

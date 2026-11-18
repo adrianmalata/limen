@@ -40,7 +40,7 @@ Both routes carry the same completion facts: the task, branch and repository, st
 
 | State | Meaning |
 |---|---|
-| `done` | The run ended cleanly. The selected engine exited 0, or a hosted session ended, and the last stop reason was not `error` or `aborted`. |
+| `done` | The run ended cleanly. The selected engine exited 0, and the last stop reason was not `error` or `aborted`. |
 | `failed` | The run had a provider error, and Limen records the reason. A limit also records `failed` (see [Limits](#limits)). A failed job keeps its worktree and transcript. |
 
 A `done` job whose final "Note check" leaves an item open is `done with open checks`. Limen keeps the `done` state and writes one line for each open item to `open-checks` in the job record: an item marked not proven, changed, dropped or broken, a proven item with no proof that its command ran in the session and no such file, or a check that was sent and not answered. A command counts only when one recorded bash call ended with exit 0 and joined its simple commands with `&&` alone, and no pipe follows the command; any other call may have skipped it or hidden its failure, and the open line names the reason. The wake lists these lines and asks the coordinator to continue the job, start a review, or accept each item with a reason before it lands. `limen jobs` and `limen status` show the same state.
@@ -95,7 +95,7 @@ limen land <id>
 
 - **Job ID:** The last line of `spawn` output is the durable job ID. Spawn also prints it as soon as the job record exists, so a spawn killed during setup still names its job.
 - **Labels:** A label names the change first and the feature number last. A repair label or a review label names its round.
-- **Hosted labels:** Ordinary text such as `Fix the lead-in paragraph · F900` is allowed. Lead ownership comes from the coordinator pane, not the label; `--role coordinator` and `--role lead` remain refused.
+- **Labels that name a lead:** Ordinary text such as `Fix the lead-in paragraph · F900` is allowed. Lead ownership comes from the coordinator pane, not the label; `--role coordinator` and `--role lead` remain refused.
 - **Group labels:** Team jobs read `team-2 coordinator · F773`, so jobs on the same feature remain distinct.
 
 ### Steer, stop, and resume
@@ -147,34 +147,34 @@ Limen copies the saved session into a new linked job. The new job keeps the work
 
 **Only committed branch contents come back.** Uncommitted files that prune removed are lost. Recovery is not possible without the branch or the transcript. Limen does not take over a branch that is checked out in a different place.
 
-**Every job can call `finish`.** A detached continuation of a hosted job keeps the hosted transcript, so the worker may call `finish` again. The handoff becomes the job result, and the job ends `done` when the engine exits. A later reply does not replace that handoff.
+**Every job can call `finish`.** A continuation keeps its parent's transcript, so the worker may call `finish` again. The handoff becomes the job result, and the job ends `done` when the engine exits. A later reply does not replace that handoff.
 
 ### Start queue
 
 Every plant on the seat shares one machine, so detached jobs wait in one queue for the whole seat, under `$LIMEN_HOME/.limen/start-queue/` (`~/.limen/start-queue/` by default). The job's own wrapper waits after its handshake and before prune, `--prepare` and the engine. No daemon runs the queue.
 
 - **Order.** Priority first (`--priority 1|2|3`, 1 the most urgent, 2 the default), then the time the job entered the queue.
-- **Priority budget.** A [seat rule](commands.md#seat-wide-rules) with `--start-priority N` holds every detached job less urgent than N until the rule ends: `limen rule set claude-week --until <reset> --start-priority 1 "…"` starts only priority 1 jobs. A held job waits with its own reason, `held by rule <name> until <end> (start priority N)`, one per rule that holds it. Spawn prints it after `queued`, `limen jobs` shows it after the wait, and `limen queue` shows it under the job. A held job never reads the load and never blocks a more urgent job. The hold applies also when `LIMEN_START_GATE` is `off`. When the rule ends, at its end time or by `limen rule end`, the held jobs start in queue order as the gate allows, and each coordinator gets the start notice. Hosted (`--tab`) jobs and group launches are not held.
+- **Priority budget.** A [seat rule](commands.md#seat-wide-rules) with `--start-priority N` holds every detached job less urgent than N until the rule ends: `limen rule set claude-week --until <reset> --start-priority 1 "…"` starts only priority 1 jobs. A held job waits with its own reason, `held by rule <name> until <end> (start priority N)`, one per rule that holds it. Spawn prints it after `queued`, `limen jobs` shows it after the wait, and `limen queue` shows it under the job. A held job never reads the load and never blocks a more urgent job. The hold applies also when `LIMEN_START_GATE` is `off`. When the rule ends, at its end time or by `limen rule end`, the held jobs start in queue order as the gate allows, and each coordinator gets the start notice. Group launches are not held.
 - **Budget reading.** Limen does not read the Claude budget; a person reads it and sets the rule. Today the reading comes from the Claude bridge, which receives Claude's rate-limit events: the Pi bridge warns at 80% without a number, and it does not write the reading to a file. Source: `evidence.md` in the F951 feature folder under `spec/features/`, section "The budget reading".
 - **Gate.** Only the first job in the queue reads the load: CPU idle across all cores over about two seconds, and free memory: MemAvailable over MemTotal in `/proc/meminfo`. The job starts when CPU is at least 25% idle and memory at least 20% free. A value the machine cannot report does not hold a job back.
 - **Settle.** After one start, the next start waits a settle interval of 60 seconds, so the new job's load shows in the next reading.
 - **Values.** `$LIMEN_HOME/.limen/start-gate.json` changes them for the whole seat: `{ "cpuIdle": 25, "memoryFree": 20, "settle": "60s" }`. A waiting job reads the file again on each poll, so an edit reaches jobs already in the queue. `LIMEN_START_GATE` overrides the file for the jobs started under it: `off` turns the gate off, and a JSON object in the same form replaces the file. The job log names each value that Limen ignores. `LIMEN_START_READING` names a file that holds the reading instead of the machine (`{ "cpuIdle": 10, "memoryFree": 80 }`); tests and manual checks use it.
 - **What a coordinator sees.** A job that the gate admits at once and that has nobody ahead starts as before; its log says `start gate: open`. A job that must wait makes spawn print `queued`, shows the pulse `queued` in `limen jobs`, and logs `queued: …`. When it starts, its log says `start queue: started after …`, and its coordinator gets one start notice on the route its finish uses: the Pi wake hook for a subscribed session, or `herdr agent prompt` to the recorded `origin-pane`. The notice says no action is needed. Its receipt is its own (`notify/delivered/_start.<session>`, `notify/herdr-start`) and never counts as the completion wake. The Pi "started" toast waits until the job leaves the queue. A start notice is news only while the job runs: when the job ends before the Pi hook delivers it, no late notice follows, and the session's completion wake carries the notice's line instead. The Herdr route starts its notice as the job leaves the queue, before prune, `--prepare` and the engine; the job does not wait for the pane's answer.
 - **Stop and loss.** `limen stop` ends a queued job `stopped` with the stop reason. A queue entry whose wrapper is gone, or whose job ended, is removed and does not block the queue. A recycled pid can keep a lost entry until the reaper ends its job.
-- **Limits.** The job timeout and a group deadline count from engine start; time in the queue never counts against them. Hosted (`--tab`) jobs and group launches start at once.
+- **Limits.** The job timeout and a group deadline count from engine start; time in the queue never counts against them. Group launches start at once.
 
 ### Limits
 
-| Limit | Detached job | Hosted job |
-|---|---|---|
-| Time | 90 minutes (change it with `--timeout 20m`) | None |
-| Tool-start events | 900 (`LIMEN_MAX_TOOL_CALLS`) | None |
-| `--prepare` command | 5 minutes (`LIMEN_PREPARE_MS`, or the plant limits file) | 5 minutes |
-| Stalled tool | 3 minutes (`LIMEN_TOOL_STALL_MS`, or the plant limits file) | None |
+| Limit | Job |
+|---|---|
+| Time | 90 minutes (change it with `--timeout 20m`) |
+| Tool-start events | 900 (`LIMEN_MAX_TOOL_CALLS`) |
+| `--prepare` command | 5 minutes (`LIMEN_PREPARE_MS`, or the plant limits file) |
+| Stalled tool | 3 minutes (`LIMEN_TOOL_STALL_MS`, or the plant limits file) |
 
 A prepare command that runs out of time is stopped, and the job log records `prepare failed: timed out`. The job still starts.
 
-**Stalled tools.** Detached jobs retain the three-minute CPU-idle tool containment rule; `LIMEN_TOOL_STALL_MS` or the plant limits file changes that confirmation time. Hosted observation never signals an engine or its children: a quiet external wait is not proof of a stuck tool. Explicit stops and configured group deadlines still apply.
+**Stalled tools.** Every job keeps the three-minute CPU-idle tool containment rule; `LIMEN_TOOL_STALL_MS` or the plant limits file changes that confirmation time.
 
 **Plant limits.** A plant can set the prepare limit and the stalled-tool time in a tracked file, `.agents/limen/limits.json`. Cargo plants use it. Their builds wait for each other: a Mac-wide cargo wrapper that queues builds, or cargo's own lock on a build directory. A prepare command that builds Rust can need more than 5 minutes. A cargo command that waits on cargo's lock uses no CPU, so the stalled-tool rule can stop it. A cargo plant commits this file:
 
@@ -189,15 +189,11 @@ A prepare command that runs out of time is stopped, and the job log records `pre
 - The job log names each entry that Limen ignores, such as an unknown key or a value without a unit.
 - The file does not change the job time limit.
 
-**Hosted ownership.** On Linux, Limen checks that a hosted Pi job still owns its pane. While it does, the job shows no ownership note. A pane reload keeps that proof, and a reload is not completion. When Limen loses the proof, the job shows an `ownership` note. See [How it works](#how-it-works) for what counts as proof.
-
-**Platform limit.** Only hosted Pi on Linux binds its pane. A hosted job on another platform never binds, so Limen cannot prove which process owns its pane. It gets an ownership note only when its pane moves to a place Limen cannot verify; the absence of a note is not proof of ownership.
-
-**Job notes.** A running row in `limen jobs` and `limen status` names the kind of its note: `blocked`, `errored`, `idle`, or `ownership`. A healthy running job shows no note. A blocked, errored, or idle note hides an ownership note. An ownership note appears when a bound job loses its ownership proof, or when its pane moves to a place Limen cannot verify. When an ownership note stays for one minute, each coordinator that follows the job gets one wake about it. The note clears when the job ends or Limen proves ownership again.
+**Job notes.** A running job's wrapper writes the file `advisory` when it cannot observe a tool for the stalled-tool rule, for example `tool stall observation uncertain: CPU or process identity unavailable`. A running row in `limen jobs` and `limen status` names that note `advisory`. A healthy running job shows no note. Each coordinator that follows the job gets one wake about the note. The note clears when the wrapper can observe the tool again or no tool runs.
 
 ### Seat notifications
 
-`limen sweep` scans registered projects for terminal jobs that nobody heard, hosted-stall advisories and persistent ownership uncertainty. A running job's notification title names its note kind, for example `limen: fix login · blocked`. Changes to an unresolved uncertainty diagnostic keep the same seat receipt and do not ring again. Each event gets one seat notification, also across restarts and concurrent sweeps. Old timestamp receipts stay valid. When an advisory clears and a new one starts, the new one can send a notification again.
+`limen sweep` scans registered projects for terminal jobs that nobody heard and for the advisories of running jobs. A running job's notification title names its note, for example `limen: fix login · advisory`. Each event gets one seat notification, also across restarts and concurrent sweeps. Old timestamp receipts stay valid. When an advisory clears and a new one starts, the new one can send a notification again.
 
 If a notification fails in an unclear way, the sweep logs an error and does not send that event again automatically. Seat notifications do not use up coordinator wakes.
 
@@ -238,8 +234,5 @@ The coordinator does this. You need it only if you look at a stuck tab yourself.
 
 You do not need these mechanics to run jobs. They explain the notes and records above.
 
-- **Binding:** the launch record of a hosted Pi job on Linux. At launch, the Pi hook writes exclusive records of the controlled launch, the canonical job and session, the initial pane, the shell parent, the engine PID and start time, and the boot ID (the kernel's ID for the current boot). Reload keeps the binding.
-- **Ownership proof:** the check that the bound job still owns its pane. It needs the saved process identity and a fresh check that this exact PID is in the foreground of the current verified pane. Visible launch arguments do not count. A foreign session, an old record with only a PID, a failed pane query, or a pane move that Limen cannot verify leaves the job unowned.
-- **Ownership wake:** the wake about a standing `ownership` note. After one minute, each subscribed recipient can receive one confirmed wake for that condition. Its recipients share at most two unsuccessful attempts. The wake waits for an idle recipient; it never queues text into a running turn as a follow-up. Tool and thinking changes and supervisor recovery keep the original timestamp and receipts. Only proven recovery rearms the wake; engine recovery alone cannot clear an unavailable child observation. Real failures and completion use separate wake allowances. A terminal state retires the condition.
 - **Publication:** how spawn and continue create a job. Limen writes the complete starting record in a hidden directory, then publishes it with one rename. A publication failure removes the hidden record and leaves the parent record and saved session unchanged.
 - **Seat receipt:** the job file `notify/seat`. The sweep writes it before it sends a notification, so one event rings once, also across restarts and concurrent sweeps.

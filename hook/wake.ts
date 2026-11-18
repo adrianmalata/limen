@@ -49,11 +49,6 @@ import {
 import { advisoryWake, completionWake } from "../src/job/wake-text.ts";
 import { unlandedBranches } from "../src/project/git.ts";
 import { registeredProjects, registerProject } from "../src/project/seat.ts";
-import {
-	HOSTED_UNCERTAINTY_MS,
-	hostedUncertaintyText,
-	readHostedUncertainty,
-} from "../src/runtime/hosted-uncertainty.ts";
 import { ownerAlive, reapDeadJobs } from "../src/runtime/reap.ts";
 
 type Context = {
@@ -416,10 +411,12 @@ export default function limenWake(pi: PiApi): void {
 			return;
 		}
 		const done = state === "done" && openChecks(job).length > 0 ? OPEN_DONE : PLAIN_DONE;
+		// An advisory is a note on a running job, not a state; its title reads as the seat notification's does.
+		const headline = state === "done" ? done.title : state === "advisory" ? "· advisory" : `is ${state}`;
 		herdrCall([
 			"notification",
 			"show",
-			limenText(state === "done" ? `limen: ${label} ${done.title}` : `limen: ${label} is ${state}`),
+			limenText(`limen: ${label} ${headline}`),
 			"--body",
 			state === "done" ? `job ${id} · branch ${branch} · ${done.next}` : `job ${id} · branch ${branch}`,
 			"--sound",
@@ -545,32 +542,21 @@ export default function limenWake(pi: PiApi): void {
 		}
 		return routed;
 	};
-	// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: split pending: wake advisory delivery
-	// biome-ignore lint/complexity/noExcessiveLinesPerFunction: same split as the line above
 	const sendAdvisory = (jobs: string, id: string, delivery: "own" | "fallback"): boolean => {
 		const fallback = delivery === "fallback";
 		if (!session) {
 			return false;
 		}
 		const job = join(jobs, id);
-		const genuine = text(join(job, "advisory"));
-		const uncertainty = genuine ? undefined : readHostedUncertainty(job);
-		if (
-			!genuine &&
-			(!uncertainty ||
-				Date.now() - uncertainty.since < HOSTED_UNCERTAINTY_MS ||
-				session.isIdle() !== true ||
-				injectedThisSweep)
-		) {
+		const advisory = text(join(job, "advisory"));
+		if (!advisory) {
 			return false;
 		}
-		const advisory = uncertainty ? hostedUncertaintyText(uncertainty) : genuine;
-		const family = genuine ? "_advisory" : "_uncertainty";
-		const slots = (names: readonly string[]) => names.filter((name) => receiptFamily(name) === family);
+		const slots = (names: readonly string[]) => names.filter((name) => receiptFamily(name) === "_advisory");
 		const label = text(join(job, "label")) || id;
 		const branch = text(join(job, "branch"));
 		const repo = text(join(job, "repo"));
-		const slot = `${family}.${fallback ? "_fallback" : sessionId}`;
+		const slot = `_advisory.${fallback ? "_fallback" : sessionId}`;
 		if (!fallback && deliveryExists(job, slot)) {
 			return false;
 		}
@@ -580,13 +566,6 @@ export default function limenWake(pi: PiApi): void {
 		) {
 			return false;
 		}
-		const kind = uncertainty
-			? "ownership observation unavailable"
-			: advisory.startsWith("blocked")
-				? "blocked"
-				: advisory.startsWith("errored:")
-					? "errored"
-					: "idle";
 		const blocked = () => {
 			try {
 				session?.ui.notify(
@@ -601,19 +580,7 @@ export default function limenWake(pi: PiApi): void {
 			if (recoverClaims(job, (claim) => pendingDeliveries.has(claim))) {
 				blocked();
 			}
-			if (stateOf(jobs, id) !== "running" || !routable(job)) {
-				return false;
-			}
-			if (uncertainty) {
-				if (
-					readHostedUncertainty(job)?.since !== uncertainty.since ||
-					text(join(job, "advisory")) ||
-					session?.isIdle() !== true ||
-					injectedThisSweep
-				) {
-					return false;
-				}
-			} else if (!text(join(job, "advisory"))) {
+			if (stateOf(jobs, id) !== "running" || !routable(job) || !text(join(job, "advisory"))) {
 				return false;
 			}
 			if (fallback) {
@@ -621,36 +588,24 @@ export default function limenWake(pi: PiApi): void {
 					session?.isIdle() === true &&
 					!muted &&
 					sessionOwns(jobs) &&
-					slots(claimSlots(job)).every((claim) => claim === `${family}._fallback`) &&
+					slots(claimSlots(job)).every((claim) => claim === "_advisory._fallback") &&
 					slots(deliveredSlots(job)).length === 0
 				);
 			}
 			return (
 				subscribed(job, sessionId) &&
-				!existsSync(join(job, "notify", "claims", `${family}._fallback`)) &&
-				!existsSync(join(job, "notify", "delivered", `${family}._fallback`))
+				!existsSync(join(job, "notify", "claims", "_advisory._fallback")) &&
+				!existsSync(join(job, "notify", "delivered", "_advisory._fallback"))
 			);
 		};
-		const message = uncertainty
-			? `Limen job ${JSON.stringify(label)} (${id}) on branch ${branch}: ${advisory}. The job was running at dispatch. Inspect the saved observation; do not infer a timeout or stop authority from it.`
-			: advisoryWake(job, label, id, branch, repo, advisory, fallback);
+		const message = advisoryWake(job, label, id, branch, repo, advisory, fallback);
 		const routed = claimDelivery(
 			job,
 			slot,
 			eligible,
 			() => {
-				if (uncertainty) {
-					if (!eligible()) {
-						return false;
-					}
-					injectedThisSweep = true;
-					return Promise.resolve(pi.sendUserMessage(message));
-				}
 				try {
-					session?.ui.notify(
-						kind === "errored" ? `limen: ${label} last turn failed (${id})` : `limen: ${label} is ${kind} (${id})`,
-						"info",
-					);
+					session?.ui.notify(`limen: ${label} · advisory (${id})`, "info");
 				} catch {
 					dropFooter("ui.notify failed");
 				}
@@ -659,7 +614,7 @@ export default function limenWake(pi: PiApi): void {
 			deliveryCallbacks(message, blocked),
 		);
 		if (routed) {
-			notifyHerdr(job, id, kind, label, branch, slot);
+			notifyHerdr(job, id, "advisory", label, branch, slot);
 		}
 		return routed;
 	};
@@ -719,13 +674,12 @@ export default function limenWake(pi: PiApi): void {
 			if (own && !waiting && existsSync(join(job, "start-notice"))) {
 				sendStart(jobs, id);
 			}
-			const stamp = text(join(job, "advisory")) ? "advisory" : "ownership-uncertainty";
-			if (!existsSync(join(job, stamp))) {
+			if (!text(join(job, "advisory"))) {
 				return;
 			}
 			if (own) {
 				sendAdvisory(jobs, id, "own");
-			} else if (oldEnoughForFallback(job, join(job, stamp))) {
+			} else if (oldEnoughForFallback(job, join(job, "advisory"))) {
 				sendAdvisory(jobs, id, "fallback");
 			}
 			return;
@@ -793,7 +747,7 @@ export default function limenWake(pi: PiApi): void {
 			if (initialSweep) {
 				initialSweep = false;
 				for (const id of running) {
-					if (text(join(jobs, id, "advisory")) || readHostedUncertainty(join(jobs, id))) {
+					if (text(join(jobs, id, "advisory"))) {
 						observe(jobs, id);
 					}
 				}

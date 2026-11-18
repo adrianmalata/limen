@@ -5,7 +5,7 @@ import { relative, resolve } from "node:path";
 import { herdrBinary } from "../integrations/herdr.ts";
 import { type GroupIdentity, jobMembership } from "../job/group-cabinet.ts";
 import { isTerminal } from "../job/job.ts";
-import { type JobRecord, noteKind } from "../job/view.ts";
+import type { JobRecord } from "../job/view.ts";
 import { limenRoot, unlandedBranches, workspaceRepository, workspaceRoot } from "../project/git.ts";
 import { listLeftovers } from "../project/leftovers.ts";
 import { confirmDeadJobs } from "../runtime/reap.ts";
@@ -40,7 +40,6 @@ type JobFiles = {
 	readonly label: string;
 	readonly branch: string;
 	readonly repo: string;
-	readonly pane: string;
 	readonly tab: string;
 	readonly worktree: string;
 	readonly origin: string;
@@ -57,7 +56,7 @@ type Scan = {
 	readonly running: string[];
 	readonly runningBranches: Set<string>;
 	readonly uncertain: string[];
-	readonly workerPanes: Set<string>;
+	readonly workerTabs: Set<string>;
 	readonly worktrees: Set<string>;
 	readonly originTabs: Set<string>;
 	readonly finished: Map<string, Finished>;
@@ -80,7 +79,7 @@ export async function statusCommand(args: readonly string[], cwd: string): Promi
 		running: [],
 		runningBranches: new Set(),
 		uncertain: [],
-		workerPanes: new Set(),
+		workerTabs: new Set(),
 		worktrees: new Set(),
 		originTabs: new Set(),
 		finished: new Map(),
@@ -103,7 +102,7 @@ export async function statusCommand(args: readonly string[], cwd: string): Promi
 	const coordinators = coordinatorLines(
 		root,
 		workspaceRoot(root) !== undefined,
-		scan.workerPanes,
+		scan.workerTabs,
 		scan.worktrees,
 		scan.originTabs,
 	);
@@ -165,34 +164,24 @@ async function readJobFiles(dir: string): Promise<JobFiles> {
 		label = "",
 		branch = "",
 		repo = "",
-		pane = "",
 		tab = "",
 		worktree = "",
 		origin = "",
 		started = "",
 		ended = "",
 	] = await Promise.all(
-		[
-			"state",
-			"label",
-			"branch",
-			"repo",
-			"herdr/agent",
-			"herdr/tab",
-			"worktree",
-			"origin-tab",
-			"started-at",
-			"finished-at",
-		].map((name) => (name === "state" ? shownState(dir) : text(`${dir}/${name}`))),
+		["state", "label", "branch", "repo", "herdr/tab", "worktree", "origin-tab", "started-at", "finished-at"].map(
+			(name) => (name === "state" ? shownState(dir) : text(`${dir}/${name}`)),
+		),
 	);
-	return { state, label, branch, repo, pane, tab, worktree, origin, started, ended };
+	return { state, label, branch, repo, tab, worktree, origin, started, ended };
 }
 
 /** Sorts one job into running, older, unconfirmed, a group's branches, or a finished branch. */
 async function scanJob(scan: Scan, id: string): Promise<void> {
 	const dir = `${scan.jobsRoot}/${id}`;
 	const job = await readJobFiles(dir);
-	noteJobPanes(scan, job);
+	noteJobTabs(scan, job);
 	if (job.state === "running") {
 		if (job.branch) {
 			scan.runningBranches.add(`${job.repo}:${job.branch}`);
@@ -238,13 +227,10 @@ async function scanJob(scan: Scan, id: string): Promise<void> {
 	}
 }
 
-/** Panes, tabs and worktrees that belong to workers, so the coordinator list can leave them out. */
-function noteJobPanes(scan: Scan, job: JobFiles): void {
-	if (job.pane) {
-		scan.workerPanes.add(job.pane);
-	}
+/** Tabs and worktrees that belong to workers, so the coordinator list can leave them out. */
+function noteJobTabs(scan: Scan, job: JobFiles): void {
 	if (job.tab) {
-		scan.workerPanes.add(job.tab);
+		scan.workerTabs.add(job.tab);
 	}
 	if (job.worktree) {
 		scan.worktrees.add(job.worktree);
@@ -278,14 +264,12 @@ function runningAttention(record: JobRecord): string {
 	if (record.invalid) {
 		return `invalid: ${record.invalid}`;
 	}
-	const note = record.advisory ?? "";
-	const kind = note && noteKind(note);
 	const silent =
 		record.silentMs !== undefined && record.silentMs >= 90_000 ? `silent ${Math.floor(record.silentMs / 60_000)}m` : "";
 	return [
 		record.pulse === "dead" ? "dead" : (record.pulse ?? "unknown activity"),
 		silent,
-		note.startsWith(kind) ? note : `${kind}: ${note}`,
+		record.advisory ? `advisory: ${record.advisory}` : "",
 	]
 		.filter(Boolean)
 		.join(" · ");
@@ -359,13 +343,7 @@ function coordinatorLines(
 		}
 		const plant = realpathSync(root);
 		const relevant = agents.filter((agent) => {
-			if (
-				!agent.cwd ||
-				!agent.tab_id ||
-				workers.has(agent.pane_id ?? "") ||
-				workers.has(agent.tab_id) ||
-				worktrees.has(agent.cwd)
-			) {
+			if (!agent.cwd || !agent.tab_id || workers.has(agent.tab_id) || worktrees.has(agent.cwd)) {
 				return false;
 			}
 			let path: string;

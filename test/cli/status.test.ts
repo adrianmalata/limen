@@ -1,10 +1,10 @@
-// `limen status` lists the leftover files of cut features in the project it reports on.
+// `limen status` lists the leftover files of cut features in the project it reports on, and names a running job's note.
 import assert from "node:assert/strict";
-import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { limen, plant } from "../plant.ts";
+import { jobDir, limen, plant, release, spawnJob, until } from "../plant.ts";
 
 const AGENTS_TEMPLATE = fileURLToPath(new URL("../../templates/agents.md", import.meta.url));
 const STUB_TEMPLATE = fileURLToPath(new URL("../../templates/limen-extension.ts", import.meta.url));
@@ -73,4 +73,19 @@ test("limen status prints no Leftover files section when the project has no left
 		run.stdout.split("\n").filter((line) => line.startsWith("Leftover files")),
 		[],
 	);
+});
+
+test("limen status names a running job's note by its file, advisory", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = spawnJob(p, "block", ["--label", "noted"]);
+	const dir = jobDir(p, id);
+	await until(dir, () => existsSync(join(dir, "fake-blocked-1")));
+	// The note the detached wrapper writes when it cannot observe a tool stall (src/runtime/wrapper.ts).
+	writeFileSync(join(dir, "advisory"), "tool stall observation uncertain: CPU or process identity unavailable\n");
+	const run = limen(p, ["status"]);
+	await release(dir);
+	assert.equal(run.status, 0, run.stderr);
+	const line = run.stdout.split("\n").find((entry) => entry.startsWith(`  noted (${id})`)) ?? run.stdout;
+	assert.ok(line.endsWith(" · advisory: tool stall observation uncertain: CPU or process identity unavailable"), line);
 });

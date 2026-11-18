@@ -28,7 +28,7 @@ test("a job's note shows once, keeps its first version, logs changes, and is che
 	const reminders = join(root, ".agents/limen/reminders.md");
 	await Promise.all([join(job, "session"), join(root, ".agents/limen")].map((dir) => mkdir(dir, { recursive: true })));
 	await Promise.all([writeFile(join(job, "log"), ""), writeFile(reminders, " \n")]);
-	Object.assign(process.env, { LIMEN_JOB: "1", LIMEN_CONTEXT_ROOT: root, LIMEN_JOB_ID: "j1", LIMEN_HOSTED: "0" });
+	Object.assign(process.env, { LIMEN_JOB: "1", LIMEN_CONTEXT_ROOT: root, LIMEN_JOB_ID: "j1" });
 	const hook = load(limenCommunication);
 	const prompt = (pi = hook) => pi.call("before_agent_start", {}, { cwd: root })?.message?.content ?? "";
 	const first = prompt();
@@ -45,23 +45,14 @@ test("a job's note shows once, keeps its first version, logs changes, and is che
 	const follow = "Follow each binding reminder. Do not copy them into the note.";
 	assert.ok(prompt(load(limenCommunication)).endsWith(`(${reminders}):\n- R.\n${follow}`));
 	assert.match(noteSteer(job), /old line and append "Changed: .*Seen pointers\. .*\nIf a reminder changes, .*file\.$/);
-	// Detached: a run that ends without finish gets the check as one more turn, once; finish then ends the job.
-	const detached = load(limenFinish);
-	const ask = detached.call("agent_before_settle", { outcome: "completed", entries: [] })?.entries?.[0]?.content ?? "";
+	// A run that ends without finish gets the check as one more turn, once; finish then ends the job.
+	const finish = load(limenFinish);
+	const ask = finish.call("agent_before_settle", { outcome: "completed", entries: [] })?.entries?.[0]?.content ?? "";
 	assert.match(ask, /^\[limen\] Your note now:\n- a\.\nChanged: b\. Reason: c\.\nYour note at the start:\n- a\.\n/);
 	assert.match(ask, /\nProject reminders:\n- R\.\nCompare the note .*\nReport each binding .*completion\.$/s);
-	assert.equal(detached.call("agent_before_settle", { outcome: "completed", entries: [] }), undefined);
-	assert.equal(await detached.end("handoff"), "done");
-	// Hosted: the first finish answers with the check and ends nothing; a missing note is rebuilt from the task.
-	process.env.LIMEN_HOSTED = "1";
-	await Promise.all([rm(join(job, "note.md")), rm(reminders)]);
-	const hosted = load(limenFinish);
-	assert.equal(hosted.handlers.has("agent_before_settle"), false);
-	const rebuild = (await hosted.end("early")) ?? "";
-	assert.ok(rebuild.startsWith(`[limen] No note exists in ${job}/note.md. Read ${job}/task.md and reconstruct`));
-	assert.match(rebuild, /^\[limen\] No note .*\nCompare .*\nGive .*\nDo not repeat .*\nThen call finish again\. .*$/);
-	assert.deepEqual([await readFile(join(job, "result"), "utf8"), await hosted.end("final")], ["handoff\n", "done"]);
-	assert.equal((await readFile(join(job, "log"), "utf8")).split("] note check sent\n").length, 3);
+	assert.equal(finish.call("agent_before_settle", { outcome: "completed", entries: [] }), undefined);
+	assert.equal(await finish.end("handoff"), "done");
+	assert.equal((await readFile(join(job, "log"), "utf8")).split("] note check sent\n").length, 2);
 	// A sent check left unanswered is open. A proven command counts only from a bash call that a real shell ended with
 	// exit 0, joined by `&&` alone, with no pipe after it. The `npm` stub records each run it really made.
 	assert.deepEqual(noteCheckOpen(job), ["Note check: missing from the final message"]);
@@ -94,4 +85,19 @@ test("a job's note shows once, keeps its first version, logs changes, and is che
 	assert.deepEqual(await open(result), [...gaps, "E: not proven. Limen: it names no command or file in backticks"]);
 	assert.equal(await readFile(join(root, "npm.ran"), "utf8"), "test 0 -- x\n");
 	assert.deepEqual(await open("**Note check**\nAll proven."), ['Note check: no line reads "<check>: <mark>"']);
+});
+
+test("a job that ends without a note gets a check that tells it to rebuild the note from its task", async (t) => {
+	const root = await mkdtemp(join(tmpdir(), "u14-"));
+	t.after(() => rm(root, { recursive: true, force: true }));
+	const job = join(root, ".limen/jobs/j2");
+	await mkdir(job, { recursive: true });
+	await writeFile(join(job, "log"), "");
+	Object.assign(process.env, { LIMEN_JOB: "1", LIMEN_CONTEXT_ROOT: root, LIMEN_JOB_ID: "j2" });
+	// A run that ends without finish gets the check as one more turn; with no note.md its first line names the task.
+	const settle = load(limenFinish).call("agent_before_settle", { outcome: "completed", entries: [] });
+	const ask = settle?.entries?.[0]?.content ?? "";
+	const rebuild = `[limen] No note exists in ${job}/note.md. Read ${job}/task.md and reconstruct the end checks and the easy-to-miss rule. Do not assume they are proven.`;
+	assert.equal(ask.split("\n")[0], rebuild);
+	assert.match(ask, /\nCompare .*\nGive .*\nDo not repeat [^\n]*$/);
 });

@@ -50,10 +50,10 @@ The reader owns this project and did not write this code. They know what the pro
 A feature number, slug, commit hash, job ID, branch, tab label, or path says where something is filed. It does not say what it is. Every identifier travels with its meaning. The meaning comes first, in one short clause a stranger could use; the identifier follows in parentheses or backticks, and only when filing, a command, or a later lookup needs it. A slug is a filing name, not a description.
 
 - Not *F048 is active now.* Say *The change that makes spawn return in seconds and hands the worker to a background supervisor (F048) is being implemented now.*
-- Not *Review of `9e7e231` is still running.* Say *The change that moves hosted startup into the supervisor is under independent review; its commit is `9e7e231`.*
-- Not *Proven and filed: F011, F042, F044.* Say *Three fixes are proven and filed: a job that finished having done nothing now says so (F011), a completion wake counts as delivered only after a real turn (F042), and a hosted job retries a failed start once (F044).*
+- Not *Review of `9e7e231` is still running.* Say *The change that gives every job a log tab in Herdr is under independent review; its commit is `9e7e231`.*
+- Not *Proven and filed: F011, F042, F044.* Say *Three fixes are proven and filed: a job that finished having done nothing now says so (F011), a completion wake counts as delivered only after a real turn (F042), and a queued job tells its coordinator once that it started (F044).*
 - Not *Fixed in `hook/wake.ts`.* Say *Fixed in the wake hook, the code that tells this conversation a job finished (`hook/wake.ts`).*
-- Not *Already handled, that was the F032 live prove.* Say *That job was the live check that a hosted job's supervisor keeps following its pane after the pane moves (F032). It passed; I stopped the job and filed the feature as proven.*
+- Not *Already handled, that was the F032 live prove.* Say *That job was the live check that a finished job's Herdr tab closes by itself (F032). It passed; I stopped the job and filed the feature as proven.*
 
 Do not mirror the register of the code, the specs, the commit log, or the board. The board says `F039-split-proc`; the reader hears *the process code split into four files*.
 

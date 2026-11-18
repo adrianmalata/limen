@@ -1,6 +1,6 @@
 // U11: what the live picture says a job does. A record that says running is never shown as working when its owner is
-// gone or it has been silent too long; finished jobs leave the page after an hour; detached and hosted job folders
-// read the same way; a coordinator's workers and a group's teams nest as one tree.
+// gone or it has been silent too long; finished jobs leave the page after an hour; a job folder reads by its owner, its
+// log and its session; a coordinator's workers and a group's teams nest as one tree.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
@@ -30,7 +30,6 @@ const job = (over: Partial<JobFiles>): JobFiles => ({
 	detail: "npm test",
 	stopReason: "",
 	tools: 3,
-	hosted: false,
 	role: "worker",
 	spawnedBy: "",
 	group: "",
@@ -82,7 +81,7 @@ test("a finished job shows its end for an hour, then leaves the page", () => {
 	assert.deepEqual(jobActivity(job({}), NOW)?.work, ["f932", "f780"]);
 });
 
-test("the reader reads detached and hosted job folders the same way", async () => {
+test("the reader reads a job folder by its owner, its log and its session", async () => {
 	const jobs = await mkdtemp(join(tmpdir(), "limen-live-"));
 	const running = { state: "running\n", pid: `${process.pid}\n`, activity: "tool\n", "last-tool": "bash\n" };
 	const session = "session/2026-10-08T11-59-00Z_a.jsonl";
@@ -92,14 +91,12 @@ test("the reader reads detached and hosted job folders the same way", async () =
 		log: "think\nbash npm test\n",
 		[session]: '{"type":"session"}\n{"type":"model_change","provider":"openai-codex","modelId":"gpt-6-sol"}\n',
 	});
-	await folder(jobs, "2026-10-08-f932-hosted-00000002", { ...running, "tool-detail": "git log\n" });
 	await folder(jobs, "2026-10-08-f932-gone-00000003", { ...running, pid: `${gone}\n` });
 	const snapshot = await activityReader(jobs)();
 	const rows = snapshot.jobs.map((live) => [live.id.slice(16, -9), live.state, live.doing, live.detail, live.model]);
 	assert.deepEqual(rows.sort(), [
 		["detached", "working", "running tests and checks", "npm test", "openai-codex/gpt-6-sol"],
 		["gone", "dead", "running a command", "", ""],
-		["hosted", "working", "running a command", "git log", ""],
 	]);
 });
 

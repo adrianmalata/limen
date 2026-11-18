@@ -84,3 +84,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: measured
 - Commit: R-004
 - Rollback: git revert $(git log --format=%H --grep='^R-004:' adrian-rebuild --) (the leftover file stays until `limen init --drop-leftovers`)
+
+## 2026-11-18 R-005 Cut hosted `--tab` jobs; the GitHub module and groups run detached
+- What: deleted `src/runtime/supervisor.ts`, `src/runtime/hosted-binding.ts`, `src/runtime/hosted-uncertainty.ts`, `hook/hosted.ts`; renamed `test/s2-hosted.test.ts` → `test/s2-herdr.test.ts`; `src/integrations/herdr.ts` (the hosted Herdr calls), `src/commands/spawn.ts`, `continue.ts`, `stop.ts`, `jobs.ts`, `status.ts`, `sweep.ts`, `rule.ts`, `group.ts`, `group-rounds.ts`, `github.ts`; `src/runtime/engine.ts`, `reap.ts`, `recovery.ts`, `wrapper.ts`; `src/job/job.ts`, `group-cabinet.ts`, `publication.ts`, `record.ts`, `view.ts` (`noteKind` goes; the note is `advisory`), `wake-delivery.ts`; `src/integrations/github-review.ts` and `github-poller.ts` (a GitHub job is detached; no `hosted` or `started` check); `src/picture/activity.ts`; `hook/finish.ts`, `hook/wake.ts`; `src/main.ts`; `src/old-names.ts` (`OLD_FLAGS`, `removedFlag`, `refuseRemovedFlags`: `--tab` on `spawn`, `continue`, `group start`); templates and their history, `README.md`, `CONTRIBUTING.md`, `docs/`; tests, with the new `test/cli/old-hosted.test.ts`
+- Why: G1.8, A-023, T-18
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (102/102: 96 − 4 removed with the cut + 10 new); `node adrian-rebuild/tools/fails-before.mjs` → exit 0; the ticket's `git grep -q -i -E 'hosted|--tab\b|…|noteKind' -- …` → exit 1 (no match)
+- Measurement: unmeasured (plan.md → Measurement: M-01 at the close of stage 1; seat steps 1.2 and 1.3)
+- Commit: R-005
+- Rollback: git revert $(git log --format=%H --grep='^R-005:' adrian-rebuild --)

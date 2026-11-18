@@ -1,9 +1,7 @@
 import { readdir } from "node:fs/promises";
-import { hostedAgentAlive } from "../integrations/herdr.ts";
 import { finalizeJob, textFile } from "../job/record.ts";
 import { type ProcessQueryOutcome, processAlive, processGroupAlive, processInfo } from "./contain.ts";
-import { claimRecovery, recoverHostedOwner, recoveryTarget } from "./recovery.ts";
-import { writeHostedResult } from "./supervisor.ts";
+import { claimRecovery } from "./recovery.ts";
 
 export const STARTUP_GRACE_MS = 10 * 60_000;
 export async function liveJob(jobDir: string, now = Date.now()): Promise<boolean> {
@@ -17,10 +15,6 @@ export async function liveJob(jobDir: string, now = Date.now()): Promise<boolean
 		processGroupAlive(recorded) &&
 		(await sameBirth(recorded, await textFile(`${jobDir}/born`)))
 	) {
-		return true;
-	}
-	const agent = await textFile(`${jobDir}/herdr/agent`);
-	if ((await textFile(`${jobDir}/hosted`)) && agent && hostedAgentAlive(agent)) {
 		return true;
 	}
 	if (recorded !== undefined) {
@@ -69,7 +63,6 @@ async function sameBirth(
 	}
 	return alive;
 }
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: split pending: dead job reaping
 export async function reapDeadJobs(
 	jobsRoot: string,
 	seen: Map<string, number>,
@@ -106,19 +99,6 @@ export async function reapDeadJobs(
 		if (now - first < reapConfirmMs()) {
 			continue;
 		}
-		if (await textFile(`${jobDir}/hosted`)) {
-			const target = await recoveryTarget(jobDir);
-			if (target === "unknown") {
-				continue;
-			}
-			if (target !== "missing") {
-				await recoverHostedOwner(jobDir);
-				if (await ownerAlive(jobDir)) {
-					seen.delete(id);
-				}
-				continue;
-			}
-		}
 		const release = await claimRecovery(jobDir);
 		if (!release) {
 			continue;
@@ -127,14 +107,7 @@ export async function reapDeadJobs(
 			if ((await textFile(`${jobDir}/state`)) !== "running" || (await ownerAlive(jobDir))) {
 				continue;
 			}
-			const hosted = await textFile(`${jobDir}/hosted`);
-			if (hosted && (await recoveryTarget(jobDir)) !== "missing") {
-				continue;
-			}
-			if (hosted) {
-				await writeHostedResult(jobDir);
-			}
-			await finalizeJob(jobDir, "failed", hosted ? "hosted supervisor lost" : "process group gone");
+			await finalizeJob(jobDir, "failed", "process group gone");
 			seen.delete(id);
 		} finally {
 			await release();

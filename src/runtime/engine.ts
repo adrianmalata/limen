@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -10,7 +10,6 @@ export type EngineProfile = {
 	readonly id: EngineId;
 	readonly binaryEnv: "LIMEN_PI";
 	readonly binaryDefault: EngineId;
-	readonly herdrKind: EngineId;
 	readonly projectTrust: boolean;
 	readonly toolYolo: boolean;
 	readonly sessionName: boolean;
@@ -18,7 +17,6 @@ export type EngineProfile = {
 	readonly authCheck: boolean;
 };
 export type EngineArgv = {
-	readonly jsonMode: boolean;
 	readonly jobDir: string;
 	readonly label: string;
 	readonly preamble: string;
@@ -34,7 +32,6 @@ export const ENGINES: { readonly [K in EngineId]: EngineProfile } = {
 		id: "pi",
 		binaryEnv: "LIMEN_PI",
 		binaryDefault: "pi",
-		herdrKind: "pi",
 		projectTrust: true,
 		toolYolo: false,
 		sessionName: true,
@@ -95,10 +92,7 @@ export function preflightEngine(profile: EngineProfile, model?: string, provider
 }
 
 export function argvFor(profile: EngineProfile, slots: EngineArgv): string[] {
-	const args: string[] = [];
-	if (slots.jsonMode) {
-		args.push("--mode", "json");
-	}
+	const args: string[] = ["--mode", "json"];
 	if (profile.projectTrust) {
 		args.push("--approve");
 	}
@@ -115,11 +109,7 @@ export function argvFor(profile: EngineProfile, slots: EngineArgv): string[] {
 	args.push("--append-system-prompt", slots.preamble);
 	const route = engineRoute(slots.provider, slots.model);
 	const bridge = route.bridged ? bridgePath() : undefined;
-	const named = [
-		...slots.extensions,
-		...(bridge ? [bridge] : []),
-		...(slots.jsonMode ? [] : herdrStateExtensions(profile)),
-	];
+	const named = [...slots.extensions, ...(bridge ? [bridge] : [])];
 	const seen = new Set<string>();
 	for (const path of named) {
 		const key = existsSync(path) ? realpathSync(path) : path;
@@ -164,17 +154,4 @@ function bridgePath(): string | undefined {
 	const candidates = ["", ...scopes].map((scope) => join(modules, scope, "pi-claude-bridge"));
 	const found = candidates.find((path) => existsSync(path));
 	return found ? realpathSync(found) : undefined;
-}
-
-// `--no-extensions` also hides Herdr's state extension, so a hosted pane falls back to screen
-// detection and reads the working agent as idle. Name the Herdr-managed file by its marker.
-function herdrStateExtensions(profile: EngineProfile): string[] {
-	const dir = join(homedir(), `.${profile.id}`, "agent", "extensions");
-	const files = existsSync(dir)
-		? readdirSync(dir)
-				.filter((name) => name.endsWith(".ts"))
-				.sort()
-		: [];
-	const marker = new RegExp(`^// HERDR_INTEGRATION_ID=${profile.herdrKind}$`, "m");
-	return files.map((name) => join(dir, name)).filter((path) => marker.test(readFileSync(path, "utf8")));
 }

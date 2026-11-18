@@ -28,7 +28,7 @@ not judge review acceptance or choose the next lane.
 
 ## Role spaces belong to a project root
 
-Hosted workers, detached log views, and diff views share role spaces labeled
+Job log views and diff views share role spaces labeled
 `repo workers · /canonical/path/to/repo` (or the corresponding role). The full
 canonical root distinguishes projects with the same directory name; symlink
 aliases reuse the same space. An adjacent repository can supply the tab's cwd
@@ -61,8 +61,7 @@ The footer shows the same job line. A warning such as `1 of 14 needs attention`
 counts only dead jobs, not every running job.
 
 The footer, `limen jobs`, and the reaper use the wrapper's PID and recorded birth
-identity to judge its owner. Hosted agent status is a separate fact in `jobs`;
-an idle or live agent cannot make a missing or reused wrapper PID look alive.
+identity to judge its owner.
 
 A finished job stays on the job line until it lands or closes. It lands when
 its recorded commits are in the checked-out branch, by the same test as
@@ -81,14 +80,8 @@ live jobs. `· 1 finished` counts finished jobs that have not landed or closed a
 that finished after the owner's last message. A Limen wake message does not
 reset it.
 
-A job tab's label ends in `· running` while the job runs. Herdr shows a hosted
-pane that waits for input as `idle`; the label still says the job runs. A hosted
-worker or reviewer also keeps its role and adds `job RUNNING · pane ready`
-when the pane settles. Ending a Pi turn or writing a final answer does not end a
-hosted job. The worker must finish/exit and the supervisor must record the
-terminal state. The reporter reads that record, refreshes through silence, and
-releases its overlay on shutdown. Reports are advisory and expire if refresh
-stops; an absent label is not proof that the job ended.
+A job tab's label ends in `· running` while the job runs. The tab follows the
+job's log; the job runs detached, so nobody types into it.
 
 When a job finishes, Limen closes its tab. The job log records the result:
 `herdr tab close <tab>: closed`, `already closed`, or the refusal. Limen retries a
@@ -109,8 +102,6 @@ and a restarted coordinator keep it. `limen highlight off` turns it off, and
 While it is on, these start with `◆ `:
 
 - the coordinator pane's display agent, pane title, and `limen` token
-- a hosted job pane's display agent and `limen` token
-- the stall overlay on a hosted pane
 - every job tab label: `◆ fix login · F012 · running`
 - the coordinator tab tail: `chat settings · ◆ 2 running · 1 finished`
 - the title of each Herdr notification that Limen shows
@@ -120,13 +111,10 @@ A Limen state label takes the place of Herdr's state word, so the marked label
 keeps that word in front: `idle ◆ 2 RUNNING · 1 watched · …`. The state icon,
 the state word where Limen reports no label, the agent kind (`pi`), the
 terminal title that Pi sets, tab numbers, workspace names you typed, and Pi's
-own footer stay native. Two Limen strings stay unmarked: role space labels
-(`repo workers · /path`), because Limen finds its role spaces by label, and agent
-names (`limen-f012-…`), because Herdr allows only `[a-z0-9_-]` in them. Wake
-messages are not marked either.
+own footer stay native. Role space labels (`repo workers · /path`) stay unmarked,
+because Limen finds its role spaces by label. Wake messages are not marked either.
 
-A coordinator pane follows a change within about a second, and a hosted job pane
-within a second. The command renames each open job tab that a job record names,
+A coordinator pane follows a change within about a second. The command renames each open job tab that a job record names,
 so already open tabs follow at once. While the switch is off, Limen writes the
 same text as before the switch existed.
 
@@ -155,16 +143,15 @@ The picture page has its own switch with the same mark and accent; see
 ## Activity is evidence, not a human blocker
 
 `think` is the last recorded thinking activity, not proof that tokens are arriving
-now. `think · unwatched` can persist through a long silent hosted turn: the job
+now. `think · unwatched` can persist through a long silent turn: the job
 remains RUNNING and this session is not watching it. `tool` names tool activity;
 `wait` records a turn boundary or waiting activity. Neither silence nor `wait`
 says the owner needs to answer a question.
 
 `dead` means the recorded process group was not found while the job record still
 says RUNNING. Keep that warning separate from waiting; inspect the job and its
-supervisor rather than treating it as successful completion. Likewise, preserve
-a real Herdr `blocked` prompt or a recorded blocked advisory instead of replacing
-it with a generic idle label.
+wrapper rather than treating it as successful completion. Likewise, preserve
+a real Herdr `blocked` prompt instead of replacing it with a generic idle label.
 
 ## Candidate awaiting the owner is not landed work
 

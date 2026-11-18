@@ -1,14 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readdir, rename, rm, rmdir, writeFile } from "node:fs/promises";
-import { basename, dirname } from "node:path";
-import { hostedAgentStatus, locateHostedAgent } from "../integrations/herdr.ts";
-import { hostedAgentName } from "../job/job.ts";
-import { atomicWrite, textFile } from "../job/record.ts";
+import { textFile } from "../job/record.ts";
 import { processAlive, processInfo } from "./contain.ts";
-import { jobProfile } from "./engine.ts";
-import { hostedBindingInPane, hostedIdentityObservation, readHostedBinding } from "./hosted-binding.ts";
-import { ownerAlive } from "./reap.ts";
-import { launchHostedSupervisor } from "./wrapper.ts";
 
 /** A populated directory is published atomically. Retire only the observed unique entry:
  * competing stale-claim removers cannot unlink a replacement owner's entry. */
@@ -54,76 +47,4 @@ export async function claimRecovery(jobDir: string): Promise<(() => Promise<void
 	} finally {
 		await rm(prepared, { recursive: true, force: true });
 	}
-}
-
-/** Unlike visibility, recovery requires a fresh concrete answer, not Herdr's last good status. */
-export async function recoveryTarget(jobDir: string): Promise<string | "missing" | "unknown"> {
-	const name = (await textFile(`${jobDir}/agent-name`)) || hostedAgentName(basename(jobDir));
-	const target = (await textFile(`${jobDir}/herdr/agent`)) || (await textFile(`${jobDir}/herdr/pane`)) || name;
-	const status = hostedAgentStatus(target, "fresh");
-	if (status === "unknown") {
-		return "unknown";
-	}
-	if (status !== "missing") {
-		return target;
-	}
-	const engine = (await jobProfile(jobDir)).id;
-	const located = locateHostedAgent(target, engine, name, "fresh");
-	if (located && located !== "unknown" && located !== target) {
-		const binding = readHostedBinding(jobDir);
-		if (!binding || (await hostedBindingInPane(located, binding.pid, engine, jobDir)) !== "owned") {
-			return "unknown";
-		}
-	}
-	if (!located) {
-		const binding = readHostedBinding(jobDir);
-		if (binding && (await hostedIdentityObservation(binding)) !== "mismatch") {
-			return "unknown";
-		}
-	}
-	return located ?? "missing";
-}
-
-export async function recoverHostedOwner(jobDir: string): Promise<void> {
-	const id = basename(jobDir);
-	// The detached candidate claims in its own process, so a dead caller can never strand
-	// a launch-to-handshake ownership transfer. Losing candidates exit without a handshake.
-	const pid = await launchHostedSupervisor({
-		LIMEN_INTERNAL_RUN: "",
-		LIMEN_HOSTED_START: "",
-		LIMEN_HOSTED_RECOVER: "1",
-		LIMEN_JOB_DIR: jobDir,
-		LIMEN_JOB_ID: id,
-		LIMEN_HOSTED_TARGET: "",
-		LIMEN_LABEL: (await textFile(`${jobDir}/label`)) || id,
-		LIMEN_ROLE: (await textFile(`${jobDir}/role`)) || "worker",
-		LIMEN_AGENT_NAME: (await textFile(`${jobDir}/agent-name`)) || hostedAgentName(id),
-		LIMEN_CONTEXT_ROOT: dirname(dirname(dirname(jobDir))),
-	});
-	const deadline = Date.now() + 5_000;
-	while (
-		Date.now() < deadline &&
-		processAlive(pid) &&
-		(await textFile(`${jobDir}/state`)) === "running" &&
-		!(await ownerAlive(jobDir))
-	) {
-		await new Promise((resolve) => setTimeout(resolve, 25));
-	}
-}
-
-export async function prepareRecoveredOwner(jobDir: string): Promise<(() => Promise<void>) | undefined> {
-	const release = await claimRecovery(jobDir);
-	if (!release) {
-		return;
-	}
-	if ((await textFile(`${jobDir}/state`)) === "running" && !(await ownerAlive(jobDir))) {
-		const target = await recoveryTarget(jobDir);
-		if (target !== "missing" && target !== "unknown" && (await textFile(`${jobDir}/state`)) === "running") {
-			await atomicWrite(`${jobDir}/herdr/agent`, `${target}\n`);
-			await atomicWrite(`${jobDir}/herdr/pane`, `${target}\n`);
-			process.env.LIMEN_HOSTED_TARGET = target;
-			return release;
-		}
-	}
-	await release();
 }

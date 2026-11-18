@@ -6,10 +6,10 @@ tools/night.mjs, odpowiedzi na nocne pytania Q-1–Q-7: kryteria tylko w zakresi
 pierwszym planie, ticket R-088, kod wyjścia tylko we wspólnym opakowaniu i R-013 po cięciach; A-087 w R-019 i zakaz
 ponownego uruchamiania testu, który raz padł), fakty o silniku,
 wymagania systemowe, 9 etapów z kosztem i efektem, 88 ticketów R-NNN, wdrożenie, pomiary, protokół subagentów
-i polecenia na allow-listę. Stan: etap 5 (przebudowa) w toku, etap planu 1; R-001, R-002, R-003, R-004, R-008,
-R-010, R-011 i R-088 zamknięte; 18.11 w dzień doszły decyzje D-025–D-033 (m.in. zasady komunikacji z Adrianem,
-wyjątek dla testu A-087 i przekazywanie sesji); następna sesja zaczyna od R-005, potem pozostałe cięcia, R-013, R-012
-i R-014. -->
+i polecenia na allow-listę. Stan: etap 5 (przebudowa) w toku, etap planu 1; R-001–R-005, R-008, R-010,
+R-011 i R-088 zamknięte; 18.11 w dzień doszły decyzje D-025–D-033 (m.in. zasady komunikacji z Adrianem,
+wyjątek dla testu A-087 i przekazywanie sesji); następna sesja zaczyna od R-006, potem R-007, R-009,
+R-013, R-012 i R-014. -->
 
 # Rebuild plan
 
@@ -717,7 +717,7 @@ Columns:
 | R-002 | Cut finish webhooks, coordinator signals and the finish ping | 1 | G1.3, A-027, A-060, A-076 | R-001 | L | delegated | night | yes | — | — | done |
 | R-003 | Cut Devin and the Linear mirror | 1 | G1.5, G1.6, A-049 | R-001 | M | delegated | night | yes | — | — | done |
 | R-004 | Cut the OMP engine | 1 | G1.7, A-049 | R-001 | L | delegated | night | yes | — | — | done |
-| R-005 | Cut hosted `--tab` jobs; the GitHub module and groups run detached | 1 | G1.8, A-023 | R-001 | L | delegated | night | yes | herdr | 1.2, 1.3 | planned |
+| R-005 | Cut hosted `--tab` jobs; the GitHub module and groups run detached | 1 | G1.8, A-023 | R-001 | L | delegated | night | yes | herdr | 1.2, 1.3 | done |
 | R-006 | Cut private planning, `highlight`, `ticket-author`, `wait`, `ticket series`, `continue --review` and `group status --json` | 1 | G1.12, T-18, T-37, A-079 | R-001 | M | delegated | night | yes | — | — | planned |
 | R-007 | Cut the Picture viewer and the map jobs | 1 | G1.4, §6, A-048 | R-001 | L | delegated | night | yes | — | — | planned |
 | R-008 | Cut the macOS branches | 1 | A-083 | — | S | delegated | night | — | — | — | done |
@@ -1326,9 +1326,8 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-18, day session, rebuild stage 5 in progress at plan stage 1: R-001, R-002, R-003, R-004, R-008,
-R-010, R-011 and R-088 `done`; R-005–R-007, R-009, R-012, R-013 and R-014 `planned`; no ticket active, no question
-open.
+Updated 2026-11-18, day session, rebuild stage 5 in progress at plan stage 1: R-001–R-005, R-008, R-010,
+R-011 and R-088 `done`; R-006, R-007, R-009, R-012, R-013 and R-014 `planned`; no ticket active, no question open.
 
 Handover (D-033): `limen-rebuild-2`, started in `tmux` at 16:17, died at 16:22:59 together with its running
 implementer of R-003, when WSL stopped the distro. `tmux` does not keep WSL alive: without a
@@ -1338,9 +1337,10 @@ powering down" with no command before it; Windows did not restart). At Adrian's 
 `%UserProfile%\.wslconfig` with `[general] instanceIdleTimeout=-1` and `[wsl2] vmIdleTimeout=-1`; it applies from the
 next WSL start, and Adrian declined a restart and keeps a WSL window open instead. A session Adrian started in the
 repository took R-003 over at step 3, closed R-003 and R-004, and handed over at 31 % context to `limen-rebuild-3`,
-started in `tmux` in remote-control mode with the first message of the rebuild prompt. Your first act: send Adrian a
-push notification (PushNotification, one line in Polish) that session `limen-rebuild-3` takes over the rebuild at
-R-005; then go on with `Next`. The next handover is `limen-rebuild-4`, once a WSL window is open or WSL started after
+started in `tmux` in remote-control mode with the first message of the rebuild prompt (20:35); it closed R-005 at
+21 % context. Your first act as the next session: send Adrian a push notification (PushNotification, one line in
+Polish) that your session takes over the rebuild at the first ticket of `Next`; then go on with `Next`. The next
+handover is `limen-rebuild-4`, once a WSL window is open or WSL started after
 the `.wslconfig` was written (`uptime -s`). Read your context share at every safe point with `cat
 ~/.claude/context/<session id>.json` (the session id is the UUID in your scratchpad path; `context_used_percentage`,
 `five_hour_used_percentage`, `seven_day_used_percentage`); at 30–50 % hand over, at 50 % at once (D-033, and the
@@ -1501,8 +1501,20 @@ Day session of 2026-11-18, continued (Adrian's answers to Q-4–Q-7 in the conve
   it is there) and which target `moshi-hook` was installed with (`moshi-hook status`); the refusal wording at gate 5.1.
   Unverified in the repository: that Pi 1.5.1 fires no `session_stop` and sends no `paths` or `path:N-M` (B.2's seat
   check; the outcome's Risk).
+- R-005 `done` (delegated): hosted jobs are cut: the hosted supervisor, the pane ownership proof and its
+  uncertainty, `hook/hosted.ts` and every hosted branch of spawn, continue, stop, reap, recovery, the readers and the
+  wake. The GitHub module runs a review or task as a detached job (90 min, 900 tool starts, the start queue) and
+  matches its record by shape, without `hosted` or `started`; groups are detached, with a log tab per team
+  coordinator. `--tab` on `spawn`, `continue` and `group start` refuses with a line of the new `OLD_FLAGS` table
+  (`src/old-names.ts`); `--detached` is accepted and changes nothing until R-014. The running job's note is named
+  `advisory` everywhere. No leftover files (hosted mode wrote only job folders). Review FAIL in round 1 (one blocking
+  sentence in `docs/remote.md`, three notes fixed), PASS in round 2; gate 102/102. For Adrian: step 1.0 must show no
+  running job (a hosted job would keep Pi in its pane); the main session's choices in `ticket.md` → `## Decisions`
+  and the refusal wording at gate 5.1; `src/job/wake-text.ts:153` still says "open the tab and exit" in the advisory
+  wake (outcome → Open points 2, for the wake rewrite of stage 5); `src/project/picture-tick.ts:19` still names
+  `--tab` until R-007.
 
-Next: R-005, R-006, R-007, R-009 in the order of IDs, then R-013 (after all the cuts, D-028) and R-012
+Next: R-006, R-007, R-009 in the order of IDs, then R-013 (after all the cuts, D-028) and R-012
 (all `night`; by day or in a night run); R-014 (pair) by day after them. Each cut ticket that removes a command adds
 its entry to `src/old-names.ts` and its leftover paths to `LEFTOVERS`. B.2 runs on the seat before a0.1.0 is deployed
 (B.1 was done on 2026-11-17).

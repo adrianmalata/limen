@@ -1,5 +1,5 @@
-// The table of old names (T-18): a command or an engine value that a cut removed refuses with one line instead of
-// reading as unknown, so a caller learns what replaced it. R-085 removes the table at the end of the rebuild.
+// The table of old names (T-18): a command, an engine value or a flag that a cut removed refuses with one line instead
+// of reading as unknown, so a caller learns what replaced it. R-085 removes the table at the end of the rebuild.
 
 /** A removed name: the name, the feature it was removed with, the ticket that removed it, and what to use instead. */
 export type OldName = {
@@ -31,10 +31,31 @@ export const OLD_ENGINES: readonly OldName[] = [
 	{ name: "omp", feature: "the OMP engine", ticket: "R-004", instead: "use --engine pi" },
 ];
 
+/** A removed flag: the command that took it, the flag with its dashes, and the fields of `OldName`. */
+export type OldFlag = OldName & { readonly command: string };
+
+/** The one removal of `--tab`, on each command that took it. */
+const TAB = {
+	name: "--tab",
+	feature: "hosted jobs",
+	ticket: "R-005",
+	instead: "jobs run detached with a Herdr log tab; correct one with limen steer",
+} as const;
 /**
- * The table holds removed commands (`OLD_NAMES`) and removed engine values (`OLD_ENGINES`). This is the refusal of a
- * removed command, or `undefined` for a name `OLD_NAMES` does not hold. The caller refuses before anything runs, so a
- * refusal writes nothing (R-013 gives it exit code 2 and `instead` in `next`).
+ * Every cut ticket that removes a flag adds its entry here. A command keeps a removed flag in its parse table and
+ * refuses it after parsing, so a flag value that looks like it, as in `--label --tab`, still reads as a value.
+ */
+export const OLD_FLAGS: readonly OldFlag[] = [
+	{ ...TAB, command: "spawn" },
+	{ ...TAB, command: "continue" },
+	{ ...TAB, command: "group start" },
+];
+
+/**
+ * The table holds removed commands (`OLD_NAMES`), removed engine values (`OLD_ENGINES`) and removed flags
+ * (`OLD_FLAGS`). This is the refusal of a removed command, or `undefined` for a name `OLD_NAMES` does not hold. The
+ * caller refuses before anything runs, so a refusal writes nothing (R-013 gives it exit code 2 and `instead` in
+ * `next`).
  */
 export function removedCommand(name: string): string | undefined {
 	const old = OLD_NAMES.find((entry) => entry.name === name);
@@ -48,4 +69,22 @@ export function removedCommand(name: string): string | undefined {
 export function removedEngine(name: string): string | undefined {
 	const old = OLD_ENGINES.find((entry) => entry.name === name);
 	return old && `engine ${old.name} was removed with ${old.feature} (${old.ticket}); ${old.instead}`;
+}
+
+/** The refusal of a removed flag of a command, or `undefined` for a flag `OLD_FLAGS` does not hold for that command. */
+export function removedFlag(command: string, flag: string): string | undefined {
+	const old = OLD_FLAGS.find((entry) => entry.command === command && entry.name === flag);
+	return old && `limen ${old.command} ${old.name} was removed with ${old.feature} (${old.ticket}); ${old.instead}`;
+}
+
+/**
+ * Throws the refusal of the first removed flag of `command` that `values`, the command's parsed flags keyed by name
+ * without dashes, hold. A command calls it right after parsing, before it writes anything.
+ */
+export function refuseRemovedFlags(command: string, values: Readonly<Record<string, unknown>>): void {
+	for (const old of OLD_FLAGS) {
+		if (old.command === command && values[old.name.slice(2)] !== undefined) {
+			throw new Error(removedFlag(command, old.name));
+		}
+	}
 }

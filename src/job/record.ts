@@ -55,7 +55,6 @@ export async function finalizeJob(
 		inbox.length ? `${state}: ${detail}; ${inbox.length} steer(s) never delivered` : `${state}: ${detail}`,
 	).catch(() => {});
 	await atomicWrite(`${jobDir}/state`, `${state}\n`);
-	await rm(`${jobDir}/ownership-uncertainty`, { force: true });
 	await rm(`${jobDir}/queued`, { force: true });
 	const group = await textFile(`${jobDir}/group`);
 	if (group) {

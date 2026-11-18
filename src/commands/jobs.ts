@@ -1,6 +1,5 @@
 import type { Stats } from "node:fs";
 import { open, readdir, readFile, stat } from "node:fs/promises";
-import { hostedAgentStatus } from "../integrations/herdr.ts";
 import { derivePulse, type Job, type Pulse, parseJob, producedNothing, renderJob } from "../job/job.ts";
 import { resolveJob } from "../job/lookup.ts";
 import { modelLine, readSessionUsage, tokenLine } from "../job/usage.ts";
@@ -15,7 +14,6 @@ import {
 	tallyStates,
 } from "../job/view.ts";
 import { limenRoot, liveDiffstat, workspaceRepository } from "../project/git.ts";
-import { hostedUncertaintyText, readHostedUncertainty } from "../runtime/hosted-uncertainty.ts";
 import { confirmDeadJobs, ownerAlive, startingJob } from "../runtime/reap.ts";
 import { queuedText, readQueued } from "../runtime/start-queue.ts";
 
@@ -229,7 +227,6 @@ type JobFields = {
 	readonly toolCalls: string;
 	readonly lastTool: string;
 	readonly activity: string;
-	readonly hosted: string;
 	readonly candidate: string;
 	readonly advisory: string;
 	readonly parent: string;
@@ -238,8 +235,6 @@ type JobFields = {
 };
 /** Files beside the job fields. Detail-only files stay empty in the row and human views. */
 type JobEvidence = {
-	readonly warning: string;
-	readonly agent: string;
 	readonly commits: string;
 	readonly commitsStat: Stats | undefined;
 	readonly result: string;
@@ -271,7 +266,6 @@ type JobFacts = {
 	readonly job: Job;
 	readonly startedAt: Date;
 	readonly observedAt: number;
-	readonly agentStatus: string | undefined;
 	readonly pulse: Pulse | undefined;
 	readonly queue: string | undefined;
 	readonly recordedTools: number | undefined;
@@ -295,9 +289,6 @@ export async function renderJobDirectory(
 		return { compact: `INVALID ${id} · missing task.md or log`, record: { id, invalid: "missing task.md or log" } };
 	}
 	const log = view !== "row" ? await readLog(`${jobDir}/log`) : { tail: "", detail: "" };
-	if (fields.hosted) {
-		log.tail = activitySummary(log.tail);
-	}
 	try {
 		return await renderReadableJob({ root, jobDir, id, detailed, fields, evidence, taskStat, logStat, log });
 	} catch (error: unknown) {
@@ -320,14 +311,13 @@ async function readJobFields(jobDir: string): Promise<JobFields> {
 		toolCalls = "",
 		lastTool = "",
 		activity = "",
-		hosted = "",
 		candidate = "",
 		advisory = "",
 		parent = "",
 		engine = "",
 		stopReason = "",
 	] = await Promise.all(
-		"state label branch repo pid started-at finished-at tool-calls last-tool activity hosted candidate advisory parent engine stop-reason"
+		"state label branch repo pid started-at finished-at tool-calls last-tool activity candidate advisory parent engine stop-reason"
 			.split(" ")
 			.map((field) => (field === "state" ? shownState(jobDir) : text(`${jobDir}/${field}`))),
 	);
@@ -342,7 +332,6 @@ async function readJobFields(jobDir: string): Promise<JobFields> {
 		toolCalls,
 		lastTool,
 		activity,
-		hosted,
 		candidate,
 		advisory,
 		parent,
@@ -355,9 +344,6 @@ async function readJobEvidence(
 	fields: JobFields,
 	detailed: boolean,
 ): Promise<{ evidence: JobEvidence; taskStat: Stats | undefined; logStat: Stats | undefined }> {
-	const uncertainty = readHostedUncertainty(jobDir);
-	const warning = fields.advisory || (uncertainty ? hostedUncertaintyText(uncertainty) : "");
-	const agent = await text(`${jobDir}/herdr/agent`);
 	const [commits, commitsStat] = await Promise.all([text(`${jobDir}/commits`), optionalStat(`${jobDir}/commits`)]);
 	const openChecks = fields.state === "done" ? await text(`${jobDir}/open-checks`) : "";
 	const [result, versions] = detailed
@@ -375,8 +361,6 @@ async function readJobEvidence(
 	const tokens = usage ? tokenLine(usage) : "";
 	return {
 		evidence: {
-			warning,
-			agent,
 			commits,
 			commitsStat,
 			result,
@@ -409,7 +393,6 @@ async function renderReadableJob(loaded: LoadedJob): Promise<{ compact: string; 
 	const running = job.phase === "running";
 	const observedAt = running ? Date.now() : recordedDate(fields.finished, new Date(), "finished-at").getTime();
 	const alive = running && (await ownerAlive(loaded.jobDir));
-	const agentStatus = running && fields.hosted && evidence.agent ? hostedAgentStatus(evidence.agent) : undefined;
 	const queued = running ? readQueued(loaded.jobDir) : undefined;
 	const queue = queued ? queuedText(queued) : undefined;
 	const pulse = running ? runningPulse(job.pid, alive, fields.activity, queued !== undefined) : undefined;
@@ -430,7 +413,7 @@ async function renderReadableJob(loaded: LoadedJob): Promise<{ compact: string; 
 		diffstat,
 		logTail: log.tail,
 	});
-	const facts: JobFacts = { job, startedAt, observedAt, agentStatus, pulse, queue, recordedTools, empty, diffstat };
+	const facts: JobFacts = { job, startedAt, observedAt, pulse, queue, recordedTools, empty, diffstat };
 	return { compact: [rendered, ...jobBlocks(loaded, facts)].join("\n"), record: jobRecord(loaded, facts) };
 }
 function runningPulse(pid: number | undefined, alive: boolean, activity: string, queued: boolean): Pulse {
@@ -468,14 +451,8 @@ function jobBlocks(loaded: LoadedJob, facts: JobFacts): string[] {
 	if (evidence.tokens) {
 		blocks.push(`  tokens ${evidence.tokens}`);
 	}
-	if (fields.hosted) {
-		blocks.push("  hosted (weaker guarantees)");
-	}
-	if (facts.agentStatus) {
-		blocks.push(`  agent ${facts.agentStatus}`);
-	}
-	if (facts.job.phase === "running" && evidence.warning) {
-		blocks.push(`  advisory ${displayed(evidence.warning, detailed)}`);
+	if (facts.job.phase === "running" && fields.advisory) {
+		blocks.push(`  advisory ${displayed(fields.advisory, detailed)}`);
 	}
 	const sections: ReadonlyArray<readonly [string, string]> = [
 		["stop-reason", fields.stopReason],
@@ -495,7 +472,7 @@ function jobBlocks(loaded: LoadedJob, facts: JobFacts): string[] {
 }
 function jobRecord(loaded: LoadedJob, facts: JobFacts): JobRecord {
 	const { id, detailed, fields, evidence, logStat, log } = loaded;
-	const { job, observedAt, pulse, queue, recordedTools, empty, agentStatus } = facts;
+	const { job, observedAt, pulse, queue, recordedTools, empty } = facts;
 	const reason = stopSummary(fields.stopReason || log.detail);
 	const running = job.phase === "running";
 	return {
@@ -516,9 +493,7 @@ function jobRecord(loaded: LoadedJob, facts: JobFacts): JobRecord {
 		...(fields.parent ? { parent: fields.parent } : {}),
 		...(evidence.spawnedBy ? { spawnedBy: evidence.spawnedBy } : {}),
 		...(fields.candidate ? { candidate: fields.candidate } : {}),
-		...(fields.hosted ? { hosted: true } : {}),
-		...(agentStatus ? { agentStatus } : {}),
-		...(running && evidence.warning ? { advisory: evidence.warning } : {}),
+		...(running && fields.advisory ? { advisory: fields.advisory } : {}),
 		...recordedEvidence(loaded, facts.diffstat),
 	};
 }
@@ -604,13 +579,6 @@ function recordedCount(value: string): number {
 		throw new Error(`invalid tool-calls ${JSON.stringify(value.slice(0, 160))}`);
 	}
 	return count;
-}
-function activitySummary(tail: string): string {
-	const words = tail.split("\n");
-	if (words.length < 2 || !words.every((word) => /^[a-z_-]+$/.test(word))) {
-		return tail;
-	}
-	return `recent activity: ${[...new Set(words)].join(", ")} (${words.length} events)`;
 }
 async function readLog(path: string): Promise<{ tail: string; detail: string }> {
 	try {

@@ -312,7 +312,7 @@ async function reconcile(root: string, state: string, claim: GithubClaim, token:
 				claim,
 				token,
 				"notice",
-				`Limen request for ${githubSubject(claim)} is pending: handoff to the Herdr coordinator is unconfirmed and no hosted job has been observed. Inspect this seat's .limen/github/claims/${claim.id}.json; no detached fallback was started.`,
+				`Limen request for ${githubSubject(claim)} is pending: handoff to the Herdr coordinator is unconfirmed and no job has been observed. Inspect this seat's .limen/github/claims/${claim.id}.json; no job was started.`,
 			);
 		}
 		return;
@@ -323,26 +323,13 @@ async function reconcile(root: string, state: string, claim: GithubClaim, token:
 		claim.receipt = found.state;
 		await persist(root, state, claim);
 	}
-	if (!found.started) {
-		if (found.state !== "running") {
-			await reply(
-				root,
-				state,
-				claim,
-				token,
-				"notice",
-				`Limen created job \`${found.id}\` for ${githubSubject(claim)}, but the hosted agent never started (state: ${found.state}). Inspect \`limen jobs ${found.id}\` on the owning seat. No review approval or detached fallback occurred.`,
-			);
-		}
-		return;
-	}
 	await reply(
 		root,
 		state,
 		claim,
 		token,
 		"start",
-		`Limen started a hosted ${found.review ? "review" : "task"} for ${githubSubject(claim)}${found.review ? ` at pinned head \`${claim.head}\` against base \`${claim.base}\`` : " from the registered repository"}. Job: \`${found.id}\`; branch: \`${found.branch}\`. On its owning seat: \`limen jobs ${found.id}\`. This is not an approval.`,
+		`Limen started a ${found.review ? "review" : "task"} for ${githubSubject(claim)}${found.review ? ` at pinned head \`${claim.head}\` against base \`${claim.base}\`` : " from the registered repository"}. Job: \`${found.id}\`; branch: \`${found.branch}\`. On its owning seat: \`limen jobs ${found.id}\`. This is not an approval.`,
 	);
 	if (!found.state || found.state === "running") {
 		return;
@@ -362,7 +349,7 @@ async function reconcile(root: string, state: string, claim: GithubClaim, token:
 		claim,
 		token,
 		"terminal",
-		`Limen hosted ${found.review ? "review" : "task"} job \`${found.id}\` ended with state **${found.state}**. This is job termination, not review approval or a merge.\n\nRecorded evidence/result:\n\n\`\`\`text\n${evidence.replaceAll("```", "''' ")}\n\`\`\`\n\nInspect on the owning seat: \`limen jobs ${found.id}\`.`,
+		`Limen ${found.review ? "review" : "task"} job \`${found.id}\` ended with state **${found.state}**. This is job termination, not review approval or a merge.\n\nRecorded evidence/result:\n\n\`\`\`text\n${evidence.replaceAll("```", "''' ")}\n\`\`\`\n\nInspect on the owning seat: \`limen jobs ${found.id}\`.`,
 	);
 }
 
@@ -576,7 +563,7 @@ async function handoff(
 			claim,
 			token,
 			"notice",
-			`Limen could not reach the registered Herdr coordinator for ${githubSubject(claim)}. The request remains pending on its owning seat (.limen/github/claims/${claim.id}.json). No detached job was started.`,
+			`Limen could not reach the registered Herdr coordinator for ${githubSubject(claim)}. The request remains pending on its owning seat (.limen/github/claims/${claim.id}.json). No job was started.`,
 		);
 		return;
 	}
@@ -604,7 +591,7 @@ async function handoff(
 			claim,
 			token,
 			"notice",
-			`Limen could not confirm delivery to the Herdr coordinator for ${githubSubject(claim)}. The request remains pending for inspection on its owning seat (.limen/github/claims/${claim.id}.json). No detached job was started.`,
+			`Limen could not confirm delivery to the Herdr coordinator for ${githubSubject(claim)}. The request remains pending for inspection on its owning seat (.limen/github/claims/${claim.id}.json). No job was started.`,
 		);
 		return;
 	}
@@ -745,7 +732,7 @@ export async function pollGithub(): Promise<void> {
 		throw new Error("poller requires LIMEN_GITHUB_WORKER_UID");
 	}
 	if (process.getuid?.() === workerUid) {
-		throw new Error("poller and hosted workers must have different Unix users");
+		throw new Error("poller and workers must have different Unix users");
 	}
 	const modulePath = await realpath(fileURLToPath(import.meta.url));
 	const file = await stat(modulePath);

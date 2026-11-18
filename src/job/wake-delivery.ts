@@ -313,15 +313,16 @@ export function sessionOwnsJobs(jobs: string, session: string): boolean {
 	}
 	return false;
 }
+/**
+ * A note about a running job. Before R-005 a job mode that is gone wrote its ownership notes as `_uncertainty.…`; such
+ * a slot of an old record is a note too, so it is never read as the completion delivery.
+ */
 function isAdvisorySlot(slot: string): boolean {
-	return slot.startsWith("_advisory.");
+	return slot.startsWith("_advisory.") || slot.startsWith("_uncertainty.");
 }
-export function receiptFamily(slot: string): "_advisory" | "_uncertainty" | "_start" | "_completion" {
+export function receiptFamily(slot: string): "_advisory" | "_start" | "_completion" {
 	if (isAdvisorySlot(slot)) {
 		return "_advisory";
-	}
-	if (slot.startsWith("_uncertainty.")) {
-		return "_uncertainty";
 	}
 	// A start notice from the start queue is news, never the completion delivery.
 	if (slot.startsWith("_start.")) {

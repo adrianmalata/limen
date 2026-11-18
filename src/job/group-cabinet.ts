@@ -5,7 +5,6 @@ import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/p
 import { dirname, isAbsolute } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { hostedAgentStatus } from "../integrations/herdr.ts";
 import { limenRoot } from "../project/git.ts";
 import type { PlanningSource } from "../project/planning.ts";
 import { processAlive, processInfo } from "../runtime/contain.ts";
@@ -44,7 +43,6 @@ export type GroupRun = {
 	reserveMs: number;
 	stopped: boolean;
 	closed: boolean;
-	mode: "auto" | "detached" | "tab";
 	members: GroupMember[];
 	teamExtensions?: Record<string, string[]>;
 };
@@ -304,9 +302,6 @@ export async function claimMember(
 // A child that inherits these would act as the finished job: claim its membership, run it again, or wake its pane.
 const JOB_ENVIRONMENT = [
 	"LIMEN_INTERNAL_RUN",
-	"LIMEN_INTERNAL_HOSTED",
-	"LIMEN_HOSTED_START",
-	"LIMEN_HOSTED_RECOVER",
 	"LIMEN_JOB",
 	"LIMEN_JOB_ID",
 	"LIMEN_JOB_DIR",
@@ -372,10 +367,6 @@ export async function memberLive(root: string, member: GroupMember): Promise<str
 	if (pid > 0 && (await processInfo(pid)).kind !== "absent") {
 		return `its process ${pid} still runs or cannot be checked`;
 	}
-	const target = (await readFile(`${dir}/herdr/agent`, "utf8").catch(() => "")).trim();
-	if (target && hostedAgentStatus(target) !== "missing") {
-		return `its Herdr agent ${target} is still present, or Herdr did not answer`;
-	}
 	const owner = JSON.parse(await readFile(`${dir}/group-owner.json`, "utf8").catch(() => "null")) as {
 		pid: number;
 		born: string;
@@ -385,20 +376,4 @@ export async function memberLive(root: string, member: GroupMember): Promise<str
 		return `its owner process ${owner?.pid} ${info.kind === "present" ? "still runs" : "cannot be checked"}`;
 	}
 	return !state && !existsSync(`${dir}/finished-at`) ? "it has no job record yet" : undefined;
-}
-export async function ownsLiveChildren(jobDir: string): Promise<boolean> {
-	const identity = await jobMembership(jobDir);
-	if (identity?.member?.role !== "coordinator") {
-		return false;
-	}
-	for (const member of identity.run.members) {
-		if (
-			member.team === identity.member.team &&
-			member.role === "worker" &&
-			(await memberLive(identity.run.root, member))
-		) {
-			return true;
-		}
-	}
-	return false;
 }

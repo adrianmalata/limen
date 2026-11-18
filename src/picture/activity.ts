@@ -22,7 +22,6 @@ export type LiveJob = {
 	readonly startedAt: string;
 	readonly finishedAt: string | null;
 	readonly tools: number;
-	readonly hosted: boolean;
 	readonly role: string;
 	/** The job on the page this one works under: the job that spawned it, or a group worker's team coordinator. */
 	readonly parent: string | null;
@@ -63,7 +62,6 @@ export type JobFiles = {
 	readonly detail: string;
 	readonly stopReason: string;
 	readonly tools: number;
-	readonly hosted: boolean;
 	readonly role: string;
 	readonly spawnedBy: string;
 	readonly group: string;
@@ -111,7 +109,6 @@ export function jobActivity(files: JobFiles, now: number): LiveJob | undefined {
 		startedAt: new Date(files.startedAt).toISOString(),
 		finishedAt: terminal && files.finishedAt !== undefined ? new Date(files.finishedAt).toISOString() : null,
 		tools: files.tools,
-		hosted: files.hosted,
 		role: files.role,
 		parent: files.spawnedBy || null,
 		group: files.group || null,
@@ -325,18 +322,16 @@ async function readJobFiles(
 		engine = "",
 		activity = "",
 		lastTool = "",
-		toolDetail = "",
 		tools = "",
 		stopReason = "",
 		started = "",
 		finished = "",
-		hosted = "",
 		role = "",
 		spawnedBy = "",
 		group = "",
 		team = "",
 	] = await Promise.all(
-		"label engine activity last-tool tool-detail tool-calls stop-reason started-at finished-at hosted role spawned-by group team"
+		"label engine activity last-tool tool-calls stop-reason started-at finished-at role spawned-by group team"
 			.split(" ")
 			.map(field),
 	);
@@ -358,10 +353,9 @@ async function readJobFiles(
 		activity,
 		queued: !terminal && (await field("queued")) !== "",
 		lastTool,
-		detail: terminal ? "" : await commandDetail(dir, lastTool, toolDetail),
+		detail: terminal ? "" : await commandDetail(dir, lastTool),
 		stopReason,
 		tools: Number.parseInt(tools, 10) || 0,
-		hosted: hosted !== "",
 		role,
 		spawnedBy,
 		group,
@@ -387,11 +381,8 @@ async function ownerState(dir: string, id: string, owners: Map<string, boolean>)
 	return verified && processAlive(pid) ? "alive" : "gone";
 }
 
-/** Hosted jobs record the command; detached jobs log it after the tool name. */
-async function commandDetail(dir: string, lastTool: string, recorded: string): Promise<string> {
-	if (recorded) {
-		return recorded === lastTool ? "" : recorded;
-	}
+/** The command of the last tool, which the job log holds after the tool name. */
+async function commandDetail(dir: string, lastTool: string): Promise<string> {
 	if (!lastTool) {
 		return "";
 	}

@@ -25,7 +25,6 @@ import { ticketAuthorCommand } from "./commands/ticket-author.ts";
 import { waitCommand } from "./commands/wait.ts";
 import { unwatchCommand, watchCommand } from "./commands/watch.ts";
 import { removedCommand } from "./old-names.ts";
-import { runHostedSupervisor } from "./runtime/supervisor.ts";
 import { failInternalJob, runInternalJob } from "./runtime/wrapper.ts";
 
 type Command = (args: readonly string[], cwd: string) => Promise<void>;
@@ -97,7 +96,7 @@ usage:
   limen init --drop-leftovers
   limen workspace init
   limen planning [committed|private]                # inspect or persist the project planning source; default committed
-  limen group start FEATURE --team ENGINE:PROVIDER/MODEL:THINKING [--team …] [--rounds draft,critique,revise,final; default draft] [--workers N; default 0] [--timeout D; default 90m] [--extension PATH ...] [--team-extension team-N=PATH ...] [--detached|--tab]
+  limen group start FEATURE --team ENGINE:PROVIDER/MODEL:THINKING [--team …] [--rounds draft,critique,revise,final; default draft] [--workers N; default 0] [--timeout D; default 90m] [--extension PATH ...] [--team-extension team-N=PATH ...] [--detached]
                                   # one agent per --team on its own route; Limen runs the rounds and tells the lead the result once
   limen group status [GROUP-ID] [--json]  # rounds and roster by default; --json keeps the full record
   limen group publish [GROUP-ID] [--team team-N] "finding"  # members inherit verified membership; lead supplies ID
@@ -107,12 +106,11 @@ usage:
                                   # detached: waits in the seat's start queue while CPU or memory is short, then starts and tells you
   limen spawn --engine <engine> --provider <provider> --model <model> --thinking <level> "Short title" --task-file F|-  # the file is the task; the positional words become the label
   limen spawn --engine <engine> --provider <provider> --model <model> --thinking <level> "…" [--label L]  # selected engine's flags; detached, also in Herdr (log-tail tab)
-  limen spawn --engine <engine> --provider <provider> --model <model> --thinking <level> --tab "…"  # hosted: a person types into the tab (requires Herdr; no --timeout)
-  limen spawn --engine <engine> --provider <provider> --model <model> --thinking <level> --detached "…"  # detached, as the default
+  limen spawn --engine <engine> --provider <provider> --model <model> --thinking <level> --detached "…"  # --detached is accepted and changes nothing: every job is detached
   limen spawn --engine <engine> --provider <provider> --model <model> --thinking <level> --repo R "Implement FNNN: <outcome>. Ticket: spec/features/active/FNNN-slug/ticket.md" [--label L]
   limen spawn --engine <engine> --provider <provider> --model <model> --thinking <level> --review --detached --branch B --label L [--base SHA] [--head SHA] "Review the FNNN candidate against spec/features/active/FNNN-slug/ticket.md"
-  limen continue <id|suffix|label> "follow-up instruction" [--review] [--label L] [--engine pi] [--provider P] [--model X] [--thinking T] [--tab|--detached] [--priority 1|2|3; default the parent's] [--extension PATH ...; replaces ordinary Pi list, group list stays fixed]
-                                  # resume a finished job in its own engine session — full context, same worktree; Herdr default is hosted
+  limen continue <id|suffix|label> "follow-up instruction" [--review] [--label L] [--engine pi] [--provider P] [--model X] [--thinking T] [--detached] [--priority 1|2|3; default the parent's] [--extension PATH ...; replaces ordinary Pi list, group list stays fixed]
+                                  # resume a finished job in its own engine session — full context, same worktree; detached, also in Herdr
   limen steer <id|suffix|label> | --running "correction"
   limen diff <id|suffix|label>
   limen wait <id|suffix|label>
@@ -143,8 +141,8 @@ usage:
   limen github ensure [registered-root]       # require a live registered Herdr coordinator
   limen github poll                           # run one polling pass as the isolated App user
   limen github deliver <root> <claim-id> <handoff-nonce>  # poller only: hand one claim to the live coordinator
-  limen github review <root> <claim-id> --engine E --provider P --model M --thinking T  # hosted review for one doorbell claim
-  limen github work <root> <claim-id> --engine E --provider P --model M --thinking T --task "…"  # hosted task for one doorbell claim
+  limen github review <root> <claim-id> --engine E --provider P --model M --thinking T  # a review job for one doorbell claim
+  limen github work <root> <claim-id> --engine E --provider P --model M --thinking T --task "…"  # a task job for one doorbell claim
   limen github resolve <root> <claim-id> <handoff-nonce> "answer"  # explicit no-job answer for one doorbell claim
   limen picture build [--dir D] [--out F] [--json F] [--strict]  # local offline architecture map, no model call
   limen picture serve [--dir D] [--port N]  # the same page on 127.0.0.1 (default port 4747), with live job activity
@@ -155,10 +153,6 @@ export async function main(args: readonly string[], cwd = process.cwd()): Promis
 	try {
 		if (process.env.LIMEN_INTERNAL_RUN === "1") {
 			await runInternalJob();
-			return;
-		}
-		if (process.env.LIMEN_INTERNAL_HOSTED === "1") {
-			await runHostedSupervisor();
 			return;
 		}
 		const [name, ...rest] = args;
@@ -182,7 +176,7 @@ export async function main(args: readonly string[], cwd = process.cwd()): Promis
 		}
 		await COMMANDS[name as keyof typeof COMMANDS](rest, cwd);
 	} catch (error) {
-		if (process.env.LIMEN_INTERNAL_RUN === "1" || process.env.LIMEN_INTERNAL_HOSTED === "1") {
+		if (process.env.LIMEN_INTERNAL_RUN === "1") {
 			await failInternalJob(error);
 		}
 		console.error(error instanceof Error ? error.message : String(error));

@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { herdrAvailable, openWatchTab } from "../integrations/herdr.ts";
+import { openWatchTab } from "../integrations/herdr.ts";
 import {
 	claimMember,
 	commandRoot,
@@ -13,10 +13,11 @@ import {
 	teamRoute,
 } from "../job/group-cabinet.ts";
 import { syncLifecycle } from "../job/group-events.ts";
-import { hostedAgentName, isTerminal, makeJobId, parseDuration } from "../job/job.ts";
+import { isTerminal, makeJobId, parseDuration } from "../job/job.ts";
 import { resolveJob } from "../job/lookup.ts";
 import { publishJob } from "../job/publication.ts";
 import { atomicWrite, finalizeJob } from "../job/record.ts";
+import { refuseRemovedFlags } from "../old-names.ts";
 import {
 	addBranchWorktree,
 	branchCommit,
@@ -51,7 +52,6 @@ import {
 	herdrWakePane,
 	normalizeLabel,
 	resolvePreamble,
-	startHosted,
 	waitForHandshake,
 } from "./spawn.ts";
 
@@ -64,8 +64,6 @@ export async function continueCommand(args: readonly string[], cwd: string, roun
 }
 type ContinueOptions = {
 	readonly review: boolean;
-	readonly tab: boolean;
-	readonly detached: boolean;
 	readonly label: string | undefined;
 	readonly model: string | undefined;
 	readonly provider: string | undefined;
@@ -82,7 +80,9 @@ function parseContinueArgs(args: readonly string[]): ContinueOptions {
 		args,
 		{
 			review: { type: "boolean" },
+			// Removed: refused after parsing (src/old-names.ts).
 			tab: { type: "boolean" },
+			// Every job is detached; the flag stays accepted and changes nothing.
 			detached: { type: "boolean" },
 			// Every label is checked, the last one is used.
 			label: { type: "string", multiple: true },
@@ -101,6 +101,7 @@ function parseContinueArgs(args: readonly string[]): ContinueOptions {
 			endOfFlags: false,
 		},
 	);
+	refuseRemovedFlags("continue", values);
 	const label = values.label?.map(normalizeLabel).at(-1);
 	// An empty word, such as an unset shell variable, is dropped.
 	const [query, ...words] = positionals.filter((word) => word !== "");
@@ -109,17 +110,10 @@ function parseContinueArgs(args: readonly string[]): ContinueOptions {
 		throw new Error('continue requires <id|suffix|label> "follow-up instruction"');
 	}
 	const review = values.review ?? false;
-	const tab = values.tab ?? false;
-	const detached = values.detached ?? false;
-	if (tab && detached) {
-		throw new Error("--tab and --detached cannot be combined");
-	}
 	const { model, provider, thinking } = values;
 	const engine = values.engine?.trim();
 	return {
 		review,
-		tab,
-		detached,
 		label,
 		model,
 		provider,
@@ -144,7 +138,6 @@ type ParentJob = {
 type ContinuationGroup = { readonly id: string; readonly team: string; readonly deadline: number };
 type ContinuationRecord = {
 	readonly jobDir: string;
-	readonly id: string;
 	readonly parent: ParentJob;
 	readonly repository: string;
 	readonly task: string;
@@ -155,11 +148,10 @@ type ContinuationRecord = {
 	readonly extensions: readonly string[];
 	readonly priority: number;
 	readonly source: PlanningSource;
-	readonly hosted: boolean;
 	readonly membership: GroupIdentity | undefined;
 	readonly group: ContinuationGroup | undefined;
 };
-/** A published continuation, ready to start in a Herdr pane or as a detached wrapper. */
+/** A published continuation, ready to start as a detached wrapper. */
 type Continuation = {
 	readonly id: string;
 	readonly jobDir: string;
@@ -177,18 +169,6 @@ type Continuation = {
 	readonly group: ContinuationGroup | undefined;
 	readonly timeoutMs: number | undefined;
 };
-/** True for a Herdr pane, false for a detached wrapper. Only --tab hosts; a group member without a mode flag keeps Herdr's pane. */
-function chooseHostedContinue(options: ContinueOptions, grouped: boolean): boolean {
-	const herdr = herdrAvailable();
-	const hosted = options.detached ? false : options.tab || (grouped && herdr);
-	if (options.tab && !herdr) {
-		throw new Error("hosted continue requires Herdr (HERDR_ENV=1); use --detached for an ordinary job");
-	}
-	if (hosted && options.timeoutMs) {
-		throw new Error("hosted jobs have no timeout; omit --timeout or use --detached");
-	}
-	return hosted;
-}
 async function continueJob(args: readonly string[], cwd: string, locked = false, round?: number): Promise<void> {
 	const options = parseContinueArgs(args);
 	const { review, label, model, provider, thinking } = options;
@@ -199,7 +179,6 @@ async function continueJob(args: readonly string[], cwd: string, locked = false,
 	const root = inherited?.root ?? (await commandRoot(cwd));
 	const { id: parentId, jobDir: parentDir } = await resolveJob(root, options.query, "control");
 	const membership = await jobMembership(parentDir);
-	const hosted = chooseHostedContinue(options, membership !== undefined);
 	if (membership) {
 		await checkGroupContinuation(membership, cwd, options, round);
 		if (!locked) {
@@ -232,7 +211,6 @@ async function continueJob(args: readonly string[], cwd: string, locked = false,
 		membership && member ? { id: membership.run.id, team: member.team, deadline: member.deadline } : undefined;
 	await publishContinuation({
 		jobDir,
-		id,
 		parent,
 		repository,
 		task: followUp,
@@ -244,7 +222,6 @@ async function continueJob(args: readonly string[], cwd: string, locked = false,
 		// A continuation keeps its parent's place in the start-queue order unless it names its own.
 		priority: options.priority ?? (await jobPriority(parentDir)),
 		source,
-		hosted,
 		membership,
 		group,
 	});
@@ -265,13 +242,12 @@ async function continueJob(args: readonly string[], cwd: string, locked = false,
 		group,
 		timeoutMs: options.timeoutMs,
 	};
-	await launchContinuation(continuation, profile, hosted, membership?.run);
+	await launchContinuation(continuation, profile, membership?.run);
 }
-/** Marks the published job running, then starts it in a Herdr pane or as a detached wrapper. */
+/** Marks the published job running, then starts it as a detached wrapper. */
 async function launchContinuation(
 	continuation: Omit<Continuation, "versions">,
 	profile: EngineProfile,
-	hosted: boolean,
 	run: GroupRun | undefined,
 ): Promise<void> {
 	const { jobDir } = continuation;
@@ -281,10 +257,6 @@ async function launchContinuation(
 	await atomicWrite(`${jobDir}/state`, "running\n");
 	if (run) {
 		await syncLifecycle(run, "skip");
-	}
-	if (hosted) {
-		await startHostedContinuation({ ...continuation, versions });
-		return;
 	}
 	await startDetachedContinuation({ ...continuation, versions });
 }
@@ -418,7 +390,7 @@ async function continuationTask(
 }
 /** Writes the starting record: the parent's session, branch and worktree, and where its finish is reported. */
 async function publishContinuation(record: ContinuationRecord): Promise<void> {
-	const { jobDir, id, parent, repository, membership } = record;
+	const { jobDir, parent, repository, membership } = record;
 	// A continuation started from a shell with no wake route (a remote executor, a plain terminal) keeps the parent's coordinator; otherwise its finish reaches nobody.
 	const callerSession = currentNotificationSession();
 	const callerPane = herdrWakePane(membership ? undefined : callerSession);
@@ -452,7 +424,6 @@ async function publishContinuation(record: ContinuationRecord): Promise<void> {
 		parent: parent.id,
 		session: { source: `${parent.dir}/session/${parent.session}`, name: parent.session ?? "" },
 		...(parent.repo ? { repo: parent.repo } : {}),
-		...(record.hosted ? { agentName: hostedAgentName(id), continueTask: record.task } : {}),
 		...(!membership && notificationSession ? { notificationSession } : {}),
 		...(coordinatorTab ? { originTab: coordinatorTab } : {}),
 		...(coordinatorPane ? { originPane: coordinatorPane } : {}),
@@ -477,35 +448,6 @@ async function restoreParentWorktree(
 		await rm(jobDir, { recursive: true, force: true });
 		throw error;
 	}
-}
-async function startHostedContinuation(continuation: Continuation): Promise<void> {
-	const { jobDir, id, label, review, parentId, versions } = continuation;
-	try {
-		await startHosted({
-			jobDir,
-			id,
-			label,
-			root: continuation.root,
-			worktree: continuation.worktree,
-			preamble: continuation.preamble,
-			taskFile: `${jobDir}/task.md`,
-			role: continuation.role,
-			continueFile: `${jobDir}/continue`,
-			...(continuation.model ? { model: continuation.model } : {}),
-			...(continuation.provider ? { provider: continuation.provider } : {}),
-			...(continuation.thinking ? { thinking: continuation.thinking } : {}),
-		});
-	} catch (error) {
-		await versions.catch(() => {});
-		throw error;
-	}
-	await versions.catch(() => {});
-	console.log(
-		review
-			? `continued ${label} as reviewer in ${parentId}'s session — shares prior context; this review is not independent (hosted)`
-			: `continued ${label} in ${parentId}'s session (hosted)`,
-	);
-	console.log(id);
 }
 async function startDetachedContinuation(continuation: Continuation): Promise<void> {
 	const { jobDir, id, label, root, review, parentId, versions, group } = continuation;

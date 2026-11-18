@@ -20,7 +20,7 @@ Units next to this file: `bell.sh`, `limen-bell.{service,timer}`, `limen-prune.{
 4. Model provider, `gh auth login`, and deploy tokens stay on the seat. The **GitHub App key** for the optional PR doorbell is different: it belongs only to the separate `limen-github` Unix user, never to the worker/coordinator account.
 5. Disable automatic reboot under live jobs (`Unattended-Upgrade::Automatic-Reboot "false";`). Patch when you choose.
 6. Start a persistent Herdr session (or `herdr server` under systemd) so attach works with the lid closed.
-7. `herdr integration install pi` for hosted tabs. First smoke job: `limen spawn --detached`.
+7. `herdr integration install pi`: Herdr's Pi integration serves the coordinator pane. First smoke job: `limen spawn --detached`.
 
 ## Bell
 

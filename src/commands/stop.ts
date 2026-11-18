@@ -1,13 +1,11 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { hostedAgentStatus, stopHostedAgent } from "../integrations/herdr.ts";
 import { SESSION_ID } from "../job/job.ts";
 import { resolveJob } from "../job/lookup.ts";
 import { appendLimenLog, finalizeJob, requestedTerminal } from "../job/record.ts";
 import {
 	containEscapedDescendants,
 	discoverEscapedDescendants,
-	processGroupAlive,
 	signalProcessGroup,
 	waitForProcessGroup,
 } from "../runtime/contain.ts";
@@ -24,11 +22,6 @@ export async function stopCommand(args: readonly string[], cwd: string): Promise
 	}
 	const reason = args.slice(1).join(" ").trim() || "stopped by request";
 	await appendLimenLog(jobDir, `stop requested: ${reason}`);
-	const hostedTarget = await text(`${jobDir}/herdr/agent`);
-	if (hostedTarget || (await text(`${jobDir}/hosted`))) {
-		await stopHosted(jobDir, id, reason, hostedTarget);
-		return;
-	}
 	const pid = Number((await readFile(`${jobDir}/pid`, "utf8")).trim());
 	if (!Number.isSafeInteger(pid) || pid <= 0) {
 		throw new Error(`running job ${id} has no valid pid`);
@@ -69,29 +62,6 @@ export async function stopCommand(args: readonly string[], cwd: string): Promise
 	await finalizeJob(jobDir, requestedTerminal(reason), reason);
 	await markCallerDelivered(jobDir);
 	console.log(`${requestedTerminal(reason)} ${id}: ${reason}`);
-}
-/** A hosted job's owner ends it: the request is a file, the agent is told, and this waits for the owner to finish. */
-async function stopHosted(jobDir: string, id: string, reason: string, hostedTarget: string): Promise<void> {
-	await writeFile(`${jobDir}/stop-requested`, `${reason}\n`);
-	if (hostedTarget) {
-		stopHostedAgent(hostedTarget);
-	}
-	const pid = Number(await text(`${jobDir}/pid`));
-	const deadline = Date.now() + (Number(process.env.LIMEN_HOSTED_STOP_WAIT_MS) || 15_000);
-	while ((await text(`${jobDir}/state`)) === "running" && Date.now() < deadline) {
-		const dead = !Number.isSafeInteger(pid) || pid <= 0 || !processGroupAlive(pid);
-		if (dead && (!hostedTarget || hostedAgentStatus(hostedTarget) === "missing")) {
-			await finalizeJob(jobDir, requestedTerminal(reason), reason);
-			break;
-		}
-		await new Promise((resolve) => setTimeout(resolve, 100));
-	}
-	const ended = await text(`${jobDir}/state`);
-	if (ended === "running") {
-		throw new Error(`${id} agent is still up; closing the tab ends it`);
-	}
-	await markCallerDelivered(jobDir);
-	console.log(`${ended} ${id}: ${reason}`);
 }
 async function markCallerDelivered(jobDir: string): Promise<void> {
 	const session = process.env.PI_SESSION_ID?.trim();

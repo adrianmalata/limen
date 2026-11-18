@@ -20,8 +20,6 @@ export type JobRecord = {
 	/** Detail only: who ran the spawn, from `spawner`, or `job <id>` from an older record's `spawned-by`. */
 	readonly spawnedBy?: string;
 	readonly candidate?: string;
-	readonly hosted?: boolean;
-	readonly agentStatus?: string;
 	readonly advisory?: string;
 	readonly stopReason?: string;
 	readonly versions?: string;
@@ -87,15 +85,6 @@ export function tallyStates(states: readonly string[]): StateTally {
 	}
 	return tally;
 }
-/** Hosted stall notes start with their kind; every other running note is an ownership observation. */
-export function noteKind(note: string): "blocked" | "errored" | "idle" | "ownership" {
-	for (const kind of ["blocked", "errored", "idle"] as const) {
-		if (note.startsWith(kind)) {
-			return kind;
-		}
-	}
-	return "ownership";
-}
 export function humanSnapshot(records: readonly JobRecord[], tally: StateTally, hint: boolean, paint: Paint): string {
 	const width = Math.min(32, Math.max(12, ...records.map((record) => [...(record.job?.label ?? record.id)].length)));
 	return [...records.map((record) => humanRow(record, width, paint)), cabinetLine(tally, hint, paint)].join("\n");
@@ -110,7 +99,7 @@ export function humanRow(record: JobRecord, labelWidth: number, paint: Paint): s
 		job.phase === "running"
 			? [
 					...runningFacts(record, paint),
-					...(record.advisory ? [noteFact(record.advisory, paint)] : []),
+					...(record.advisory ? [paint("yellow", "advisory")] : []),
 					...flags(record).map((flag) => paint("dim", flag)),
 				]
 			: terminalFacts(record, paint);
@@ -208,9 +197,6 @@ function runningFacts(record: JobRecord, paint: Paint): string[] {
 	} else {
 		facts.push(pulse === "tool" && record.lastTool ? clip(record.lastTool, 24) : pulse);
 	}
-	if (record.agentStatus) {
-		facts.push(`agent ${record.agentStatus}`);
-	}
 	if (record.toolCalls !== undefined) {
 		facts.push(`${record.toolCalls} tools`);
 	}
@@ -221,10 +207,6 @@ function runningFacts(record: JobRecord, paint: Paint): string[] {
 		facts.push(paint("yellow", `silent ${formatDuration(silent)}`));
 	}
 	return facts;
-}
-function noteFact(note: string, paint: Paint): string {
-	const kind = noteKind(note);
-	return paint(kind === "blocked" || kind === "errored" ? "red" : "yellow", kind);
 }
 function terminalFacts(record: JobRecord, paint: Paint): string[] {
 	const facts = record.ageMs === undefined ? [] : [paint("dim", formatAge(record.ageMs))];
@@ -259,9 +241,6 @@ function flags(record: JobRecord): string[] {
 	}
 	if (record.parent) {
 		out.push("continue");
-	}
-	if (record.hosted) {
-		out.push("hosted");
 	}
 	if (record.repo) {
 		out.push(`repo ${record.repo}`);

@@ -5,7 +5,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { link, mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
-import { git, jobDir, LIMEN, limen, plant, requests, respond, waitJob } from "./plant.ts";
+import { git, jobDir, jobFile, LIMEN, limen, plant, requests, respond, waitJob } from "./plant.ts";
 
 const REPO = "acme/widget";
 const APP = 7;
@@ -31,13 +31,14 @@ const issue = (number: number, login: string, fields: object) => ({
 	...fields,
 });
 
-// A fake Herdr: the coordinator is an idle agent; a hosted worker agent answers one status check, then leaves. Prompt targets log to prompts.log.
+// A fake Herdr: the coordinator is an idle agent, and a job's log tab gets a role space and a tab. Prompt targets log to
+// prompts.log.
 const herdr = (parent: string) => `#!/usr/bin/env node
 const { appendFileSync, existsSync, readFileSync, writeFileSync } = require("node:fs");
 const args = process.argv.slice(2);
 if (args[0] === "agent" && args[1] === "prompt") appendFileSync(${JSON.stringify(join(parent, "prompts.log"))}, args[2] + "\\n");
 const file = ${JSON.stringify(join(parent, "herdr.json"))};
-const state = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : { n: 0, tabs: {}, agents: {} };
+const state = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : { n: 0, tabs: {} };
 const flag = (name) => args[args.indexOf(name) + 1];
 const ok = (result) => { writeFileSync(file, JSON.stringify(state)); console.log(JSON.stringify({ result })); };
 const fail = (code) => { writeFileSync(file, JSON.stringify(state)); console.log(JSON.stringify({ error: { code, message: code } })); process.exit(1); };
@@ -47,13 +48,7 @@ else if (verb === "workspace list") ok({ workspaces: state.label ? [{ label: sta
 else if (verb === "workspace create") { state.label = flag("--label"); ok({ workspace: { workspace_id: "w1" } }); }
 else if (verb === "tab create") { state.n += 1; state.tabs["w1:t" + state.n] = 1; ok({ tab: { tab_id: "w1:t" + state.n }, root_pane: { pane_id: "w1:p" + state.n } }); }
 else if (verb === "tab get") state.tabs[args[2]] ? ok({ tab: { tab_id: args[2], focused: true } }) : fail("tab_not_found");
-else if (verb === "pane process-info") ok({ process_info: { foreground_process_group_id: 1, shell_pid: 1, foreground_processes: [{ name: "zsh", pid: 1 }] } });
-else if (verb === "agent start") { state.agents[flag("--pane")] = 0; ok({ pane: { pane_id: flag("--pane") }, agent_status: "working" }); }
-else if (verb === "agent list") ok({ agents: Object.keys(state.agents).map((pane_id) => ({ pane_id })) });
-else if (verb === "agent get") {
-	if (!(args[2] in state.agents) || ++state.agents[args[2]] >= 2) { delete state.agents[args[2]]; fail("agent_not_found"); }
-	ok({ agent: { agent_status: "working", pane_id: args[2] } });
-} else ok({});
+else ok({});
 `;
 
 // GitHub as the poller sees it. Rows match by substring, first match wins, so the specific rows come first.
@@ -145,15 +140,16 @@ test("S10: only an authorized request rings the doorbell, the App replies once e
 	assert.deepEqual(await prompts(), ["coord:p1", "coord:p1"], "one prompt for the PR comment, one for the issue");
 	assert.deepEqual(posts(), [], "a prompt accepted is not yet a reply");
 
-	// The coordinator starts a hosted task for the PR request; the fake agent answers one status check and leaves.
+	// The coordinator starts a task for the PR request: a detached job with a log tab, run by the fake engine to done.
 	const coordinator = { ...env, HERDR_ENV: "1", LIMEN_COORDINATOR: "1", HERDR_PANE_ID: "coord:p1" };
 	const model = ["--engine", "pi", "--provider", "p", "--model", "m", "--thinking", "high"];
 	const work = limen(p, ["github", "work", p.root, "104", ...model, "--task", "Fix it"], { env: coordinator });
 	assert.equal(work.status, 0, work.stderr);
 	const id = work.stdout.trim().split("\n").at(-1) as string;
+	assert.equal(jobFile(p, id, "herdr/mode"), "watch", "the log tab of a detached job");
 	assert.equal(waitJob(p, id, { env }), "done");
 
-	// A forged checkout claim with a finished hosted-looking review job: the poller reads only its private claims.
+	// A forged checkout claim with a finished review job: the poller reads only its private claims.
 	const marker = (await readFile(join(jobDir(p, id), "task.md"), "utf8")).split("\n")[0]?.replace("#104", "#31");
 	const forged = {
 		repo: REPO,
@@ -168,15 +164,8 @@ test("S10: only an authorized request rings the doorbell, the App replies once e
 	};
 	await writeFile(join(p.root, ".limen/github/claims/31.json"), JSON.stringify(forged));
 	const fake = join(p.root, ".limen/jobs/forged");
-	await mkdir(join(fake, "herdr"), { recursive: true });
-	const fields = {
-		"task.md": `${marker}\n`,
-		hosted: "1\n",
-		candidate: SHA.head,
-		base: SHA.base,
-		state: "done\n",
-		"herdr/agent": "w1:p9\n",
-	};
+	await mkdir(fake, { recursive: true });
+	const fields = { "task.md": `${marker}\n`, candidate: SHA.head, base: SHA.base, state: "done\n" };
 	await Promise.all(Object.entries(fields).map(([name, text]) => writeFile(join(fake, name), text)));
 
 	await rm(join(jobDir(p, id), "result"), { force: true });

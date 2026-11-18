@@ -3,7 +3,6 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { herdrAvailable } from "../integrations/herdr.ts";
 import type { GroupIdentity, GroupMember, GroupRun, TeamRoute } from "../job/group-cabinet.ts";
 import {
 	groupIdentity,
@@ -21,6 +20,7 @@ import {
 import { acceptBatch, acceptTransport, groupEvents, publishEvent, syncLifecycle } from "../job/group-events.ts";
 import { roundNames, routeFlags } from "../job/group-packet.ts";
 import { parseDuration, SESSION_ID } from "../job/job.ts";
+import { refuseRemovedFlags, removedFlag } from "../old-names.ts";
 import { commitHasFile, headCommit, limenRoot, repoRoot, worktreeState } from "../project/git.ts";
 import { type PlanningSource, planningSource, privatePlanningFile } from "../project/planning.ts";
 import { preflightEngine, resolveSpawnEngine } from "../runtime/engine.ts";
@@ -42,14 +42,11 @@ type GroupStartOptions = {
 	readonly timeout: string;
 	readonly extensions: readonly string[];
 	readonly teamSelections: Readonly<Record<string, readonly string[]>>;
-	readonly mode: GroupRun["mode"];
 };
 const GROUP_START =
 	"run limen group start FEATURE --team ENGINE:PROVIDER/MODEL:THINKING (once per team) [--rounds draft,critique,final] [--workers N] [--timeout 90m]";
 const INVALID_START = `invalid or repeated group start argument; ${GROUP_START}`;
 const INVALID_TEAM = `invalid --team; ${GROUP_START}, for example --team pi:openai-codex/gpt-6.1-sol:high`;
-const BOTH_MODES =
-	"choose either hosted tabs or detached jobs, not both; run limen group start FEATURE with one of --tab or --detached";
 
 function parseGroupStartArgs(args: readonly string[]): GroupStartOptions {
 	const { values } = parseFlags(
@@ -61,7 +58,9 @@ function parseGroupStartArgs(args: readonly string[]): GroupStartOptions {
 			timeout: { type: "string" },
 			extension: { type: "string", multiple: true },
 			"team-extension": { type: "string", multiple: true },
+			// Removed: refused after parsing (src/old-names.ts).
 			tab: { type: "boolean" },
+			// Every team job is detached; the flag stays accepted and changes nothing.
 			detached: { type: "boolean" },
 		} as const,
 		{
@@ -74,21 +73,12 @@ function parseGroupStartArgs(args: readonly string[]): GroupStartOptions {
 				}
 				return flag === "--extension" || flag === "--team-extension" ? `${flag} requires a value` : INVALID_START;
 			},
-			repeated: (flag) => (flag === "--tab" || flag === "--detached" ? BOTH_MODES : INVALID_START),
+			repeated: (flag) => removedFlag("group start", flag) ?? INVALID_START,
 			positionals: false,
 			endOfFlags: false,
 		},
 	);
-	if (values.tab && values.detached) {
-		throw new Error(BOTH_MODES);
-	}
-	let mode: GroupRun["mode"] = "auto";
-	if (values.tab) {
-		mode = "tab";
-	}
-	if (values.detached) {
-		mode = "detached";
-	}
+	refuseRemovedFlags("group start", values);
 	return {
 		routes: (values.team ?? []).map(teamRouteFlag),
 		rounds: (values.rounds ?? "draft").split(",").map((name) => name.trim()),
@@ -96,7 +86,6 @@ function parseGroupStartArgs(args: readonly string[]): GroupStartOptions {
 		timeout: values.timeout ?? DEFAULT_TIMEOUT,
 		extensions: values.extension ?? [],
 		teamSelections: teamExtensionPaths(values["team-extension"] ?? []),
-		mode,
 	};
 }
 /** `--team ENGINE:PROVIDER/MODEL:THINKING`; the model may hold `/` and `:`, the reasoning level is last. */
@@ -136,7 +125,7 @@ type GroupActivation = {
 export async function startGroup(args: readonly string[], cwd: string): Promise<GroupRun> {
 	if (process.env.LIMEN_GROUP_ID || process.env.LIMEN_JOB === "1") {
 		throw new Error(
-			"only the owner-facing lead may start a group: run limen group start from the plant's interactive Herdr coordinator pane (LIMEN_COORDINATOR=1) with hook/group-peer.ts loaded — a hosted limen job (LIMEN_JOB=1) cannot register as lead or start groups",
+			"only the owner-facing lead may start a group: run limen group start from the plant's interactive Herdr coordinator pane (LIMEN_COORDINATOR=1) with hook/group-peer.ts loaded — a limen job (LIMEN_JOB=1) cannot register as lead or start groups",
 		);
 	}
 	const featureArgument = args[0];
@@ -185,18 +174,18 @@ async function liveGroupLead(root: string): Promise<string> {
 	const lead = (await leadSession(root)) ?? "";
 	if (!SESSION_ID.test(lead)) {
 		throw new Error(
-			"group start requires the interactive Herdr coordinator pane (LIMEN_COORDINATOR=1) with hook/group-peer.ts loaded and registered under .limen/group-leads — reload that pane after updating the package; a hosted limen job never registers as lead",
+			"group start requires the interactive Herdr coordinator pane (LIMEN_COORDINATOR=1) with hook/group-peer.ts loaded and registered under .limen/group-leads — reload that pane after updating the package; a limen job never registers as lead",
 		);
 	}
 	if (!(await leadHookLive(root, lead))) {
 		throw new Error(
-			`group lead hook is not running in this pane: .limen/group-leads/${lead} names no live process refreshed by hook/group-peer.ts in the last 30 seconds. Reload this interactive Herdr coordinator (LIMEN_COORDINATOR=1) with the Limen package hooks, including hook/group-peer.ts, and retry. Do not write .limen/group-leads by hand: without the hook, team results never reach this pane — and do not spawn a hosted job as lead`,
+			`group lead hook is not running in this pane: .limen/group-leads/${lead} names no live process refreshed by hook/group-peer.ts in the last 30 seconds. Reload this interactive Herdr coordinator (LIMEN_COORDINATOR=1) with the Limen package hooks, including hook/group-peer.ts, and retry. Do not write .limen/group-leads by hand: without the hook, team results never reach this pane — and do not spawn a job as lead`,
 		);
 	}
 	return lead;
 }
 /** The roster, routes, rounds, allowance and deadline, checked before anything is written. */
-async function groupSettings({ routes, rounds, workers, timeout, mode }: GroupStartOptions): Promise<GroupSettings> {
+async function groupSettings({ routes, rounds, workers, timeout }: GroupStartOptions): Promise<GroupSettings> {
 	if (!routes.length) {
 		throw new Error(`group start has no team; ${GROUP_START}`);
 	}
@@ -217,11 +206,6 @@ async function groupSettings({ routes, rounds, workers, timeout, mode }: GroupSt
 	if (timeoutMs <= WRAP_UP_RESERVE_MS) {
 		throw new Error(
 			`group timeout must leave a ${WRAP_UP_RESERVE_MS / 1000}-second wrap-up reserve; run limen group start FEATURE with --timeout above 1m`,
-		);
-	}
-	if (mode === "tab" && !herdrAvailable()) {
-		throw new Error(
-			"hosted group requires Herdr; run limen group start FEATURE --detached with the other group settings, or return to Herdr",
 		);
 	}
 	return {
@@ -316,7 +300,7 @@ async function teamExtensionPathsByTeam(
 }
 function newGroupRun(
 	root: string,
-	{ feature, source, lead, settings, options }: GroupActivation,
+	{ feature, source, lead, settings }: GroupActivation,
 	teamExtensions: Record<string, string[]>,
 ): GroupRun {
 	const leadPane = herdrWakePane(undefined);
@@ -337,7 +321,6 @@ function newGroupRun(
 		reserveMs: WRAP_UP_RESERVE_MS,
 		stopped: false,
 		closed: false,
-		mode: options.mode,
 		members: [],
 		teamExtensions,
 	};
@@ -354,7 +337,6 @@ async function spawnTeamCoordinators(root: string, run: GroupRun): Promise<void>
 					"--label",
 					teamJobLabel(run, team, 0),
 					...routeFlags(route).split(" "),
-					...(run.mode === "auto" ? [] : [`--${run.mode}`]),
 				],
 				root,
 				{ run, team },

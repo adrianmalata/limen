@@ -116,20 +116,22 @@ export const githubSubject = (claim: GithubClaim) => `${claim.kind === "issue" ?
 export const githubBranch = (claim: GithubClaim) =>
 	`limen/github-${claim.kind === "issue" ? "issue" : "pr"}-${claim.pr}-${claim.id}`;
 
+/**
+ * The job that answers the claim: the one record whose task starts with the claim's marker, when its shape is a pinned
+ * review or a work job on the claim's branch. Any other shape with the marker throws.
+ */
 export async function matchedGithubJob(
 	root: string,
 	claim: GithubClaim,
-): Promise<{ id: string; branch: string; state: string; started: boolean; review: boolean } | undefined> {
+): Promise<{ id: string; branch: string; state: string; review: boolean } | undefined> {
 	const jobs = await readdir(join(root, ".limen/jobs"), { withFileTypes: true }).catch(() => []);
 	for (const job of jobs) {
 		if (!job.isDirectory()) {
 			continue;
 		}
 		const dir = join(root, ".limen/jobs", job.name);
-		const [task, hosted, candidate, base, branch, state, role] = await Promise.all(
-			["task.md", "hosted", "candidate", "base", "branch", "state", "role"].map((name) =>
-				readJobFile(join(dir, name), 4096),
-			),
+		const [task, candidate, base, branch, state, role] = await Promise.all(
+			["task.md", "candidate", "base", "branch", "state", "role"].map((name) => readJobFile(join(dir, name), 4096)),
 		);
 		if (!(task ?? "").startsWith(`${githubMarker(claim)}\n`)) {
 			continue;
@@ -143,17 +145,10 @@ export async function matchedGithubJob(
 			/^[0-9a-f]{40}$/.test(base?.trim() ?? "") &&
 			role?.trim() === "worker" &&
 			branch?.trim() === githubBranch(claim);
-		if (!hosted || (!isReview && !isWork)) {
+		if (!isReview && !isWork) {
 			throw new Error(`conflicting job ${job.name} for ${githubMarker(claim)}; inspect it before retrying`);
 		}
-		const agent = await readJobFile(join(dir, "herdr/agent"), 4096);
-		return {
-			id: job.name,
-			branch: branch?.trim() ?? "",
-			state: state?.trim() ?? "",
-			started: Boolean(agent.trim()),
-			review: isReview,
-		};
+		return { id: job.name, branch: branch?.trim() ?? "", state: state?.trim() ?? "", review: isReview };
 	}
 	return undefined;
 }

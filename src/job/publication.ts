@@ -54,13 +54,6 @@ function parentCommand(): string {
 	}
 }
 
-function hostedNote(deadline: number | undefined): string {
-	const limits = deadline
-		? `Group deadline ${new Date(deadline).toISOString()}, no tool-call cap`
-		: "No 90-minute timeout, no tool-call cap";
-	return `Hosted job: weaker guarantees. ${limits}, no process-group containment (stop cannot kill child processes the agent started). Herdr owns the process tree. Closing the tab ends the worker.\n`;
-}
-
 type NewJob = {
 	readonly task: string | Uint8Array;
 	readonly label: string;
@@ -76,14 +69,12 @@ type NewJob = {
 	readonly extensions?: readonly string[];
 	readonly planningSource: string;
 	readonly repo?: string;
-	readonly agentName?: string;
 	readonly notificationSession?: string;
 	readonly originTab?: string;
 	readonly originPane?: string;
 	readonly group?: { readonly id: string; readonly team: string; readonly deadline: number };
 	/** The continued job: `limen continue` records it as `parent`. */
 	readonly parent?: string;
-	readonly continueTask?: string;
 	readonly candidate?: string;
 	readonly session?: { readonly source: string; readonly name: string };
 	/** Files a continuation carries from its parent's job folder, such as the task note. */
@@ -122,10 +113,6 @@ export async function publishJob(jobDir: string, job: NewJob): Promise<void> {
 		if (job.repo) {
 			files.repo = `${job.repo}\n`;
 		}
-		if (job.agentName) {
-			files.hosted = hostedNote(job.group?.deadline);
-			files["agent-name"] = `${job.agentName}\n`;
-		}
 		if (job.notificationSession) {
 			files["origin-session"] = `${job.notificationSession}\n`;
 			files[`notify/subscribers/${job.notificationSession}`] = startedAt;
@@ -144,7 +131,7 @@ export async function publishJob(jobDir: string, job: NewJob): Promise<void> {
 		if (job.parent) {
 			files.parent = `${job.parent}\n`;
 		}
-		// Hosted and detached jobs export their id to the agent, so a spawn or continue run by a job's agent names it.
+		// A job exports its id to the agent, so a spawn or continue run by a job's agent names it.
 		// The picture nests a coordinator's workers under it by this link.
 		const spawner = process.env.LIMEN_JOB_ID?.trim();
 		if (spawner && SESSION_ID.test(spawner)) {
@@ -153,9 +140,6 @@ export async function publishJob(jobDir: string, job: NewJob): Promise<void> {
 		const spawnedBy = spawnerLine();
 		if (spawnedBy) {
 			files.spawner = `${spawnedBy}\n`;
-		}
-		if (job.continueTask) {
-			files.continue = `${job.continueTask}\n`;
 		}
 		if (job.candidate) {
 			files.candidate = `${job.candidate}\n`;

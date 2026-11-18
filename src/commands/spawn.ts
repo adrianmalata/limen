@@ -3,14 +3,15 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { herdrAvailable, herdrBinary, openHostedTab, openWatchTab } from "../integrations/herdr.ts";
+import { herdrBinary, openWatchTab } from "../integrations/herdr.ts";
 import type { GroupMember, GroupRun } from "../job/group-cabinet.ts";
 import { claimMember, groupIdentity, groupLock, groupPath, teamRoute } from "../job/group-cabinet.ts";
 import { syncLifecycle } from "../job/group-events.ts";
 import { memberPacket, routeFlags } from "../job/group-packet.ts";
-import { hostedAgentName, makeJobId, parseDuration, SESSION_ID } from "../job/job.ts";
+import { makeJobId, parseDuration, SESSION_ID } from "../job/job.ts";
 import { publishJob } from "../job/publication.ts";
 import { atomicWrite, finalizeJob } from "../job/record.ts";
+import { refuseRemovedFlags, removedFlag } from "../old-names.ts";
 import {
 	addBranchWorktree,
 	addDetachedWorktree,
@@ -43,7 +44,7 @@ import {
 import { liveJob } from "../runtime/reap.ts";
 import { DEFAULT_PRIORITY, parsePriority, queuedLine } from "../runtime/start-queue.ts";
 import { normalizeWorkerExtensions } from "../runtime/worker-extensions.ts";
-import { launchHostedSupervisor, launchWrapper } from "../runtime/wrapper.ts";
+import { launchWrapper } from "../runtime/wrapper.ts";
 import { hunkBinary } from "./diff.ts";
 import { parseFlags } from "./flags.ts";
 
@@ -62,8 +63,6 @@ type SpawnOptions = {
 	prepare?: string;
 	priority?: number;
 	review: boolean;
-	tab: boolean;
-	detached: boolean;
 	role?: string;
 	engine?: string;
 	extensions: string[];
@@ -125,7 +124,6 @@ type SpawnLaunch = {
 	readonly options: SpawnOptions & { readonly task: string; readonly label: string };
 	readonly loaded: SpawnTask;
 	readonly group: SpawnGroup | undefined;
-	readonly hosted: boolean;
 	readonly profile: EngineProfile;
 	readonly model: string | undefined;
 	readonly extensions: readonly string[];
@@ -146,7 +144,7 @@ type SpawnRecord = {
 	readonly member: GroupMember | undefined;
 	readonly candidate: string | undefined;
 };
-/** A recorded job with its worktree, ready to start in a Herdr pane or as a detached wrapper. */
+/** A recorded job with its worktree, ready to start as a detached wrapper. */
 type SpawnedJob = {
 	readonly jobDir: string;
 	readonly id: string;
@@ -155,14 +153,13 @@ type SpawnedJob = {
 	readonly preamble: string;
 	readonly role: string;
 	readonly memberDeadline: number | undefined;
-	/** What the wrapper or supervisor runs after its handshake: prune keeping the spawner's checkout, then --prepare. */
+	/** What the wrapper runs after its handshake: prune keeping the spawner's checkout, then --prepare. */
 	readonly setup: { readonly LIMEN_SETUP_KEEP: string; readonly LIMEN_SETUP_PREPARE: string };
 };
 async function spawnJob(args: readonly string[], cwd: string, group?: SpawnGroup): Promise<void> {
 	const parsed = parseSpawnArgs(args);
 	const profile = resolveSpawnEngine(parsed.engine);
 	await checkLaunchAuthority(parsed, group);
-	const hosted = chooseHostedLaunch(parsed, group !== undefined);
 	const loaded = await readSpawnTask(parsed.task, parsed.taskFile, cwd);
 	const options = {
 		...parsed,
@@ -183,7 +180,6 @@ async function spawnJob(args: readonly string[], cwd: string, group?: SpawnGroup
 		options,
 		loaded,
 		group,
-		hosted,
 		profile,
 		model,
 		extensions,
@@ -233,21 +229,6 @@ async function checkLaunchAuthority(parsed: SpawnOptions, group: SpawnGroup | un
 			throw new Error("group review requires a candidate branch owned by this team");
 		}
 	}
-}
-/** True for a Herdr pane, false for a detached wrapper. Only --tab hosts; a group without a mode flag keeps Herdr's pane. */
-function chooseHostedLaunch(parsed: SpawnOptions, grouped: boolean): boolean {
-	const herdr = herdrAvailable();
-	const hosted = parsed.detached ? false : parsed.tab || (grouped && herdr);
-	if (parsed.tab && parsed.detached) {
-		throw new Error("--tab and --detached cannot be combined");
-	}
-	if (hosted && parsed.timeoutMs) {
-		throw new Error("hosted jobs have no timeout; omit --timeout or use --detached");
-	}
-	if (hosted && !herdr) {
-		throw new Error("hosted spawn requires Herdr (HERDR_ENV=1); use --detached for an ordinary job");
-	}
-	return hosted;
 }
 /** A group launch takes its team's recorded extensions; --extension must then name the same ones. */
 async function launchExtensions(
@@ -416,7 +397,6 @@ async function publishSpawnedJob(launch: SpawnLaunch, record: SpawnRecord): Prom
 		extensions: launch.extensions,
 		planningSource: place.source,
 		...(place.repo ? { repo: place.repo } : {}),
-		...(launch.hosted ? { agentName: hostedAgentName(record.id) } : {}),
 		...(!group && notificationSession ? { notificationSession } : {}),
 		...(coordinatorTab ? { originTab: coordinatorTab } : {}),
 		...(coordinatorPane ? { originPane: coordinatorPane } : {}),
@@ -424,7 +404,7 @@ async function publishSpawnedJob(launch: SpawnLaunch, record: SpawnRecord): Prom
 		...(candidate ? { candidate } : {}),
 	});
 }
-/** Marks the job running, then starts it in a Herdr pane or as a detached wrapper. */
+/** Marks the job running, then starts it as a detached wrapper. */
 async function launchSpawnedJob(launch: SpawnLaunch, job: SpawnedJob): Promise<void> {
 	const versions = capturedVersions(launch.profile).then((text) =>
 		writeFile(`${job.jobDir}/versions`, text, { flag: "wx", flush: true }),
@@ -433,31 +413,7 @@ async function launchSpawnedJob(launch: SpawnLaunch, job: SpawnedJob): Promise<v
 	if (launch.group) {
 		await syncLifecycle(launch.group.run, "skip");
 	}
-	if (launch.hosted) {
-		await startHostedJob(launch, job, versions);
-		return;
-	}
 	await startDetachedJob(launch, job, versions);
-}
-async function startHostedJob(launch: SpawnLaunch, job: SpawnedJob, versions: Promise<void>): Promise<void> {
-	const { options, model } = launch;
-	await startHosted({
-		jobDir: job.jobDir,
-		id: job.id,
-		label: options.label,
-		root: job.root,
-		worktree: job.worktree,
-		preamble: job.preamble,
-		taskFile: `${job.jobDir}/task.md`,
-		role: job.role,
-		setup: job.setup,
-		...(model ? { model } : {}),
-		...(options.provider ? { provider: options.provider } : {}),
-		...(options.thinking ? { thinking: options.thinking } : {}),
-	});
-	await versions.catch(() => {});
-	console.log(`started ${options.label} (hosted)`);
-	console.log(job.id);
 }
 async function startDetachedJob(launch: SpawnLaunch, job: SpawnedJob, versions: Promise<void>): Promise<void> {
 	const { options, model, group } = launch;
@@ -508,72 +464,6 @@ async function startDetachedJob(launch: SpawnLaunch, job: SpawnedJob, versions: 
 	await versions.catch(() => {});
 	console.log(queued ?? `started ${options.label}`);
 	console.log(id);
-}
-export async function startHosted(input: {
-	readonly jobDir: string;
-	readonly id: string;
-	readonly label: string;
-	readonly root: string;
-	readonly worktree: string;
-	readonly preamble: string;
-	readonly taskFile: string;
-	readonly role: string;
-	readonly model?: string;
-	readonly provider?: string;
-	readonly thinking?: string;
-	readonly continueFile?: string;
-	/** Spawn's setup for the supervisor to run after its handshake; a continue passes none. */
-	readonly setup?: { readonly LIMEN_SETUP_KEEP: string; readonly LIMEN_SETUP_PREPARE: string };
-}): Promise<void> {
-	const agentName = hostedAgentName(input.id);
-	const group = (await text(`${input.jobDir}/group`)) || "";
-	const team = (await text(`${input.jobDir}/team`)) || "";
-	try {
-		await openHostedTab({
-			jobDir: input.jobDir,
-			label: input.label,
-			cwd: input.worktree,
-			workspaceCwd: input.root,
-			role: input.role,
-			env: {
-				LIMEN_JOB: "1",
-				LIMEN_HOSTED: "1",
-				LIMEN_JOB_ID: input.id,
-				LIMEN_JOB_LABEL: input.label,
-				LIMEN_CONTEXT_ROOT: input.root,
-				LIMEN_ROLE: input.role,
-				LIMEN_GROUP_ID: group,
-				LIMEN_TEAM_ID: team,
-				HERDR_ENV: "1",
-				PATH: `/usr/bin${process.env.PATH ? `:${process.env.PATH}` : ""}`,
-			},
-		});
-		const supervisorPid = await launchHostedSupervisor({
-			LIMEN_JOB_DIR: input.jobDir,
-			LIMEN_WORKTREE: input.worktree,
-			LIMEN_TASK_FILE: input.taskFile,
-			LIMEN_PREAMBLE: input.preamble,
-			LIMEN_JOB_ID: input.id,
-			LIMEN_LABEL: input.label,
-			LIMEN_CONTEXT_ROOT: input.root,
-			LIMEN_ROLE: input.role,
-			LIMEN_GROUP_ID: group,
-			LIMEN_TEAM_ID: team,
-			LIMEN_AGENT_NAME: agentName,
-			LIMEN_HOSTED_START: "1",
-			LIMEN_MODEL: input.model ?? "",
-			LIMEN_PROVIDER: input.provider ?? "",
-			LIMEN_THINKING: input.thinking ?? "",
-			LIMEN_CONTINUE_FILE: input.continueFile ?? "",
-			LIMEN_SETUP_KEEP: input.setup?.LIMEN_SETUP_KEEP ?? "",
-			LIMEN_SETUP_PREPARE: input.setup?.LIMEN_SETUP_PREPARE ?? "",
-		});
-		await waitForHandshake(input.jobDir, supervisorPid, "hosted supervisor");
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		await finalizeJob(input.jobDir, "failed", `hosted start failed: ${message}`);
-		throw error;
-	}
 }
 async function planWorktree(input: {
 	readonly root: string;
@@ -629,7 +519,9 @@ function claimsOwnerFacingLead(role: string | undefined): string | undefined {
 
 const SPAWN_FLAGS = {
 	review: { type: "boolean" },
+	// Removed: refused after parsing (src/old-names.ts).
 	tab: { type: "boolean" },
+	// Every job is detached; the flag stays accepted and changes nothing.
 	detached: { type: "boolean" },
 	branch: { type: "string" },
 	repo: { type: "string" },
@@ -653,10 +545,10 @@ function parseSpawnArgs(args: readonly string[]): SpawnOptions {
 		unknown: (word) => `unknown spawn option ${word}`,
 		missing: (flag) => `${flag} requires a value`,
 		repeated: (flag) =>
-			flag === "--review" || flag === "--tab" || flag === "--detached"
-				? undefined
-				: `${flag} may be supplied only once`,
-		// Every string flag but --extension takes a value that starts with `--`: `--label --tab` labels the job `--tab`.
+			removedFlag("spawn", flag) ??
+			(flag === "--review" || flag === "--detached" ? undefined : `${flag} may be supplied only once`),
+		// Every string flag but --extension takes a value that starts with `--`: `--label --review` labels the job
+		// `--review`, and a removed flag reads as a label the same way.
 		dashValues: [
 			"branch",
 			"repo",
@@ -674,6 +566,7 @@ function parseSpawnArgs(args: readonly string[]): SpawnOptions {
 			"head",
 		],
 	});
+	refuseRemovedFlags("spawn", values);
 	const role = values.role?.trim();
 	if (role !== undefined && !/^[a-z][a-z0-9-]*$/.test(role)) {
 		throw new Error("--role must be a lowercase name");
@@ -692,8 +585,6 @@ function parseSpawnArgs(args: readonly string[]): SpawnOptions {
 		task: taskFile ? "" : task.join(" "),
 		extensions: values.extension ?? [],
 		review: values.review ?? false,
-		tab: values.tab ?? false,
-		detached: values.detached ?? false,
 		...(role ? { role } : {}),
 		...(engine ? { engine } : {}),
 		...(label ? { label } : {}),
@@ -833,7 +724,7 @@ async function lastLimenDetail(jobDir: string): Promise<string> {
 	return close === -1 ? line : line.slice(close + 2);
 }
 const text = async (path: string): Promise<string> => (await readFile(path, "utf8").catch(() => "")).trim();
-export async function waitForHandshake(jobDir: string, wrapperPid: number, owner = "detached wrapper"): Promise<void> {
+export async function waitForHandshake(jobDir: string, wrapperPid: number): Promise<void> {
 	const deadline = Date.now() + handshakeMs();
 	while (Date.now() < deadline) {
 		if ((await text(`${jobDir}/state`)) !== "running" || (await text(`${jobDir}/pid`))) {
@@ -846,6 +737,6 @@ export async function waitForHandshake(jobDir: string, wrapperPid: number, owner
 		signalProcessGroup(wrapperPid, "SIGKILL");
 		await waitForProcessGroup(wrapperPid, 1_000);
 	}
-	await finalizeJob(jobDir, "failed", `${owner} did not become ready`);
-	throw new Error(`${owner} did not start; inspect the job record`);
+	await finalizeJob(jobDir, "failed", "detached wrapper did not become ready");
+	throw new Error("detached wrapper did not start; inspect the job record");
 }
