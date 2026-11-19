@@ -20,7 +20,8 @@ projektu, test nazw liczy tylko pliki znane gitowi); R-091 zamknięty 19.11 (ozn
 oznaczenia, koniec przebiegu na agent_settled, definicja touchpoints); D-047: narzędzie przekazania sesji
 tools/handover.mjs (start nowej sesji w tmux i zamykanie poprzednich sesji przebudowy); 19.11 wieczorem
 limen-rebuild-8 zamknęła etap 1 ponownie (bramka 253/253, M-10 82,2 s, lokalny tag a0.1.1, pierwsze wdrożenie);
-etap 2 (12 ticketów delegated, night) zaczyna nowa sesja, a Adrian wybiera noc albo sesję dzienną. -->
+D-048: B.2 tego samego wieczoru zamiast nocy, etap 2 w dzień 20.11; B.2 w toku: seat check R-011 zaliczony,
+trzy próby F013 bez żadnego joba (koordynator robi ticket sam), jedna unieważniona; czeka decyzja, jak je liczyć. -->
 
 
 
@@ -548,6 +549,10 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   two processes (both on 2026-11-19). Any older `claude` in the repository counts as a previous session. Adrian put
   `Bash(node adrian-rebuild/tools/handover.mjs *)` on the allow-list. Spec, review and outcome:
   `evidence/handover/`. Check: `node --test adrian-rebuild/tools/test-handover.mjs`.
+- 2026-11-19 D-048 (Adrian, after the close of a0.1.1): B.2 runs at once, on the evening of 2026-11-19, guided step
+  by step by the main session, instead of a night run of stage 2, because the deployment of `a0.1.1` waits for B.2
+  (D-046) and B.2 must not share the Max window with a rebuild run (a void attempt at a limit runs again, D-021 (3)).
+  Stage 2 starts by day on 2026-11-20 in `limen-rebuild-9`. Check: `## State` → B.2.
 
 ### Gate 2 §2, copied
 
@@ -1537,8 +1542,8 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 Updated 2026-11-19, day session `limen-rebuild-8`, rebuild stage 5 between plan stages 1 and 2: stage 1 is closed
 again after its fix tickets R-090 and R-091 (the commit `Stage 1: close (a0.1.1)`, which the local tag `a0.1.1` names;
-the first deployment, D-046). Gate 5.1 decided to go on to stage 2 (D-045 (1)); stage 2 starts in a new session, and
-how it starts is Adrian's (`Open questions`). The night of 2026-11-19 ended at 02:57 with `no-ticket`.
+the first deployment, D-046). Gate 5.1 decided to go on to stage 2 (D-045 (1)); B.2 runs first, and stage 2 starts
+by day on 2026-11-20 in a new session (D-048). The night of 2026-11-19 ended at 02:57 with `no-ticket`.
 
 Handover of 2026-11-19 (D-033, at 37 % context, after the commit `R-014:`): `limen-rebuild-5` started
 `limen-rebuild-6` in `tmux` in remote-control mode (14:10) and ended. WSL booted at 10:34 on 2026-11-19, after the
@@ -1856,11 +1861,37 @@ Close of a0.1.1 (2026-11-19, `limen-rebuild-8`, `## Stages` → Closing a stage)
 - Tag `a0.1.1`: local, on the commit `Stage 1: close (a0.1.1)`; its full SHA is in the gate reply and is the argument
   of `## Deployment` 1.0.
 
-Next: stage 2 in a new session, from its first ticket in dependency order (R-089, R-015, R-016, R-018, R-020 have
-only stage-1 dependencies). All twelve stage-2 tickets are `delegated` and `night`, so the plan's split (`##
-Deployment` → One Max window) puts them in a night run, which only Adrian starts (D-024); a day session
-`limen-rebuild-9` (`handover.mjs start 9`) can take them too. On the seat, Adrian's: B.2 with R-091's runner, then
-`## Deployment` 1.0–1.3 with `a0.1.1`.
+B.2 on the seat (2026-11-19 evening, D-048; Adrian ran each step, the main session read the outputs; the files stay
+in a scratch folder of the agents' account, outside the projects):
+- Facts: `/opt/limen` is checked out at `f1e3a54` (upstream), whose code equals `rebuild-base` (`git diff --stat
+  f1e3a54 rebuild-base` touches only five files of `docs/seat/`); the coordinators load Limen from the extra checkout
+  in the agents' home (gate 2 §9 item 6, steps 5.5–5.6), which is at `rebuild-base` and clean; the agents' account
+  has no `sudo`, and git refuses the root-owned `/opt/limen` unless `-c safe.directory=/opt/limen` is given for one
+  command. The coordinator's route is `--provider pi-claude --model claude-opus-5-5 --thinking xhigh`, which Pi
+  clamps to `high` (the session records `thinking high`; `pi-ai` → `clampThinkingLevel`).
+- Engine fact found on the way (Pi 1.5.1 `docs/security.md`): in RPC, JSON and print mode Pi skips project-local
+  extensions unless the run has `--approve`, a saved trust decision covers the folder, or `defaultProjectTrust` is
+  `always`; the seat sets none, so every attempt passes `--approve` among the engine args. The runner adds no flag
+  itself (R-011 item 3.3).
+- The runner's checkout at `91cc2e4` passed its 57 tests on the seat's Node 26.
+- Seat check of R-011 (D-021), passed by the second smoke attempt in a copy of the project with a one-line ticket
+  that asks for a job: the headless coordinator loaded Limen's hooks (`limen-project-context` in its session), its
+  worker ended `done` and the wake reached it as a user turn; no `protocol-error.json`, no extension error, `stops`
+  empty (R-088, R-091). The first smoke attempt, whose ticket did not ask for a job, was done by the coordinator in its
+  own session in 61 s. Both landed without an owner "land", the second while saying that this breaks the project's
+  rule; the second slept once and read `status` four times (M-05 material).
+- Candidate: F013 of synchronizer (one completed review that found issues, one fix, two failed reviewer jobs; 102 min
+  from the first job's start to the last job's end, so `--time-limit 180`), from its start commit `1fe9df6` with the
+  reference `948dfda` (the seven F013 commits only); the hidden tests are the four changed files under `test/`. The
+  control runs: the reference with the hidden tests passes the project gate (9 checks, 116.8 s), and the start commit
+  with them fails it (from `tsc` on, so the unit test binds to the reference's API: the absolute pass^k is
+  pessimistic, the before/after comparison is not affected).
+- Three attempts (k = 3): none started a job; each coordinator implemented F013 in its own session (44, 52 and 37 min,
+  one touchpoint each), so no attempt has a candidate and `evaluate` refused all three. Attempt 1 is
+  `void-contaminated`: a bash call of the coordinator read job evidence of F002 and F003 in the production checkout,
+  whose absolute paths are written in committed notes of the project. The report: `passed 0 of 2; pass^2: no; void:
+  1`. The loop's own log lines carry false exit codes (the main session's error: `$(date -Is)` resets `$?`); the
+  report reads `result.json` and `evaluation.json`.
 
 - R-090 `done` (delegated, by day): `seat/deploy.ts` prints every registry and registry line it checked before any
   other line, and registries that hold no project refuse with exit 4 before the fetch. One `BLOCKED`: the gate failed
@@ -1909,9 +1940,15 @@ Measurement). The next day session is `limen-rebuild-9`, with `start 9`; its fir
 notification, `close-previous`, then `Next`. A night run started from `limen-rebuild-8` (D-024) leaves this session
 alive in `tmux` and idle; it changes nothing in the repository until Adrian writes (D-024).
 
+Next: Adrian's decision on how B.2's attempts count (`Open questions`); then the rerun of the void attempt and B.2's
+close; then `## Deployment` 1.0–1.3 with `a0.1.1`; stage 2 by day on 2026-11-20 in `limen-rebuild-9` (D-048).
+
 Open questions for Adrian:
-- How stage 2 starts: a night run tonight (`night.mjs --until HH:MM`, D-024; recommended, by the plan's split), or a
-  day session `limen-rebuild-9` now. A full answer: "noc do HH:MM" or "sesja dzienna".
+- How B.2 counts an attempt whose coordinator implemented the ticket in its own session, with no worker job: (A) as
+  D-021 defines it, no candidate and not passed, with the coordinator's own branch evaluated by hand as a side record
+  outside pass^k (recommended); (B) the runner takes the coordinator's newest commit as the candidate (a runner
+  ticket, and the three attempts are evaluated again); (C) the owner message changes to the words Adrian uses on the
+  seat to start a ticket, and all three attempts run again. A full answer: A, B or C, and for C the message.
 
 Notes for the next session:
 - Start Claude Code in the repository root, so that it loads `.claude/agents/`.
