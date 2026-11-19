@@ -15,7 +15,8 @@ podsumowanie bramki 5.1; Q-8 rozstrzygnięte (D-036: `seat/deploy.ts` poza allow
 `spawn`, trzecia runda poprawek) i R-014 zamknięty, więc etap 1 jest kompletny; 19.11 po południu etap 1 zamknięty
 (bramka 244/244, M-10 77,1 s, lokalny tag a0.1.0); decyzje bramki 5.1 to D-045 i D-046 (zmiany linii końcowej,
 odmów, runnera, skryptu wdrożenia i `kind`; tickety R-089 w etapie 2 oraz poprawkowe R-090 i R-091 w etapie 1, po
-których tag a0.1.1 jest pierwszym wdrożeniem). -->
+których tag a0.1.1 jest pierwszym wdrożeniem); R-090 zamknięty 19.11 (lista sprawdzonych rejestrów, odmowa bez
+projektu, test nazw liczy tylko pliki znane gitowi), następny jest R-091. -->
 
 
 
@@ -882,7 +883,7 @@ Columns:
 | R-014 | One command registry, a shared parser and generated help | 1 | T-19, T-18, T-26, T-37, D-028, D-037, D-038, D-039, D-040, D-041, D-042, D-043, D-044 | R-002, R-003, R-004, R-005, R-006, R-007, R-009, R-013 | L | pair | day-after | yes | — | — | done |
 | R-088 | The same-task runner leaves no job running after an attempt | 1 | D-027, D-021 | R-011 | S | pair | day-after | — | pi | B.2 | done |
 | R-091 | The same-task runner refuses an unmarked Pi event and states its touchpoint definition | 1 | D-045, D-046, D-021, H-21 | R-011 | S | delegated | night | — | pi | B.2 | planned |
-| R-090 | The deployment script names what it checked; a registry without a project refuses | 1 | D-045, D-046, D-008, §7 | R-012 | S | delegated | night | — | — | 1.0 | planned |
+| R-090 | The deployment script names what it checked; a registry without a project refuses | 1 | D-045, D-046, D-008, §7 | R-012 | S | delegated | night | — | — | 1.0 | done |
 | R-089 | The final line's `code` and `next` are a value or `null`; `next` is always a command | 2 | T-37, T-02, D-045, D-046 | R-014 | M | delegated | night | — | — | — | planned |
 | R-015 | One configuration reader; settings come only from owner files | 2 | T-03 | R-014 | M | delegated | night | yes | — | — | planned |
 | R-016 | One boundary parsing module with validators; the cast ratchet | 2 | T-27 | R-013 | M | delegated | night | — | — | — | planned |
@@ -1038,6 +1039,9 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   reap dead jobs; a test that every `read` command, run on a test project, leaves the project's files and `.limen/`
   unchanged (the snapshot function of T-38 (4)).
 - R-032 (D-045 (6.2)): `status` and `show` become `read`, and R-025's test of `read` commands passes for them.
+- R-025 (R-090 → `outcome.md` → Open points 1): the other scans of `test/structure.test.ts` (`filesIn` for `seat/`,
+  `bin/`, `src/`, `hook/`, and `sources`) still walk ignored files; they read only the files git knows, through R-090's
+  `knownFiles`, so an ignored file (an editor's swap file) cannot change a scan.
 - R-059: no shell scripts (D-010): `docs/seat/bell.sh` and `docs/seat/github-setup.sh` become TypeScript in `seat/`,
   and every unit calls `node /opt/limen/seat/<tool>.ts`.
 
@@ -1515,7 +1519,7 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 Updated 2026-11-19, day session `limen-rebuild-6`, rebuild stage 5 at plan stage 1: stage 1 was closed (the commit
 `Stage 1: close`, which the local tag `a0.1.0` names) and gate 5.1 is decided (D-045, D-046): two fix tickets of stage
-1, R-091 and then R-090, come next, and their last commit gets the tag `a0.1.1`, the first deployment. No ticket
+1, R-090 (done) and then R-091, and their last commit gets the tag `a0.1.1`, the first deployment. No ticket
 active. The night of 2026-11-19 ended at 02:57 with `no-ticket`.
 
 Handover of 2026-11-19 (D-033, at 37 % context, after the commit `R-014:`): `limen-rebuild-5` started
@@ -1822,12 +1826,25 @@ Gate 5.1 decided (2026-11-19): D-045 and D-046; the dated addition to T-37 in `t
 2), R-090 and R-091 (stage 1) and notes for R-023, R-025 and R-032 in `## Tickets`; `## Deployment` 1.0 deploys
 `a0.1.1`, and B.2 runs with R-091's runner.
 
-Next: R-091 (its `ticket.md`, then `rebuild-implementer`), then R-090; then close stage 1 again (gate, gate-time
+Next: R-091 (its `ticket.md` is written; then `rebuild-implementer`), R-090 being done; then close stage 1 again (gate, gate-time
 tool, `check.mjs`, the commit `Stage 1: close (a0.1.1)`, the tag `a0.1.1`) and a short gate reply with the tag's full
 SHA; then stage 2 in a new session. On the seat, Adrian's: B.2 with R-091's runner, then `## Deployment` 1.0–1.3
 with `a0.1.1`.
 
-Active ticket: none.
+- R-090 `done` (delegated, by day): `seat/deploy.ts` prints every registry and registry line it checked before any
+  other line, and registries that hold no project refuse with exit 4 before the fetch. One `BLOCKED`: the gate failed
+  on `test/structure.test.ts:24` because its whole-tree walk counted the 579 `.ts` files of the Pi sources in the
+  ignored `adrian-rebuild/input/vendor/`; Adrian chose (a): the basename test counts only the files git knows that
+  exist in the working tree. The implementer's first run was void by `compare --git` only through Adrian's own fetch
+  of the sources during it, and Adrian accepted it. Review PASS in rounds 1 and 2 (one fix round: the ELOOP test, a
+  split test, the listing without deleted index entries); gate 253/253. For R-025: the other scans of that test file
+  still walk ignored files (`## Tickets` → notes).
+- The Pi 1.5.1 sources are in `adrian-rebuild/input/vendor/` (Adrian, 2026-11-19, by `## Commands`, stage-2 row; the
+  deny rule on `input/` refuses the sessions' `mkdir` there, so Adrian ran it). The `npm pack` lines are on the
+  allow-list.
+
+Active ticket: none. Next: R-091; its `ticket.md` is written from the sources (commit after `R-090:`), with Adrian's
+decision that the run's end is `agent_settled` and a `handled` prompt waits for no run.
 
 Open questions for Adrian: none.
 

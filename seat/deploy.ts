@@ -2,10 +2,11 @@
  * Root's deployment of one commit of `adrian-rebuild` to the checkout above this folder, run as
  * `node /opt/limen/seat/deploy.ts <sha>` (D-008, D-010). It checks nothing out until no job runs, the commit is on the
  * branch and the checkout is clean; every failure after the checkout returns the checkout to the previous commit.
+ * Its output starts with the registries and projects the running-job check covered (D-045, D-046).
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { inspect } from "node:util";
@@ -51,6 +52,10 @@ export type DeployOutcome = { readonly code: number; readonly stdout: string; re
 type Checkout = { readonly repo: string; readonly env: NodeJS.ProcessEnv; readonly retry: string };
 type Deployed = { readonly sha: string; readonly previous: string; readonly tag: string };
 type RunningJob = { readonly root: string; readonly id: string; readonly label: string };
+/** A registry line: a root that holds `.limen/`, an absolute path that does not, or a line that is not a path. */
+type LineKind = "project" | "not a project" | "skipped";
+type RegistryLine = { readonly root: string; readonly kind: LineKind };
+type Registry = { readonly path: string; readonly lines: readonly RegistryLine[] };
 type GitRun = { readonly status: number | null; readonly stdout: string; readonly stderr: string };
 
 /** The verifications at this commit, in order. R-017, R-032 and R-056 add the Pi type contract, units and nftables. */
@@ -87,26 +92,38 @@ function printable(text: string, newlines: "keep" | "escape"): string {
 	);
 }
 
-/** Turns the deployment's result or failure into its exit code and text. */
+/**
+ * Turns the deployment's result or failure into its exit code and text. Once the running-job check has run, stdout
+ * starts with its list on success and on every failure, so root sees what the check covered.
+ */
 async function outcomeOf(input: DeployInput): Promise<DeployOutcome> {
+	const checked: string[] = [];
+	const text = (lines: readonly string[]) => lines.map((line) => `${line}\n`).join("");
 	try {
-		const { sha, previous, tag } = await deploy(input);
+		const { sha, previous, tag } = await deploy(input, checked);
 		const done = `deployed ${sha} in ${input.repo} (previous ${previous}), tag ${tag}`;
 		const next = "next: /reload every coordinator session (adrian-rebuild/plan.md, ## Deployment, step 0.3)";
-		return { code: 0, stdout: `${done}\n${next}\n`, stderr: "" };
+		return { code: 0, stdout: text([...checked, done, next]), stderr: "" };
 	} catch (error) {
 		if (error instanceof DeployFailure) {
-			return { code: error.exitCode, stdout: "", stderr: `${error.message}\nnext: ${error.next}\n` };
+			return { code: error.exitCode, stdout: text(checked), stderr: `${error.message}\nnext: ${error.next}\n` };
 		}
-		return { code: 5, stdout: "", stderr: `internal error: ${inspect(error)}\n` };
+		return { code: 5, stdout: text(checked), stderr: `internal error: ${inspect(error)}\n` };
 	}
 }
 
-/** The steps in the order of D-008; nothing is checked out until the running jobs, the branch and the checkout pass. */
-async function deploy(input: DeployInput): Promise<Deployed> {
+/**
+ * The steps in the order of D-008; nothing is checked out until the running jobs, the branch and the checkout pass.
+ * `checked` gets the list of what the running-job check covered as soon as the check has run.
+ */
+async function deploy(input: DeployInput, checked: string[]): Promise<Deployed> {
 	const sha = requestedSha(input);
 	const retry = command(input.repo, sha);
-	await refuseRunningJobs(input, retry);
+	const found = await registries(input.passwd, retry);
+	const running = await runningByProject(found, input.now(), retry);
+	checked.push(...checkedList(found, running));
+	refuseNoProject(found, retry);
+	refuseRunningJobs([...running.values()].flat(), retry);
 	const checkout: Checkout = { repo: input.repo, env: withoutRepositoryLocation(input.env), retry };
 	fetchBranch(checkout);
 	requireOnBranch(checkout, sha);
@@ -136,13 +153,62 @@ function requestedSha({ args, repo }: DeployInput): string {
 	);
 }
 
-/** Refuses while a job of any registered project runs: a job that runs across a checkout runs two versions of Limen. */
-async function refuseRunningJobs(input: DeployInput, retry: string): Promise<void> {
-	const now = input.now();
-	const running: RunningJob[] = [];
-	for (const root of await registeredRoots(input.passwd, retry)) {
-		running.push(...(await runningJobs(root, now, retry)));
+/** The running jobs of each project root, each root once in the order of the registries. */
+async function runningByProject(
+	found: readonly Registry[],
+	now: number,
+	retry: string,
+): Promise<ReadonlyMap<string, readonly RunningJob[]>> {
+	const running = new Map<string, readonly RunningJob[]>();
+	for (const { root } of found.flatMap(({ lines }) => lines.filter(({ kind }) => kind === "project"))) {
+		if (!running.has(root)) {
+			running.set(root, await runningJobs(root, now, retry));
+		}
 	}
+	return running;
+}
+
+/**
+ * One line per registry and one indented line per registry line. Each path is escaped with its newlines, as the
+ * parts of a running-job line are, so a registry cannot forge a line of the list.
+ */
+function checkedList(found: readonly Registry[], running: ReadonlyMap<string, readonly RunningJob[]>): string[] {
+	const state = ({ root, kind }: RegistryLine) => {
+		switch (kind) {
+			case "project":
+				return counted(running.get(root)?.length ?? 0, "running job");
+			case "not a project":
+				return "not a project (no .limen/)";
+			case "skipped":
+				return "skipped (not an absolute path)";
+		}
+	};
+	return found.flatMap(({ path, lines }) => {
+		const projects = lines.filter(({ kind }) => kind === "project").length;
+		return [
+			`checked registry ${printable(path, "escape")}: ${counted(projects, "project")}`,
+			...lines.map((line) => `  ${printable(line.root, "escape")}: ${state(line)}`),
+		];
+	});
+}
+
+const counted = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+
+/** Refuses when no registry holds a project: the running-job check would then have covered nothing (§7 D3, D-046). */
+function refuseNoProject(found: readonly Registry[], retry: string): void {
+	if (found.some(({ lines }) => lines.some(({ kind }) => kind === "project"))) {
+		return;
+	}
+	const paths = found.map(({ path }) => printable(path, "escape")).join(", ");
+	throw new DeployFailure(
+		4,
+		`no registered project: no root in ${paths} holds .limen/, so the running jobs cannot be checked`,
+		`check that the agents' account's ~/.limen/projects lists its project roots and that each holds .limen/, then run ${retry}`,
+	);
+}
+
+/** Refuses while a job of any registered project runs: a job that runs across a checkout runs two versions of Limen. */
+function refuseRunningJobs(running: readonly RunningJob[], retry: string): void {
 	if (running.length === 0) {
 		return;
 	}
@@ -162,34 +228,60 @@ async function refuseRunningJobs(input: DeployInput, retry: string): Promise<voi
 }
 
 /**
- * The project roots in `<home>/.limen/projects` of every home directory in the password file. `limen init` registers a
- * project in the registry of the account that runs it, and root has no registry of its own.
+ * The registries `<home>/.limen/projects` of every home directory in the password file, each line with its kind.
+ * `limen init` registers a project in the registry of the account that runs it, and root has no registry of its own.
  */
-async function registeredRoots(passwd: string, retry: string): Promise<readonly string[]> {
+async function registries(passwd: string, retry: string): Promise<readonly Registry[]> {
 	const homes = new Set(
 		(await requiredText(passwd, retry))
 			.split("\n")
 			.map((line) => line.split(":")[5] ?? "")
 			.filter((home) => isAbsolute(home)),
 	);
-	const registries: string[] = [];
+	const found: Registry[] = [];
 	for (const home of homes) {
-		const registry = await optionalText(join(home, ".limen", "projects"), retry);
-		if (registry !== undefined) {
-			registries.push(registry);
+		const path = join(home, ".limen", "projects");
+		const text = await optionalText(path, retry);
+		if (text !== undefined) {
+			found.push({ path, lines: await registryLines(text, retry) });
 		}
 	}
-	if (registries.length === 0) {
+	if (found.length === 0) {
 		throw new DeployFailure(
 			4,
 			`no project registry under any home directory of ${passwd}; the running jobs cannot be checked`,
 			`check that the agents' account has its home in ${passwd} and a ~/.limen/projects there, then run ${retry}`,
 		);
 	}
-	return [...new Set(registries.flatMap((registry) => registry.split(/\r?\n/)).filter((root) => isAbsolute(root)))];
+	return found;
 }
 
-/** The jobs of one project for which `liveJob` or `startingJob` holds; a root without `.limen/jobs/` has none. */
+/**
+ * Each distinct line of a registry with its kind. An empty line holds no root and is left out, as Limen's own reader
+ * does (`registeredProjects`); a relative path would resolve against root's working folder, so it is skipped.
+ */
+async function registryLines(text: string, retry: string): Promise<readonly RegistryLine[]> {
+	const lines: RegistryLine[] = [];
+	for (const root of new Set(text.split(/\r?\n/).filter(Boolean))) {
+		lines.push({ root, kind: isAbsolute(root) ? await rootKind(root, retry) : "skipped" });
+	}
+	return lines;
+}
+
+/** An absolute root is a project when it holds a `.limen/` folder, as `limen init` makes; a missing root holds none. */
+async function rootKind(root: string, retry: string): Promise<LineKind> {
+	const limen = join(root, ".limen");
+	try {
+		return (await stat(limen)).isDirectory() ? "project" : "not a project";
+	} catch (error) {
+		if (absent(error)) {
+			return "not a project";
+		}
+		throw unreadable(limen, error, retry);
+	}
+}
+
+/** The jobs of one project for which `liveJob` or `startingJob` holds; a project without `.limen/jobs/` has none. */
 async function runningJobs(root: string, now: number, retry: string): Promise<readonly RunningJob[]> {
 	const jobs = join(root, ".limen", "jobs");
 	const running: RunningJob[] = [];
@@ -207,7 +299,7 @@ async function jobFolders(jobs: string, retry: string): Promise<readonly string[
 		const entries = await readdir(jobs, { withFileTypes: true });
 		return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
 	} catch (error) {
-		// A registry line whose folder holds no project: a junk registration, as `limen init` in a tool folder makes.
+		// `limen init` creates `.limen/jobs/`, but a `.limen/` made otherwise may lack it, and then it holds no job.
 		if (absent(error)) {
 			return [];
 		}

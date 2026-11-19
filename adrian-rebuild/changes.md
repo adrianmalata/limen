@@ -1,7 +1,7 @@
 <!-- PL: Dziennik zmian przebudowy Limena: jeden wpis na zamknięty ticket R-NNN, tylko dopisywany, najnowszy na dole.
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
-R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013. -->
+R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090. -->
 
 # Changes
 
@@ -140,3 +140,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-05, M-01)
 - Commit: R-014
 - Rollback: git revert $(git log --format=%H --grep='^R-014:' adrian-rebuild --)
+
+## 2026-11-19 R-090 The deployment script names what it checked; a registry without a project refuses
+- What: `seat/deploy.ts` (stdout opens with the list of every registry and registry line it checked, each project root with its running jobs; registries that hold no project refuse with exit 4 before the fetch); `test/seat/deploy.test.ts` (seven new tests, ELOOP included); `test/structure.test.ts` (the basename test counts only the files git knows that exist in the working tree, so the ignored `adrian-rebuild/input/vendor/` cannot fail the gate)
+- Why: D-045, D-046, §7 D3, D-008
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (253/253; 244 at the parent); `node adrian-rebuild/tools/fails-before.mjs` → exit 0; `node --test test/seat/deploy.test.ts` → exit 0
+- Measurement: measured
+- Commit: R-090
+- Rollback: git revert $(git log --format=%H --grep='^R-090:' adrian-rebuild --)

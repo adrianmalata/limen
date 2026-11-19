@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -28,8 +28,12 @@ type Fixture = {
 	/** The checkout the script deploys into; detached at `older`. */
 	readonly repo: string;
 	readonly passwd: string;
+	/** The registry of the agents' account, the only home of `passwd` that has one. */
+	readonly registry: string;
 	/** A project listed in the registry, with a finished job. */
 	readonly project: string;
+	/** A folder with no `.limen/`, listed in the registry after the project. */
+	readonly tools: string;
 	readonly older: string;
 	/** Pushed to origin's `adrian-rebuild` after the clone, so only the script's fetch brings it. */
 	readonly newer: string;
@@ -61,15 +65,16 @@ async function fixture(t: TestContext): Promise<Fixture> {
 	git(repo, "checkout", "-q", "--detach", older);
 	const newer = commit(work, "newer.txt", "newer\n");
 	git(work, "push", "-q", origin, "adrian-rebuild");
-	const [home, project] = [join(dir, "agents"), join(dir, "project")];
+	const [home, project, tools] = [join(dir, "agents"), join(dir, "project"), join(dir, "tools")];
 	const done = join(project, ".limen", "jobs", "2026-11-18-done-0a0b0c0d");
-	await Promise.all([mkdir(join(home, ".limen"), { recursive: true }), mkdir(done, { recursive: true })]);
+	await Promise.all([mkdir(join(home, ".limen"), { recursive: true }), mkdir(done, { recursive: true }), mkdir(tools)]);
 	await writeFile(join(done, "state"), "done\n");
-	// The second line is a junk registration: a folder with no `.limen/jobs/`.
-	await writeFile(join(home, ".limen", "projects"), `${project}\n${join(dir, "tools")}\n`);
+	// The second line is a junk registration: a folder with no `.limen/`.
+	const registry = join(home, ".limen", "projects");
+	await writeFile(registry, `${project}\n${tools}\n`);
 	const passwd = join(dir, "passwd");
 	await writeFile(passwd, `root:x:0:0:root:${join(dir, "root")}:/bin/sh\nagents:x:1000:1000::${home}:/bin/sh\n`);
-	return { dir, repo, passwd, project, older, newer, side };
+	return { dir, repo, passwd, registry, project, tools, older, newer, side };
 }
 
 function deployTo(
@@ -226,4 +231,101 @@ test("a GIT_DIR in the script's environment does not move the deployment to anot
 	const otherHead = commit(other, "other.txt", "other\n");
 	const run = await deployTo(f, f.newer, [], { ...process.env, GIT_DIR: join(other, ".git") });
 	assert.deepEqual([run.code, head(f), git(other, "rev-parse", "HEAD")], [0, f.newer, otherHead], run.stderr);
+});
+
+test("a deployment prints each registry and each project it checked before the deployed line", async (t) => {
+	const f = await fixture(t);
+	const run = await deployTo(f, f.newer);
+	assert.equal(run.code, 0, run.stderr);
+	const lines = run.stdout.split("\n");
+	assert.deepEqual(lines.slice(0, 3), [
+		`checked registry ${f.registry}: 1 project`,
+		`  ${f.project}: 0 running jobs`,
+		`  ${f.tools}: not a project (no .limen/)`,
+	]);
+	assert.ok(lines[3]?.startsWith(`deployed ${f.newer} `), run.stdout);
+});
+
+/** Registries that hold no project: the registry's text, and the lines the list gives below the registry's own line. */
+const NO_PROJECT: readonly {
+	readonly name: string;
+	readonly text: (f: Fixture) => string;
+	readonly listed: (f: Fixture) => readonly string[];
+}[] = [
+	{ name: "an empty registry", text: () => "", listed: () => [] },
+	{
+		name: "a registry of a non-absolute line only",
+		text: () => "relative/project\n",
+		listed: () => ["  relative/project: skipped (not an absolute path)"],
+	},
+	{
+		name: "a registry of a root with no .limen/",
+		text: (f) => `${f.tools}\n`,
+		listed: (f) => [`  ${f.tools}: not a project (no .limen/)`],
+	},
+];
+
+test("a registry that holds no project refuses the deployment with exit 4 before the fetch, naming the registry", async (t) => {
+	for (const { name, text } of NO_PROJECT) {
+		const f = await fixture(t);
+		await writeFile(f.registry, text(f));
+		const run = await deployTo(f, f.newer);
+		assert.deepEqual([run.code, head(f), tags(f), fetched(f)], [4, f.older, "", f.older], `${name}: ${run.stderr}`);
+		assert.ok(run.stderr.includes(f.registry), `${name}: ${run.stderr}`);
+	}
+});
+
+test("a refusal for no project also prints the list", async (t) => {
+	for (const { name, text, listed } of NO_PROJECT) {
+		const f = await fixture(t);
+		await writeFile(f.registry, text(f));
+		const run = await deployTo(f, f.newer);
+		assert.equal(run.code, 4, `${name}: ${run.stderr}`);
+		assert.equal(run.stdout, [`checked registry ${f.registry}: 0 projects`, ...listed(f), ""].join("\n"), name);
+	}
+});
+
+test("a registry that cannot be read refuses the deployment with exit 4 before the fetch, naming its path", async (t) => {
+	const f = await fixture(t);
+	// A folder in the registry's place fails the read with EISDIR for every user, root included.
+	await rm(f.registry);
+	await mkdir(f.registry);
+	const run = await deployTo(f, f.newer);
+	assert.deepEqual([run.code, head(f), tags(f), fetched(f)], [4, f.older, "", f.older], run.stderr);
+	assert.ok(run.stderr.includes(`cannot read ${f.registry}`), run.stderr);
+});
+
+test("a refusal for a running job also prints the list of what was checked", async (t) => {
+	const f = await fixture(t);
+	await jobFolder(f, { starting: `${process.pid}\n`, label: "demo job\n" });
+	const run = await deployTo(f, f.newer);
+	assert.equal(run.code, 1, run.stderr);
+	assert.deepEqual(run.stdout.split("\n"), [
+		`checked registry ${f.registry}: 1 project`,
+		`  ${f.project}: 1 running job`,
+		`  ${f.tools}: not a project (no .limen/)`,
+		"",
+	]);
+});
+
+test("a registry line with a control character is printed escaped in the list", async (t) => {
+	const f = await fixture(t);
+	await writeFile(f.registry, `${f.project}\n${f.dir}/odd \u001b]0;owned\u0007\rdir\n`);
+	const run = await deployTo(f, f.newer);
+	assert.equal(run.code, 0, run.stderr);
+	assert.doesNotMatch(run.stdout.replaceAll("\n", ""), /\p{Cc}/u);
+	const escaped = `  ${f.dir}/odd \\x1b]0;owned\\x07\\x0ddir: not a project (no .limen/)`;
+	assert.ok(run.stdout.split("\n").includes(escaped), run.stdout);
+});
+
+test("a registered root whose .limen cannot be read refuses the deployment with exit 4 before the fetch, naming it", async (t) => {
+	const f = await fixture(t);
+	const loop = join(f.dir, "loop");
+	await mkdir(loop);
+	// A symlink to itself fails every stat with ELOOP, for every user, root included.
+	await symlink(".limen", join(loop, ".limen"));
+	await writeFile(f.registry, `${f.project}\n${loop}\n`);
+	const run = await deployTo(f, f.newer);
+	assert.deepEqual([run.code, head(f), tags(f), fetched(f)], [4, f.older, "", f.older], run.stderr);
+	assert.ok(run.stderr.includes(`cannot read ${join(loop, ".limen")}: ELOOP`), run.stderr);
 });
