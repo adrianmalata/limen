@@ -18,7 +18,8 @@ odmów, runnera, skryptu wdrożenia i `kind`; tickety R-089 w etapie 2 oraz popr
 których tag a0.1.1 jest pierwszym wdrożeniem); R-090 zamknięty 19.11 (lista sprawdzonych rejestrów, odmowa bez
 projektu, test nazw liczy tylko pliki znane gitowi); R-091 zamknięty 19.11 (oznaczenia typów Pi, odmowa bez
 oznaczenia, koniec przebiegu na agent_settled, definicja touchpoints); D-047: narzędzie przekazania sesji
-tools/handover.mjs (start nowej sesji w tmux i zamykanie poprzednich sesji przebudowy). -->
+tools/handover.mjs (start nowej sesji w tmux i zamykanie poprzednich sesji przebudowy); przekazanie sesji
+limen-rebuild-8, które domknie etap 1 (tag a0.1.1). -->
 
 
 
@@ -1883,10 +1884,12 @@ seat, Adrian's: B.2 with R-091's runner, then `## Deployment` 1.0–1.3 with `a0
 
 Active ticket: none.
 
-Handover (D-047): the current session is `limen-rebuild-7` (a `claude -r` in a WSL window since 17:46, no `tmux`).
-At a safe point the session runs `node adrian-rebuild/tools/handover.mjs start 8` and ends its turn; the new
-session's first acts are the push notification and `node adrian-rebuild/tools/handover.mjs close-previous` (exit 1
-names what it could not close: tell Adrian), then `Next`. The handover after it is `limen-rebuild-9`.
+Handover of 2026-11-19 (D-047, at 31 % context, after the commit `D-047:`): `limen-rebuild-7` (a `claude -r` in a
+WSL window since 17:46, no `tmux`) starts `limen-rebuild-8` with `node adrian-rebuild/tools/handover.mjs start 8`
+and ends its turn. The next session's first acts: a push notification to Adrian that it takes over at the close of
+stage 1; then `node adrian-rebuild/tools/handover.mjs close-previous`, the tool's first real run: it should stop
+`limen-rebuild-7` (`evidence/handover/outcome.md` → Measurement), and the session reports its lines to Adrian (exit
+1 names what it could not close); then `Next`. The handover after it is `limen-rebuild-9`, with `start 9`.
 
 Open questions for Adrian: none.
 
