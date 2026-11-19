@@ -2,7 +2,8 @@
 schemat argumentów i flag, klucze ids, handler), jeden parser ze schematu, generowane `limen --help`, `limen <cmd>
 --help` i sekcje `docs/commands.md`, nowe nazwy `status --all`, `show <job>` i `seat queue` z odmową starych form kodem
 2. Teksty helpu ustalił Adrian w trybie pair (D-037–D-041), a implementację robi `rebuild-implementer`; `group wait`
-zostaje jako polecenie wewnętrzne dla członków teamu (D-042). Stan: aktywny (19.11). -->
+zostaje jako polecenie wewnętrzne dla członków teamu (D-042), a `spawn` wymaga czterech flag trasy (D-043). Stan:
+aktywny (19.11), implementer wznowiony po BLOCKED. -->
 
 # R-014 One command registry, a shared parser and generated help
 
@@ -76,6 +77,11 @@ Relied on (quoted):
   (…) R-014's test fails once no entry has `movedBy` any more, with the message to remove the field and the exception".
   Today a member is known by `LIMEN_JOB_ID` and `LIMEN_TEAM_ID` and the lead by the group id and its session
   (`src/job/group-cabinet.ts:177-197`).
+- D-043 (excerpt): "(1) `spawn` requires `--engine`, `--provider`, `--model` and `--thinking`; a spawn without one of
+  them exits 2, and the refusal names every missing flag. The basis is A-030 (a missing field refuses, and the fallback
+  model is cut) and the author's intent #2 of gate 2 §5 ("never swap a model") (…) `continue` keeps `model ??
+  defaultModel` until R-062. (2) The line of `ticket done` shows its flag: `limen ticket done <FNNN> … [--on
+  <date>]`."
 - `plan.md` → `## Tickets` → notes, R-014: "it registers the commands that remain after the cuts (…) and it gives them
   the names of T-18 where no other ticket's mechanism is needed: `limen jobs` becomes `limen status --all` and `limen
   show <id>`, and `limen queue` becomes `limen seat queue`."
@@ -185,7 +191,7 @@ Relied on (quoted):
                                                 write a ticket with the next free number
      limen ticket check [<branch>]
          the ticket check land runs, for the tickets a branch changes
-     limen ticket done <FNNN> …                 close a ticket that landed without limen land
+     limen ticket done <FNNN> … [--on <date>]   close a ticket that landed without limen land
      limen close <FNNN>                         close the ticket's Herdr tabs
      limen keeper <ticket> --engine <engine> --provider <provider> --model <model> --thinking <level> …
          a short job fixes the ticket, board and map links after the work
@@ -211,6 +217,10 @@ Relied on (quoted):
    Exit codes: 0 ok · 1 refused · 2 usage · 3 transient · 4 environment · 5 internal.
    The last output line is JSON {class, code, next, ids?}.
    ```
+
+   In `spawn`'s schema `--engine`, `--provider`, `--model` and `--thinking` are required flags (D-043); a missing one
+   is a parser error whose first line names every missing flag, e.g. `limen spawn: missing --model, --thinking`.
+   `continue` keeps its optional route flags and `model ?? defaultModel` until R-062.
 
    `limen land --help` is exactly this (golden):
 
@@ -291,7 +301,8 @@ Relied on (quoted):
   text.
 - AC-4: `node --test test/parser.test.ts` → exit 0; it proves: an unknown flag, a missing value, a missing positional
   and an extra positional each exit 2 with code `BAD_ARGUMENT`, `next` `limen <name> --help` and the usage line in the
-  message; the parser error of Change 4 equals its golden text; `--`, `-x` and a dash value behave as Change 2 says.
+  message; the parser error of Change 4 equals its golden text; `--`, `-x` and a dash value behave as Change 2 says;
+  `limen spawn "task" --engine pi --provider anthropic` exits 2 with a message that names `--model` and `--thinking`.
 - AC-5: `node --test test/cli/old-names.test.ts` → exit 0; it proves: every name of `src/old-names.ts` given on the
   command line exits 2 with code `REMOVED` and its `next`; `limen jobs a1b2c3d4` names `limen show a1b2c3d4`; `limen
   jobs`, `limen jobs --all`, `limen jobs --running` and `limen jobs --label x` name `limen status --all`; `limen queue`
@@ -310,7 +321,9 @@ Relied on (quoted):
 
 ## Migration
 
-CLI only, no on-disk format changes: each old form exits 2 with the new form in `next`, tested on fixtures (AC-5). The
+CLI only, no on-disk format changes: each old form exits 2 with the new form in `next`, tested on fixtures (AC-5).
+A `spawn` without one of the four route flags exits 2 and names the missing ones (D-043, AC-4); `LIMEN_ENGINE` no
+longer chooses the engine of a spawn. The
 seat calls none of the renamed forms (`git grep -n -E "'(jobs|queue)'" -- docs/seat` at `20e694c`: none); `sweep` keeps
 its name, because the seat's timer calls it until R-032.
 
@@ -320,6 +333,8 @@ its name, because the seat's timer calls it until R-032.
   command that has one; AC-4 covers the rules.
 - A test or a role text that still names `limen jobs` fails or misleads; AC-7 covers `src`, `hook`, `templates` and
   `docs`.
+- The coordinator on the seat may spawn without a route flag, since its manual does not reach the model under the
+  bridge (A-086); it then gets exit 2 with the missing flags named, instead of a silently chosen model (D-043).
 
 ## Rollback
 
@@ -332,6 +347,20 @@ its name, because the seat's timer calls it until R-032.
   as a security boundary, while a worktree separates only files, A-029, G2) and the `workspace init` summary (a folder
   outside Git that holds several repositories; a job works in one of them, `--repo`), both in Change 4.
 - 2026-11-19 (Adrian, D-042): `group wait` stays internal for team members, refuses a caller outside a team as a
-  guard against mistakes (A-029), and R-077's criteria check the replacement, not only the removal. The main session's
-  resolution of D-042's conflict with D-039 (the test that fails once no `movedBy` entry is left) is for Adrian to
-  confirm.
+  guard against mistakes (A-029), and R-077's criteria check the replacement, not only the removal. Adrian confirmed
+  the resolution of D-042's conflict with D-039 (the test that fails once no `movedBy` entry is left) and accepted the
+  golden texts of Change 4.
+- 2026-11-19 (Adrian, D-043; the implementer's `BLOCKED` on the `spawn` and `ticket done` lines): `spawn` requires
+  its four route flags and the refusal names the missing ones; `continue` keeps `model ?? defaultModel` until R-062;
+  the `ticket done` line shows `[--on <date>]`. Adrian accepts the implementer's technical choices: (1) a final
+  positional of type `text` takes the remaining words, joined by a space, and spawn's `"task"` can be replaced by the
+  optional `--task-file`; (2) `--` ends the flags of every command, and empty words are dropped everywhere; (3) `group
+  status`, `publish`, `stop`, `close` and `wait` declare an optional `[<group>]` first, and for a member
+  (`LIMEN_GROUP_ID` set) the handler joins a given group word back into the finding or refuses it, as today; (4) `group
+  wait` refuses every caller without `LIMEN_GROUP_ID`, with or without a group id, and its `next` is `limen group
+  status <id>`, with the literal `<group id>` when no id was given; (5) `next` of an old name is its `instead`, except
+  `jobs` (`limen show <ref>` or `limen status --all`) and `queue` (`limen seat queue`); (6) `limen <group>` and `limen
+  <group> --help` list the public entries whose name starts with the group word; (7) `git mv src/commands/queue.ts
+  src/commands/seat.ts`, `git mv` of `src/commands/jobs.ts` to a job-view module under `src/job/` for the renderers, a
+  new `src/commands/show.ts`, `git rm src/commands/flags.ts`, and keeper, group start and the GitHub jobs call spawn's
+  handler with parsed values instead of argv.

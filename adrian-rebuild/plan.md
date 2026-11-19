@@ -10,8 +10,9 @@ i polecenia na allow-listę. Stan: etap 5 (przebudowa) w toku, etap planu 1; R-0
 R-011 i R-088 zamknięte, 19.11 także R-007 i (nocą) R-009, R-012 i R-013; 18.11 w dzień doszły decyzje D-025–D-035
 (m.in. zasady komunikacji z Adrianem, wyjątek dla testu A-087, przekazywanie sesji, poprawka helpera testów A-088
 w R-007 i nowy snapshot po edycji w trakcie BLOCKED); w etapie 1 został R-014 (pair, w dzień), a `## State` ma gotowe
-podsumowanie bramki 5.1; Q-8 rozstrzygnięte (D-036: `seat/deploy.ts` poza allow-listą); 19.11 w dzień D-037–D-042
-(pytania R-014: tryb, `status --all`, `movedBy`, nagłówek modułów, teksty helpu, `group wait`) i R-014 aktywny. -->
+podsumowanie bramki 5.1; Q-8 rozstrzygnięte (D-036: `seat/deploy.ts` poza allow-listą); 19.11 w dzień D-037–D-043
+(pytania R-014: tryb, `status --all`, `movedBy`, nagłówek modułów, teksty helpu, `group wait`, wymagane flagi trasy
+`spawn`) i R-014 aktywny. -->
 
 
 
@@ -455,8 +456,17 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   member with a worker allowance gets its workers' results without `group wait` (`## Tickets` → notes). Consequence for
   D-039 (the main session's resolution, for Adrian to confirm): R-077 does not depend on R-066, so R-066 cannot be the
   last ticket with a `movedBy` entry; instead R-014's test fails once no entry has `movedBy` any more, with the message
-  to remove the field and the exception, so whichever ticket removes the last entry also removes the field. Check:
-  R-014's registry and group tests; R-077's criteria.
+  to remove the field and the exception, so whichever ticket removes the last entry also removes the field (Adrian
+  confirmed this resolution on 2026-11-19). Check: R-014's registry and group tests; R-077's criteria.
+- 2026-11-19 D-043 (Adrian, R-014's `BLOCKED` on two golden lines; changes R-014's golden text and `spawn`): (1)
+  `spawn` requires `--engine`, `--provider`, `--model` and `--thinking`; a spawn without one of them exits 2, and the
+  refusal names every missing flag. The basis is A-030 (a missing field refuses, and the fallback model is cut) and
+  the author's intent #2 of gate 2 §5 ("never swap a model"), with Adrian's agreement. Today the engine falls back to
+  `LIMEN_ENGINE` or `pi` (`src/runtime/engine.ts:48-54`) and the model to `defaultModel` (`src/commands/spawn.ts:169`);
+  whether the coordinator on the seat passes all four is unknown, because its manual sits in the system prompt that
+  does not reach the model under the bridge (A-086). `continue` keeps `model ?? defaultModel` until R-062. (2) The
+  line of `ticket done` shows its flag: `limen ticket done <FNNN> … [--on <date>]`. Adrian accepts the implementer's
+  technical choices listed in `R-014-command-registry/ticket.md` → `## Decisions`. Check: R-014's parser and help tests.
 
 ### Gate 2 §2, copied
 
@@ -804,7 +814,7 @@ Columns:
 | R-011 | The same-task runner and the gate-time tool | 1 | H-21, T-11, T-41, §2, D-021 | — | L | delegated | night | — | pi | B.2 | done |
 | R-012 | A root deployment script for a pinned SHA | 1 | D-008, D-010, §7 | R-002 | M | delegated | night | — | — | 1.0 | done |
 | R-013 | One error type, exit codes as failure classes, a final JSON line | 1 | T-01, T-02, D-022, D-028 | R-002, R-003, R-004, R-005, R-006, R-007, R-009 | L | delegated | night | yes | — | — | done |
-| R-014 | One command registry, a shared parser and generated help | 1 | T-19, T-18, T-26, T-37, D-028, D-037, D-038, D-039, D-040, D-041, D-042 | R-002, R-003, R-004, R-005, R-006, R-007, R-009, R-013 | L | pair | day-after | yes | — | — | active |
+| R-014 | One command registry, a shared parser and generated help | 1 | T-19, T-18, T-26, T-37, D-028, D-037, D-038, D-039, D-040, D-041, D-042, D-043 | R-002, R-003, R-004, R-005, R-006, R-007, R-009, R-013 | L | pair | day-after | yes | — | — | active |
 | R-088 | The same-task runner leaves no job running after an attempt | 1 | D-027, D-021 | R-011 | S | pair | day-after | — | pi | B.2 | done |
 | R-015 | One configuration reader; settings come only from owner files | 2 | T-03 | R-014 | M | delegated | night | yes | — | — | planned |
 | R-016 | One boundary parsing module with validators; the cast ratchet | 2 | T-27 | R-013 | M | delegated | night | — | — | — | planned |
@@ -1701,12 +1711,13 @@ its entry to `src/old-names.ts` and its leftover paths to `LEFTOVERS`. B.2 runs 
 Active ticket: R-014 (day session of 2026-11-19, after the night run). Adrian's answers to R-014's questions Q1–Q5 →
 D-037–D-041, `taste.md` → T-19 (added 2026-11-19), and the notes for R-032, R-034, R-037, R-044 and R-066 in
 `## Tickets`; `group wait` → D-042 (internal, `movedBy: "R-077"`, refuses a caller outside a team);
-`R-014-command-registry/ticket.md` is written with the golden help (step 2 of the protocol). Next step: step 3
-(`rebuild-implementer`, D-037).
+`R-014-command-registry/ticket.md` is written with the golden help (step 2 of the protocol; commit `2e37a6d`).
+Step 3: the implementer stopped with `BLOCKED` on two golden lines before changing any file (`compare --git` exit 0);
+Adrian's answer → D-043 (`spawn` requires its four route flags; the `ticket done` line shows `--on`), and the
+implementer's technical choices are accepted (`ticket.md` → `## Decisions`); the implementer is resumed after a new
+`snapshot --git` (D-035).
 
-Open questions for Adrian: whether he accepts the golden help texts as written in `ticket.md` → Change 4 (he
-answered the corrections, not yet the corrected text); D-042's consequence for D-039 (the ticket that removes the last
-`movedBy` entry removes the field, forced by R-014's test).
+Open questions for Adrian: none.
 
 Notes for the next session:
 - Start Claude Code in the repository root, so that it loads `.claude/agents/`.
