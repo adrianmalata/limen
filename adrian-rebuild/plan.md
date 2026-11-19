@@ -1445,6 +1445,12 @@ Updated 2026-11-19, day session `limen-rebuild-5`, rebuild stage 5 in progress a
 R-088 `done`, so every ticket of stage 1 is done; no ticket active; gate 5.1 is due (the summary below), then the tag
 `a0.1.0`. The night of 2026-11-19 ended at 02:57 with `no-ticket`.
 
+Handover of 2026-11-19 (D-033, at 37 % context, after the commit `R-014:`): `limen-rebuild-5` starts
+`limen-rebuild-6` in `tmux` in remote-control mode with the first message of the rebuild prompt and then ends. WSL
+booted at 10:34 on 2026-11-19, after the `.wslconfig` was written (2026-11-18 16:48), so no WSL window has to stay
+open. The next session's first act: a push notification to Adrian that it takes over at gate 5.1; then gate 5.1 with
+him (the summary below). The handover after it is `limen-rebuild-7`.
+
 Handover of 2026-11-19 (D-033, at 30 % context): Adrian ends `limen-rebuild-4` himself (`/exit`) and starts the next
 day session himself with the first message of the rebuild prompt; it starts R-014 with him. Two older sessions were
 still alive at 10:09 and should be closed by Adrian, since either would work on the same tree if woken:
