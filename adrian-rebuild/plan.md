@@ -13,8 +13,9 @@ w R-007 i nowy snapshot po edycji w trakcie BLOCKED); w etapie 1 został R-014 (
 podsumowanie bramki 5.1; Q-8 rozstrzygnięte (D-036: `seat/deploy.ts` poza allow-listą); 19.11 w dzień D-037–D-044
 (pytania R-014: tryb, `status --all`, `movedBy`, nagłówek modułów, teksty helpu, `group wait`, wymagane flagi trasy
 `spawn`, trzecia runda poprawek) i R-014 zamknięty, więc etap 1 jest kompletny; 19.11 po południu etap 1 zamknięty
-(bramka 244/244, M-10 77,1 s, lokalny tag a0.1.0); decyzje bramki 5.1 to D-045 (dalej do etapu 2, ze zmianami
-linii końcowej, odmów, runnera, skryptu wdrożenia i `kind`), z dwoma otwartymi punktami: lista `next: null` i tickety. -->
+(bramka 244/244, M-10 77,1 s, lokalny tag a0.1.0); decyzje bramki 5.1 to D-045 i D-046 (zmiany linii końcowej,
+odmów, runnera, skryptu wdrożenia i `kind`; tickety R-089 w etapie 2 oraz poprawkowe R-090 i R-091 w etapie 1, po
+których tag a0.1.1 jest pierwszym wdrożeniem). -->
 
 
 
@@ -505,7 +506,29 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   `end`, which write; (6.2) `status` and `show` are `change` while they reap dead jobs, and R-032 makes them `read`;
   (6.3) a test: every `read` command run on a test project leaves the project's files and `.limen/` unchanged, and
   after R-032 it passes for `status` and `show`. Open: the `null` list of (2) and the tickets that carry (2)–(6)
-  (asked in the gate reply of 2026-11-19). Check: the criteria of those tickets.
+  (asked in the gate reply of 2026-11-19; settled by D-046). Check: the criteria of those tickets.
+- 2026-11-19 D-046 (Adrian, the two open points of D-045; amends D-022 and D-045 (1)): (1) The `null` list, variant
+  (a) of the gate reply: a refusal's `next` is a Limen command only when its successor is a fixed command or is built
+  from identifiers of the call (a job, a branch, a group id); otherwise it is `null`, and the sentence stays on
+  stderr. So `picture tick` names `limen picture build`, `picture watch` names `limen status`, `group status --json`
+  names `limen group status` (with the group id when one was given), `queue` names `limen seat queue`, `jobs`
+  follows D-045 (2) in R-023, and every other refusal of `src/old-names.ts` has `null`. (2) Every `next: ""` becomes
+  `null`: a success with no next step, `UNTYPED`, `INTERNAL`. (3) The sentence of a successful `spawn` (D-022: "End
+  your turn; Limen wakes you when the job ends.") moves to the text line before the final line, with `next: null`; its
+  wording stays. So `next` is always a Limen command or `null`, and the parser test covers every `next`, not only
+  those of failures. (4) The placement, with changes. R-089 (stage 2) carries D-045 (2) and (5) and items (1)–(3)
+  here; R-023 the `jobs` defect and its criteria (D-045 (2)); R-025 D-045 (6.1)–(6.3); R-032 the criterion that
+  `status` and `show` are `read` and pass the test of D-045 (6.3). R-090 and R-091 are fix tickets of stage 1
+  (amends D-045 (1)), so the first deployment is the tag `a0.1.1` on their last commit, not `a0.1.0`. R-090 carries
+  D-045 (4), and a registry that holds no project refuses too: that is the gap of §7 D3, and the condition is one
+  line. R-091 carries D-045 (3): each event type of Pi 1.5.1's list (from the package sources of `## Commands`, stage
+  2 row) is marked in the code as handled or skipped; a type on which Pi waits for an answer (such as an extension's
+  request for one) is never skipped; a type with no mark ends the attempt with an error that records the raw event.
+  B.2 runs with R-091's runner, and the deployment of `a0.1.1` waits for B.2 and R-090. (5) Confirmed for R-089:
+  `group wait` past its limit, an explicit `--timeout` included, exits 0 with class `ok`, `code` `null` and `next`
+  the `limen group wait` call as it was made, so the code `GROUP_WAIT_TIMEOUT` leaves the final line and the text line
+  says that the limit passed; the code `TICKET_CHECK_FAILED` is already spelled so (`src/commands/ticket.ts:133`), and
+  nothing changes there. Check: the criteria of R-089, R-090, R-091, R-023, R-025 and R-032.
 
 ### Gate 2 §2, copied
 
@@ -729,8 +752,8 @@ questions; their number cannot be known in advance.
 
 | Stage | Tag | Tickets: S / M / L | Pair (Run) | Expected decisions | Seat steps |
 |---|---|---|---|---|---|
-| 1 | a0.1.0 | 15: 4 / 4 / 7 | 2: R-014, R-088 (day-after) | 4: gate 5.1; the golden help of R-014 (the wording is set by T-19, Adrian confirms the output); the same-task ticket before B.2 (R-011); the leftover list before `--drop-leftovers` (1.1) | 4 (1.0 bootstrap), plus B.1 and B.2 before it |
-| 2 | a0.2.0 | 11: 0 / 9 / 2 | 0 | 3: gate 5.2; id collisions in the record migration report (2.1); the `LIMEN_*` variables to remove (2.4) | 5, plus B.3 |
+| 1 | a0.1.0 | 17: 6 / 4 / 7 | 2: R-014, R-088 (day-after) | 4: gate 5.1; the golden help of R-014 (the wording is set by T-19, Adrian confirms the output); the same-task ticket before B.2 (R-011); the leftover list before `--drop-leftovers` (1.1) | 4 (1.0 bootstrap), plus B.1 and B.2 before it |
+| 2 | a0.2.0 | 12: 0 / 10 / 2 | 0 | 3: gate 5.2; id collisions in the record migration report (2.1); the `LIMEN_*` variables to remove (2.4) | 5, plus B.3 |
 | 3 | a0.3.0 | 13: 0 / 9 / 4 | 0 | 3, plus one per unlanded job: gate 5.3; the account names (3.3); `continue` or `abandon` for each finished job with unlanded work (3.6) | 12 |
 | 4 | a0.4.0 | 10: 2 / 6 / 2 | 2: R-041, R-046 (day-after) | 4: gate 5.4; the cue wording (R-041); the role prompt texts and their glossary of terms (T-14, R-046); the modules to switch on (4.9) | 10 |
 | 5 | a0.5.0 | 13: 0 / 9 / 4 | 0 | 3: gate 5.5; the owner channel's key, forced command and tokens (5.1); the domains added to the egress list (5.16) | 21 |
@@ -761,7 +784,9 @@ lists the leftover files of cut features. The root deployment script (D-008) dep
 same-task runner can run the "before" measurement on `rebuild-base`. Then the two foundations the registry needs: one
 error type with exit codes as failure classes and a final JSON line (R-013), and one command registry with the help in
 groups (R-014, `pair`, by day after the night run of the cuts, D-011); R-013 comes after the cuts (D-028). R-088
-fixes the same-task runner before B.2 (D-027). Tickets R-001–R-014 and R-088.
+fixes the same-task runner before B.2 (D-027). After gate 5.1, two fix tickets (D-046): R-091 marks every Pi event
+type in the runner before B.2, and R-090 makes the deployment script name what it checked and refuse a registry
+without a project; the first deployment is their tag `a0.1.1`. Tickets R-001–R-014, R-088, R-090 and R-091.
 
 ### Stage 2 — Foundations (a0.2.0)
 
@@ -769,7 +794,8 @@ The shared mechanisms every subsequent ticket builds on, next to the error type 
 configuration reader, validated boundary data, one Pi API adapter, atomic writes, one lock
 module, a Linux platform adapter, one `record.json` per job written only by the transition function, exact job
 references, thin commands over domain operations, `limen stats`, and test coverage derived from the registry. The
-records of both projects migrate; `limen stats` reads the migrated history. Tickets R-015–R-025.
+records of both projects migrate; `limen stats` reads the migrated history. The final line's `code` and `next` take
+`null` (R-089, D-045, D-046). Tickets R-015–R-025 and R-089.
 
 ### Stage 3 — Work is never lost (a0.3.0)
 
@@ -855,6 +881,9 @@ Columns:
 | R-013 | One error type, exit codes as failure classes, a final JSON line | 1 | T-01, T-02, D-022, D-028 | R-002, R-003, R-004, R-005, R-006, R-007, R-009 | L | delegated | night | yes | — | — | done |
 | R-014 | One command registry, a shared parser and generated help | 1 | T-19, T-18, T-26, T-37, D-028, D-037, D-038, D-039, D-040, D-041, D-042, D-043, D-044 | R-002, R-003, R-004, R-005, R-006, R-007, R-009, R-013 | L | pair | day-after | yes | — | — | done |
 | R-088 | The same-task runner leaves no job running after an attempt | 1 | D-027, D-021 | R-011 | S | pair | day-after | — | pi | B.2 | done |
+| R-091 | The same-task runner refuses an unmarked Pi event and states its touchpoint definition | 1 | D-045, D-046, D-021, H-21 | R-011 | S | delegated | night | — | pi | B.2 | planned |
+| R-090 | The deployment script names what it checked; a registry without a project refuses | 1 | D-045, D-046, D-008, §7 | R-012 | S | delegated | night | — | — | 1.0 | planned |
+| R-089 | The final line's `code` and `next` are a value or `null`; `next` is always a command | 2 | T-37, T-02, D-045, D-046 | R-014 | M | delegated | night | — | — | — | planned |
 | R-015 | One configuration reader; settings come only from owner files | 2 | T-03 | R-014 | M | delegated | night | yes | — | — | planned |
 | R-016 | One boundary parsing module with validators; the cast ratchet | 2 | T-27 | R-013 | M | delegated | night | — | — | — | planned |
 | R-017 | One Pi API adapter with type guards, checked against Pi's real types | 2 | T-32 | R-012, R-016 | M | delegated | night | — | pi | 2.2 | planned |
@@ -863,16 +892,16 @@ Columns:
 | R-020 | A Linux platform adapter and declared system requirements | 2 | A-083, T-12, T-32 | R-013 | M | delegated | night | — | — | — | planned |
 | R-021 | One `record.json` per job, written only by the transition function | 2 | S1+, A-019, A-053, A-056, T-20, T-25 | R-016, R-018, R-019 | L | delegated | night | yes | — | — | planned |
 | R-022 | Exact job references through one resolver | 2 | T-20 | R-014, R-021 | M | delegated | night | yes | — | — | planned |
-| R-023 | Commands are thin adapters over domain operations; a refusal leaves no trace | 2 | T-26, T-38 | R-014, R-021 | L | delegated | night | — | — | — | planned |
+| R-023 | Commands are thin adapters over domain operations; a refusal leaves no trace | 2 | T-26, T-38, D-045, D-046 | R-014, R-021, R-089 | L | delegated | night | — | — | — | planned |
 | R-024 | `limen stats` over records and transcripts | 2 | H-01, H-20, §2, T-33 | R-021, R-023 | M | delegated | night | — | pi | 2.3 | planned |
-| R-025 | Test coverage derived from the command registry | 2 | T-28, T-29 | R-014, R-023 | M | delegated | night | — | — | — | planned |
+| R-025 | Test coverage derived from the command registry | 2 | T-28, T-29, D-045, D-046 | R-014, R-023 | M | delegated | night | — | — | — | planned |
 | R-026 | Every job runs in its own systemd user scope | 3 | A-029, A-052, T-43 | R-020, R-021 | L | delegated | night | — | systemd | 3.2, 3.7, 3.8 | planned |
 | R-027 | The reaper ends a job only after its process group is gone | 3 | A-005, A-056 | R-026 | M | delegated | night | — | — | — | planned |
 | R-028 | SIGTERM reaches the engine; a signal without a stop request is a failure | 3 | A-020, A-052 | R-026 | M | delegated | night | — | — | — | planned |
 | R-029 | One recorded failure cause per job | 3 | A-016, E-9, T-31 | R-017, R-021 | M | delegated | night | — | bridge | 3.4 | planned |
 | R-030 | Unlanded work survives: `limen abandon`, a guarded prune, a refusing spawn | 3 | A-001 | R-023 | M | delegated | night | yes | — | — | planned |
 | R-031 | `landed` and `abandoned` markers; retire moves records to the archive | 3 | A-002, §6 | R-030 | M | delegated | night | yes | — | — | planned |
-| R-032 | `limen seat sweep` runs on a timer; read commands never write or wait | 3 | A-024, T-04, T-18, A-017, §6 | R-012, R-027, R-031 | L | delegated | night | yes | systemd | 3.1 | planned |
+| R-032 | `limen seat sweep` runs on a timer; read commands never write or wait | 3 | A-024, T-04, T-18, A-017, §6, D-045 | R-012, R-027, R-031 | L | delegated | night | yes | systemd | 3.1 | planned |
 | R-033 | Alerts from their own account: failures and escalations only | 3 | A-066, A-054, T-18 | R-021 | M | delegated | night | yes | systemd | 3.3 | planned |
 | R-034 | Resume after the quota limit in code; seat rules are cut | 3 | A-016, A-010, A-068, §6 | R-029, R-032, R-033 | L | delegated | night | yes | systemd | 3.4, 3.5 | planned |
 | R-035 | Start-queue thresholds: a diagnosis at 30 min, a failure at 2 h | 3 | A-036 | R-026, R-033 | M | delegated | night | — | systemd | 3.8 | planned |
@@ -1001,6 +1030,14 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   wait`) and a fake-engine test in which a team member with a worker allowance gets each worker's result although it
   no longer calls `group wait`, including a worker that ends after the member's turn would have ended.
 - R-032 (D-041 (6)): once read commands write nothing (T-04), `limen <command> --help` shows the kind of T-19.
+- R-023 (D-045 (2), D-046): the `jobs` refusal (R-014 review round 4, note 1): a flag present names `limen status
+  --all`, and only `limen jobs <ref>` names `limen show <ref>` (D-038); a test that every non-empty `next` of a refusal,
+  for the mixed forms `limen jobs --all a1b2c3d4` and `limen jobs -- --all` included, passes the shared parser and is
+  not itself a usage error.
+- R-025 (D-045 (6)): `rule` is `change` (its entry covers `set` and `end`); `status` and `show` are `change` while they
+  reap dead jobs; a test that every `read` command, run on a test project, leaves the project's files and `.limen/`
+  unchanged (the snapshot function of T-38 (4)).
+- R-032 (D-045 (6.2)): `status` and `show` become `read`, and R-025's test of `read` commands passes for them.
 - R-059: no shell scripts (D-010): `docs/seat/bell.sh` and `docs/seat/github-setup.sh` become TypeScript in `seat/`,
   and every unit calls `node /opt/limen/seat/<tool>.ts`.
 
@@ -1051,7 +1088,7 @@ parallel, is after a0.3.0 is deployed:
   middle of the projects' work; that is the change M-05 measures, not a reason to wait.
 
 Conditions:
-1. Before a0.1.0 is deployed: B.1 and B.2 run on `rebuild-base`, and the snapshot of 0.1 taken before that first
+1. Before the first deployment (`a0.1.1`, D-046): B.1 and B.2 run on `rebuild-base`, and the snapshot of 0.1 taken before that first
    deployment is kept as the "before" data of B.3, because resumed projects add jobs of several versions to the live
    records.
 2. The old `limen-prune` timers stay disabled until a0.3.0 replaces them (A-001: they deleted the uncommitted work of
@@ -1112,7 +1149,7 @@ full SHA.
 
 B.1 and B.2 run before the first deployment; B.3 runs after a0.2.0 is deployed, on the snapshot taken before the first
 deployment (`### Resuming the projects on the seat`, condition 1). B.2 needs the same-task runner of R-011 but no
-deployment: once R-011 is pushed, Adrian runs it on the seat as the agents' account from a separate checkout of that
+deployment: once R-091 is pushed (D-046), Adrian runs it on the seat as the agents' account from a separate checkout of that
 commit, outside `/opt/limen`, and points it at the `rebuild-base` checkout in `/opt/limen` and at a scratch clone.
 
 
@@ -1120,7 +1157,9 @@ commit, outside `/opt/limen`, and points it at the `rebuild-base` checkout in `/
   turn and one job turn (M-02). From the same log: whether each turn reuses or rewrites the Claude Code session, the
   cache TTL (`modelUsage` 5m or 1h), the context window of `claude-opus-5-5` on the Max login, and the cache read of
   the turn after a manual `/compact`, which forces a rewrite (E-1, E-2, E-8).
-- **B.2** The same-task baseline: the same-task runner of R-011 with `rebuild-base`, k attempts (M-05). First the
+- **B.2** The same-task baseline: the same-task runner of R-011, as R-088 and R-091 left it, with `rebuild-base`, k
+  attempts (M-05); an attempt that meets a Pi event the runner has not marked ends at once with the raw event in its
+  result (R-091). First the
   seat check of R-011 (D-021): the coordinator started headless through Pi's RPC mode loads Limen's hooks and
   receives a wake; Adrian gives the candidate ticket's real time from the M1 records, which sets the time limit.
   After every attempt, the runner's stderr names no job left running (R-088, D-027).
@@ -1129,10 +1168,13 @@ commit, outside `/opt/limen`, and points it at the `rebuild-base` checkout in `/
 
 ### After stage 1 (a0.1.0)
 
+The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-090 and R-091.
+
 - **1.0** Bootstrap, once: `/opt/limen` at `rebuild-base` has no deployment script. Check by hand that no job runs
   (`limen status` in both projects) and take the snapshot of 0.1; then, as root, `git -C /opt/limen fetch origin
   adrian-rebuild`, `git -C /opt/limen merge-base --is-ancestor <sha> origin/adrian-rebuild` and `git -C /opt/limen
-  checkout --detach <sha>` with the full SHA of a0.1.0, and run `node /opt/limen/seat/deploy.ts <sha>`, which repeats
+  checkout --detach <sha>` with the full SHA of `a0.1.1` (D-046: the first deployment carries R-090), and run `node
+  /opt/limen/seat/deploy.ts <sha>`, whose output names every registry and project it checked (R-090); it repeats
   every check and tags the commit (R-012). From a0.2.0 on, only 0.2 deploys.
 - **1.1** In each project, `limen status` lists the leftover files of cut features (R-001–R-007, R-009); check the list, then
   run `limen init --drop-leftovers`.
@@ -1471,9 +1513,10 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-19, day session `limen-rebuild-6`, rebuild stage 5 at plan stage 1: stage 1 is closed (the commit
-`Stage 1: close`, which the local tag `a0.1.0` names); gate 5.1 is open with Adrian (the summary and the decisions
-below); no ticket active. The night of 2026-11-19 ended at 02:57 with `no-ticket`.
+Updated 2026-11-19, day session `limen-rebuild-6`, rebuild stage 5 at plan stage 1: stage 1 was closed (the commit
+`Stage 1: close`, which the local tag `a0.1.0` names) and gate 5.1 is decided (D-045, D-046): two fix tickets of stage
+1, R-091 and then R-090, come next, and their last commit gets the tag `a0.1.1`, the first deployment. No ticket
+active. The night of 2026-11-19 ended at 02:57 with `no-ticket`.
 
 Handover of 2026-11-19 (D-033, at 37 % context, after the commit `R-014:`): `limen-rebuild-5` started
 `limen-rebuild-6` in `tmux` in remote-control mode (14:10) and ended. WSL booted at 10:34 on 2026-11-19, after the
@@ -1775,16 +1818,18 @@ Gate 5.1 summary (stage 1 is closed; the gate is by day, with Adrian):
 - Seat note of R-014 for the deployment: a coordinator spawn without one of `--engine`, `--provider`, `--model`,
   `--thinking` now exits 2 and names the missing flags (D-043); `LIMEN_ENGINE` no longer chooses a spawn's engine.
 
-Next: Adrian's answers to the two open points of D-045; then the new tickets and notes in `## Tickets`, the dated
-addition to `taste.md` (T-37: `code` and `next` may be `null`), and stage 2 in a new session. On the seat, Adrian's:
-B.2 before a0.1.0 is deployed (B.1 was done on 2026-11-17), then `## Deployment` 1.0–1.3.
+Gate 5.1 decided (2026-11-19): D-045 and D-046; the dated addition to T-37 in `taste.md`; new rows R-089 (stage
+2), R-090 and R-091 (stage 1) and notes for R-023, R-025 and R-032 in `## Tickets`; `## Deployment` 1.0 deploys
+`a0.1.1`, and B.2 runs with R-091's runner.
+
+Next: R-091 (its `ticket.md`, then `rebuild-implementer`), then R-090; then close stage 1 again (gate, gate-time
+tool, `check.mjs`, the commit `Stage 1: close (a0.1.1)`, the tag `a0.1.1`) and a short gate reply with the tag's full
+SHA; then stage 2 in a new session. On the seat, Adrian's: B.2 with R-091's runner, then `## Deployment` 1.0–1.3
+with `a0.1.1`.
 
 Active ticket: none.
 
-Open questions for Adrian: Adrian answered gate 5.1 (D-045: go on to stage 2, with changes). Two points are open,
-asked on 2026-11-19: which refusals get `"next": null` (D-045 (2)), and the tickets that carry D-045 (2)–(6) (the
-main session's proposal: new R-089 for the final line, R-090 for the deployment script's listing, R-091 for the
-same-task runner, first, before B.2; additions to R-023, R-025 and R-032).
+Open questions for Adrian: none.
 
 Notes for the next session:
 - Start Claude Code in the repository root, so that it loads `.claude/agents/`.

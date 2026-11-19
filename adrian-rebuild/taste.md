@@ -4,7 +4,8 @@ sposobem sprawdzenia i źródłem, oraz fakty z pytań otwartych i lista zmian w
 jest rubryką obok zasad z input/, a nowe decyzje taste dopisuje się tu z datą i źródłem. Stan: przyjęty przez
 Adriana na bramce 3 (2026-11-17, D-007); 18.11 T-37 dostała pole ids w końcowej linii JSON (nocne pytanie Q-3,
 D-022), a T-02 zasadę, że kod wyjścia ustawia tylko wspólne opakowanie (nocne pytanie Q-7, D-028); 19.11 T-19
-dostała zasady helpu na czas przejściowy (pytania R-014, D-039–D-041). -->
+dostała zasady helpu na czas przejściowy (pytania R-014, D-039–D-041), a T-37 zasadę bramki 5.1, że `code` i `next`
+są wartością albo `null`, a `next` zawsze jest poleceniem (D-045, D-046). -->
 
 # Taste
 
@@ -1448,14 +1449,23 @@ the author's choice. Taste decisions taken after this interview are added here w
   own. Every command declares its `ids` keys in the registry (T-19): `job`, `ticket` (FNNN), `question` (Q-NNN). The
   poller and the other processes that call the CLI read `ids` only through the client function (AU-217); an id is
   not part of `next` or of a text line as a contract (z. 2). The text for people gives the label and the token.
+- `code` and `next` (2026-11-19, Adrian, gate 5.1; `plan.md` D-045, D-046; replaces the `code` and `next` of the
+  `spawn` line above): `code` is `null` on success and an upper-case identifier on failure, so the field has one
+  type. `next` is a Limen command with concrete values (the branch, the group id; never a placeholder or prose), or
+  `null` when nothing follows. Prose goes to the text line before the final line: a successful `spawn` says "End your
+  turn; Limen wakes you when the job ends." there and ends with `"next":null`. Every non-empty `next` passes the
+  shared parser and is not itself a usage error.
 - Why: the author's output is plain text for both readers, JSON exists in two commands, and internal callers parse
   prose (AU-210).
 - Check: a scan: Limen's stdout is parsed only in the client function of the final JSON line; a test that every
   registry command ends with a valid JSON line (on success and on refusal); a test that the footer and `limen status`
   use the same function (T-15); for `ids` (D-022): a test of the client function that returns `ids.job` after
   `spawn`, a test that every command returns only the `ids` keys its registry entry declares, with values in the
-  format of a job id, FNNN or Q-NNN, and a golden test of `spawn`'s final line.
-- Source: interview round 8, AU-210; departs from the author. `ids`: night question Q-3, 2026-11-18.
+  format of a job id, FNNN or Q-NNN, and a golden test of `spawn`'s final line; for `code` and `next` (D-045, D-046):
+  a test that every `next` a command or a refusal writes is `null` or passes the shared parser without a usage error
+  (R-089; the mixed forms of `jobs` in R-023), and a test that `code` is `null` exactly when `class` is `ok`.
+- Source: interview round 8, AU-210; departs from the author. `ids`: night question Q-3, 2026-11-18. `code` and
+  `next`: gate 5.1, 2026-11-19.
 
 ### T-38 A refusal leaves no trace, by construction
 - Rule: Every `change` command follows one shape. (1) A domain operation is `validate(): Plan | Refusal`, then
