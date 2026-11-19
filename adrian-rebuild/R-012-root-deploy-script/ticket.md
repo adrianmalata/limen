@@ -213,3 +213,5 @@ the script (or, before a0.1.0, `git checkout --detach`) with the previous SHA (s
   by a signal is class 4 like one that cannot start, the escaping runs once over all output (and once more over the
   parts of a job line, with their newlines), and the internal functions take one checkout value. Each serves the fix
   it belongs to.
+- 2026-11-19 (Adrian, night question Q-8, D-036): `node seat/deploy.ts <args>` stays off the allow-list; AC-6 stays
+  judged by test 11 of `test/seat/deploy.test.ts`, which runs exactly that command.

@@ -10,7 +10,8 @@ i polecenia na allow-listę. Stan: etap 5 (przebudowa) w toku, etap planu 1; R-0
 R-011 i R-088 zamknięte, 19.11 także R-007 i (nocą) R-009, R-012 i R-013; 18.11 w dzień doszły decyzje D-025–D-035
 (m.in. zasady komunikacji z Adrianem, wyjątek dla testu A-087, przekazywanie sesji, poprawka helpera testów A-088
 w R-007 i nowy snapshot po edycji w trakcie BLOCKED); w etapie 1 został R-014 (pair, w dzień), a `## State` ma gotowe
-podsumowanie bramki 5.1; otwarte pytanie Q-8. -->
+podsumowanie bramki 5.1; Q-8 rozstrzygnięte (D-036: `seat/deploy.ts` poza allow-listą). -->
+
 
 # Rebuild plan
 
@@ -402,6 +403,12 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   Rule: when the main session changes a reserved path while the implementer waits on `BLOCKED`, it takes a new
   `snapshot --git` before it resumes the implementer, so `compare --git` sees only the implementer's changes.
   Check: none (protocol).
+- 2026-11-19 D-036 (Adrian, night question Q-8; changes `## Agents`, step 2): `node seat/deploy.ts <args>` stays off
+  the allow-list. The script runs only as root on the seat, and a run with a real SHA would check out a commit in the
+  laptop's own repository; on the laptop it is checked through `node --test` on fixtures, which is on the list. A
+  ticket's criterion names only commands on the list of `## Commands`; the main session checks that when it writes
+  `## Acceptance`. R-012's AC-6 stays judged by its test 11, which runs exactly that command (R-017, R-032 and R-056
+  check their additions to the script the same way). Check: none (protocol).
 
 ### Gate 2 §2, copied
 
@@ -1246,7 +1253,8 @@ Protocol per ticket (rebuild stage 5):
    criterion checks only the ticket's scope, with its expected result as an exit code and no `!` before the command;
    the main session runs every grep and scan criterion at HEAD and confines it to the paths of `## Change` unless
    every match is one the ticket removes; a global property that a subsequent ticket makes true is that ticket's criterion
-   (D-025).
+   (D-025). A criterion names only commands on the list of `## Commands`; a script that runs only on the seat is
+   checked through its tests (D-036).
 3. `delegated`: the main session runs `node adrian-rebuild/tools/review-guard.mjs snapshot --git --out
    node_modules/.rebuild-review/R-NNN.git`, starts
    `rebuild-implementer` by its name (not a fork) with the ticket folder's path, changes nothing in the working tree
@@ -1350,9 +1358,16 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-19, night run until 07:00 (started by `night.mjs` at 00:08), rebuild stage 5 in progress at plan
-stage 1: R-001–R-013 and R-088 `done`; R-014 (`pair`, `day-after`) `planned`; no ticket active; Q-8 open (no ticket
-blocked). The night ended with `no-ticket`: stage 1 has no `night` ticket left.
+Updated 2026-11-19, day session `limen-rebuild-4` after the night run, rebuild stage 5 in progress at plan stage 1:
+R-001–R-013 and R-088 `done`; R-014 (`pair`, `day-after`) `planned`; no ticket active; no question open (Q-8 →
+D-036). The night ended at 02:57 with `no-ticket`: stage 1 has no `night` ticket left.
+
+Handover of 2026-11-19 (D-033, at 30 % context): Adrian ends `limen-rebuild-4` himself (`/exit`) and starts the next
+day session himself with the first message of the rebuild prompt; it starts R-014 with him. Two older sessions were
+still alive at 10:09 and should be closed by Adrian, since either would work on the same tree if woken:
+`limen-rebuild-3` in `tmux` (`tmux kill-session -t limen-rebuild-3`) and a `claude -c` started at 16:30:47 on
+2026-11-18 in a WSL window, hung on a `git grep … | sort` (Esc, then `/exit`; the window stays open while the
+`.wslconfig` is not applied).
 
 Handover (D-033): `limen-rebuild-2`, started in `tmux` at 16:17, died at 16:22:59 together with its running
 implementer of R-003, when WSL stopped the distro. `tmux` does not keep WSL alive: without a
@@ -1585,7 +1600,8 @@ Night run of 2026-11-19 (until 07:00; `night.mjs` run 1 started at 00:08:19):
   that command (Q-8). For Adrian at gate 5.1: the registry discovery through `/etc/passwd` and the tag name and place
   (`R-012` → `ticket.md` → `## Decisions`). For R-017: a signal handler, because an interrupt between the checkout and
   the tag leaves the new commit checked out (review round 1, finding 4).
-- Q-8 (no ticket blocked): whether `node seat/deploy.ts <args>` goes on the allow-list (recommended: no).
+- Q-8 (no ticket blocked): whether `node seat/deploy.ts <args>` goes on the allow-list (recommended: no). Answered
+  by day on 2026-11-19 → D-036: it stays off; a criterion names only listed commands (`## Agents`, step 2).
 - R-013 `done` (delegated; its `ticket.md` refreshed to `b8babe2` first): `src/outcome.ts` (`LimenError`, six classes
   with exit codes 0–5, `finalLine`, `failureOf`, the client `readOutcome`); `main` is the only place that sets the exit
   code and prints one final line per command process; flag errors and an unknown command exit 2; `ticket check`,
@@ -1626,7 +1642,7 @@ its entry to `src/old-names.ts` and its leftover paths to `LEFTOVERS`. B.2 runs 
 
 Active ticket: none.
 
-Open questions for Adrian: Q-8 in `adrian-rebuild/.night/questions.md` (the allow-list for `node seat/deploy.ts`).
+Open questions for Adrian: none.
 
 Notes for the next session:
 - Start Claude Code in the repository root, so that it loads `.claude/agents/`.
