@@ -1,8 +1,8 @@
 <!-- PL: Wynik narzędzia tools/handover.mjs (D-047): `start <n>` i `close-previous` z bezpiecznym punktem z gita,
 21 testów na fałszywym tmux i fałszywych procesach claude; każdy pada przed swoją zmianą (12 przed narzędziem,
 6 przed poprawkami rundy 1, 3 przed rundą 2, 1 przed rundą 3) i przechodzi po nich; check.mjs i Biome z kodem 0.
-Niezmierzone:
-pierwszy prawdziwy hand-off z tym narzędziem (limen-rebuild-8).
+Pierwszy prawdziwy hand-off (limen-rebuild-7 → limen-rebuild-8, 19.11) zmierzony: start otworzył sesję
+remote-control w tmux, a close-previous zamknął limen-rebuild-7 z kodem 0.
 Stan: zrealizowane. -->
 
 # Outcome: handover tool `tools/handover.mjs`
@@ -54,6 +54,13 @@ directory and start-order rules of `close-previous`, the kept ancestors and the 
 
 ## Measurement
 
-`unmeasured`: the first real handover with the tool (`limen-rebuild-7` → `limen-rebuild-8`): that `start` opens a
-live remote-control session, and that `close-previous` in it closes `limen-rebuild-7`, which runs as `claude -r` in a
-WSL window, not in `tmux`. The new session reports the tool's lines to Adrian.
+`unmeasured` until 2026-11-19: the first real handover with the tool (`limen-rebuild-7` → `limen-rebuild-8`): that
+`start` opens a live remote-control session, and that `close-previous` in it closes `limen-rebuild-7`, which runs as
+`claude -r` in a WSL window, not in `tmux`. The new session reports the tool's lines to Adrian.
+
+Measured on 2026-11-19 by `limen-rebuild-8`:
+- `start 8` opened the `tmux` session `limen-rebuild-8` at 19:04:15; its process is `claude --remote-control Limen
+  rebuild 8 <first message>`, the direct child of the `tmux` server (`ps`, `tmux list-panes`).
+- `close-previous`, the new session's first command after its push notification, printed `handover: stopped claude
+  613783 (claude -r)` and exited 0; `ps -p 613783` found no process afterwards, and `pgrep -a claude` listed only the
+  new session.

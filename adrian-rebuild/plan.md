@@ -18,8 +18,9 @@ odmów, runnera, skryptu wdrożenia i `kind`; tickety R-089 w etapie 2 oraz popr
 których tag a0.1.1 jest pierwszym wdrożeniem); R-090 zamknięty 19.11 (lista sprawdzonych rejestrów, odmowa bez
 projektu, test nazw liczy tylko pliki znane gitowi); R-091 zamknięty 19.11 (oznaczenia typów Pi, odmowa bez
 oznaczenia, koniec przebiegu na agent_settled, definicja touchpoints); D-047: narzędzie przekazania sesji
-tools/handover.mjs (start nowej sesji w tmux i zamykanie poprzednich sesji przebudowy); przekazanie sesji
-limen-rebuild-8, które domknie etap 1 (tag a0.1.1). -->
+tools/handover.mjs (start nowej sesji w tmux i zamykanie poprzednich sesji przebudowy); 19.11 wieczorem
+limen-rebuild-8 zamknęła etap 1 ponownie (bramka 253/253, M-10 82,2 s, lokalny tag a0.1.1, pierwsze wdrożenie);
+etap 2 (12 ticketów delegated, night) zaczyna nowa sesja, a Adrian wybiera noc albo sesję dzienną. -->
 
 
 
@@ -1534,9 +1535,10 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-19, day session `limen-rebuild-6`, rebuild stage 5 at plan stage 1: stage 1 was closed (the commit
-`Stage 1: close`, which the local tag `a0.1.0` names) and gate 5.1 is decided (D-045, D-046): two fix tickets of stage
-1, R-090 (done) and then R-091 (active), and their last commit gets the tag `a0.1.1`, the first deployment. The night of 2026-11-19 ended at 02:57 with `no-ticket`.
+Updated 2026-11-19, day session `limen-rebuild-8`, rebuild stage 5 between plan stages 1 and 2: stage 1 is closed
+again after its fix tickets R-090 and R-091 (the commit `Stage 1: close (a0.1.1)`, which the local tag `a0.1.1` names;
+the first deployment, D-046). Gate 5.1 decided to go on to stage 2 (D-045 (1)); stage 2 starts in a new session, and
+how it starts is Adrian's (`Open questions`). The night of 2026-11-19 ended at 02:57 with `no-ticket`.
 
 Handover of 2026-11-19 (D-033, at 37 % context, after the commit `R-014:`): `limen-rebuild-5` started
 `limen-rebuild-6` in `tmux` in remote-control mode (14:10) and ended. WSL booted at 10:34 on 2026-11-19, after the
@@ -1842,9 +1844,23 @@ Gate 5.1 decided (2026-11-19): D-045 and D-046; the dated addition to T-37 in `t
 2), R-090 and R-091 (stage 1) and notes for R-023, R-025 and R-032 in `## Tickets`; `## Deployment` 1.0 deploys
 `a0.1.1`, and B.2 runs with R-091's runner.
 
-Next: close stage 1 again (gate, gate-time tool, `check.mjs`, the commit `Stage 1: close
-(a0.1.1)`, the tag `a0.1.1`) and a short gate reply with the tag's full SHA; then stage 2 in a new session. On the
-seat, Adrian's: B.2 with R-091's runner, then `## Deployment` 1.0–1.3 with `a0.1.1`.
+Close of a0.1.1 (2026-11-19, `limen-rebuild-8`, `## Stages` → Closing a stage):
+- At `74f62e2` the gate exits 0 with 253/253 twice (once alone, once through the gate-time tool), `check.mjs` reports
+  0 errors and Biome is clean on `adrian-rebuild`; M-10: 82.2 s (`evidence/gate-time-a0.1.1.md`; 77.1 s at a0.1.0).
+- Tickets since a0.1.0: R-090 and R-091 (done); D-047's handover tool, outside the ticket list.
+- Findings and decisions closed: D-045 (3) and (4) (R-091, R-090); the gap of §7 D3 for a registry with no project
+  (R-090).
+- Unmeasured, besides a0.1.0's: R-090's listing against the seat's registries (step 1.0); R-091's marks against the
+  real Pi in RPC mode (B.2; R-091 → `outcome.md` → Open points).
+- Fixed context: not measured, as at a0.1.0 (`context-size.mjs` from stage 4).
+- Tag `a0.1.1`: local, on the commit `Stage 1: close (a0.1.1)`; its full SHA is in the gate reply and is the argument
+  of `## Deployment` 1.0.
+
+Next: stage 2 in a new session, from its first ticket in dependency order (R-089, R-015, R-016, R-018, R-020 have
+only stage-1 dependencies). All twelve stage-2 tickets are `delegated` and `night`, so the plan's split (`##
+Deployment` → One Max window) puts them in a night run, which only Adrian starts (D-024); a day session
+`limen-rebuild-9` (`handover.mjs start 9`) can take them too. On the seat, Adrian's: B.2 with R-091's runner, then
+`## Deployment` 1.0–1.3 with `a0.1.1`.
 
 - R-090 `done` (delegated, by day): `seat/deploy.ts` prints every registry and registry line it checked before any
   other line, and registries that hold no project refuse with exit 4 before the fetch. One `BLOCKED`: the gate failed
@@ -1885,13 +1901,17 @@ seat, Adrian's: B.2 with R-091's runner, then `## Deployment` 1.0–1.3 with `a0
 Active ticket: none.
 
 Handover of 2026-11-19 (D-047, at 31 % context, after the commit `D-047:`): `limen-rebuild-7` (a `claude -r` in a
-WSL window since 17:46, no `tmux`) starts `limen-rebuild-8` with `node adrian-rebuild/tools/handover.mjs start 8`
-and ends its turn. The next session's first acts: a push notification to Adrian that it takes over at the close of
-stage 1; then `node adrian-rebuild/tools/handover.mjs close-previous`, the tool's first real run: it should stop
-`limen-rebuild-7` (`evidence/handover/outcome.md` → Measurement), and the session reports its lines to Adrian (exit
-1 names what it could not close); then `Next`. The handover after it is `limen-rebuild-9`, with `start 9`.
+WSL window since 17:46, no `tmux`) started `limen-rebuild-8` with `node adrian-rebuild/tools/handover.mjs start 8`
+(19:04:15, in `tmux`, with `--remote-control`) and ended its turn. `limen-rebuild-8`'s push notification was skipped
+as redundant (the terminal was active); its `close-previous`, the tool's first real run, printed `handover: stopped
+claude 613783 (claude -r)` and exited 0, and the process was gone afterwards (`evidence/handover/outcome.md` →
+Measurement). The next day session is `limen-rebuild-9`, with `start 9`; its first acts are the same: a push
+notification, `close-previous`, then `Next`. A night run started from `limen-rebuild-8` (D-024) leaves this session
+alive in `tmux` and idle; it changes nothing in the repository until Adrian writes (D-024).
 
-Open questions for Adrian: none.
+Open questions for Adrian:
+- How stage 2 starts: a night run tonight (`night.mjs --until HH:MM`, D-024; recommended, by the plan's split), or a
+  day session `limen-rebuild-9` now. A full answer: "noc do HH:MM" or "sesja dzienna".
 
 Notes for the next session:
 - Start Claude Code in the repository root, so that it loads `.claude/agents/`.
