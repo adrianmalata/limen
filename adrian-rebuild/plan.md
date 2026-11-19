@@ -12,7 +12,8 @@ R-011 i R-088 zamknięte, 19.11 także R-007 i (nocą) R-009, R-012 i R-013; 18.
 w R-007 i nowy snapshot po edycji w trakcie BLOCKED); w etapie 1 został R-014 (pair, w dzień), a `## State` ma gotowe
 podsumowanie bramki 5.1; Q-8 rozstrzygnięte (D-036: `seat/deploy.ts` poza allow-listą); 19.11 w dzień D-037–D-044
 (pytania R-014: tryb, `status --all`, `movedBy`, nagłówek modułów, teksty helpu, `group wait`, wymagane flagi trasy
-`spawn`, trzecia runda poprawek) i R-014 zamknięty, więc etap 1 jest kompletny i czeka na bramkę 5.1. -->
+`spawn`, trzecia runda poprawek) i R-014 zamknięty, więc etap 1 jest kompletny; 19.11 po południu etap 1 zamknięty
+(bramka 244/244, M-10 77,1 s, lokalny tag a0.1.0), a bramka 5.1 czeka na decyzje Adriana. -->
 
 
 
@@ -1441,15 +1442,14 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-19, day session `limen-rebuild-5`, rebuild stage 5 in progress at plan stage 1: R-001–R-014 and
-R-088 `done`, so every ticket of stage 1 is done; no ticket active; gate 5.1 is due (the summary below), then the tag
-`a0.1.0`. The night of 2026-11-19 ended at 02:57 with `no-ticket`.
+Updated 2026-11-19, day session `limen-rebuild-6`, rebuild stage 5 at plan stage 1: stage 1 is closed (the commit
+`Stage 1: close`, which the local tag `a0.1.0` names); gate 5.1 is open with Adrian (the summary and the decisions
+below); no ticket active. The night of 2026-11-19 ended at 02:57 with `no-ticket`.
 
-Handover of 2026-11-19 (D-033, at 37 % context, after the commit `R-014:`): `limen-rebuild-5` starts
-`limen-rebuild-6` in `tmux` in remote-control mode with the first message of the rebuild prompt and then ends. WSL
-booted at 10:34 on 2026-11-19, after the `.wslconfig` was written (2026-11-18 16:48), so no WSL window has to stay
-open. The next session's first act: a push notification to Adrian that it takes over at gate 5.1; then gate 5.1 with
-him (the summary below). The handover after it is `limen-rebuild-7`.
+Handover of 2026-11-19 (D-033, at 37 % context, after the commit `R-014:`): `limen-rebuild-5` started
+`limen-rebuild-6` in `tmux` in remote-control mode (14:10) and ended. WSL booted at 10:34 on 2026-11-19, after the
+`.wslconfig` was written (2026-11-18 16:48), so no WSL window has to stay open. `limen-rebuild-6` took over (its push
+notification was skipped as redundant: the terminal was active). The handover after it is `limen-rebuild-7`.
 
 Handover of 2026-11-19 (D-033, at 30 % context): Adrian ends `limen-rebuild-4` himself (`/exit`) and starts the next
 day session himself with the first message of the rebuild prompt; it starts R-014 with him. Two older sessions were
@@ -1716,7 +1716,10 @@ Day session of 2026-11-19 (`limen-rebuild-5`, started by Adrian; WSL booted at 1
 - Adrian's standing request (2026-11-19, project memory): a push notification whenever a decision of his is needed,
   in any session.
 
-Gate 5.1 summary (stage 1 is complete; the tag and the gate are by day, with Adrian):
+Gate 5.1 summary (stage 1 is closed; the gate is by day, with Adrian):
+- Close (2026-11-19, `limen-rebuild-6`, `## Stages` → Closing a stage): at `5c7ea31` the gate exits 0 with 244/244
+  twice (once alone, once through the gate-time tool), `check.mjs` reports 0 errors and Biome is clean on
+  `adrian-rebuild`; M-10: 77.1 s (`evidence/gate-time-a0.1.0.md`; baseline 79–88 s, `evidence/baseline.md`).
 - Tickets: R-001–R-014 and R-088 done (15 of 15). Gate 244/244 at the last commit (198 after R-013, 127 after
   R-007).
 - Findings addressed by stage 1 (each ticket's `## Problem` names how far): A-042 (R-001), A-027, A-060, A-076
@@ -1729,7 +1732,8 @@ Gate 5.1 summary (stage 1 is complete; the tag and the gate are by day, with Adr
 - Fixed context before and after: not measured at stage 1 — `context-size.mjs` is on the list from stage 4, and the
   role texts stages 1–3 change sit in Pi's system prompt, which the bridge drops (E-1); the cue changed only by the
   `jg` cut, which never fired on the seat (T-36).
-- Tag `a0.1.0`: at the gate, with Adrian, on the commit `R-014:` or the one that records the gate.
+- Tag `a0.1.0`: local, on the commit `Stage 1: close` (its full SHA is in the gate reply and is the argument of
+  `## Deployment` 0.2 and 1.0); a fix after the gate is a ticket of stage 1 and the tag `a0.1.1`.
 - Seat steps: B.2 before the deployment; then `## Deployment` 1.0 (bootstrap of `seat/deploy.ts`), 1.1–1.3; plus the
   tickets' seat notes: the Devin login and `DEVIN_*` variables (R-003), `LIMEN_ENGINE=omp` in the worker's `~/.bashrc`
   and `moshi-hook status` (R-004), no running job at 1.0 (R-005), a retired `limen-picture.timer` (R-007), optional
@@ -1737,16 +1741,18 @@ Gate 5.1 summary (stage 1 is complete; the tag and the gate are by day, with Adr
 - For Adrian's decision at the gate: the refusal wordings of R-002–R-009 and R-014 (with R-014's review round 4 note
   1: `limen jobs --all a1b2c3d4` and `limen jobs -- --all` name `limen show`, while D-038 says only `jobs <ref>` does;
   `R-014-command-registry/review.md` → Round 4); R-011's choices; R-012's registry discovery through `/etc/passwd`
-  and the tag name and place; R-013's codes and `next` texts; R-014's `kind` calls (`outcome.md` → Open points); Q-8.
+  and the tag name and place; R-013's codes and `next` texts; R-014's `kind` calls (`outcome.md` → Open points). Q-8
+  is settled (D-036).
 - Seat note of R-014 for the deployment: a coordinator spawn without one of `--engine`, `--provider`, `--model`,
   `--thinking` now exits 2 and names the missing flags (D-043); `LIMEN_ENGINE` no longer chooses a spawn's engine.
 
-Next: gate 5.1 with Adrian (the summary above), the tag `a0.1.0`, the deployment steps of `## Deployment` stage 1;
-then stage 2 in a new session. B.2 runs on the seat before a0.1.0 is deployed (B.1 was done on 2026-11-17).
+Next: Adrian's decisions of gate 5.1 (go on, a fix or a change of the plan; the points above), recorded in
+`## Decisions`; a fix is a stage-1 ticket and the tag `a0.1.1`. Then stage 2 in a new session. On the seat, Adrian's:
+B.2 before a0.1.0 is deployed (B.1 was done on 2026-11-17), then `## Deployment` 1.0–1.3.
 
 Active ticket: none.
 
-Open questions for Adrian: none (gate 5.1 is due).
+Open questions for Adrian: the gate 5.1 decisions above (asked in the gate reply of 2026-11-19).
 
 Notes for the next session:
 - Start Claude Code in the repository root, so that it loads `.claude/agents/`.
