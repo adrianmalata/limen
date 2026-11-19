@@ -10,7 +10,9 @@ i polecenia na allow-listę. Stan: etap 5 (przebudowa) w toku, etap planu 1; R-0
 R-011 i R-088 zamknięte, 19.11 także R-007 i (nocą) R-009, R-012 i R-013; 18.11 w dzień doszły decyzje D-025–D-035
 (m.in. zasady komunikacji z Adrianem, wyjątek dla testu A-087, przekazywanie sesji, poprawka helpera testów A-088
 w R-007 i nowy snapshot po edycji w trakcie BLOCKED); w etapie 1 został R-014 (pair, w dzień), a `## State` ma gotowe
-podsumowanie bramki 5.1; Q-8 rozstrzygnięte (D-036: `seat/deploy.ts` poza allow-listą). -->
+podsumowanie bramki 5.1; Q-8 rozstrzygnięte (D-036: `seat/deploy.ts` poza allow-listą); 19.11 w dzień D-037–D-042
+(pytania R-014: tryb, `status --all`, `movedBy`, nagłówek modułów, teksty helpu, `group wait`) i R-014 aktywny. -->
+
 
 
 # Rebuild plan
@@ -409,6 +411,52 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   ticket's criterion names only commands on the list of `## Commands`; the main session checks that when it writes
   `## Acceptance`. R-012's AC-6 stays judged by its test 11, which runs exactly that command (R-017, R-032 and R-056
   check their additions to the script the same way). Check: none (protocol).
+- 2026-11-19 D-037 (Adrian, R-014 Q1; changes R-014's mode): R-014 is split by its nature. Its taste part (the golden
+  help texts, the names, the parser's messages) is settled in `pair` and written into its `ticket.md`; the
+  implementation, which is checkable by commands once those texts are fixed, is done by `rebuild-implementer` and
+  reviewed as usual. The row keeps `pair` and `day-after`, because the ticket runs by day with Adrian. Check: none
+  (protocol).
+- 2026-11-19 D-038 (Adrian, R-014 Q2; taste, T-18 conflict (3)): `limen status --all` prints today's summary without
+  the 7-day window and, under it, one row per job (the rows of today's `limen jobs`). Old forms exit with code 2:
+  `limen jobs <ref>` names `limen show <ref>` in `next`, every other form of `limen jobs` names `limen status --all`.
+  Check: R-014's migration tests.
+- 2026-11-19 D-039 (Adrian, R-014 Q3; amends the accepted plan): a command that a subsequent ticket moves or cuts (`close`
+  R-037, `keeper` R-066, `sweep` and `prune` R-032, `rule` R-034) stays under today's name in the help group of what it
+  acts on now, with a line that can be copied and run. Its registry entry carries `movedBy: "R-0NN"`, which the help
+  does not show. R-014's tests: a top-level command acts on `job`, `owner` or `project` unless its entry has `movedBy`,
+  and the entries with `movedBy` are exactly those of this list (so `rule` is covered whichever group shows it). Each
+  of R-032, R-034, R-037 and R-066 gets the criterion "the registry holds no entry with `movedBy` naming this ticket"
+  (`## Tickets` → notes). The last of them, R-066 (it depends on the other three through R-065), removes the field
+  and the exception, and the test becomes the plain rule: a top-level command acts only on `job`, `owner` or
+  `project`. Check: R-014's registry tests; the four criteria.
+- 2026-11-19 D-040 (Adrian, R-014 Q4; taste, until R-044): until module switches exist, the help's modules header says
+  only what is true now: "Modules", with no state marker. R-044 gets the criterion: the modules header has the text of
+  T-19 and each module line's `[on]` or `[off]` is built from that module's switch (`## Tickets` → notes). Check:
+  R-014's golden help; R-044's criterion.
+- 2026-11-19 D-041 (Adrian, R-014 Q5; taste, the texts of the help): variant A with corrections. (1) The help line
+  about the final JSON line is built from the key list of `src/outcome.ts` that the wrapper uses, so it names `ids`.
+  (2) The example of `limen land --help` is `limen land a1b2c3d4` (a suffix today, the token of AU-211 after R-022);
+  every example in the registry goes through the real parser in a test. (3) R-014's `## Acceptance` has the judgment
+  "every help line describes behaviour present in this commit". (4) A parser error carries the command's usage line
+  from the registry in its message, and `next` stays `limen <command> --help`. (5) `--help` works for internal
+  commands too; the internal section of `docs/commands.md` is generated from the registry, with the staleness test of
+  A-084. (6) The kind is not shown by `limen <command> --help` until read commands write nothing (T-04, R-032):
+  "(change)" was not named, and "read" would be false while `status` reaps. (7) The Jobs header does not say every
+  command takes an id (`--running`, `--all`); the general line and `limen <command> --help` come from the same schema,
+  so they show the same flags; `--drop-leftovers` is described by its files. The advice to the coordinator at the end
+  of today's help goes (the `spawn` line says the same). Check: R-014's golden tests and its judgment.
+- 2026-11-19 D-042 (Adrian, R-014's question on `group wait`; amends D-028 and D-039): `group wait` stays, as an
+  internal command for team members with a worker allowance, because a member is itself a job, whose job ends with its
+  turn, so it keeps its turn open with `group wait` while its workers run (`templates/group-member.md:5`,
+  `docs/groups.md:69`); cutting it would break groups with `--workers N`. Its entry carries `movedBy: "R-077"`. It
+  refuses a caller outside a team (the lead, with the group id) with a typed refusal and a message; this is a guard
+  against mistakes, keyed on the job's environment, not a security boundary, and the code and `docs/groups.md` say so
+  (A-029). R-077's criteria do not check only the removal: the cause stays after R-077, so they also check that a team
+  member with a worker allowance gets its workers' results without `group wait` (`## Tickets` → notes). Consequence for
+  D-039 (the main session's resolution, for Adrian to confirm): R-077 does not depend on R-066, so R-066 cannot be the
+  last ticket with a `movedBy` entry; instead R-014's test fails once no entry has `movedBy` any more, with the message
+  to remove the field and the exception, so whichever ticket removes the last entry also removes the field. Check:
+  R-014's registry and group tests; R-077's criteria.
 
 ### Gate 2 §2, copied
 
@@ -756,7 +804,7 @@ Columns:
 | R-011 | The same-task runner and the gate-time tool | 1 | H-21, T-11, T-41, §2, D-021 | — | L | delegated | night | — | pi | B.2 | done |
 | R-012 | A root deployment script for a pinned SHA | 1 | D-008, D-010, §7 | R-002 | M | delegated | night | — | — | 1.0 | done |
 | R-013 | One error type, exit codes as failure classes, a final JSON line | 1 | T-01, T-02, D-022, D-028 | R-002, R-003, R-004, R-005, R-006, R-007, R-009 | L | delegated | night | yes | — | — | done |
-| R-014 | One command registry, a shared parser and generated help | 1 | T-19, T-18, T-26, T-37, D-028 | R-002, R-003, R-004, R-005, R-006, R-007, R-009, R-013 | L | pair | day-after | yes | — | — | planned |
+| R-014 | One command registry, a shared parser and generated help | 1 | T-19, T-18, T-26, T-37, D-028, D-037, D-038, D-039, D-040, D-041, D-042 | R-002, R-003, R-004, R-005, R-006, R-007, R-009, R-013 | L | pair | day-after | yes | — | — | active |
 | R-088 | The same-task runner leaves no job running after an attempt | 1 | D-027, D-021 | R-011 | S | pair | day-after | — | pi | B.2 | done |
 | R-015 | One configuration reader; settings come only from owner files | 2 | T-03 | R-014 | M | delegated | night | yes | — | — | planned |
 | R-016 | One boundary parsing module with validators; the cast ratchet | 2 | T-27 | R-013 | M | delegated | night | — | — | — | planned |
@@ -887,7 +935,17 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   (E-15, D-005); R-040 builds the rule from a launcher flag, and R-048 turns isolation on, so the file never arrives
   twice. Neither project has an `AGENTS.md` today (gate 2 §1).
 - R-044: the switches go into the existing `limits.json`; its migration lists the modules each project uses (the
-  GitHub module when connected, groups when a group record exists), and Adrian switches those on in step 4.9.
+  GitHub module when connected, groups when a group record exists), and Adrian switches those on in step 4.9. Its
+  criteria include (D-040): the modules header of `limen --help` has the text of T-19, and each module line's `[on]` or
+  `[off]` is built from that module's switch (a golden test with one module on and the rest off).
+- R-032, R-034, R-037, R-066 (D-039): each one's criteria include "the command registry holds no entry with `movedBy`
+  naming this ticket" (R-032: `sweep`, `prune`; R-034: `rule`; R-037: `close`; R-066: `keeper`). The ticket that
+  removes the last `movedBy` entry also removes the field and the exception of R-014's registry test, which fails until
+  it does (D-042), so that a top-level command acts only on `job`, `owner` or `project`.
+- R-077 (D-042): its criteria include "the command registry holds no entry with `movedBy` naming this ticket" (`group
+  wait`) and a fake-engine test in which a team member with a worker allowance gets each worker's result although it
+  no longer calls `group wait`, including a worker that ends after the member's turn would have ended.
+- R-032 (D-041 (6)): once read commands write nothing (T-04), `limen <command> --help` shows the kind of T-19.
 - R-059: no shell scripts (D-010): `docs/seat/bell.sh` and `docs/seat/github-setup.sh` become TypeScript in `seat/`,
   and every unit calls `node /opt/limen/seat/<tool>.ts`.
 
@@ -1640,9 +1698,15 @@ Next: R-014 (pair, `day-after`) by day; then the close of stage 1 (gate 5.1, the
 its entry to `src/old-names.ts` and its leftover paths to `LEFTOVERS`. B.2 runs on the seat before a0.1.0 is deployed
 (B.1 was done on 2026-11-17).
 
-Active ticket: none.
+Active ticket: R-014 (day session of 2026-11-19, after the night run). Adrian's answers to R-014's questions Q1–Q5 →
+D-037–D-041, `taste.md` → T-19 (added 2026-11-19), and the notes for R-032, R-034, R-037, R-044 and R-066 in
+`## Tickets`; `group wait` → D-042 (internal, `movedBy: "R-077"`, refuses a caller outside a team);
+`R-014-command-registry/ticket.md` is written with the golden help (step 2 of the protocol). Next step: step 3
+(`rebuild-implementer`, D-037).
 
-Open questions for Adrian: none.
+Open questions for Adrian: whether he accepts the golden help texts as written in `ticket.md` → Change 4 (he
+answered the corrections, not yet the corrected text); D-042's consequence for D-039 (the ticket that removes the last
+`movedBy` entry removes the field, forced by R-014's test).
 
 Notes for the next session:
 - Start Claude Code in the repository root, so that it loads `.claude/agents/`.

@@ -3,7 +3,8 @@ rozstrzygniętych bramką 2); część B to zasady Adriana T-01–T-43 z wywiadu
 sposobem sprawdzenia i źródłem, oraz fakty z pytań otwartych i lista zmian w decyzjach bramki 2. Po bramce 3 plik
 jest rubryką obok zasad z input/, a nowe decyzje taste dopisuje się tu z datą i źródłem. Stan: przyjęty przez
 Adriana na bramce 3 (2026-11-17, D-007); 18.11 T-37 dostała pole ids w końcowej linii JSON (nocne pytanie Q-3,
-D-022), a T-02 zasadę, że kod wyjścia ustawia tylko wspólne opakowanie (nocne pytanie Q-7, D-028). -->
+D-022), a T-02 zasadę, że kod wyjścia ustawia tylko wspólne opakowanie (nocne pytanie Q-7, D-028); 19.11 T-19
+dostała zasady helpu na czas przejściowy (pytania R-014, D-039–D-041). -->
 
 # Taste
 
@@ -1057,6 +1058,13 @@ the author's choice. Taste decisions taken after this interview are added here w
   tests of `limen --help` and of one `limen <cmd> --help`; the staleness test of `docs/commands.md`; a test that an
   internal command does not appear in `limen --help`.
 - Source: interview round 5, AU-207 and its follow-up (the generator's real output); departs from the author.
+- Added 2026-11-19 (Adrian, R-014's questions Q3–Q5; `plan.md` D-039–D-041): until the cuts of subsequent stages,
+  a command a subsequent ticket moves keeps today's name in the group of what it acts on now, and its entry carries `movedBy`,
+  which the help does not show; until module switches exist (R-044) the modules header is "Modules", with no marker;
+  the line about the final JSON line is built from the key list the wrapper uses; a parser error carries the command's
+  usage line; `--help` works for internal commands; `limen <cmd> --help` shows the kind only once read commands write
+  nothing (T-04, R-032); every example in the registry goes through the real parser in a test; every help line
+  describes behaviour present in its commit (a judgment).
 
 ### T-20 A job reference is always exact
 - Rule: A reference to a job is always exact; an approximate match appears only as a hint in an error, never in an
