@@ -7,9 +7,9 @@ pierwszym planie, ticket R-088, kod wyjścia tylko we wspólnym opakowaniu i R-0
 ponownego uruchamiania testu, który raz padł), fakty o silniku,
 wymagania systemowe, 9 etapów z kosztem i efektem, 88 ticketów R-NNN, wdrożenie, pomiary, protokół subagentów
 i polecenia na allow-listę. Stan: etap 5 (przebudowa) w toku, etap planu 1; R-001–R-006, R-008, R-010,
-R-011 i R-088 zamknięte, 19.11 także R-007 i (nocą) R-009; 18.11 w dzień doszły decyzje D-025–D-035 (m.in. zasady
-komunikacji z Adrianem, wyjątek dla testu A-087, przekazywanie sesji, poprawka helpera testów A-088 w R-007 i nowy
-snapshot po edycji w trakcie BLOCKED); dalej R-012 i R-013 (noc z 19.11), potem R-014. -->
+R-011 i R-088 zamknięte, 19.11 także R-007 i (nocą) R-009 i R-012; 18.11 w dzień doszły decyzje D-025–D-035 (m.in.
+zasady komunikacji z Adrianem, wyjątek dla testu A-087, przekazywanie sesji, poprawka helpera testów A-088 w R-007
+i nowy snapshot po edycji w trakcie BLOCKED); dalej R-013 (noc z 19.11), potem R-014; otwarte pytanie Q-8. -->
 
 # Rebuild plan
 
@@ -746,7 +746,7 @@ Columns:
 | R-009 | Cut the scout role and the `jg` cue | 1 | T-33, T-36, A-081 | R-001 | S | delegated | night | yes | — | — | done |
 | R-010 | The author's working history leaves the tree; Limen's own test-line cap goes | 1 | T-39, T-11, §6 | — | M | delegated | night | — | — | — | done |
 | R-011 | The same-task runner and the gate-time tool | 1 | H-21, T-11, T-41, §2, D-021 | — | L | delegated | night | — | pi | B.2 | done |
-| R-012 | A root deployment script for a pinned SHA | 1 | D-008, D-010, §7 | R-002 | M | delegated | night | — | — | 1.0 | planned |
+| R-012 | A root deployment script for a pinned SHA | 1 | D-008, D-010, §7 | R-002 | M | delegated | night | — | — | 1.0 | done |
 | R-013 | One error type, exit codes as failure classes, a final JSON line | 1 | T-01, T-02, D-022, D-028 | R-002, R-003, R-004, R-005, R-006, R-007, R-009 | L | delegated | night | yes | — | — | planned |
 | R-014 | One command registry, a shared parser and generated help | 1 | T-19, T-18, T-26, T-37, D-028 | R-002, R-003, R-004, R-005, R-006, R-007, R-009, R-013 | L | pair | day-after | yes | — | — | planned |
 | R-088 | The same-task runner leaves no job running after an attempt | 1 | D-027, D-021 | R-011 | S | pair | day-after | — | pi | B.2 | done |
@@ -1350,7 +1350,7 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 ## State
 
 Updated 2026-11-19, night run until 07:00 (started by `night.mjs` at 00:08), rebuild stage 5 in progress at plan
-stage 1: R-001–R-011 and R-088 `done`; R-012, R-013 and R-014 `planned`; no ticket active, no question open.
+stage 1: R-001–R-012 and R-088 `done`; R-013 and R-014 `planned`; no ticket active; Q-8 open (no ticket blocked).
 
 Handover (D-033): `limen-rebuild-2`, started in `tmux` at 16:17, died at 16:22:59 together with its running
 implementer of R-003, when WSL stopped the distro. `tmux` does not keep WSL alive: without a
@@ -1572,15 +1572,26 @@ Night run of 2026-11-19 (until 07:00; `night.mjs` run 1 started at 00:08:19):
   (one note, rejected); gate 133/133. For Adrian at gate 5.1: the refusal wording ("a survey job"; R-065 brings survey
   tickets). For R-039: the communication hook can still start `git` through `listDrift` (drift detection, not tool
   detection), which its T-36 scan meets (`R-009` → `ticket.md` → `## Decisions`).
+- R-012 `done` (delegated): `seat/deploy.ts`, run as `node /opt/limen/seat/deploy.ts <sha>`, in D-008's order; the
+  project registries are found through the homes of `/etc/passwd` (root has none; no registry at all is exit 4); the
+  tag `deployed-<UTC time>` is created last, so a failed deployment leaves none; verifications run as processes from
+  the new checkout (none at stage 1; R-017, R-032, R-056 add theirs); its output escapes control characters (text from
+  job folders reaches root's terminal) and git runs without `GIT_DIR` and the other repository-location variables.
+  Scans: no `.sh` in `seat/` and `bin/`, no dynamic `import(` in `src/` and `hook/`. Review PASS in round 1 (six notes:
+  four fixed by a fresh implementer with tests 12–14, two rejected) and round 2 (one note, fixed in `ticket.md`); gate
+  149/149. AC-6 (`node seat/deploy.ts` → exit 2) was refused by the permissions, so it is judged by test 11, which runs
+  that command (Q-8). For Adrian at gate 5.1: the registry discovery through `/etc/passwd` and the tag name and place
+  (`R-012` → `ticket.md` → `## Decisions`). For R-017: a signal handler, because an interrupt between the checkout and
+  the tag leaves the new commit checked out (review round 1, finding 4).
+- Q-8 (no ticket blocked): whether `node seat/deploy.ts <args>` goes on the allow-list (recommended: no).
 
-Next: R-012, then R-013 (after all the cuts, D-028; all `night`; tonight's night run takes them in the order of IDs
-and dependencies); R-014 (pair) by day after them. Each cut ticket that removes a command adds
+Next: R-013 (`night`, after all the cuts, D-028); R-014 (pair) by day after it. Each cut ticket that removes a command adds
 its entry to `src/old-names.ts` and its leftover paths to `LEFTOVERS`. B.2 runs on the seat before a0.1.0 is deployed
 (B.1 was done on 2026-11-17).
 
 Active ticket: none.
 
-Open questions for Adrian: none.
+Open questions for Adrian: Q-8 in `adrian-rebuild/.night/questions.md` (the allow-list for `node seat/deploy.ts`).
 
 Notes for the next session:
 - Start Claude Code in the repository root, so that it loads `.claude/agents/`.

@@ -250,6 +250,6 @@ WORKER=$WORKER APP_ID=$APP_ID PEM_SOURCE=$PEM_SOURCE LIMEN_REPO=$LIMEN_REPO LIME
 
 ## Upgrade
 
-1. With the doorbell: root$ the phase 12 block with the new `LIMEN_REV`. It disables and stops the timer, moves `/opt/limen`, and keeps the CLI and the poller on one release. Without the doorbell: root$ `git -C /opt/limen fetch origin $LIMEN_REV && git -C /opt/limen checkout --detach $LIMEN_REV && chmod -R go-w /opt/limen`.
+1. With the doorbell: root$ the phase 12 block with the new `LIMEN_REV`. It disables and stops the timer, moves `/opt/limen`, and keeps the CLI and the poller on one release. Without the doorbell: root$ `node /opt/limen/seat/deploy.ts <full sha>`. The script refuses while any job of a project registered on the seat runs, checks that the commit is on `origin/adrian-rebuild` and that the checkout is clean before it checks the commit out detached, and returns `/opt/limen` to the previous commit when anything fails after that.
 2. **HUMAN:** restart the coordinator in its pane, so that it loads the new release. Then run the phase 4 Check; **STOP** on any mismatch. With the doorbell, then run phases 13 and 14.
 3. New pinned versions: take the hash for both CPU types from the vendor source that phase 4 or phase 6 names. Never compute a hash yourself.

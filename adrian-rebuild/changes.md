@@ -1,7 +1,7 @@
 <!-- PL: Dziennik zmian przebudowy Limena: jeden wpis na zamknięty ticket R-NNN, tylko dopisywany, najnowszy na dole.
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
-R-003, R-004, R-005, R-006, R-007, R-009. -->
+R-003, R-004, R-005, R-006, R-007, R-009, R-012. -->
 
 # Changes
 
@@ -116,3 +116,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-01 at the close of stage 1)
 - Commit: R-009
 - Rollback: git revert $(git log --format=%H --grep='^R-009:' adrian-rebuild --)
+
+## 2026-11-19 R-012 A root deployment script for a pinned SHA
+- What: new `seat/deploy.ts` (refuses while a job of any registered project runs, fetches `origin adrian-rebuild`, refuses a SHA off the branch and a changed checkout, checks out detached, compares HEAD, runs the verifications from the new checkout, returns to the previous SHA with exit 4 on any failure after the checkout, tags `deployed-<UTC time>` last; control characters escaped in its output; git without the repository-location variables); `tsconfig.json` (`seat/**/*.ts`); `test/structure.test.ts` (no `.sh` in `seat/` and `bin/`, no dynamic `import(` in `src/` and `hook/`); new `test/seat/deploy.test.ts` (14 tests on fixture repositories); `docs/seat/agent-setup.md` (`## Upgrade`)
+- Why: D-008, D-010, §7 (D3)
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (149/149: 133 + 16 new); `node adrian-rebuild/tools/fails-before.mjs` → exit 0; `git grep -q -E '\bimport\(' -- src hook` → exit 1 (no match)
+- Measurement: measured
+- Commit: R-012
+- Rollback: git revert $(git log --format=%H --grep='^R-012:' adrian-rebuild --)
