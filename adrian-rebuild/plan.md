@@ -1173,8 +1173,8 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
 - **1.0** Bootstrap, once: `/opt/limen` at `rebuild-base` has no deployment script. Check by hand that no job runs
   (`limen status` in both projects) and take the snapshot of 0.1; then, as root, `git -C /opt/limen fetch origin
   adrian-rebuild`, `git -C /opt/limen merge-base --is-ancestor <sha> origin/adrian-rebuild` and `git -C /opt/limen
-  checkout --detach <sha>` with the full SHA of `a0.1.1` (D-046: the first deployment carries R-090), and run `node
-  /opt/limen/seat/deploy.ts <sha>`, whose output names every registry and project it checked (R-090); it repeats
+  checkout --detach <sha>` with the full SHA of `a0.1.1` (D-046: the first deployment carries R-090), and run
+  `node /opt/limen/seat/deploy.ts <sha>`, whose output names every registry and project it checked (R-090); it repeats
   every check and tags the commit (R-012). From a0.2.0 on, only 0.2 deploys.
 - **1.1** In each project, `limen status` lists the leftover files of cut features (R-001–R-007, R-009); check the list, then
   run `limen init --drop-leftovers`.
