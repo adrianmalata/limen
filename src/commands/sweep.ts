@@ -20,12 +20,14 @@ const metadata = (path: string) => {
 	}
 };
 
-export async function sweepCommand(args: readonly string[], _cwd: string): Promise<void> {
+export async function sweepCommand(args: readonly string[], _cwd: string): Promise<undefined> {
 	if (args.length === 1 && args[0] === "--install") {
-		return installSeatSweep();
+		await installSeatSweep();
+		return;
 	}
 	if (args.length === 1 && args[0] === "--uninstall") {
-		return uninstallSeatSweep();
+		await uninstallSeatSweep();
+		return;
 	}
 	if (args.length) {
 		throw new Error("sweep accepts no arguments, --install, or --uninstall");

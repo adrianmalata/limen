@@ -65,7 +65,7 @@ type Scan = {
 	lastOrigin: string;
 };
 
-export async function statusCommand(args: readonly string[], cwd: string): Promise<void> {
+export async function statusCommand(args: readonly string[], cwd: string): Promise<undefined> {
 	const all = parseStatusArgs(args);
 	const root = existsSync(`${resolve(cwd)}/.limen/jobs`) ? resolve(cwd) : limenRoot(cwd);
 	const jobsRoot = `${root}/.limen/jobs`;

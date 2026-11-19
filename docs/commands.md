@@ -6,6 +6,29 @@ The coordinator runs job commands. The operator runs setup commands. Run `limen 
 
 Where the reference shows them, IDs, unique suffixes, and unique labels work the same.
 
+## Exit codes and the final line
+
+Every command ends with one line of JSON, its final line, after the text for people. After a success the line ends stdout; after a failure it ends stderr, after the message. The exit code is the class:
+
+| Exit code | `class` | Meaning |
+|---|---|---|
+| 0 | `ok` | success, also "nothing to do" |
+| 1 | `refused` | a condition that Limen checks is not met |
+| 2 | `usage` | an unknown command, or a flag that the shared flag parser refuses: unknown, without its value, or given twice |
+| 3 | `transient` | safe to retry: `github poll` after a failed request, HTTP 429, a 5xx, or a 403 that is a rate limit (`x-ratelimit-remaining: 0` or a `retry-after` header); `group wait` at its time limit |
+| 4 | `environment` | `github poll` with a missing or invalid setting, projects file or credential, HTTP 401 or any other 403; a Node.js older than 24 |
+| 5 | `internal` | an unexpected exception; its stack comes before the final line |
+
+A failure that has no class of its own, a missing tool such as git among them, exits 1 with the code `UNTYPED`.
+
+The line has the fields `class`, `code` and `next` in this order, then `ids` when the command names what it created:
+
+- `code` is `0` on success. On a failure it is an upper-case identifier, such as `UNKNOWN_COMMAND`, `BAD_FLAG` or `TICKET_CHECK_FAILED`; a refusal that has no identifier of its own has `UNTYPED`, and an unexpected exception has `INTERNAL`.
+- `next` is the next command, or `""` when the command names none.
+- `ids` holds identifiers, never data: `job`, the full job ID, after `spawn`, `continue`, `keeper`, `github review` and `github work`; `ticket`, the `FNNN` of the new ticket, after `ticket new`. The key `question` (`Q-NNN`) is part of the format; no command returns it today.
+
+For example, a spawn ends with `{"class":"ok","code":0,"next":"End your turn; Limen wakes you when the job ends.","ids":{"job":"<full id>"}}`. A program that runs Limen reads the final line through one client function, `readOutcome` (`src/outcome.ts`), never the text before it, with one exception: when `limen github deliver` fails, the GitHub poller tells an unavailable coordinator from an unconfirmed delivery by the text on its stderr. The internal job run that a job's wrapper starts prints no final line.
+
 ## Coordinator actions
 
 The coordinator runs these from its Herdr pane during ordinary work.
@@ -67,7 +90,7 @@ The default compact `jobs` view lists running jobs and recent empty jobs. It hid
 
 A job in the start queue lists as running with the pulse `queued`, then its wait and the reason: the CPU and memory reading against the gate, or each rule that holds its priority with the rule's end, and the number of jobs ahead. `limen queue` prints the gate, the current reading, and every waiting job of the seat in start order, each held job with the rules that hold it. It samples the load for about two seconds.
 
-A job is starting while `limen spawn` still sets it up: the worktree and the launch. Its record holds the spawn's pid in `starting` from the first moment. `jobs` and `status` list it as running with the pulse `starting`. A job with no state whose spawn process is gone is `ORPHAN`. Spawn prints the job ID as soon as the record exists, and again on its last line. The job's wrapper then prunes finished worktrees and runs `--prepare` before the engine starts; the job log records each result and its time. A prepare command has 5 minutes; a plant can change that (see [Limits](jobs.md#limits)). A setup failure after the ID printed marks the job `failed`.
+A job is starting while `limen spawn` still sets it up: the worktree and the launch. Its record holds the spawn's pid in `starting` from the first moment. `jobs` and `status` list it as running with the pulse `starting`. A job with no state whose spawn process is gone is `ORPHAN`. Spawn prints the job ID as soon as the record exists and again after its start line, and its final line carries it in `ids.job` ([Exit codes and the final line](#exit-codes-and-the-final-line)). The job's wrapper then prunes finished worktrees and runs `--prepare` before the engine starts; the job log records each result and its time. A prepare command has 5 minutes; a plant can change that (see [Limits](jobs.md#limits)). A setup failure after the ID printed marks the job `failed`.
 
 ### Control running jobs
 
@@ -166,7 +189,7 @@ You run these one time for each project or seat, or a scheduler runs them.
 
 ### Project setup
 
-Create the project files, or set up a parent workspace for child repositories. `limen init` ends with a `next:` line that names the next step, and says so when the repository has no commit yet.
+Create the project files, or set up a parent workspace for child repositories. The text of `limen init` ends with a `next:` line that names the next step, and says so when the repository has no commit yet; the final line follows it.
 
 ```text
 limen init

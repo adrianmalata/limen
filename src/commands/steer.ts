@@ -7,7 +7,7 @@ import { coordinatorWakeRoute, watches } from "./watch.ts";
 
 const READY_WAIT_MS = 2_000;
 
-export async function steerCommand(args: readonly string[], cwd: string): Promise<void> {
+export async function steerCommand(args: readonly string[], cwd: string): Promise<undefined> {
 	if (process.env.LIMEN_GROUP_ID) {
 		throw new Error("group peer messages are informational; use group publish, not owner steering");
 	}

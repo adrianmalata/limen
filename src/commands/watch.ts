@@ -10,11 +10,11 @@ import { currentNotificationSession, herdrWakePane } from "./spawn.ts";
  */
 export type WakeRoute = { readonly session: string } | { readonly pane: string };
 
-export const watchCommand = (args: readonly string[], cwd: string): Promise<void> =>
+export const watchCommand = (args: readonly string[], cwd: string): Promise<undefined> =>
 	changeSubscriptions(args, cwd, true);
-export const unwatchCommand = (args: readonly string[], cwd: string): Promise<void> =>
+export const unwatchCommand = (args: readonly string[], cwd: string): Promise<undefined> =>
 	changeSubscriptions(args, cwd, false);
-async function changeSubscriptions(args: readonly string[], cwd: string, watching: boolean): Promise<void> {
+async function changeSubscriptions(args: readonly string[], cwd: string, watching: boolean): Promise<undefined> {
 	const next = watching ? "follow the job with `limen jobs <id>` instead" : "it watches nothing";
 	const route = coordinatorWakeRoute(watching ? "watch" : "unwatch", next);
 	const bulk = args.length === 1 && args[0] === (watching ? "--running" : "--all");

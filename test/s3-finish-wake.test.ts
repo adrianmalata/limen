@@ -10,6 +10,7 @@ import { open, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { outputText } from "../src/outcome.ts";
 import {
 	engineEvents,
 	FINAL,
@@ -21,6 +22,7 @@ import {
 	plant,
 	release,
 	spawnJob,
+	startedJob,
 	until,
 	waitJob,
 } from "./plant.ts";
@@ -182,11 +184,14 @@ test("a held gate queues jobs by priority and a rule's start priority holds the 
 	const [dead = "", stopped = ""] = ["q dead", "q stopped"].map((label) => job("say no", label, ["--priority", "1"]));
 	const timed = job("say timed", "q timed", ["--timeout", "2s"], { PI_SESSION_ID: "coord", LIMEN_START_READING: pipe });
 	const run = limen(p, ["spawn", ...ROUTE, "--label", "late", "block"], { env: { PI_SESSION_ID: "coord" } });
-	assert.match(run.stdout, /\nqueued late: CPU 10% idle \(gate 25%\), memory 80% free \(gate 20%\), 3 ahead\n\S+\n$/);
-	const later = run.stdout.trim().split("\n").at(-1) ?? "";
+	assert.match(
+		outputText(run),
+		/\nqueued late: CPU 10% idle \(gate 25%\), memory 80% free \(gate 20%\), 3 ahead\n\S+\n$/,
+	);
+	const later = startedJob(run);
 	const urgent = job("block", "q urgent", ["--priority", "1"]);
 	process.kill(Number(jobFile(p, dead, "pid")), "SIGKILL");
-	assert.equal(limen(p, ["stop", stopped, "not needed"]).stdout, `stopped ${stopped}: not needed\n`);
+	assert.equal(outputText(limen(p, ["stop", stopped, "not needed"])), `stopped ${stopped}: not needed\n`);
 	await until(jobDir(p, timed), () => Date.now() - Date.parse(jobFile(p, timed, "started-at")) > 2_500);
 	// The budget: urgent starts under a start priority 2 rule; a change to 1 while timed samples must still hold timed.
 	limen(p, ["rule", "set", "week", "--until", "1h", "--start-priority", "2", "Low"]);

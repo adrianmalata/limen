@@ -4,7 +4,8 @@ import { readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { isTerminal } from "../../src/job/job.ts";
-import { jobDir, jobFile, limen, type Plant, plant, spawnJob, until } from "../plant.ts";
+import { outputText } from "../../src/outcome.ts";
+import { jobDir, jobFile, limen, type Plant, plant, spawnJob, startedJob, until } from "../plant.ts";
 
 /** Resolves once the job's `state` is terminal, the commit point of its record. */
 function ended(p: Plant, id: string): Promise<void> {
@@ -18,7 +19,7 @@ test("a continuation started from a subdirectory of the project continues its pa
 	await ended(p, parent);
 	const run = limen(p, ["continue", parent, "say continued"], { cwd: join(p.root, "spec") });
 	assert.equal(run.status, 0, run.stderr);
-	const id = run.stdout.trim().split("\n").at(-1) ?? "";
+	const id = startedJob(run);
 	await ended(p, id);
 	assert.deepEqual([jobFile(p, id, "parent"), jobFile(p, id, "state")], [parent, "done"]);
 });
@@ -36,7 +37,7 @@ test("limen continue of a finished job recorded with the removed engine devin re
 	}
 	const run = limen(p, ["continue", parent, "say continued"]);
 	assert.notEqual(run.status, 0, run.stdout);
-	assert.equal(run.stderr, "engine devin was removed with Devin cloud jobs (R-003); use --engine pi\n");
+	assert.equal(outputText(run), "engine devin was removed with Devin cloud jobs (R-003); use --engine pi\n");
 	assert.deepEqual(readdirSync(join(p.root, ".limen/jobs")), [parent]);
 });
 
@@ -49,6 +50,6 @@ test("limen continue of a finished job recorded with the removed engine omp refu
 	writeFileSync(join(jobDir(p, parent), "engine"), "omp\n");
 	const run = limen(p, ["continue", parent, "say continued"]);
 	assert.notEqual(run.status, 0, run.stdout);
-	assert.equal(run.stderr, "engine omp was removed with the OMP engine (R-004); use --engine pi\n");
+	assert.equal(outputText(run), "engine omp was removed with the OMP engine (R-004); use --engine pi\n");
 	assert.deepEqual(readdirSync(join(p.root, ".limen/jobs")), [parent]);
 });

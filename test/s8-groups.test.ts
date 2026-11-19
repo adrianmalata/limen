@@ -17,9 +17,9 @@ import {
 	limen,
 	type Plant,
 	plant,
-	type Run,
 	release,
 	start,
+	startedJob,
 	TICKET,
 	until,
 	waitJob,
@@ -63,8 +63,11 @@ before(async () => {
 after(() => p.cleanup());
 
 const run = (args: readonly string[], env: Record<string, string> = {}) => start(p, args, { env }).done;
-/** The last stdout line: the id of the job or group a run started. */
-const startedId = (result?: Run) => result?.stdout.trim().split("\n").at(-1) ?? "";
+/** The ids of the groups recorded for `feature`: the final line carries no group id (D-022), the records do. */
+const groupsOn = (feature: string) =>
+	readdirSync(join(p.root, ".limen/groups")).filter(
+		(id) => JSON.parse(readFileSync(join(p.root, ".limen/groups", id, "run.json"), "utf8")).feature === feature,
+	);
 const cabinet = () => join(p.root, ".limen/groups", group);
 const members = (): Array<{ id: string; team: string; role: string }> =>
 	JSON.parse(readFileSync(join(cabinet(), "run.json"), "utf8")).members;
@@ -91,8 +94,11 @@ test("a stale lead registration starts nothing; two concurrent activations by th
 	for (const result of started) {
 		assert.equal(result.status, 0, result.stderr);
 	}
-	group = startedId(started[0]);
-	assert.deepEqual([startedId(started[1]), ...readdirSync(join(p.root, ".limen/groups"))], [group, group]);
+	// Both starts succeeded and the groups folder holds one group: they started the same one.
+	const groups = readdirSync(join(p.root, ".limen/groups"));
+	assert.deepEqual(groupsOn(FEATURE), groups);
+	assert.equal(groups.length, 1, groups.join(", "));
+	group = groups[0] ?? "";
 	assert.deepEqual(roles(), ["team-1 coordinator", "team-2 coordinator"]);
 	[roster.coordinator1 = "", roster.coordinator2 = ""] = members().map((member) => member.id);
 	for (const id of [roster.coordinator1, roster.coordinator2]) {
@@ -124,10 +130,12 @@ test("launches queued behind a slow sibling wait past the old 10-second lock dea
 	await writeFile(gate, "go\n");
 	const first = await slow;
 	const raced = await Promise.all(racing);
-	roster.worker1 = startedId(first);
-	roster.worker2 = startedId(raced.find((result) => result.status === 0));
 	assert.equal(first.status, 0, first.stderr);
 	assert.deepEqual(raced.map((r) => r.status).sort(), [0, 1], raced.map((r) => r.stdout + r.stderr).join("\n"));
+	const [winner] = raced.filter((result) => result.status === 0);
+	assert.ok(winner);
+	roster.worker1 = startedJob(first);
+	roster.worker2 = startedJob(winner);
 	// No half-claimed slot: the roster and the job records are the same four jobs.
 	assert.deepEqual(roles(), ["team-1 coordinator", "team-2 coordinator", "team-1 worker", "team-2 worker"]);
 	assert.deepEqual(new Set(readdirSync(join(p.root, ".limen/jobs"))), new Set(members().map((member) => member.id)));
@@ -196,9 +204,11 @@ test("each recipient reads a finding once, and the lead hears it as a followUp",
 test("a second group runs two routes through draft, critique and final, and the lead hears its result once", async () => {
 	const teams = ["--team", TEAM, "--team", "pi:fake/fake-2:low", "--rounds", "draft,critique,final"];
 	const started = await run(["group", "start", ROUNDS, ...teams], LEAD);
-	const finished = `Group ${ROUNDS} (${startedId(started)}) finished`;
+	assert.equal(started.status, 0, started.stderr);
+	const [second = ""] = groupsOn(ROUNDS);
+	const finished = `Group ${ROUNDS} (${second}) finished`;
 	await until(lead, () => delivered().some((entry) => entry.text?.includes(finished)));
-	const runFile = readFileSync(join(p.root, ".limen/groups", startedId(started), "run.json"), "utf8");
+	const runFile = readFileSync(join(p.root, ".limen/groups", second, "run.json"), "utf8");
 	const jobs: Array<{ id: string; team: string; round: number; parent?: string }> = JSON.parse(runFile).members;
 	// Every team continues in its own session into the critique; the final round is the first team's alone.
 	const chain = jobs.map((job) => `${job.team} ${job.round} ${jobs.findIndex((other) => other.id === job.parent)}`);

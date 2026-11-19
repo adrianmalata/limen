@@ -21,9 +21,11 @@ import { sweepCommand } from "./commands/sweep.ts";
 import { ticketCommand } from "./commands/ticket.ts";
 import { unwatchCommand, watchCommand } from "./commands/watch.ts";
 import { removedCommand } from "./old-names.ts";
+import { EXIT_CODES, failureOf, finalLine, LimenError, type Success } from "./outcome.ts";
 import { failInternalJob, runInternalJob } from "./runtime/wrapper.ts";
 
-type Command = (args: readonly string[], cwd: string) => Promise<void>;
+/** A command returns its result or throws (D-028); `undefined` is a success with `next` "". */
+type Command = (args: readonly string[], cwd: string) => Promise<Success | undefined>;
 const COMMANDS = {
 	init: initCommand,
 	workspace: workspaceCommand,
@@ -130,39 +132,79 @@ usage:
   limen picture build [--dir D] [--json F] [--strict]  # check the map, its tickets and board offline; no page; --json F writes the model
   limen picture serve [--port N]  # this project's job activity at 127.0.0.1 (default port 4747): /activity.json and /events
 Pass a short coordinator instruction, not $(cat ticket.md). The ticket is a pointer, not the prompt.`;
+/**
+ * The shared wrapper, the only code in `src/` that sets the exit code (D-028): every command process ends with exactly
+ * one final line (`src/outcome.ts`), on stdout after a success and on stderr after a failure's message, and exits with
+ * its class's code. A command another command calls in-process prints no line; the internal job run prints none.
+ */
 export async function main(args: readonly string[], cwd = process.cwd()): Promise<void> {
+	if (process.env.LIMEN_INTERNAL_RUN === "1") {
+		await internalRun();
+		return;
+	}
+	let line: string;
 	try {
-		if (process.env.LIMEN_INTERNAL_RUN === "1") {
-			await runInternalJob();
-			return;
-		}
-		const [name, ...rest] = args;
-		if (!name || name === "--help" || name === "-h" || name === "help") {
-			console.log(HELP);
-			return;
-		}
-		if (!(name in COMMANDS)) {
-			throw new Error(removedCommand(name) ?? `unknown command ${JSON.stringify(name)}\n\n${HELP}`);
-		}
-		const flags = rest.slice(0, rest.includes("--") ? rest.indexOf("--") : undefined);
-		if (flags.includes("--help") || flags.includes("-h")) {
-			console.log(commandHelp(name));
-			return;
-		}
-		// A rule whose timer died still ends once; this only starts a detached timer.
-		try {
-			endDueRules(args);
-		} catch {
-			// A rule record is a side channel too.
-		}
-		await COMMANDS[name as keyof typeof COMMANDS](rest, cwd);
+		const success = (await runCommand(args, cwd)) ?? { next: "" };
+		line = finalLine({ class: "ok", code: 0, next: success.next, ...(success.ids ? { ids: success.ids } : {}) });
 	} catch (error) {
-		if (process.env.LIMEN_INTERNAL_RUN === "1") {
-			await failInternalJob(error);
+		const failure = failureOf(error);
+		console.error(failure.message);
+		if (failure.class === "internal") {
+			// T-02: an unexpected exception keeps its stack, from the value that was thrown.
+			const origin = failure.cause === undefined ? failure : failure.cause;
+			if (origin instanceof Error && origin.stack) {
+				console.error(origin.stack);
+			}
 		}
+		console.error(finalLine({ class: failure.class, code: failure.code, next: failure.next }));
+		process.exitCode = EXIT_CODES[failure.class];
+		return;
+	}
+	console.log(line);
+	process.exitCode = EXIT_CODES.ok;
+}
+
+/** The job wrapper's own run: not a command, so no final line, and a failure exits 1 as before R-013. */
+async function internalRun(): Promise<void> {
+	try {
+		await runInternalJob();
+	} catch (error) {
+		await failInternalJob(error);
 		console.error(error instanceof Error ? error.message : String(error));
 		process.exitCode = 1;
 	}
+}
+
+async function runCommand(args: readonly string[], cwd: string): Promise<Success | undefined> {
+	const [name, ...rest] = args;
+	if (!name || name === "--help" || name === "-h" || name === "help") {
+		console.log(HELP);
+		return undefined;
+	}
+	if (!Object.hasOwn(COMMANDS, name)) {
+		const removed = removedCommand(name);
+		if (removed) {
+			throw new Error(removed);
+		}
+		throw new LimenError({
+			class: "usage",
+			code: "UNKNOWN_COMMAND",
+			message: `unknown command ${JSON.stringify(name)}\n\n${HELP}`,
+			next: "limen --help",
+		});
+	}
+	const flags = rest.slice(0, rest.includes("--") ? rest.indexOf("--") : undefined);
+	if (flags.includes("--help") || flags.includes("-h")) {
+		console.log(commandHelp(name));
+		return undefined;
+	}
+	// A rule whose timer died still ends once; this only starts a detached timer.
+	try {
+		endDueRules(args);
+	} catch {
+		// A rule record is a side channel too.
+	}
+	return COMMANDS[name as keyof typeof COMMANDS](rest, cwd);
 }
 
 // One command's usage: its `limen <command>` lines from HELP, with their indented comment lines.

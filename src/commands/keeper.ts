@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readRun } from "../job/group-cabinet.ts";
 import { resolveJob } from "../job/lookup.ts";
+import type { Success } from "../outcome.ts";
 import { branchCommit, branchExists, commitHasFile, limenRoot, workspaceRepository } from "../project/git.ts";
 import { ownerAlive } from "../runtime/reap.ts";
 import { parseFlags } from "./flags.ts";
@@ -42,8 +43,11 @@ const FLAGS = {
 
 const ROUTE = ["engine", "provider", "model", "thinking"] as const;
 
-/** After the work: a short job on its own branch at the candidate tip fixes the ticket, board and map links. */
-export async function keeperCommand(args: readonly string[], cwd: string): Promise<void> {
+/**
+ * After the work: a short job on its own branch at the candidate tip fixes the ticket, board and map links. Its
+ * success is the keeper job's start, which `main` reports once.
+ */
+export async function keeperCommand(args: readonly string[], cwd: string): Promise<Success> {
 	if (process.env.LIMEN_GROUP_ID) {
 		throw new Error(
 			"group members cannot start a keeper; the owner-facing lead starts one after it merges the team branches",
@@ -106,7 +110,7 @@ export async function keeperCommand(args: readonly string[], cwd: string): Promi
 		await writeFile(packetFile, packet);
 		const repo = first.repo ? ["--repo", first.repo] : [];
 		const label = `spec keeper · ${code}`;
-		await spawnCommand(
+		return await spawnCommand(
 			[
 				...options.route,
 				...["--role", "keeper", "--detached", "--branch", keeperBranch, "--timeout", options.timeout],

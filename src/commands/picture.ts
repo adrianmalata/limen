@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { ParseArgsOptionsConfig } from "node:util";
 import { refuseRemovedFlags, removedCommand, removedFlag } from "../old-names.ts";
+import { LimenError } from "../outcome.ts";
 import { readDataset } from "../picture/dataset.ts";
 import { parseFrontmatter } from "../picture/frontmatter.ts";
 import { buildPicture } from "../picture/picture-build.ts";
@@ -19,7 +20,7 @@ const TABLES: Record<"build" | "serve", ParseArgsOptionsConfig> = {
 	serve: { dir: VALUE, port: VALUE },
 };
 
-export async function pictureCommand(args: readonly string[], cwd: string): Promise<void> {
+export async function pictureCommand(args: readonly string[], cwd: string): Promise<undefined> {
 	const [mode, ...options] = args;
 	// A removed subcommand gets its removal line before any word after it is read and before the usage below.
 	const removed = removedCommand(`picture ${mode ?? ""}`);
@@ -54,7 +55,10 @@ export async function pictureCommand(args: readonly string[], cwd: string): Prom
 	await build(cwd, values.get("dir"), values.get("json"), parsed.values.strict === true);
 }
 
-/** Checks the map with its tickets and board: each diagnostic on stderr, the counts on stdout, no page. */
+/**
+ * Checks the map with its tickets and board: each diagnostic on stderr, the counts on stdout, no page. With `--strict`
+ * an error diagnostic is a refusal (D-028), which `main` ends with after the diagnostics.
+ */
 async function build(cwd: string, dir: string | undefined, json: string | undefined, strict: boolean): Promise<void> {
 	const { picture, root } = await pictureSources(cwd, dir);
 	const out = json === undefined ? undefined : resolve(cwd, json);
@@ -66,8 +70,14 @@ async function build(cwd: string, dir: string | undefined, json: string | undefi
 	}
 	const wrote = out === undefined ? "" : `; wrote ${out}`;
 	console.log(`picture: ${model.nodes.length} places, ${model.edges.length} edges${wrote}`);
-	if (strict && model.diagnostics.some((d) => d.level === "error")) {
-		process.exitCode = 1;
+	const errors = model.diagnostics.filter((d) => d.level === "error").length;
+	if (strict && errors > 0) {
+		throw new LimenError({
+			class: "refused",
+			code: "PICTURE_INVALID",
+			message: `picture build --strict: ${errors} error${errors === 1 ? "" : "s"} in the map, its tickets or its board`,
+			next: "fix the errors listed above, then run limen picture build --strict",
+		});
 	}
 }
 

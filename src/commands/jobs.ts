@@ -23,7 +23,7 @@ const HUMAN_TERMINAL_ROWS = 6;
 type Selection = "snapshot" | "running" | "all" | { readonly prefix: string } | { readonly detail: string };
 type Ordered = ReadonlyArray<readonly [string, string, string]>;
 
-export async function jobsCommand(args: readonly string[], cwd: string): Promise<void> {
+export async function jobsCommand(args: readonly string[], cwd: string): Promise<undefined> {
 	const selection = parseJobsArgs(args);
 	const tty = process.stdout.isTTY === true;
 	const human = resolveView(process.env.LIMEN_VIEW, tty) === "human";

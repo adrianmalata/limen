@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 
+// An old Node is an environment failure (T-02: exit code 4). It cannot load src/outcome.ts, so the final line is literal.
 const major = Number.parseInt(process.versions.node, 10);
 if (!Number.isFinite(major) || major < 24) {
 	console.error(`limen requires Node.js 24 (this is ${process.versions.node})`);
-	process.exit(1);
+	console.error('{"class":"environment","code":"NODE_VERSION","next":"install Node.js 24 or newer"}');
+	process.exit(4);
 }
 
 // Limen runs its TypeScript sources by Node's type stripping. Drop only that one warning; others still print.

@@ -5,7 +5,7 @@ import { mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { type GroupRun, readRun } from "../src/job/group-cabinet.ts";
-import { git, jobDir, jobFile, limen, plant, type RunOptions, TICKET, waitJob } from "./plant.ts";
+import { git, jobDir, jobFile, limen, plant, type RunOptions, startedJob, TICKET, waitJob } from "./plant.ts";
 
 const lead = { PI_SESSION_ID: "extension-lead" };
 const route = ["--engine", "pi", "--provider", "fixture", "--model", "fixture", "--thinking", "high"];
@@ -69,7 +69,12 @@ async function fixture() {
 	};
 	return { ...p, feature, extensions, common, privatePath, mode, run, start, launch, resume, checkJob };
 }
-const lastLine = (stdout: string) => stdout.trim().split("\n").at(-1) ?? "";
+/** The one group of a plant, read from its record: the final line carries no group id (D-022). */
+async function onlyGroup(root: string): Promise<GroupRun> {
+	const ids = (await readdir(join(root, ".limen/groups"))).filter((name) => !name.startsWith("."));
+	assert.equal(ids.length, 1, ids.join(", "));
+	return readRun(root, ids[0] ?? "");
+}
 
 test("Pi teams keep common and private selections through workers, reviews and continuation", async (context) => {
 	const f = await fixture();
@@ -85,7 +90,7 @@ test("Pi teams keep common and private selections through workers, reviews and c
 		`team-2=${f.common}`,
 	);
 	assert.equal(started.status, 0, started.stderr);
-	const run = await readRun(f.root, lastLine(started.stdout));
+	const run = await onlyGroup(f.root);
 	assert.deepEqual({ ...run.teamExtensions }, { "team-1": [f.common], "team-2": [f.common, f.privatePath] });
 	for (const coordinator of run.members) {
 		const expected = run.teamExtensions?.[coordinator.team] ?? [];
@@ -98,7 +103,7 @@ test("Pi teams keep common and private selections through workers, reviews and c
 			...(coordinator.team === "team-1" ? expected.flatMap((path) => ["--extension", path]) : []),
 		);
 		assert.equal(child.status, 0, child.stderr);
-		const id = lastLine(child.stdout);
+		const id = startedJob(child);
 		await f.checkJob(id, expected);
 		const bad = f.resume(id, "--extension", f.privatePath);
 		assert.match(`${bad.status} ${bad.stderr}`, /^1 .*recorded team extensions/s);
@@ -108,7 +113,7 @@ test("Pi teams keep common and private selections through workers, reviews and c
 		await writeFile(record, JSON.stringify(expected));
 		const continued = f.resume(id);
 		assert.equal(continued.status, 0, continued.stderr);
-		const continuedId = lastLine(continued.stdout);
+		const continuedId = startedJob(continued);
 		await f.checkJob(continuedId, expected);
 		const entry = (await readRun(f.root, run.id)).members.find((entry) => entry.id === continuedId);
 		assert.deepEqual([entry?.parent, entry?.team], [id, coordinator.team]);
@@ -117,7 +122,7 @@ test("Pi teams keep common and private selections through workers, reviews and c
 		assert.equal(f.launch(run, coordinator.team, "--review", "--branch", "main").status, 1);
 		const review = f.launch(run, coordinator.team, "--review", "--branch", branch);
 		assert.equal(review.status, 0, review.stderr);
-		await f.checkJob(lastLine(review.stdout), expected);
+		await f.checkJob(startedJob(review), expected);
 		assert.equal(f.resume(continuedId).status, 1, "continuation uses the total launch allowance");
 		assert.match(f.resume(coordinator.id).stderr, /next group round/);
 	}
@@ -129,7 +134,7 @@ test("a group started inside Herdr with no mode flag runs each team job detached
 	const inside = { HERDR_ENV: "1", LIMEN_HERDR: join(f.parent, "herdr") };
 	const started = f.run(["group", "start", f.feature, ...settings], { env: inside });
 	assert.equal(started.status, 0, started.stderr);
-	const run = await readRun(f.root, lastLine(started.stdout));
+	const run = await onlyGroup(f.root);
 	assert.equal(run.members.length, 2);
 	for (const member of run.members) {
 		// `watch` is the mode of the log tab that follows a detached job's log.
@@ -142,16 +147,17 @@ test("invalid group selections never activate or consume jobs, including later t
 	const f = await fixture();
 	context.after(f.cleanup);
 	const trees = git(f.root, "worktree", "list", "--porcelain");
-	for (const extra of [
-		["--team-extension", "team-2=missing.ts"],
-		["--team-extension", `team-9=${f.common}`],
-		["--team-extension", "team-2="],
-		["--team-extension", "wrong"],
-		["--extension"],
-		["--extension", "npm:package"],
-	]) {
+	// A flag without its value is a usage error (exit 2); the other selections are refusals (exit 1).
+	for (const [status, extra] of [
+		[1, ["--team-extension", "team-2=missing.ts"]],
+		[1, ["--team-extension", `team-9=${f.common}`]],
+		[1, ["--team-extension", "team-2="]],
+		[1, ["--team-extension", "wrong"]],
+		[2, ["--extension"]],
+		[1, ["--extension", "npm:package"]],
+	] as const) {
 		const result = f.start("--extension", f.common, ...extra);
-		assert.equal(result.status, 1, result.stderr);
+		assert.equal(result.status, status, `${extra.join(" ")}: ${result.stderr}`);
 	}
 	assert.deepEqual(await readdir(join(f.root, ".limen/groups")).catch(() => []), []);
 	assert.deepEqual(await readdir(join(f.root, ".limen/jobs")).catch(() => []), []);
@@ -164,7 +170,7 @@ test("a repeated start keeps the original selections, even after a path disappea
 	context.after(f.cleanup);
 	const started = f.start("--team-extension", `team-2=${f.privatePath}`);
 	assert.equal(started.status, 0, started.stderr);
-	const run = await readRun(f.root, lastLine(started.stdout));
+	const run = await onlyGroup(f.root);
 	assert.deepEqual(run.teamExtensions?.["team-1"], []);
 	for (const member of run.members) {
 		await f.checkJob(member.id, run.teamExtensions?.[member.team] ?? []);
@@ -173,7 +179,7 @@ test("a repeated start keeps the original selections, even after a path disappea
 	await rm(f.privatePath);
 	const repeated = f.start("--extension", "missing-again.ts");
 	assert.equal(repeated.status, 0, repeated.stderr);
-	assert.equal(lastLine(repeated.stdout), run.id);
+	assert.equal((await onlyGroup(f.root)).id, run.id);
 	assert.deepEqual((await readRun(f.root, run.id)).teamExtensions, run.teamExtensions);
 	assert.equal((await readdir(join(f.root, ".limen/jobs"))).length, 2);
 	assert.match(f.launch(run, "team-2").stderr, /cannot use extension/);

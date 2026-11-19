@@ -5,7 +5,8 @@ import { existsSync, readdirSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import { git, jobDir, jobFile, limen, plant, release, spawnJob, TICKET, waitJob } from "./plant.ts";
+import { outputText, readOutcome } from "../src/outcome.ts";
+import { git, jobDir, jobFile, limen, plant, release, spawnJob, startedJob, TICKET, waitJob } from "./plant.ts";
 
 const p = await plant();
 after(p.cleanup);
@@ -26,22 +27,23 @@ test("ticket new refuses an unknown place id before any file exists, then takes 
 	assert.match(`${refused.status} ${refused.stderr}`, /^1 .*nope/s);
 	assert.deepEqual(lane("planned"), before);
 	const made = limen(p, ["ticket", "new", "x", "--touches", "demo.place"]);
-	assert.equal(made.stdout, "spec/features/planned/F010-x/ticket.md\n", made.stderr);
-	assert.ok(existsSync(join(p.root, made.stdout.trim())));
+	assert.equal(outputText(made), "spec/features/planned/F010-x/ticket.md\n", made.stderr);
+	assert.deepEqual(readOutcome(made).ids, { ticket: "F010" });
+	assert.ok(existsSync(join(p.root, "spec/features/planned/F010-x/ticket.md")));
 });
 
 test("picture build --strict --dir takes a plant root from any folder, prints the place count and writes nothing in the map folder", () => {
 	const map = join(p.root, ".limen/picture");
 	const before = readdirSync(map);
 	const built = limen(p, ["picture", "build", "--strict", "--dir", p.root], { cwd: p.parent });
-	assert.match(`${built.status} ${built.stdout}`, /^0 picture: [1-9]\d* places, \d+ edges\n$/, built.stderr);
+	assert.match(`${built.status} ${outputText(built)}`, /^0 picture: [1-9]\d* places, \d+ edges\n$/, built.stderr);
 	assert.deepEqual(readdirSync(map), before);
 });
 
 test("picture build stops on a folder with no map with an error that names both paths and nothing else", () => {
-	const { status, stderr } = limen(p, ["picture", "build", "--dir", p.bin]);
+	const run = limen(p, ["picture", "build", "--dir", p.bin]);
 	assert.deepEqual(
-		[status, stderr],
+		[run.status, outputText(run)],
 		[1, `${p.bin} has no plant file (nodes/*.md with "kind: plant") and no map at ${p.bin}/.limen/picture\n`],
 	);
 });
@@ -59,7 +61,7 @@ test("keeper refuses a running job, then starts on a new branch at the candidate
 	assert.notEqual(tip, git(p.root, "rev-parse", "main"));
 	// The worker's task named the planned lane; the keeper follows the one F001 folder at the tip.
 	const started = limen(p, ["keeper", "spec/features/planned/F001-demo/ticket.md", "--job", worker, ...ROUTE]);
-	const keeper = started.stdout.trim().split("\n").at(-1) ?? "";
+	const keeper = startedJob(started);
 	const keeperBranch = `limen/keeper-f001-${tip.slice(0, 7)}`;
 	assert.deepEqual([jobFile(p, keeper, "branch"), jobFile(p, keeper, "base")], [keeperBranch, tip]);
 	assert.ok(jobFile(p, keeper, "task.md").split("\n").includes(`Ticket: ${TICKET}`));

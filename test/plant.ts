@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { TERMINAL_STATES } from "../src/job/job.ts";
+import { readOutcome } from "../src/outcome.ts";
 
 export const LIMEN = fileURLToPath(new URL("../bin/limen", import.meta.url));
 const FAKE_ENGINE = fileURLToPath(new URL("./fake-engine.mjs", import.meta.url));
@@ -178,9 +179,17 @@ export function start(plant: Plant, args: readonly string[], options: RunOptions
 /** `limen spawn [flags] <task>`; returns the job id or throws with the CLI output. */
 export function spawnJob(plant: Plant, task: string, flags: readonly string[] = [], options: RunOptions = {}): string {
 	const run = limen(plant, ["spawn", ...flags, task], options);
-	const id = run.stdout.trim().split("\n").at(-1);
-	if (run.status !== 0 || !id) {
+	if (run.status !== 0) {
 		throw new Error(`spawn failed (${run.status}): ${run.stdout}${run.stderr}`);
+	}
+	return startedJob(run);
+}
+
+/** The id of the job a run of the CLI started, from `ids.job` of its final line; throws with the output without it. */
+export function startedJob(run: Run): string {
+	const id = readOutcome(run).ids?.job;
+	if (!id) {
+		throw new Error(`the final line names no job: ${run.stdout}${run.stderr}`);
 	}
 	return id;
 }
@@ -264,10 +273,20 @@ export function requests(plant: Plant): Array<{
 	const path = join(plant.parent, "fetch.jsonl");
 	return existsSync(path) ? JSON.parse(`[${readFileSync(path, "utf8").trim().split("\n").join(",")}]`) : [];
 }
-/** A row answers after `delayMs`, and only the first `upTo` requests to its URL; later ones fall to the next row or 200. */
+/**
+ * A row answers after `delayMs`, with its `headers` beside the JSON content type, and only the first `upTo` requests
+ * to its URL; later ones fall to the next row or 200.
+ */
 export async function respond(
 	plant: Plant,
-	rows: ReadonlyArray<{ match: string; status?: number; body: unknown; delayMs?: number; upTo?: number }>,
+	rows: ReadonlyArray<{
+		match: string;
+		status?: number;
+		body: unknown;
+		headers?: Readonly<Record<string, string>>;
+		delayMs?: number;
+		upTo?: number;
+	}>,
 ): Promise<void> {
 	await writeFile(join(plant.parent, "fetch-responses.json"), JSON.stringify(rows));
 }
@@ -291,7 +310,7 @@ globalThis.fetch = async (input, init = {}) => {
 	const count = readFileSync(log, "utf8").split("\\n").filter((line) => line.includes(JSON.stringify(url))).length;
 	const row = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")).find((candidate) => url.includes(candidate.match) && count <= (candidate.upTo ?? count)) : undefined;
 	await new Promise((resolve) => setTimeout(resolve, row?.delayMs ?? 0));
-	return new Response(JSON.stringify(row?.body ?? {}), { status: row?.status ?? 200, headers: { "content-type": "application/json" } });
+	return new Response(JSON.stringify(row?.body ?? {}), { status: row?.status ?? 200, headers: { ...row?.headers, "content-type": "application/json" } });
 };
 `;
 }

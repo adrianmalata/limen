@@ -38,16 +38,19 @@ type Tab = LiveCoordinator & { readonly root: string };
  * Seat-wide rules for every coordinator. A set, a change and an end each ping every live coordinator tab once; a
  * detached timer ends the rule at its end time.
  */
-export async function ruleCommand(args: readonly string[], _cwd: string): Promise<void> {
+export async function ruleCommand(args: readonly string[], _cwd: string): Promise<undefined> {
 	const [verb, ...rest] = args;
 	if (verb === "timer") {
-		return ruleTimer(rest[0] ?? "", rest[1] ?? "");
+		await ruleTimer(rest[0] ?? "", rest[1] ?? "");
+		return;
 	}
 	if (verb === "set") {
-		return setRule(rest);
+		await setRule(rest);
+		return;
 	}
 	if (verb === "end") {
-		return endCommand(rest);
+		await endCommand(rest);
+		return;
 	}
 	if (verb !== undefined) {
 		throw new Error(HELP);

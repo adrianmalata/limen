@@ -7,9 +7,10 @@ pierwszym planie, ticket R-088, kod wyjścia tylko we wspólnym opakowaniu i R-0
 ponownego uruchamiania testu, który raz padł), fakty o silniku,
 wymagania systemowe, 9 etapów z kosztem i efektem, 88 ticketów R-NNN, wdrożenie, pomiary, protokół subagentów
 i polecenia na allow-listę. Stan: etap 5 (przebudowa) w toku, etap planu 1; R-001–R-006, R-008, R-010,
-R-011 i R-088 zamknięte, 19.11 także R-007 i (nocą) R-009 i R-012; 18.11 w dzień doszły decyzje D-025–D-035 (m.in.
-zasady komunikacji z Adrianem, wyjątek dla testu A-087, przekazywanie sesji, poprawka helpera testów A-088 w R-007
-i nowy snapshot po edycji w trakcie BLOCKED); dalej R-013 (noc z 19.11), potem R-014; otwarte pytanie Q-8. -->
+R-011 i R-088 zamknięte, 19.11 także R-007 i (nocą) R-009, R-012 i R-013; 18.11 w dzień doszły decyzje D-025–D-035
+(m.in. zasady komunikacji z Adrianem, wyjątek dla testu A-087, przekazywanie sesji, poprawka helpera testów A-088
+w R-007 i nowy snapshot po edycji w trakcie BLOCKED); w etapie 1 został R-014 (pair, w dzień), a `## State` ma gotowe
+podsumowanie bramki 5.1; otwarte pytanie Q-8. -->
 
 # Rebuild plan
 
@@ -747,7 +748,7 @@ Columns:
 | R-010 | The author's working history leaves the tree; Limen's own test-line cap goes | 1 | T-39, T-11, §6 | — | M | delegated | night | — | — | — | done |
 | R-011 | The same-task runner and the gate-time tool | 1 | H-21, T-11, T-41, §2, D-021 | — | L | delegated | night | — | pi | B.2 | done |
 | R-012 | A root deployment script for a pinned SHA | 1 | D-008, D-010, §7 | R-002 | M | delegated | night | — | — | 1.0 | done |
-| R-013 | One error type, exit codes as failure classes, a final JSON line | 1 | T-01, T-02, D-022, D-028 | R-002, R-003, R-004, R-005, R-006, R-007, R-009 | L | delegated | night | yes | — | — | planned |
+| R-013 | One error type, exit codes as failure classes, a final JSON line | 1 | T-01, T-02, D-022, D-028 | R-002, R-003, R-004, R-005, R-006, R-007, R-009 | L | delegated | night | yes | — | — | done |
 | R-014 | One command registry, a shared parser and generated help | 1 | T-19, T-18, T-26, T-37, D-028 | R-002, R-003, R-004, R-005, R-006, R-007, R-009, R-013 | L | pair | day-after | yes | — | — | planned |
 | R-088 | The same-task runner leaves no job running after an attempt | 1 | D-027, D-021 | R-011 | S | pair | day-after | — | pi | B.2 | done |
 | R-015 | One configuration reader; settings come only from owner files | 2 | T-03 | R-014 | M | delegated | night | yes | — | — | planned |
@@ -1350,7 +1351,8 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 ## State
 
 Updated 2026-11-19, night run until 07:00 (started by `night.mjs` at 00:08), rebuild stage 5 in progress at plan
-stage 1: R-001–R-012 and R-088 `done`; R-013 and R-014 `planned`; no ticket active; Q-8 open (no ticket blocked).
+stage 1: R-001–R-013 and R-088 `done`; R-014 (`pair`, `day-after`) `planned`; no ticket active; Q-8 open (no ticket
+blocked). The night ended with `no-ticket`: stage 1 has no `night` ticket left.
 
 Handover (D-033): `limen-rebuild-2`, started in `tmux` at 16:17, died at 16:22:59 together with its running
 implementer of R-003, when WSL stopped the distro. `tmux` does not keep WSL alive: without a
@@ -1584,8 +1586,41 @@ Night run of 2026-11-19 (until 07:00; `night.mjs` run 1 started at 00:08:19):
   (`R-012` → `ticket.md` → `## Decisions`). For R-017: a signal handler, because an interrupt between the checkout and
   the tag leaves the new commit checked out (review round 1, finding 4).
 - Q-8 (no ticket blocked): whether `node seat/deploy.ts <args>` goes on the allow-list (recommended: no).
+- R-013 `done` (delegated; its `ticket.md` refreshed to `b8babe2` first): `src/outcome.ts` (`LimenError`, six classes
+  with exit codes 0–5, `finalLine`, `failureOf`, the client `readOutcome`); `main` is the only place that sets the exit
+  code and prints one final line per command process; flag errors and an unknown command exit 2; `ticket check`,
+  `picture build --strict`, `github poll` (a rate-limited 403 is class 3) and `group wait` throw typed errors; `ids.job`
+  for `spawn`, `continue`, `keeper`, `github review|work`, `ids.ticket` for `ticket new`; every test caller reads the
+  final line. Review round 1: the first reply was rejected by `review-verdict.mjs` (one criterion over several lines)
+  and a fresh reviewer ran again, PASS with nine notes, plus five from the rejected reply; ten fixed by a fresh
+  implementer, five rejected; round 2 PASS (two notes: one accepted, one rejected). Gate 198/198. For R-014: removed
+  names still exit 1 `UNTYPED` (the stage convention wants 2 and the new form in `next` after R-013; T-18), and the
+  GitHub poller still reads `limen github deliver`'s text (T-26 (4)). For R-082: an App key that holds no usable PEM is
+  likely not typed `GITHUB_CONFIG` (guessed). For Adrian at gate 5.1: the codes and `next` texts of R-013
+  (`ticket.md` → `## Decisions`).
 
-Next: R-013 (`night`, after all the cuts, D-028); R-014 (pair) by day after it. Each cut ticket that removes a command adds
+Gate 5.1 summary, ready except for R-014 (night mode: stage 1 has only a `pair` ticket left; the tag and the gate are
+by day, with Adrian):
+- Tickets: R-001–R-013 and R-088 done (14 of 15); R-014 (the command registry, `pair`) is left. Gate 198/198 at the
+  last commit (127 after R-007).
+- Findings addressed by stage 1 (each ticket's `## Problem` names how far): A-042 (R-001), A-027, A-060, A-076
+  (R-002), A-049 (R-003, R-004), A-023 (R-005), A-079 (R-006), A-048 in part and A-088 (R-007), A-083 in part (R-008;
+  the platform adapter is R-020), A-081 in part (R-009; the per-role lists are R-045); plus gate-2 items G1.3–G1.8,
+  G1.12, §6, §7 D3 (R-012) and H-21 (R-011).
+- Unmeasured: M-01 (the role texts R-002–R-009 shortened; from stage 4, E-1), M-05 (R-013's final line in every tool
+  result; R-011's runner and R-088), the seat steps B.2 and 1.0–1.3.
+- Fixed context before and after: not measured at stage 1 — `context-size.mjs` is on the list from stage 4, and the
+  role texts stages 1–3 change sit in Pi's system prompt, which the bridge drops (E-1); the cue changed only by the
+  `jg` cut, which never fired on the seat (T-36).
+- Tag `a0.1.0`: after R-014, at the gate, with Adrian.
+- Seat steps: B.2 before the deployment; then `## Deployment` 1.0 (bootstrap of `seat/deploy.ts`), 1.1–1.3; plus the
+  tickets' seat notes: the Devin login and `DEVIN_*` variables (R-003), `LIMEN_ENGINE=omp` in the worker's `~/.bashrc`
+  and `moshi-hook status` (R-004), no running job at 1.0 (R-005), a retired `limen-picture.timer` (R-007), optional
+  deletions under `$LIMEN_HOME/.limen/` (R-006).
+- For Adrian's decision at the gate: the refusal wordings of R-002–R-009; R-011's choices; R-012's registry discovery
+  through `/etc/passwd` and the tag name and place; R-013's codes and `next` texts; Q-8.
+
+Next: R-014 (pair, `day-after`) by day; then the close of stage 1 (gate 5.1, the tag `a0.1.0`). Each cut ticket that removes a command adds
 its entry to `src/old-names.ts` and its leftover paths to `LEFTOVERS`. B.2 runs on the seat before a0.1.0 is deployed
 (B.1 was done on 2026-11-17).
 

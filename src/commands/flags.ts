@@ -1,4 +1,10 @@
 import { type ParseArgsOptionsConfig, parseArgs } from "node:util";
+import { LimenError } from "../outcome.ts";
+
+/** A flag error is a usage error (T-02: exit code 2), in the command's own words. */
+function badFlag(message: string): LimenError {
+	return new LimenError({ class: "usage", code: "BAD_FLAG", message, next: "limen --help" });
+}
 
 /** Each command words its own flag errors; parseArgs words them differently. */
 export type FlagRules<Name extends string> = {
@@ -43,7 +49,7 @@ export function parseFlags<T extends ParseArgsOptionsConfig>(
 		}
 		const allowed = token.kind === "option-terminator" ? rules.endOfFlags : rules.positionals;
 		if (allowed === false) {
-			throw new Error(rules.unknown(args[token.index] ?? "", args[token.index + 1]));
+			throw badFlag(rules.unknown(args[token.index] ?? "", args[token.index + 1]));
 		}
 		if (token.kind !== "option-terminator") {
 			positionalAt.add(token.index);
@@ -71,16 +77,16 @@ function checkedFlag(
 ): string {
 	const option = Object.hasOwn(table, token.name) ? table[token.name] : undefined;
 	if (!option || (option.type === "boolean" && token.inlineValue)) {
-		throw new Error(rules.unknown(args[token.index] ?? "", args[token.index + 1]));
+		throw badFlag(rules.unknown(args[token.index] ?? "", args[token.index + 1]));
 	}
 	// Without strict mode, parseArgs takes the next flag as the value: `--onto --yes`.
 	const flagAsValue = !token.inlineValue && token.value?.startsWith("--") && !rules.dashValues?.includes(token.name);
 	if (option.type === "string" && (!token.value || flagAsValue)) {
-		throw new Error(rules.missing(token.rawName));
+		throw badFlag(rules.missing(token.rawName));
 	}
 	const again = seen.has(token.name) && !option.multiple ? rules.repeated?.(token.rawName) : undefined;
 	if (again) {
-		throw new Error(again);
+		throw badFlag(again);
 	}
 	seen.add(token.name);
 	return option.type === "string" ? `--${token.name}=${token.value}` : `--${token.name}`;

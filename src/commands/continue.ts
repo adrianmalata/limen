@@ -18,6 +18,7 @@ import { resolveJob } from "../job/lookup.ts";
 import { publishJob } from "../job/publication.ts";
 import { atomicWrite, finalizeJob } from "../job/record.ts";
 import { refuseRemovedFlags } from "../old-names.ts";
+import { JOB_STARTED, type Success } from "../outcome.ts";
 import {
 	addBranchWorktree,
 	branchCommit,
@@ -53,8 +54,9 @@ import {
  * Resume a finished job's own engine session; restore a pruned checkout from its branch.
  * `round` is set only by the group round driver, which holds the launch lock and continues a team's own job.
  */
-export async function continueCommand(args: readonly string[], cwd: string, round?: number): Promise<void> {
-	await continueJob(args, cwd, round !== undefined, round);
+export async function continueCommand(args: readonly string[], cwd: string, round?: number): Promise<Success> {
+	const id = await continueJob(args, cwd, round !== undefined, round);
+	return { next: JOB_STARTED, ids: { job: id } };
 }
 type ContinueOptions = {
 	readonly label: string | undefined;
@@ -158,7 +160,8 @@ type Continuation = {
 	readonly group: ContinuationGroup | undefined;
 	readonly timeoutMs: number | undefined;
 };
-async function continueJob(args: readonly string[], cwd: string, locked = false, round?: number): Promise<void> {
+/** Publishes and starts the continuation; returns its job id. */
+async function continueJob(args: readonly string[], cwd: string, locked = false, round?: number): Promise<string> {
 	const options = parseContinueArgs(args);
 	const { label, model, provider, thinking } = options;
 	const chosenModel = model ?? defaultModel(false);
@@ -171,8 +174,7 @@ async function continueJob(args: readonly string[], cwd: string, locked = false,
 	if (membership) {
 		await checkGroupContinuation(membership, cwd, options, round);
 		if (!locked) {
-			await groupLock(`${groupPath(membership.run)}/launch`, () => continueJob(args, cwd, true), "wait");
-			return;
+			return groupLock(`${groupPath(membership.run)}/launch`, () => continueJob(args, cwd, true), "wait");
 		}
 	}
 	const parent = await readParentJob(root, parentId, parentDir, membership, options.engine);
@@ -228,6 +230,7 @@ async function continueJob(args: readonly string[], cwd: string, locked = false,
 		timeoutMs: options.timeoutMs,
 	};
 	await launchContinuation(continuation, profile, membership?.run);
+	return id;
 }
 /** Marks the published job running, then starts it as a detached wrapper. */
 async function launchContinuation(

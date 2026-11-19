@@ -1,7 +1,7 @@
 <!-- PL: Dziennik zmian przebudowy Limena: jeden wpis na zamknięty ticket R-NNN, tylko dopisywany, najnowszy na dole.
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
-R-003, R-004, R-005, R-006, R-007, R-009, R-012. -->
+R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013. -->
 
 # Changes
 
@@ -124,3 +124,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: measured
 - Commit: R-012
 - Rollback: git revert $(git log --format=%H --grep='^R-012:' adrian-rebuild --)
+
+## 2026-11-19 R-013 One error type, exit codes as failure classes, a final JSON line
+- What: new `src/outcome.ts` (`LimenError`, the six classes with exit codes 0–5, `finalLine`, `failureOf`, the client `readOutcome`, one job-id pattern for every form Limen wrote); `src/main.ts` (the only place that sets the exit code; one final line per command process; unknown command `usage`); `src/commands/flags.ts` (`BAD_FLAG`, exit 2); commands return their result (`ids.job` for `spawn`, `continue`, `keeper`, `github review`, `github work`; `ids.ticket` for `ticket new`); `ticket check`, `picture build --strict`, `github poll` (by cause, a rate-limited 403 is class 3) and `group wait` (no `process.exit` from a timer) throw typed errors; `bin/limen` (exit 4 on an old Node); scans in `test/structure.test.ts` (T-02, T-26 (4), the T-01 ratchets); new `test/outcome.test.ts`, `test/cli/{ticket,picture,github,group}.test.ts`; every test caller reads the final line through `readOutcome`; `docs/commands.md`, `docs/jobs.md`, `docs/groups.md`, `docs/seat/agent-setup.md`, `templates/agents.md` and its history
+- Why: T-01, T-02, D-022, D-028
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (198/198: 149 + 49 new); `node adrian-rebuild/tools/fails-before.mjs` → exit 0; `git grep -q -E 'stdout\.trim\(\)\.split\(' -- src test` → exit 1 (no match)
+- Measurement: unmeasured (plan.md → Measurement: M-05)
+- Commit: R-013
+- Rollback: git revert $(git log --format=%H --grep='^R-013:' adrian-rebuild --)

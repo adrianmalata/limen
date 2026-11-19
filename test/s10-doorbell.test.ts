@@ -5,7 +5,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { link, mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
-import { git, jobDir, jobFile, LIMEN, limen, plant, requests, respond, waitJob } from "./plant.ts";
+import { git, jobDir, jobFile, LIMEN, limen, plant, requests, respond, startedJob, waitJob } from "./plant.ts";
 
 const REPO = "acme/widget";
 const APP = 7;
@@ -145,7 +145,7 @@ test("S10: only an authorized request rings the doorbell, the App replies once e
 	const model = ["--engine", "pi", "--provider", "p", "--model", "m", "--thinking", "high"];
 	const work = limen(p, ["github", "work", p.root, "104", ...model, "--task", "Fix it"], { env: coordinator });
 	assert.equal(work.status, 0, work.stderr);
-	const id = work.stdout.trim().split("\n").at(-1) as string;
+	const id = startedJob(work);
 	assert.equal(jobFile(p, id, "herdr/mode"), "watch", "the log tab of a detached job");
 	assert.equal(waitJob(p, id, { env }), "done");
 

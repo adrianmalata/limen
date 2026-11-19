@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { removedCommand } from "../old-names.ts";
+import { LimenError, type Success } from "../outcome.ts";
 import { readPicture } from "../picture/picture-build.ts";
 import { ID_PATTERN } from "../picture/picture-model.ts";
 import { currentBranch, limenRoot, repoRoot } from "../project/git.ts";
@@ -18,7 +19,7 @@ const HELP = [
 ].join("\n");
 const PLACE_ID = ID_PATTERN;
 
-export async function ticketCommand(args: readonly string[], cwd: string): Promise<void> {
+export async function ticketCommand(args: readonly string[], cwd: string): Promise<Success | undefined> {
 	// A removed subcommand gets its removal line, not the usage below; `ticket` itself is a registered command.
 	const removed = removedCommand(`ticket ${args[0] ?? ""}`);
 	if (removed) {
@@ -97,19 +98,20 @@ export async function ticketCommand(args: readonly string[], cwd: string): Promi
 	if (start < 0) {
 		throw new Error("ticket template needs an ## Outcome section");
 	}
-	const path = withNextTicketCode(root, plant, (code) => {
+	const written = withNextTicketCode(root, plant, (code) => {
 		const path = join("spec", "features", lane, `${code}-${slug}`, "ticket.md");
 		const text = `---\n${touches.length ? `touches:\n${touches.map((id) => `  - ${id}\n`).join("")}` : ""}opened: ${opened}\n---\n\n# ${code} · ${normalizedTitle}\n\n${template.slice(start).replace("## Outcome\n", `## Outcome\n\n${outcome}\n`)}`;
 		mkdirSync(join(base, lane), { recursive: true });
 		mkdirSync(join(root, dirname(path)));
 		writeFileSync(join(root, path), text, { flag: "wx" });
-		return path;
+		return { path, code };
 	});
-	console.log(path);
+	console.log(written.path);
+	return { next: "", ids: { ticket: written.code } };
 }
 
 /** The close `limen land` makes, for work that landed by a hand merge or needed no code. */
-async function ticketDone(args: readonly string[], cwd: string): Promise<void> {
+async function ticketDone(args: readonly string[], cwd: string): Promise<undefined> {
 	const help = () => HELP;
 	const { values, positionals: codes } = parseFlags(args, { on: { type: "string" } } as const, {
 		unknown: help,
@@ -132,8 +134,11 @@ async function ticketDone(args: readonly string[], cwd: string): Promise<void> {
 	}
 }
 
-/** The land gate on demand, so a hand merge or a keeper can check a branch before it reaches the plant branch. */
-async function ticketCheck(args: readonly string[], cwd: string): Promise<void> {
+/**
+ * The land gate on demand, so a hand merge or a keeper can check a branch before it reaches the plant branch. A failing
+ * ticket is a refusal (D-028): its lines go to stderr, then the refusal that `main` ends with.
+ */
+async function ticketCheck(args: readonly string[], cwd: string): Promise<undefined> {
 	if (args.length > 1 || args[0]?.startsWith("-")) {
 		throw new Error(HELP);
 	}
@@ -155,10 +160,14 @@ async function ticketCheck(args: readonly string[], cwd: string): Promise<void> 
 		(gate.ok ? console.log : console.error)(line);
 	}
 	if (!gate.ok) {
-		process.exitCode = 1;
-	} else {
-		console.log(
-			`ticket check: ${gate.tickets.length} changed ticket${gate.tickets.length === 1 ? "" : "s"} on ${branch} pass against ${target}`,
-		);
+		throw new LimenError({
+			class: "refused",
+			code: "TICKET_CHECK_FAILED",
+			message: `ticket check: changed tickets on ${branch} fail against ${target}`,
+			next: `fix the tickets listed above, then run limen ticket check ${branch}`,
+		});
 	}
+	console.log(
+		`ticket check: ${gate.tickets.length} changed ticket${gate.tickets.length === 1 ? "" : "s"} on ${branch} pass against ${target}`,
+	);
 }

@@ -12,6 +12,7 @@ import { makeJobId, parseDuration, SESSION_ID } from "../job/job.ts";
 import { publishJob } from "../job/publication.ts";
 import { atomicWrite, finalizeJob } from "../job/record.ts";
 import { refuseRemovedFlags, removedFlag, removedRole } from "../old-names.ts";
+import { JOB_STARTED, type Success } from "../outcome.ts";
 import {
 	addBranchWorktree,
 	addDetachedWorktree,
@@ -86,11 +87,12 @@ type WorktreePlan =
 const HANDSHAKE_POLL_MS = 20;
 const handshakeMs = (): number =>
 	Number(process.env.LIMEN_HANDSHAKE_MS) > 0 ? Number(process.env.LIMEN_HANDSHAKE_MS) : 10_000;
+/** Starts one job; its success names the job in `ids.job` (D-022). A group's in-process launch ignores the result. */
 export async function spawnCommand(
 	args: readonly string[],
 	cwd: string,
 	coordinator?: { run: GroupRun; team: string },
-): Promise<void> {
+): Promise<Success> {
 	const identity = coordinator ? undefined : await groupIdentity(cwd);
 	const group = coordinator
 		? { run: coordinator.run, team: coordinator.team, role: "coordinator" as const }
@@ -100,11 +102,10 @@ export async function spawnCommand(
 	if (identity?.member?.role === "worker") {
 		throw new Error("group workers cannot launch jobs; ask their team coordinator");
 	}
-	if (group) {
-		await groupLock(`${groupPath(group.run)}/launch`, () => spawnJob(args, cwd, group), "wait");
-		return;
-	}
-	await spawnJob(args, cwd);
+	const id = group
+		? await groupLock(`${groupPath(group.run)}/launch`, () => spawnJob(args, cwd, group), "wait")
+		: await spawnJob(args, cwd);
+	return { next: JOB_STARTED, ids: { job: id } };
 }
 type SpawnGroup = { run: GroupRun; team: string; role: "coordinator" | "worker" };
 type SpawnTask = { text: string; bytes: Buffer; raw: boolean };
@@ -154,7 +155,8 @@ type SpawnedJob = {
 	/** What the wrapper runs after its handshake: prune keeping the spawner's checkout, then --prepare. */
 	readonly setup: { readonly LIMEN_SETUP_KEEP: string; readonly LIMEN_SETUP_PREPARE: string };
 };
-async function spawnJob(args: readonly string[], cwd: string, group?: SpawnGroup): Promise<void> {
+/** Checks, records and starts the job; returns its id. */
+async function spawnJob(args: readonly string[], cwd: string, group?: SpawnGroup): Promise<string> {
 	const parsed = parseSpawnArgs(args);
 	const profile = resolveSpawnEngine(parsed.engine);
 	await checkLaunchAuthority(parsed, group);
@@ -173,7 +175,7 @@ async function spawnJob(args: readonly string[], cwd: string, group?: SpawnGroup
 	const coordinatorPane = herdrWakePane(group ? undefined : notificationSession);
 	const place = resolveSpawnPlace(cwd, group, options.repo);
 	const task = spawnTaskText(loaded, options.repo, place);
-	await recordSpawnedJob({
+	return recordSpawnedJob({
 		cwd,
 		options,
 		loaded,
@@ -271,8 +273,8 @@ function spawnTaskText(loaded: SpawnTask, repoFlag: string | undefined, place: S
 	}
 	return loaded.text;
 }
-/** Plans the worktree, claims the member slot, writes the job record and prints its ID, then creates the worktree and starts the job. */
-async function recordSpawnedJob(launch: SpawnLaunch): Promise<void> {
+/** Plans the worktree, claims the member slot, writes the job record and prints its ID, then creates the worktree and starts the job; returns the ID. */
+async function recordSpawnedJob(launch: SpawnLaunch): Promise<string> {
 	const { options, group, place, task } = launch;
 	const { root, repository } = place;
 	const role = options.review ? "reviewer" : (group?.role ?? options.role ?? "worker");
@@ -321,6 +323,7 @@ async function recordSpawnedJob(launch: SpawnLaunch): Promise<void> {
 		await finalizeJob(jobDir, "failed", `${group ? "group launch" : "spawn"} failed: ${String(error)}`);
 		throw error;
 	}
+	return id;
 }
 function assertTicketsAtBase(repository: string, baseCommit: string, task: string): void {
 	for (const { path } of ticketPointers(task)) {

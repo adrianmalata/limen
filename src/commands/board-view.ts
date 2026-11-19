@@ -23,7 +23,7 @@ interface BoardJob {
 	readonly finishedAt: number;
 }
 
-export async function boardCommand(args: readonly string[], cwd: string): Promise<void> {
+export async function boardCommand(args: readonly string[], cwd: string): Promise<undefined> {
 	if (args.length > 1 || (args.length === 1 && args[0] !== "--write")) {
 		throw new Error(HELP);
 	}

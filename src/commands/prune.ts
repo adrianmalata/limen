@@ -17,7 +17,7 @@ import {
 } from "../project/git.ts";
 import { STARTUP_GRACE_MS, startingJob } from "../runtime/reap.ts";
 
-export async function pruneCommand(args: readonly string[], cwd: string): Promise<void> {
+export async function pruneCommand(args: readonly string[], cwd: string): Promise<undefined> {
 	const retire = args.includes("--retire"),
 		dryRun = args.includes("--dry-run");
 	if (args.some((value) => value !== "--retire" && value !== "--dry-run")) {

@@ -21,6 +21,7 @@ import { acceptBatch, acceptTransport, publishEvent, syncLifecycle } from "../jo
 import { roundNames, routeFlags } from "../job/group-packet.ts";
 import { parseDuration, SESSION_ID } from "../job/job.ts";
 import { refuseRemovedFlags, refuseRemovedWords, removedFlag } from "../old-names.ts";
+import { LimenError } from "../outcome.ts";
 import { commitHasFile, headCommit, limenRoot, repoRoot, worktreeState } from "../project/git.ts";
 import { preflightEngine, resolveSpawnEngine } from "../runtime/engine.ts";
 import { normalizeWorkerExtensions } from "../runtime/worker-extensions.ts";
@@ -329,9 +330,23 @@ async function spawnTeamCoordinators(root: string, run: GroupRun): Promise<void>
 		}
 	}
 }
-export async function waitGroup(identity: GroupIdentity, requestedMs = WAIT_CAP_MS): Promise<string> {
+/** The wait's time limit: transient (T-02: safe to retry), so a member re-enters the wait while its work is live. */
+function waitTimeout(message: string, next: string): LimenError {
+	return new LimenError({ class: "transient", code: "GROUP_WAIT_TIMEOUT", message, next });
+}
+/** The `next` of a wait's time limit: `limen group status`, with the group id for the lead; a member names none. */
+function statusNext(id: string | undefined): string {
+	return id ? `limen group status ${id}` : "limen group status";
+}
+/** Waits for the next batch of the group's events; past `requestedMs` (at most the cap) it throws GROUP_WAIT_TIMEOUT. */
+export async function waitGroup(
+	identity: GroupIdentity,
+	requestedMs = WAIT_CAP_MS,
+	signal?: AbortSignal,
+): Promise<string> {
 	const until = Date.now() + Math.max(0, Math.min(WAIT_CAP_MS, requestedMs));
 	while (true) {
+		signal?.throwIfAborted();
 		const run = await readRun(identity.run.root, identity.run.id);
 		if (run.stopped || run.closed) {
 			return "group stopped or closed; preserve work and return to the lead";
@@ -344,31 +359,50 @@ export async function waitGroup(identity: GroupIdentity, requestedMs = WAIT_CAP_
 			return batch.text;
 		}
 		if (Date.now() >= until) {
-			return "group wait timed out normally; re-enter bounded wait while your collaboration or children remain live";
+			throw waitTimeout(
+				"group wait timed out; re-enter bounded wait while your collaboration or children remain live",
+				statusNext(identity.member ? undefined : identity.run.id),
+			);
 		}
 		await delay(Math.min(100, until - Date.now()));
 	}
 }
-export async function groupCommand(args: readonly string[], cwd: string): Promise<void> {
-	// Bound the actual CLI process even if a cabinet lock or filesystem operation stalls.
+/**
+ * Runs `operation` under a bound (D-028): past `boundMs` the result rejects with GROUP_WAIT_TIMEOUT, so `main` prints
+ * the one final line, and the signal aborts, so the operation prints nothing after it and accepts no delivery.
+ */
+export async function waitCapped<T>(
+	boundMs: number,
+	next: string,
+	operation: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+	const cap = new AbortController();
+	const { promise: capped, reject } = Promise.withResolvers<never>();
+	const timer = setTimeout(() => {
+		const error = waitTimeout(
+			`group wait timed out after the ${boundMs / 1000}-second CLI cap; inspect any uncertain delivery receipt before retrying`,
+			next,
+		);
+		cap.abort(error);
+		reject(error);
+	}, boundMs);
+	try {
+		return await Promise.race([operation(cap.signal), capped]);
+	} finally {
+		clearTimeout(timer);
+	}
+}
+export async function groupCommand(args: readonly string[], cwd: string): Promise<undefined> {
 	if (args[0] !== "wait") {
 		await runGroupCommand(args, cwd);
 		return;
 	}
-	const cap = setTimeout(() => {
-		console.log(
-			`group wait timed out normally after the ${WAIT_CAP_MS / 1000}-second CLI cap; inspect any uncertain delivery receipt before retrying`,
-		);
-		process.exit(0);
-	}, WAIT_CAP_MS);
-	cap.unref();
-	try {
-		await runGroupCommand(args, cwd);
-	} finally {
-		clearTimeout(cap);
-	}
+	// Bound the wait even if a cabinet lock or filesystem operation stalls. The lead names the group; a member does not.
+	const named = !process.env.LIMEN_GROUP_ID && !args[1]?.startsWith("--");
+	const id = named ? args[1] : undefined;
+	await waitCapped(WAIT_CAP_MS, statusNext(id), (signal) => runGroupCommand(args, cwd, signal));
 }
-async function runGroupCommand(args: readonly string[], cwd: string): Promise<void> {
+async function runGroupCommand(args: readonly string[], cwd: string, signal?: AbortSignal): Promise<void> {
 	const [command, ...rest] = args;
 	if (!command || !["start", "status", "publish", "wait", "stop", "close", "advance"].includes(command)) {
 		throw new Error(
@@ -398,7 +432,7 @@ async function runGroupCommand(args: readonly string[], cwd: string): Promise<vo
 		return;
 	}
 	if (command === "wait") {
-		await printGroupWait(identity, rest);
+		await printGroupWait(identity, rest, signal);
 		return;
 	}
 	if (command === "status") {
@@ -427,11 +461,13 @@ async function publishGroupFinding(identity: GroupIdentity, rest: string[]): Pro
 	}
 	console.log((await publishEvent(identity, rest.join(" "), "finding", target)).id);
 }
-async function printGroupWait(identity: GroupIdentity, rest: readonly string[]): Promise<void> {
+async function printGroupWait(identity: GroupIdentity, rest: readonly string[], signal?: AbortSignal): Promise<void> {
 	if (rest.length > 2 || (rest.length && rest[0] !== "--timeout")) {
 		throw new Error("invalid group wait arguments; run limen group wait --timeout 5s");
 	}
-	const output = await waitGroup(identity, rest[1] ? parseDuration(rest[1]) : WAIT_CAP_MS);
+	const output = await waitGroup(identity, rest[1] ? parseDuration(rest[1]) : WAIT_CAP_MS, signal);
+	// Past the cap, `main` has printed the final line: the batch is not printed, and its transport is not acknowledged.
+	signal?.throwIfAborted();
 	console.log(output);
 	const token = /\[limen-group-delivery:([a-f0-9-]+)\]/.exec(output)?.[1];
 	if (token) {

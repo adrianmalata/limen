@@ -4,6 +4,7 @@ import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { outputText } from "../../src/outcome.ts";
 import { limen, plant, repository } from "../plant.ts";
 
 const template = (name: string) => fileURLToPath(new URL(`../../templates/${name}`, import.meta.url));
@@ -32,7 +33,7 @@ test("limen init --drop-leftovers drops an identical AGENTS.md, keeps a changed 
 	assert.equal(run.status, 0, run.stderr);
 	assert.equal(existsSync(join(p.root, "AGENTS.md")), false);
 	assert.equal(existsSync(worker), true);
-	assert.equal(run.stdout, "dropped AGENTS.md (identical copy of the package's templates/agents.md)\n");
+	assert.equal(outputText(run), "dropped AGENTS.md (identical copy of the package's templates/agents.md)\n");
 });
 
 test("a second limen init --drop-leftovers prints no leftover files and exits 0", async (t) => {
@@ -43,5 +44,5 @@ test("a second limen init --drop-leftovers prints no leftover files and exits 0"
 	assert.equal(first.status, 0, first.stderr);
 	const second = limen(p, ["init", "--drop-leftovers"]);
 	assert.equal(second.status, 0, second.stderr);
-	assert.equal(second.stdout, "no leftover files\n");
+	assert.equal(outputText(second), "no leftover files\n");
 });

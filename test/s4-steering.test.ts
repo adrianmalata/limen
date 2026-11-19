@@ -17,6 +17,7 @@ import {
 	plant,
 	release,
 	spawnJob,
+	startedJob,
 	until,
 	waitJob,
 } from "./plant.ts";
@@ -130,7 +131,7 @@ test("continue resumes the parent's session, linked, with its extensions or a re
 	const transcript = readFileSync(join(jobDir(p, parent), "session/fake.jsonl"), "utf8");
 	const continued = (flags: readonly string[]) => {
 		const run = limen(p, ["continue", parent, "say next", "--detached", ...flags]);
-		const id = run.stdout.trim().split("\n").at(-1) ?? "";
+		const id = startedJob(run);
 		assert.equal(waitJob(p, id), "done");
 		return id;
 	};

@@ -8,7 +8,7 @@ import { dropLeftovers, LEFTOVERS } from "../project/leftovers.ts";
 import { registerProject } from "../project/seat.ts";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
-export async function initCommand(args: readonly string[], cwd: string): Promise<void> {
+export async function initCommand(args: readonly string[], cwd: string): Promise<undefined> {
 	const drop = args[0] === "--drop-leftovers";
 	if (args.length && !(drop && args.length === 1)) {
 		throw new Error("init takes no arguments, or only --drop-leftovers");
@@ -51,7 +51,7 @@ export async function initCommand(args: readonly string[], cwd: string): Promise
 		"next: write spec/vision.md and .agents/limen/styleguide.md, commit, then open a coordinator in this folder (docs/setup.md)",
 	);
 }
-export async function workspaceCommand(args: readonly string[], cwd: string): Promise<void> {
+export async function workspaceCommand(args: readonly string[], cwd: string): Promise<undefined> {
 	if (args.length !== 1 || args[0] !== "init") {
 		throw new Error("workspace requires init");
 	}

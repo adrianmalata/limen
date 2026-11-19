@@ -2,19 +2,21 @@
 wyjścia 0–5 jako klasy porażek (T-02) i końcowa linia JSON każdego polecenia z opcjonalnym polem ids (D-022), czytana
 tylko przez jedną funkcję klienta; kod wyjścia ustawia wyłącznie wspólne opakowanie, a polecenia zwracają wynik albo
 rzucają błąd z klasą (D-028). Do tego skan process.exit oraz zapadki liczby catch i gołych throw new Error. Stan:
-zablokowany w nocy 18.11 (pytanie Q-7); 18.11 Adrian rozstrzygnął Q-7 (D-028), a R-013 czeka na cięcia etapu 1
-(R-002–R-007, R-009); nic nie zaimplementowano. -->
+zamknięty (19.11, nocny przebieg; numery linii odświeżone do `b8babe2`; recenzja PASS w rundach 1 i 2, jedna runda
+poprawek). -->
 
 # R-013 One error type, exit codes as failure classes, a final JSON line
 
 ## Problem
 
-Every failure of a Limen command exits 1 and prints one message (`src/main.ts:196-202`), so a caller cannot tell a
-refusal from a bad flag or a crash without parsing prose (AU-209), and callers take a job id from the last stdout line
-(AU-210, AU-217): `src/project/picture-tick.ts:134` and, in the tests, `test/plant.ts:143`,
-`test/group-extensions.test.ts:88`, `test/s10-doorbell.test.ts:153`, `test/s2-hosted.test.ts:162`,
-`test/s3-finish-wake.test.ts:186`, `test/s4-steering.test.ts:135`, `test/s6-keeper.test.ts:30` and `:53`,
-`test/s7-webhooks.test.ts:23`, `test/s8-groups.test.ts:73`.
+Line numbers are at `b8babe2` (after every cut of stage 1). Every failure of a Limen command exits 1 and prints one
+message (`src/main.ts:159-165`), so a caller cannot tell a refusal from a bad flag or a crash without parsing prose
+(AU-209), and callers take a job id from the last stdout line (AU-210, AU-217), all of them in the tests:
+`test/plant.ts:181`, `test/cli/continue.test.ts:21`, `test/cli/old-names.test.ts:232`,
+`test/group-extensions.test.ts:72`, `test/s10-doorbell.test.ts:148`, `test/s2-herdr.test.ts:89`,
+`test/s3-finish-wake.test.ts:186`, `test/s4-steering.test.ts:133`, `test/s6-keeper.test.ts:62`,
+`test/s8-groups.test.ts:67` (`git grep -n -E 'stdout\.trim\(\)\.split\(' -- src test hook bin`; `src/` has none since
+R-007 cut `picture tick`).
 
 Relied on (quoted):
 - T-01, Rule (excerpt): "An error on the main path always propagates and ends the command with a non-zero exit code
@@ -54,10 +56,11 @@ Relied on (quoted):
   that `group wait`'s time limit gives exactly one final line with its code."
 - D-025 (Adrian, 2026-11-18, night question Q-4): "a criterion checks only the ticket's scope; a global property is
   closed by the ticket that makes it true. (…) The expected result is an exit code, with no `!` before the command."
-- Today four commands fail by setting `process.exitCode = 1` and returning normally (`src/commands/ticket.ts:176`,
-  `src/commands/picture.ts:91`, `src/commands/webhook.ts:25`, `src/integrations/github-poller.ts:765`), and the
-  safety cap of `group wait` ends the process with `process.exit(0)` from a timer (`src/commands/group.ts:403-408`).
-  Under item 2 a command that only returns would print the `ok` line and exit 0: a false success.
+- Today three commands fail by setting `process.exitCode = 1` and returning normally (`src/commands/ticket.ts:158`,
+  `src/commands/picture.ts:70`, `src/integrations/github-poller.ts:752`; the fourth, `webhook test`, went with R-002),
+  and the safety cap of `group wait` ends the process with `process.exit(0)` from a timer
+  (`src/commands/group.ts:358-363`). Under item 2 a command that only returns would print the `ok` line and exit 0: a
+  false success. `bin/limen:6` exits 1 on an old Node, and `src/main.ts:164` is the wrapper's own `process.exitCode`.
 - The class names are those of the help draft of rebuild stage 3, `evidence/taste/help-registry.mjs:103`: "Exit codes:
   0 ok · 1 refused · 2 usage · 3 transient · 4 environment · 5 internal."
 - `plan.md` → `## Tickets`, notes, R-013: "until R-082, the `catch` scan of T-01 is a ratchet over the author's 148
@@ -105,10 +108,9 @@ quoted text holds as written.
    returns `ids: { ticket: <FNNN> }`. Every
    other command returns nothing, so its line has `next` `""`. The text lines a command prints for people stay as they
    are (out of scope).
-5. Callers of the CLI read the final line only through `readOutcome`: every caller that the cuts leave (the
-   implementer finds them with AC-4's command; of those named in `## Problem`, `src/project/picture-tick.ts:134` goes
-   with `picture tick` in R-007, `test/s2-hosted.test.ts` with R-005 and `test/s7-webhooks.test.ts` with R-002). A test that needs an id no `ids` key carries (for example a group's id) reads it from the
-   records under `.limen/`, not from a text line. Tests that assert exit code 1 for a flag error or an unknown command
+5. Callers of the CLI read the final line only through `readOutcome`: every caller `## Problem` lists (AC-4's command
+   finds them). A test that needs an id no `ids` key carries (for example a group's id, `test/s8-groups.test.ts:67`)
+   reads it from the records under `.limen/`, not from a text line. Tests that assert exit code 1 for a flag error or an unknown command
    assert 2 now; tests of refusals keep 1.
 6. `bin/limen`: the Node version check exits 4 (environment) and prints, as the last stderr line,
    `{"class":"environment","code":"NODE_VERSION","next":"install Node.js 24 or newer"}`; it cannot import
@@ -145,24 +147,24 @@ quoted text holds as written.
      short bound passed in-process (no 20-second wait in the test).
 9. Docs: `docs/commands.md` gets a short section on exit codes and the final line (the six classes with their codes,
    the fields, `ids`, which stream carries the line), and its sentences that say a failure exits 1 or that spawn's last
-   line is the id say what the code does now. `docs/jobs.md:96` ("The last line of `spawn` output is the durable job
-   ID") and `docs/seat/agent-setup.md:254` (`github doctor`'s stderr "ends with" a text line) describe the output
-   contract this ticket changes, so they change with it (D-028).
+   line is the id (`docs/commands.md:70`: "and again on its last line") say what the code does now. `docs/jobs.md:96`
+   ("The last line of `spawn` output is the durable job ID") and `docs/seat/agent-setup.md:239` (`github doctor`'s
+   stderr "ends with" a text line) describe the output contract this ticket changes, so they change with it (D-028).
 10. The commands that fail by setting the exit code today throw a `LimenError` instead (D-028); the text lines they
     print for people stay, and the error's message is one summary line:
-    - `ticket check` with failing tickets (`src/commands/ticket.ts:176`): `refused`, code `TICKET_CHECK_FAILED`, the
+    - `ticket check` with failing tickets (`src/commands/ticket.ts:158`): `refused`, code `TICKET_CHECK_FAILED`, the
       failing lines on stderr as today, `next` `fix the tickets listed above, then run limen ticket check <branch>`.
-    - `picture build --strict` with an error diagnostic (`src/commands/picture.ts:91`, in the form R-007 leaves it):
+    - `picture build --strict` with an error diagnostic (`src/commands/picture.ts:70`, in the form R-007 left it):
       `refused`, code `PICTURE_INVALID`, the diagnostics on stderr as today, `next` `fix the errors listed above, then
       run limen picture build --strict`.
-    - `github poll` (`src/integrations/github-poller.ts:765`): the poll goes on with the other projects as today and
+    - `github poll` (`src/integrations/github-poller.ts:752`): the poll goes on with the other projects as today and
       then throws the most severe failure among the projects (the highest exit code), each project's failure still
       printed on its own stderr line. The causes: a rejected `fetch` and HTTP 429 or 5xx from the one request function
       (`src/integrations/github-poller.ts:86-98`) are `transient`, code `GITHUB_NETWORK`; a missing or invalid
-      setting or credential (the checks before the loop at `:735-756`, the App key and id of `appJwt`, an installation
+      setting or credential (the checks before the loop at `:716-741`, the App key and id of `appJwt`, an installation
       token GitHub does not issue, HTTP 401 or 403) is `environment`, code `GITHUB_CONFIG`; both with `next` `limen
       github doctor`. Any other failure keeps the mapping of `failureOf`.
-11. `group wait` (`src/commands/group.ts:392-415`): its safety cap no longer calls `process.exit(0)` from a timer. The
+11. `group wait` (`src/commands/group.ts:332-370`): its safety cap no longer calls `process.exit(0)` from a timer. The
     operation races a cap promise (a small exported helper that takes the bound, so a test can pass a short one),
     which rejects with a `LimenError` `transient`, code `GROUP_WAIT_TIMEOUT`, `next` `limen group status <group>`; the
     requested `--timeout` that ends the wait before the group finishes gives the same error, so both limits fail one
@@ -183,11 +185,13 @@ quoted text holds as written.
 - The cut commands (R-002–R-007, R-009): they are gone before this ticket (D-028), and their refusal with a pointer
   gets the final line through `main` like every other failure.
 - `package.json`'s test glob (R-001) and renaming test files (R-083).
+- `seat/deploy.ts` (R-012): a root tool with its own entry point and exit classes, outside `src`, `hook` and `bin`;
+  seat code takes the shared error type with R-059. `adrian-rebuild/tools/`: the rebuild's own tools.
 
 ## Acceptance
 
 - AC-1: `node --test test/outcome.test.ts` → exit 0.
-- AC-2: `node adrian-rebuild/tools/gate.mjs` → exit 0 with `fail 0`, and at least 82 tests plus the new ones.
+- AC-2: `node adrian-rebuild/tools/gate.mjs` → exit 0 with `fail 0`; the outcome gives the count before and after.
 - AC-3: `node adrian-rebuild/tools/fails-before.mjs` → exit 0: the new and changed test files fail at HEAD.
 - AC-4: `git grep -q -E 'stdout\.trim\(\)\.split\(' -- src test` → exit 1 (no match): no caller takes a line of a
   command's stdout as its result. Every match at the parent is a caller this ticket converts (item 5), so the scan is
@@ -207,7 +211,7 @@ No on-disk format changes and no command is removed. The CLI change is the final
 and an unknown command (was 1); `github poll` exits 3 or 4 by cause (was 1), and `group wait` at its limit exits 3
 (was 0). The seat's `github poll` unit treats any non-zero exit as a failure, as before. Every caller in the repository moves to `readOutcome` in this ticket (item 5). The
 seat's callers read only zero and non-zero, which the classes keep: the poller's `limen github ensure`
-(`src/integrations/github-poller.ts:567-570`, `ensure.status !== 0`) and the systemd units (`docs/seat/*.service`); no
+(`src/integrations/github-poller.ts:559`, `ensure.status !== 0`) and the systemd units (`docs/seat/*.service`); no
 seat script parses Limen's output (`docs/seat/bell.sh` reads `.limen/jobs/*/state`). The coordinator model reads the
 text lines, which stay, plus one JSON line at the end of each tool result.
 
@@ -252,3 +256,37 @@ text lines, which stay, plus one JSON line at the end of each tool result.
   `group wait`'s requested `--timeout` fails like its cap (exit 3, was 0), so that both limits fail one way.
 - 2026-11-18 (main session, D-025): AC-4 states its result as an exit code; AC-5 becomes the scan test of item 7, so no
   criterion expects a given list of files.
+- 2026-11-19 (night run, main session): with the cuts done, the line numbers are refreshed to `b8babe2`, and the sites
+  the cuts removed leave the ticket (`src/commands/webhook.ts` with R-002, `src/project/picture-tick.ts` with R-007,
+  `test/s2-hosted.test.ts` with R-005, `test/s7-webhooks.test.ts` with R-002); the callers of `## Problem` are those
+  AC-4's command finds at `b8babe2`, all in `test/`. AC-2 no longer names a test count (the stage conventions: "no new
+  failure", not a fixed count). AC-4 was run at `b8babe2`: every match is a caller item 5 converts (D-025).
+- 2026-11-19 (main session, review round 1, PASS; `review.md` → Round 1). Fixes for a fresh implementer, each with a
+  test written first where a test can show it:
+  1. Finding 1: the golden test of `spawn` (`test/s1-spawn.test.ts`) compares the raw last stdout line with the golden
+     string, so the key order is checked; the outcome's sentence about it says what the test checks.
+  2. Finding 5: `templates/agents.md:166` says what `spawn` prints now (the id as soon as the job exists, and `ids.job`
+     in the final line), and `templates/.history/agents.md` gets the new template's SHA-256 as its first line;
+     `docs/groups.md:69` describes `group wait`'s limit as it is now (exit 3, `GROUP_WAIT_TIMEOUT`, no process
+     watchdog).
+  3. Finding 4: `docs/commands.md:30` says what is true: programs read the final line through one client function,
+     except that the GitHub poller still tells an unavailable coordinator from an unconfirmed delivery by the text of
+     `limen github deliver`. No code change; R-014 converts that caller (T-26 (4)).
+  4. Finding 7 (T-02): an HTTP 403 that is a rate limit (`x-ratelimit-remaining: 0` or a `retry-after` header) is
+     `transient`, `GITHUB_NETWORK`; any other 403 stays `GITHUB_CONFIG`. Test with the fetch stub.
+  5. Finding 9 (T-29 (2)): the two T-01 scan test names carry one identifier (no `R-013`).
+  6. Finding r1-a: the job-id pattern of `ids.job` (written by `finalLine`, read by `readOutcome`, one shared pattern)
+     accepts every form `makeJobId` has produced (`git log -p -- src/job/job.ts`, and the job module's earlier homes
+     if it moved), each with a test.
+  7. Finding r1-b: parentheses make the `||`/`?:` order explicit at `src/commands/group.ts:401`.
+  8. Finding r1-c (T-30): the comment at `test/structure.test.ts:95` claims only what the scan checks; the sentence at
+     `src/old-names.ts:146-147` gives a reason instead of history.
+  9. Finding r1-d: a missing or unreadable projects file in `github poll` is `environment`, `GITHUB_CONFIG`, like the
+     state directory. Test.
+  10. Finding 6: `outcome.md` lists the member's `next` (`limen group status` without an id) among the deviations.
+  Findings 2, 3, 8 and r1-e are rejected (`review.md`). `outcome.md` records the fixes and their tests.
+- 2026-11-19 (main session, review round 2, PASS with two notes): the named condition in place of fix 7's parentheses
+  is accepted (Biome's formatter removes them; deviation 13). The note that an App key that holds no usable PEM is not
+  typed `GITHUB_CONFIG` is rejected for this ticket (guessed, not run; no consumer reads the poll's class yet; R-082
+  types the remaining untyped failures), and `plan.md` → `## State` records it. The fix round's deviations 12–14 of
+  `outcome.md` are accepted.

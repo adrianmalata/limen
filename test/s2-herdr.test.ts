@@ -9,7 +9,8 @@ import { createServer } from "node:net";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { after, before, test } from "node:test";
-import { FINAL, jobDir, jobFile, limen, type Plant, plant, start, until, waitJob } from "./plant.ts";
+import { outputText } from "../src/outcome.ts";
+import { FINAL, jobDir, jobFile, limen, type Plant, plant, start, startedJob, until, waitJob } from "./plant.ts";
 
 const herdrSource = `#!/usr/bin/env node
 const fs = require("node:fs"), path = require("node:path");
@@ -86,7 +87,7 @@ test("in Herdr a spawn with no mode flag runs detached under its --timeout; queu
 	await writeFile(reading, '{"cpuIdle":90,"memoryFree":10}');
 	const run = limen(p, ["spawn", "--timeout", "5m", "--label", "flagless", `say ${FINAL.line.repeat(12)}`], { env });
 	assert.match(run.stdout, /\nqueued flagless: CPU 90% idle \(gate 25%\), memory 10% free \(gate 20%\), 0 ahead\n/);
-	const id = run.stdout.trim().split("\n").at(-1) ?? "";
+	const id = startedJob(run);
 	await writeFile(reading, "{}");
 	assert.equal(waitJob(p, id, { env }), "done");
 	assert.equal(jobFile(p, id, "herdr/mode"), "watch", "a log-tail tab");
@@ -111,7 +112,7 @@ test("a rule set, change, end and end time ping each live coordinator pane once 
 	const panes = (rule: string, word: string) =>
 		said(rule).flatMap((args) => (args[3]?.includes(word) ? [args[2]] : []));
 	const heard = (rule: string, ...words: string[]) => words.map((word) => panes(rule, word).sort());
-	const rule = (...args: string[]) => limen(p, ["rule", ...args], { env }).stdout;
+	const rule = (...args: string[]) => outputText(limen(p, ["rule", ...args], { env }));
 	assert.match(rule("set", "week", "--until", "1h", "Hold reviews"), /^rule week set/);
 	assert.match(rule("set", "week", "--until", "1h", "--start-priority", "1", "Priority 1 only"), /^rule week changed/);
 	const board = limen(p, ["board"], { env }).stdout + rule("end", "week", "done"); // an hour before its end time

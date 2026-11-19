@@ -143,7 +143,9 @@ export const OLD_ROLES: readonly OldName[] = [
  * The table holds removed commands (`OLD_NAMES`), removed engine values (`OLD_ENGINES`), removed flags
  * (`OLD_FLAGS`) and removed roles (`OLD_ROLES`). This is the refusal of a removed command, or `undefined` for a name
  * `OLD_NAMES` does not hold; a subcommand is named with its command, as `ticket series`. The caller refuses before
- * anything runs, so a refusal writes nothing (R-013 gives it exit code 2 and `instead` in `next`).
+ * anything runs, so a refusal writes nothing. The caller throws it as a plain `Error`, so `main` ends it as an untyped
+ * refusal (exit code 1, code `UNTYPED`): T-18's exit code 2 with `instead` in `next` needs a refusal that its
+ * command's registry entry declares (T-28 (1)), which the command registry brings (R-014).
  */
 export function removedCommand(name: string): string | undefined {
 	const old = OLD_NAMES.find((entry) => entry.name === name);

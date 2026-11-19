@@ -24,6 +24,7 @@ import {
 	readBinding,
 } from "../integrations/github-review.ts";
 import { herdrBinary } from "../integrations/herdr.ts";
+import { JOB_STARTED, type Success } from "../outcome.ts";
 import { repoRoot } from "../project/git.ts";
 import { githubDoctor } from "./github-doctor.ts";
 import { spawnCommand } from "./spawn.ts";
@@ -71,7 +72,7 @@ export async function ensureGithubCoordinator(root: string): Promise<GithubBindi
 	return binding; // Herdr done is an idle, interactive agent, not a dead pane.
 }
 
-export async function githubCommand(args: readonly string[], cwd: string): Promise<void> {
+export async function githubCommand(args: readonly string[], cwd: string): Promise<Success | undefined> {
 	const [mode, ...rest] = args;
 	if (mode === "poll") {
 		if (rest.length) {
@@ -96,8 +97,7 @@ export async function githubCommand(args: readonly string[], cwd: string): Promi
 		return;
 	}
 	if (mode === "deliver" || mode === "review" || mode === "work") {
-		await handOffClaim(mode, rest);
-		return;
+		return handOffClaim(mode, rest);
 	}
 	if (rest.length || !["connect", "disconnect", "status"].includes(mode ?? "")) {
 		throw new Error(
@@ -183,8 +183,14 @@ async function recordNoJobAnswer(rest: readonly string[]): Promise<void> {
 	console.log("coordinator no-job answer recorded; awaiting poller receipt");
 }
 
-/** `github deliver|review|work <registered-root> <claim-id> ...`: the poller rings the coordinator, or the coordinator starts a job. */
-async function handOffClaim(mode: "deliver" | "review" | "work", rest: readonly string[]): Promise<void> {
+/**
+ * `github deliver|review|work <registered-root> <claim-id> ...`: the poller rings the coordinator, or the coordinator
+ * starts a job, whose id the success names in `ids.job` (D-028).
+ */
+async function handOffClaim(
+	mode: "deliver" | "review" | "work",
+	rest: readonly string[],
+): Promise<Success | undefined> {
 	const id = claimId(rest[1] ?? "");
 	if (rest.length < 2 || id === undefined) {
 		throw new Error(`github ${mode} requires <registered-root> <claim-id>`);
@@ -216,7 +222,9 @@ async function handOffClaim(mode: "deliver" | "review" | "work", rest: readonly 
 	if (!insideCoordinator(binding)) {
 		throw new Error("GitHub job must start inside the registered Herdr coordinator");
 	}
-	console.log(await startGithubJob(root, claim, job.model, job.task));
+	const started = await startGithubJob(root, claim, job.model, job.task);
+	console.log(started);
+	return { next: JOB_STARTED, ids: { job: started } };
 }
 
 /** Rings the coordinator's Herdr pane with the claim, unless a job already answers it. */

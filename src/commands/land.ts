@@ -23,7 +23,7 @@ import { takenElsewhere } from "../project/series.ts";
 import { parseFlags } from "./flags.ts";
 import { deleteLandedBranches } from "./prune.ts";
 
-export async function landCommand(args: readonly string[], cwd: string): Promise<void> {
+export async function landCommand(args: readonly string[], cwd: string): Promise<undefined> {
 	if (process.env.LIMEN_GROUP_ID) {
 		throw new Error("group members cannot land; the owner-facing lead owns landing");
 	}

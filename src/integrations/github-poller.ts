@@ -3,6 +3,7 @@ import { createHash, createSign, randomBytes } from "node:crypto";
 import { mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { EXIT_CODES, failureOf, LimenError } from "../outcome.ts";
 import {
 	claimId,
 	claimPath,
@@ -82,7 +83,31 @@ function boundedContext(text: string, limit: number, label: string, link: string
 	return text.length > limit ? `${text.slice(0, limit)}\n[${label} truncated; see ${link}]` : text;
 }
 
+const DOCTOR = "limen github doctor";
+const reason = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
+/** The network or GitHub's own state (T-02: transient, safe to retry at the timer's next run). */
+function networkFailure(message: string, cause?: unknown): LimenError {
+	return new LimenError({ class: "transient", code: "GITHUB_NETWORK", message, next: DOCTOR, cause });
+}
+/** A missing or invalid setting or credential of the poller (T-02: environment); `limen github doctor` names it. */
+function configFailure(message: string, cause?: unknown): LimenError {
+	return new LimenError({ class: "environment", code: "GITHUB_CONFIG", message, next: DOCTOR, cause });
+}
+
+/** GitHub answers an exceeded rate limit with 403 as well as 429, and T-02 puts a rate limit in class 3. */
+function rateLimit403(response: Response): boolean {
+	return (
+		response.status === 403 &&
+		(response.headers.get("x-ratelimit-remaining") === "0" || response.headers.has("retry-after"))
+	);
+}
+
+/**
+ * The one request function (D-028): a rejected fetch, 429, 5xx and a 403 that is a rate limit are the network; 401
+ * and any other 403 a credential.
+ */
 async function api<T>(path: string, token: string, method = "GET", body?: object): Promise<T> {
+	const what = `GitHub ${method} ${path.split("?")[0]}`;
 	const response = await fetch(`${API}${path}`, {
 		method,
 		headers: {
@@ -93,9 +118,21 @@ async function api<T>(path: string, token: string, method = "GET", body?: object
 		},
 		...(body ? { body: JSON.stringify(body) } : {}),
 		signal: AbortSignal.timeout(15_000),
+	}).catch((cause: unknown) => {
+		throw networkFailure(`${what} failed: ${reason(cause)}`, cause);
 	});
 	if (!response.ok) {
-		throw new Error(`GitHub ${method} ${path.split("?")[0]} returned HTTP ${response.status}`);
+		const failure = `${what} returned HTTP ${response.status}`;
+		if (response.status === 429 || response.status >= 500) {
+			throw networkFailure(failure);
+		}
+		if (rateLimit403(response)) {
+			throw networkFailure(`${failure} (rate limit)`);
+		}
+		if (response.status === 401 || response.status === 403) {
+			throw configFailure(failure);
+		}
+		throw new Error(failure);
 	}
 	return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
 }
@@ -118,7 +155,7 @@ async function installationToken(repo: string, jwt: string): Promise<string> {
 		repositories: [repo.split("/")[1]],
 	});
 	if (!result.token) {
-		throw new Error(`GitHub did not issue an installation token for ${repo}`);
+		throw configFailure(`GitHub did not issue an installation token for ${repo}`);
 	}
 	return result.token;
 }
@@ -127,7 +164,7 @@ async function privatePath(path: string, allowed: readonly number[]): Promise<vo
 	for (let parent = dirname(real); ; parent = dirname(parent)) {
 		const info = await stat(parent);
 		if (!allowed.includes(info.uid) || (info.mode & 0o022) !== 0) {
-			throw new Error(`unsafe owner or permissions on ${parent}`);
+			throw configFailure(`unsafe owner or permissions on ${parent}`);
 		}
 		if (parent === dirname(parent)) {
 			break;
@@ -139,12 +176,14 @@ async function appJwt(): Promise<string> {
 	const id = process.env.LIMEN_GITHUB_APP_ID;
 	const path = process.env.LIMEN_GITHUB_KEY_FILE;
 	if (!id || !/^\d+$/.test(id) || !path || !isAbsolute(path)) {
-		throw new Error("poller needs LIMEN_GITHUB_APP_ID and absolute LIMEN_GITHUB_KEY_FILE");
+		throw configFailure("poller needs LIMEN_GITHUB_APP_ID and absolute LIMEN_GITHUB_KEY_FILE");
 	}
-	const key = await stat(path);
+	const key = await stat(path).catch((cause: unknown) => {
+		throw configFailure(`the App key LIMEN_GITHUB_KEY_FILE is not readable: ${reason(cause)}`, cause);
+	});
 	await privatePath(path, [0, process.getuid?.() ?? -1]);
 	if (key.uid !== process.getuid?.() || !key.isFile() || (key.mode & 0o077) !== 0) {
-		throw new Error("App key must be a mode-0600 regular file owned by the poller Unix user");
+		throw configFailure("App key must be a mode-0600 regular file owned by the poller Unix user");
 	}
 	const now = Math.floor(Date.now() / 1000);
 	const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
@@ -713,43 +752,64 @@ async function project(root: string, stateDir: string, jwt: string): Promise<voi
 	}
 }
 
+/**
+ * One polling pass over every registered project. A project's failure is printed on its own line and the pass goes on;
+ * then the most severe failure (the highest exit code) fails the poll, with its class, code and next (D-028).
+ */
 export async function pollGithub(): Promise<void> {
 	const registry = process.env.LIMEN_GITHUB_PROJECTS_FILE;
 	if (!registry || !isAbsolute(registry) || process.getuid?.() === 0) {
-		throw new Error("github poll requires an isolated non-root poller and absolute LIMEN_GITHUB_PROJECTS_FILE");
+		throw configFailure("github poll requires an isolated non-root poller and absolute LIMEN_GITHUB_PROJECTS_FILE");
 	}
 	const stateDir = process.env.LIMEN_GITHUB_STATE_DIR;
 	if (!stateDir || !isAbsolute(stateDir)) {
-		throw new Error("github poll requires absolute LIMEN_GITHUB_STATE_DIR");
+		throw configFailure("github poll requires absolute LIMEN_GITHUB_STATE_DIR");
 	}
-	const stateInfo = await stat(stateDir);
+	const stateInfo = await stat(stateDir).catch((cause: unknown) => {
+		throw configFailure(`the poller state directory LIMEN_GITHUB_STATE_DIR is not readable: ${reason(cause)}`, cause);
+	});
 	if (!stateInfo.isDirectory() || stateInfo.uid !== process.getuid?.() || (stateInfo.mode & 0o077) !== 0) {
-		throw new Error("poller state directory must be private and poller-owned");
+		throw configFailure("poller state directory must be private and poller-owned");
 	}
 	await privatePath(stateDir, [0, process.getuid?.() ?? -1]);
 	const workerUid = Number(process.env.LIMEN_GITHUB_WORKER_UID);
 	if (!Number.isSafeInteger(workerUid) || workerUid <= 0) {
-		throw new Error("poller requires LIMEN_GITHUB_WORKER_UID");
+		throw configFailure("poller requires LIMEN_GITHUB_WORKER_UID");
 	}
 	if (process.getuid?.() === workerUid) {
-		throw new Error("poller and workers must have different Unix users");
+		throw configFailure("poller and workers must have different Unix users");
 	}
 	const modulePath = await realpath(fileURLToPath(import.meta.url));
 	const file = await stat(modulePath);
 	if ((file.mode & 0o022) !== 0 || file.uid === workerUid) {
-		throw new Error("poller code must not be writable by the worker account");
+		throw configFailure("poller code must not be writable by the worker account");
 	}
 	await privatePath(modulePath, [0, process.getuid?.() ?? -1]);
 	const jwt = await appJwt();
-	const projects = [...new Set((await readFile(registry, "utf8")).split("\n").filter(Boolean))];
+	const listed = await readFile(registry, "utf8").catch((cause: unknown) => {
+		throw configFailure(`the projects file LIMEN_GITHUB_PROJECTS_FILE is not readable: ${reason(cause)}`, cause);
+	});
+	const projects = [...new Set(listed.split("\n").filter(Boolean))];
+	const failures: Array<{ readonly thrown: unknown; readonly failure: LimenError }> = [];
 	for (const root of projects) {
 		try {
 			if (resolve(root) === root) {
 				await project(root, stateDir, jwt);
 			}
 		} catch (error) {
-			console.error(`${root}: ${error instanceof Error ? error.message : String(error)}`);
-			process.exitCode = 1;
+			console.error(`${root}: ${reason(error)}`);
+			failures.push({ thrown: error, failure: failureOf(error) });
 		}
+	}
+	const [worst] = failures.toSorted((a, b) => EXIT_CODES[b.failure.class] - EXIT_CODES[a.failure.class]);
+	if (worst) {
+		// The thrown value is the cause, so an internal error keeps its own stack.
+		throw new LimenError({
+			class: worst.failure.class,
+			code: worst.failure.code,
+			message: `github poll failed for ${failures.length} of ${projects.length} projects, each on its line above`,
+			next: worst.failure.next,
+			cause: worst.thrown,
+		});
 	}
 }

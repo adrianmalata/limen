@@ -9,7 +9,7 @@ import {
 	signalProcessGroup,
 	waitForProcessGroup,
 } from "../runtime/contain.ts";
-export async function stopCommand(args: readonly string[], cwd: string): Promise<void> {
+export async function stopCommand(args: readonly string[], cwd: string): Promise<undefined> {
 	const query = args[0];
 	if (!query) {
 		throw new Error("stop requires a job id");

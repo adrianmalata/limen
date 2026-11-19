@@ -5,7 +5,7 @@ import { herdrAvailable, openDiffTab } from "../integrations/herdr.ts";
 import { resolveJob } from "../job/lookup.ts";
 import { limenRoot, workspaceRepository } from "../project/git.ts";
 
-export async function diffCommand(args: readonly string[], cwd: string): Promise<void> {
+export async function diffCommand(args: readonly string[], cwd: string): Promise<undefined> {
 	const query = args[0];
 	if (!query || args.length !== 1) {
 		throw new Error("diff requires exactly one job id");

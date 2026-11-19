@@ -9,7 +9,20 @@ import { dirname, join, relative } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { isTerminal } from "../../src/job/job.ts";
-import { engineEvents, git, jobDir, jobFile, limen, type Plant, plant, spawnJob, TICKET, until } from "../plant.ts";
+import { outputText } from "../../src/outcome.ts";
+import {
+	engineEvents,
+	git,
+	jobDir,
+	jobFile,
+	limen,
+	type Plant,
+	plant,
+	spawnJob,
+	startedJob,
+	TICKET,
+	until,
+} from "../plant.ts";
 
 const WAKE = fileURLToPath(new URL("../../hook/wake.ts", import.meta.url));
 const REFUSAL = "limen webhook was removed with finish webhooks (R-002); the coordinator gets a wake when a job ends";
@@ -98,7 +111,7 @@ test("limen webhook test and limen webhook deliver refuse with one removal line 
 	]) {
 		const run = limen(p, args);
 		assert.notEqual(run.status, 0, args.join(" "));
-		assert.equal(run.stderr, `${REFUSAL}\n`, args.join(" "));
+		assert.equal(outputText(run), `${REFUSAL}\n`, args.join(" "));
 	}
 	assert.deepEqual(snapshot(join(p.root, ".limen")), before);
 });
@@ -115,7 +128,7 @@ test("limen linear status and limen linear off refuse with one removal line and 
 	]) {
 		const run = limen(p, args);
 		assert.notEqual(run.status, 0, args.join(" "));
-		assert.equal(run.stderr, `${LINEAR_REFUSAL}\n`, args.join(" "));
+		assert.equal(outputText(run), `${LINEAR_REFUSAL}\n`, args.join(" "));
 	}
 	assert.deepEqual([snapshot(join(p.root, ".limen")), snapshot(join(p.root, "spec"))], before);
 });
@@ -131,7 +144,7 @@ test("spawn with a removed engine in --engine or in LIMEN_ENGINE refuses with on
 		] as const) {
 			const run = limen(p, args, { env });
 			assert.notEqual(run.status, 0, args.join(" "));
-			assert.equal(run.stderr, `${refusal}\n`, args.join(" "));
+			assert.equal(outputText(run), `${refusal}\n`, args.join(" "));
 		}
 	}
 	assert.deepEqual(snapshot(join(p.root, ".limen")), before);
@@ -158,7 +171,7 @@ test("spawn, continue and group start refuse --tab with one removal line and lea
 	};
 	const refused = Object.entries(commands).map(([command, args]) => {
 		const run = limen(p, args);
-		return [command, run.status !== 0, run.stderr];
+		return [command, run.status !== 0, outputText(run)];
 	});
 	assert.deepEqual(
 		refused,
@@ -187,7 +200,7 @@ test("limen planning, highlight, ticket-author and wait refuse with one removal 
 	] as const;
 	const refused = commands.map(([name, args]) => {
 		const run = limen(p, args);
-		return [name, run.status !== 0, run.stderr];
+		return [name, run.status !== 0, outputText(run)];
 	});
 	assert.deepEqual(
 		refused,
@@ -206,7 +219,7 @@ test("limen ticket series refuses with one removal line, with or without names, 
 	]) {
 		const run = limen(p, args);
 		assert.notEqual(run.status, 0, args.join(" "));
-		assert.equal(run.stderr, `${R006_REFUSALS["ticket series"]}\n`, args.join(" "));
+		assert.equal(outputText(run), `${R006_REFUSALS["ticket series"]}\n`, args.join(" "));
 	}
 	assert.deepEqual(snapshot(join(p.root, ".limen")), before);
 });
@@ -218,7 +231,7 @@ test("limen continue --review refuses a finished job with one removal line and l
 	await settled(p, parent);
 	const before = snapshot(join(p.root, ".limen"));
 	const run = limen(p, ["continue", parent, "--review", "x"]);
-	assert.deepEqual([run.status !== 0, run.stderr], [true, `${R006_REFUSALS["continue --review"]}\n`]);
+	assert.deepEqual([run.status !== 0, outputText(run)], [true, `${R006_REFUSALS["continue --review"]}\n`]);
 	assert.deepEqual(snapshot(join(p.root, ".limen")), before);
 });
 
@@ -229,7 +242,7 @@ test("continue --label --review reads --review as the label and continues the jo
 	await ended(p, parent);
 	const run = limen(p, ["continue", parent, "--label", "--review", "x"]);
 	assert.equal(run.status, 0, run.stderr);
-	const id = run.stdout.trim().split("\n").at(-1) ?? "";
+	const id = startedJob(run);
 	await ended(p, id);
 	assert.deepEqual(
 		[jobFile(p, id, "label"), jobFile(p, id, "role"), jobFile(p, id, "state")],
@@ -248,7 +261,7 @@ test("limen group status --json refuses with one removal line before a group id 
 	]) {
 		const run = limen(p, args);
 		assert.notEqual(run.status, 0, args.join(" "));
-		assert.equal(run.stderr, `${R006_REFUSALS["group status --json"]}\n`, args.join(" "));
+		assert.equal(outputText(run), `${R006_REFUSALS["group status --json"]}\n`, args.join(" "));
 	}
 	assert.deepEqual(snapshot(join(p.root, ".limen")), before);
 });
@@ -268,7 +281,7 @@ test("limen picture tick and limen picture watch refuse with one removal line, w
 	] as const;
 	const refused = commands.map(([name, args]) => {
 		const run = limen(p, args);
-		return [name, run.status !== 0, run.stderr];
+		return [name, run.status !== 0, outputText(run)];
 	});
 	assert.deepEqual(
 		refused,
@@ -290,7 +303,7 @@ test("picture build --out and picture serve --dir refuse with one removal line b
 	] as const;
 	const refused = commands.map(([name, args]) => {
 		const run = limen(p, args);
-		return [name, run.status !== 0, run.stderr];
+		return [name, run.status !== 0, outputText(run)];
 	});
 	assert.deepEqual(
 		refused,
@@ -325,7 +338,7 @@ test("spawn --role picture refuses with the removal line and leaves no job, work
 	];
 	const before = traces();
 	const run = limen(p, ["spawn", "--role", "picture", "work"]);
-	assert.deepEqual([run.status !== 0, run.stderr], [true, `${R007_REFUSALS["role picture"]}\n`]);
+	assert.deepEqual([run.status !== 0, outputText(run)], [true, `${R007_REFUSALS["role picture"]}\n`]);
 	assert.deepEqual(traces(), before);
 });
 
@@ -341,7 +354,7 @@ test("continue refuses a job of the role picture once the project's own role fil
 	rmSync(role);
 	const before = snapshot(join(p.root, ".limen"));
 	const run = limen(p, ["continue", parent, "x"]);
-	assert.deepEqual([run.status !== 0, run.stderr], [true, `${R007_REFUSALS["role picture"]}\n`]);
+	assert.deepEqual([run.status !== 0, outputText(run)], [true, `${R007_REFUSALS["role picture"]}\n`]);
 	assert.deepEqual(snapshot(join(p.root, ".limen")), before);
 });
 
@@ -371,7 +384,7 @@ test("spawn --role scout refuses with the removal line and leaves no job, worktr
 	];
 	const before = traces();
 	const run = limen(p, ["spawn", "--role", "scout", "work"]);
-	assert.deepEqual([run.status !== 0, run.stderr], [true, `${SCOUT_REFUSAL}\n`]);
+	assert.deepEqual([run.status !== 0, outputText(run)], [true, `${SCOUT_REFUSAL}\n`]);
 	assert.deepEqual(traces(), before);
 });
 
@@ -387,7 +400,7 @@ test("continue refuses a job of the role scout once the project's own role file 
 	rmSync(role);
 	const before = snapshot(join(p.root, ".limen"));
 	const run = limen(p, ["continue", parent, "x"]);
-	assert.deepEqual([run.status !== 0, run.stderr], [true, `${SCOUT_REFUSAL}\n`]);
+	assert.deepEqual([run.status !== 0, outputText(run)], [true, `${SCOUT_REFUSAL}\n`]);
 	assert.deepEqual(snapshot(join(p.root, ".limen")), before);
 });
 
