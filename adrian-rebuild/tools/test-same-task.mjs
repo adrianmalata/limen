@@ -7,7 +7,9 @@
    i skażenie (bez własnej ścieżki --out), linię sesji spoza JSON w sessionErrors, trzy liczniki M-05 (także w pętlach
    powłoki), błędy protokołu i zatrzymanie zadań przy kodzie 4, kod 5 błędu wewnętrznego, evaluate, report i odmowy
    CLI; od R-088 także drugie zatrzymanie zadania, które ma `state`, ale jeszcze nie `pid`, oraz zatrzymanie Pi przed
-   zadaniami. Stan: działa. */
+   zadaniami; od R-091 oznaczenia obiektów Pi 1.5.1 (typ bez oznaczenia, prośby rozszerzenia, na które Pi czeka,
+   pomijane typy i metody, obce odpowiedzi i dyspozycje, protocol-error.json z surową linią), koniec przebiegu
+   na `agent_settled`, prompt obsłużony przez rozszerzenie, błędy rozszerzeń i definicję touchpoints. Stan: działa. */
 // Usage: node --test adrian-rebuild/tools/test-same-task.mjs
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -185,6 +187,8 @@ async function attempt(runs, setup = {}) {
 }
 const prompts = (run) => run.commands.filter(({ type }) => type === "prompt").map(({ message }) => message);
 const NOTHING_MORE = { trigger: "prompt", steps: [{ do: "reply", text: "Nothing more." }] };
+// D-045 (3.4), word for word.
+const DEFINITION = "touchpoints = answered owner turns; questions asked while a job runs are not counted";
 
 test("the clone has main at the commit, no origin, no other ref and no object of the reference commit", () => {
 	const clone = join(work, "clone-check", "clone");
@@ -316,6 +320,10 @@ describe("an attempt that spawns, reviews, asks to land, lands and stops", () =>
 			coordinator: { input: 100, cacheWrite: 200, cacheRead: 1000, output: 10 },
 			jobs: { input: 80, cacheWrite: 160, cacheRead: 800, output: 8 },
 		});
+	});
+
+	test("result.json states the touchpoint definition and names the coordinator's session folder as the transcript", () => {
+		assert.deepEqual([run.result.touchpointsDefinition, run.result.transcript], [DEFINITION, join(run.out, "session")]);
 	});
 });
 
@@ -640,6 +648,181 @@ test("on exit 4 a limen stop that fails is named", async () => {
 	assert.match(run.printed, /limen stop w1 failed \(exit 1\): fake limen: cannot stop/);
 });
 
+/** One run in which Pi writes `writes` between two replies, then a quiet turn. */
+const writing = (...writes) => [
+	{
+		trigger: "prompt",
+		steps: [{ do: "reply", text: "I read the ticket." }, ...writes, { do: "reply", text: "I planned the work." }],
+	},
+	NOTHING_MORE,
+];
+
+/** A `writing` attempt ended as it ends when Pi writes nothing between the replies: one owner turn, then the end. */
+function endedAsWithout(run) {
+	assert.equal(run.code, 0, run.printed);
+	const turns = run.result.ownerTurns.map(({ lastReply, replied }) => ({ lastReply, replied }));
+	assert.deepEqual(
+		[run.result.outcome, run.result.touchpoints, turns],
+		[
+			"finished",
+			1,
+			[
+				{ lastReply: "I planned the work.", replied: true },
+				{ lastReply: "Nothing more.", replied: false },
+			],
+		],
+	);
+}
+
+const protocolError = (run) => readJson(join(run.out, "protocol-error.json"));
+
+test("an object of a type with no mark ends the attempt with exit 4 and protocol-error.json holds its raw line", async () => {
+	// Spaces that a serialized copy would drop, and a value longer than any cut of the line.
+	const line = `{"type": "made_up_event",  "detail": "${"x".repeat(300)}"}`;
+	const run = await attempt(writing({ do: "write", line }));
+	assert.equal(run.code, 4, run.printed);
+	assert.equal(protocolError(run)?.line, line);
+	assert.ok(run.printed.includes(join(run.out, "protocol-error.json")), run.printed);
+});
+
+test("a stdout line that is not JSON ends the attempt with exit 4 and protocol-error.json holds it in full", async () => {
+	const line = `Pi says ${"y".repeat(300)}`;
+	const run = await attempt(writing({ do: "write", line }));
+	assert.equal(run.code, 4, run.printed);
+	assert.equal(protocolError(run)?.line, line);
+});
+
+test("a refused owner message ends the attempt with exit 4 and protocol-error.json holds Pi's response", async () => {
+	const run = await attempt([{ trigger: "prompt", refuse: true }]);
+	assert.equal(run.code, 4, run.printed);
+	assert.deepEqual(JSON.parse(protocolError(run)?.line ?? "null"), {
+		type: "response",
+		command: "prompt",
+		success: false,
+		error: "Agent is already processing",
+	});
+});
+
+const uiRequest = (method, fields) => ({ type: "extension_ui_request", id: `ui-${method}`, method, ...fields });
+/** One request of each method on which Pi waits for an `extension_ui_response`, in the shapes of rpc-types.d.ts. */
+const WAITING = {
+	select: { title: "Pick one", options: ["a", "b"] },
+	confirm: { title: "Go on?", message: "The worker is done." },
+	input: { title: "Name", placeholder: "a name" },
+	editor: { title: "Edit", prefill: "a draft" },
+};
+
+for (const [method, fields] of Object.entries(WAITING)) {
+	test(`an extension's ${method} request, on which Pi waits for an answer, ends the attempt with exit 4`, async () => {
+		const run = await attempt(writing({ do: "write", object: uiRequest(method, fields) }));
+		assert.equal(run.code, 4, run.printed);
+		assert.match(run.printed, new RegExp(`waits for an answer to an extension's ${method} request`));
+	});
+}
+
+test("every extension request that Pi does not wait on passes without changing the attempt", async () => {
+	const requests = [
+		uiRequest("notify", { message: "limen: worker started", notifyType: "info" }),
+		uiRequest("setStatus", { statusKey: "limen", statusText: "1 job" }),
+		uiRequest("setWidget", { widgetKey: "limen", widgetLines: ["one job"] }),
+		uiRequest("setTitle", { title: "limen" }),
+		uiRequest("set_editor_text", { text: "a draft" }),
+	];
+	endedAsWithout(await attempt(writing(...requests.map((object) => ({ do: "write", object })))));
+});
+
+test("an extension request of a method with no mark ends the attempt with exit 4", async () => {
+	const run = await attempt(writing({ do: "write", object: uiRequest("made_up", { title: "x" }) }));
+	assert.equal(run.code, 4, run.printed);
+	assert.match(run.printed, /method "made_up", which has no mark/);
+});
+
+/** One object of each type Pi 1.5.1 writes that the runner skips, in the shapes of the sources pi-rpc.mjs names. */
+const SKIPPED = [
+	{ type: "agent_end", messages: [], willRetry: false },
+	{ type: "turn_start" },
+	{ type: "turn_end", message: { role: "assistant", content: [] }, toolResults: [] },
+	{ type: "message_start", message: { role: "assistant", content: [] } },
+	{ type: "message_update", usage: {}, assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "I" } },
+	{ type: "tool_execution_start", toolCallId: "c1", toolName: "bash", args: { command: "ls" } },
+	{ type: "tool_execution_update", toolCallId: "c1", toolName: "bash", args: { command: "ls" }, partialResult: {} },
+	{ type: "tool_execution_end", toolCallId: "c1", toolName: "bash", result: {}, isError: false },
+	{ type: "queue_update", steering: [], followUp: [] },
+	{ type: "compaction_start", reason: "threshold" },
+	{ type: "compaction_end", reason: "threshold", aborted: false, willRetry: false },
+	{ type: "entry_appended", entry: { type: "custom", id: "e1" } },
+	{ type: "session_info_changed", name: "coordinator" },
+	{ type: "thinking_level_changed", level: "high" },
+	{ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 2000, errorMessage: "overloaded" },
+	{ type: "auto_retry_end", success: true, attempt: 1 },
+	{ type: "summarization_retry_scheduled", attempt: 1, maxAttempts: 3, delayMs: 2000, errorMessage: "overloaded" },
+	{ type: "summarization_retry_attempt_start", source: "compaction", reason: "threshold" },
+	{ type: "summarization_retry_finished" },
+	{ type: "bash_execution_update", delta: "output" },
+];
+
+test("every skipped type passes without changing the attempt", async () => {
+	endedAsWithout(await attempt(writing(...SKIPPED.map((object) => ({ do: "write", object })))));
+});
+
+test("a response to abort passes without changing the attempt", async () => {
+	const object = { type: "response", command: "abort", success: true };
+	endedAsWithout(await attempt(writing({ do: "write", object })));
+});
+
+test("a response to a command the runner did not send, such as parse, ends the attempt with exit 4", async () => {
+	const object = { type: "response", command: "parse", success: false, error: "Failed to parse command: Unexpected" };
+	const run = await attempt(writing({ do: "write", object }));
+	assert.equal(run.code, 4, run.printed);
+	assert.match(run.printed, /a command the runner did not send \("parse"\)/);
+});
+
+test("a prompt response whose disposition is not started, queued or handled ends the attempt with exit 4", async () => {
+	const run = await attempt([{ trigger: "prompt", disposition: "pending", steps: [{ do: "reply", text: "Read." }] }]);
+	assert.equal(run.code, 4, run.printed);
+	assert.match(run.printed, /disposition "pending"/);
+});
+
+test("an agent_end that will retry is not an owner turn", async () => {
+	const run = await attempt([
+		{
+			trigger: "prompt",
+			steps: [
+				{ do: "reply", text: "The provider is overloaded." },
+				// Longer than two settle times, so a runner that took agent_end for the end would reply inside the delay.
+				{ do: "retry", after: TIMING.settleMs * 4 },
+				{ do: "reply", text: "I read the ticket." },
+			],
+		},
+		NOTHING_MORE,
+	]);
+	assert.equal(run.code, 0, run.printed);
+	assert.deepEqual(prompts(run).slice(1), [FIXED_REPLY]);
+	assert.equal(run.result.touchpoints, 1);
+});
+
+test("a prompt the coordinator's extension handled does not wait for a run", async () => {
+	const run = await attempt(
+		[
+			{ trigger: "prompt", steps: [{ do: "reply", text: "Which file should hold the answer?" }] },
+			{ trigger: "prompt", disposition: "handled" },
+		],
+		{ timeLimitMs: 3000 },
+	);
+	assert.equal(run.code, 0, run.printed);
+	assert.equal(run.result.outcome, "finished");
+});
+
+test("an extension error is kept in result.json and the attempt goes on", async () => {
+	const failure = { path: "/limen/hook/wake.ts", event: "agent_start", error: "wake failed" };
+	const run = await attempt(writing({ do: "extensionError", ...failure }));
+	assert.equal(run.code, 0, run.printed);
+	assert.equal(run.result.outcome, "finished");
+	assert.deepEqual(run.result.extensionErrors, [
+		{ type: "extension_error", extensionPath: failure.path, event: failure.event, error: failure.error },
+	]);
+});
+
 test("a job directory without a state file is still setting up and counts as running", () => {
 	const jobs = join(work, "jobs-check");
 	write(jobs, "a1/role", "worker\n");
@@ -717,6 +900,16 @@ test("report counts passes of the non-void attempts and names the void ones", ()
 	assert.equal(code, 0, lines.join("\n"));
 	assert.match(lines.at(-1), /^passed 2 of 3; pass\^3: no; void: 1 /);
 	assert.match(lines.at(-1), /r-void/);
+});
+
+test("the report prints the touchpoint definition once, above its counts", () => {
+	const out = join(work, "r-definition");
+	mkdirSync(out);
+	writeFileSync(join(out, "result.json"), JSON.stringify({ outcome: "finished" }));
+	const lines = [];
+	const code = report([out], { out: (line) => lines.push(line), err: (line) => lines.push(line) });
+	assert.equal(code, 0, lines.join("\n"));
+	assert.deepEqual([lines[0], lines.filter((line) => line === DEFINITION).length], [DEFINITION, 1]);
 });
 
 test("an exception that is not a git, file-system or protocol failure exits 5 with its stack", () => {

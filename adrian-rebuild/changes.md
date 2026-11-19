@@ -148,3 +148,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: measured
 - Commit: R-090
 - Rollback: git revert $(git log --format=%H --grep='^R-090:' adrian-rebuild --)
+
+## 2026-11-19 R-091 The same-task runner refuses an unmarked Pi event and states its touchpoint definition
+- What: `adrian-rebuild/tools/pi-rpc.mjs` (the header cites the Pi 1.5.1 sources; `MARKS` marks each of the 26 types Pi writes in RPC mode `handled` or `skipped`, `UI_METHODS` the extension requests by method, `RESPONSES` the responses by command; a waiting request, an unmarked type, method or command, an unknown disposition or a line that is not JSON raise a `PiError` that carries the raw line; the run ends at `agent_settled`); `adrian-rebuild/tools/same-task.mjs` (a prompt answered `handled` waits for no run; `extensionErrors`, `touchpointsDefinition` and `transcript` in `result.json`; `protocol-error.json` on a protocol error, exit 4; the report prints the definition); `adrian-rebuild/tools/fake-pi-rpc.mjs` (Pi's vocabulary: `agent_settled`, `willRetry`, `data.disposition`, the steps `write`, `extensionError`, `retry`); `adrian-rebuild/tools/test-same-task.mjs` (18 new tests)
+- Why: D-045, D-046, D-021, H-21
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (253/253); `node --test adrian-rebuild/tools/test-same-task.mjs` → exit 0 (57/57; at HEAD's runner exit 1, 15 failing)
+- Measurement: unmeasured (plan.md → Measurement: M-05)
+- Commit: R-091
+- Rollback: git revert $(git log --format=%H --grep='^R-091:' adrian-rebuild --)

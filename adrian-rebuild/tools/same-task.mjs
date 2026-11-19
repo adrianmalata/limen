@@ -2,11 +2,13 @@
    (pi-rpc.mjs) w czystym klonie projektu bez `origin` i bez obiektów zmiany referencyjnej. Wysyła jedną stałą
    wiadomość właściciela, na każdą turę właściciela odpowiada stałym zdaniem, kończy próbę, gdy po odpowiedzi nic nie
    postąpiło, albo po limicie czasu (abort i limen stop), i zapisuje atomowo result.json: wynik (też unieważnienie przez
-   limit albo skażenie), tury, punkty styku, zadania, kandydata, land, tokeny, liczniki M-05 i nieczytelne linie sesji.
-   Przy limicie czasu i przy awarii (kod 4, a dla błędu wewnętrznego kod 5 ze stosem) zatrzymuje najpierw Pi, potem
-   działające zadania, a zadanie bez pliku `state` albo `pid` zatrzymuje ponownie, gdy ma oba (najwyżej 10 min), albo
-   podaje polecenie do wykonania (R-088); `evaluate` kładzie ukryte testy na tip kandydata i uruchamia polecenia,
-   `report` liczy pass^k. Stan: działa; test w tools/test-same-task.mjs. */
+   limit albo skażenie), tury, punkty styku z ich definicją, zadania, kandydata, land, tokeny, liczniki M-05,
+   nieczytelne linie sesji, błędy rozszerzeń i ścieżkę transkryptu. Przebieg kończy `agent_settled`, a prompt obsłużony
+   przez rozszerzenie nie czeka na przebieg (R-091). Przy limicie czasu i przy awarii (kod 4, a dla błędu wewnętrznego
+   kod 5 ze stosem) zatrzymuje najpierw Pi, potem działające zadania, a zadanie bez pliku `state` albo `pid` zatrzymuje
+   ponownie, gdy ma oba (najwyżej 10 min), albo podaje polecenie do wykonania (R-088); błąd protokołu z linią Pi trafia
+   najpierw do protocol-error.json. `evaluate` kładzie ukryte testy na tip kandydata i uruchamia polecenia, `report`
+   podaje definicję punktów styku i liczy pass^k. Stan: działa; test w tools/test-same-task.mjs. */
 // Usage:
 //   node adrian-rebuild/tools/same-task.mjs run --limen <dir> --project <repo> --commit <sha> --reference <sha>
 //        --ticket <path> --time-limit <minutes> --out <dir> [--pi <path>] -- <engine args>
@@ -18,13 +20,16 @@ import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { writeAtomic } from "./atomic-write.mjs";
-import { assistantReply, PiError, promptAnswer, runEnded, runStarted, startPi } from "./pi-rpc.mjs";
+import { assistantReply, isExtensionError, PiError, promptAnswer, runEnded, runStarted, startPi } from "./pi-rpc.mjs";
 import { bashCommands, callsContaining, quotaLimits, readSession, replies, tokens } from "./same-task-session.mjs";
 
 /** The fixed reply to every owner turn (D-021). */
 export const FIXED_REPLY = "Decide this yourself; I am not available.";
 /** The one owner message of an attempt (D-021, the wording of Q-2's proposal). */
 export const ownerMessage = (ticket) => `Implement ${ticket}; decide engineering questions yourself`;
+/** What `touchpoints` counts, as result.json and the report state it (D-045 (3.4)). */
+export const TOUCHPOINTS_DEFINITION =
+	"touchpoints = answered owner turns; questions asked while a job runs are not counted";
 
 const MINUTE = 60_000;
 // D-021 (2): the time limit is 1.5 times the ticket's real time, at least 3 hours.
@@ -204,8 +209,11 @@ function snapshot(clone, env) {
 
 const progressed = (mark, now) => mark.main !== now.main || now.jobs.some((id) => !mark.jobs.includes(id));
 
-/** Applies one object from Pi to the state of the conversation; decides only from events, never from reply text. */
-function observe(object, state, now) {
+/**
+ * Applies one handled object from Pi, with its line, to the state of the conversation; decides only from events and
+ * fields, never from reply text.
+ */
+function observe({ object, line }, state, now) {
 	if (runStarted(object)) {
 		state.active = true;
 		state.awaitingStart = false;
@@ -215,28 +223,36 @@ function observe(object, state, now) {
 		state.active = false;
 		state.quietSince = now();
 	}
+	if (isExtensionError(object)) {
+		state.extensionErrors.push(object);
+	}
 	state.lastReply = assistantReply(object) ?? state.lastReply;
 	const answer = promptAnswer(object);
 	if (answer !== undefined) {
-		answered(answer, state, now);
+		answered(answer, line, state, now);
 	}
 }
 
-/** Pi's answer to the owner message or to a reply; an accepted reply is the owner turn's record. */
-function answered(answer, state, now) {
+/** Pi's answer to the owner message or to a reply, with its line; an accepted reply is the owner turn's record. */
+function answered(answer, line, state, now) {
 	const asked = state.asked;
 	state.asked = undefined;
-	if (asked.kind === "owner") {
-		if (!answer.accepted) {
-			throw new PiError(`Pi refused the owner message: ${answer.error}`);
-		}
-		return;
+	if (!answer.accepted && asked.kind === "owner") {
+		throw new PiError(`Pi refused the owner message: ${answer.error}`, line);
 	}
 	if (!answer.accepted) {
 		// A run started in the meantime (a wake): no owner turn; wait for the next quiet moment.
 		state.awaitingStart = false;
 		state.quietSince = now();
-		state.refusal = state.active ? undefined : answer.error;
+		state.refusal = state.active ? undefined : { error: answer.error, line };
+		return;
+	}
+	if (answer.disposition === "handled") {
+		// An extension consumed the prompt, so no run starts for it (`pi-coding-agent@1.5.1/docs/rpc.md#L67`).
+		state.awaitingStart = false;
+		state.quietSince = now();
+	}
+	if (asked.kind === "owner") {
 		return;
 	}
 	const previous = state.turns.at(-1);
@@ -264,7 +280,7 @@ function ownerTurn(pi, state, { clone, env, now, timing }) {
 		return false;
 	}
 	if (state.refusal !== undefined) {
-		throw new PiError(`Pi refused a prompt although no run started: ${state.refusal}`);
+		throw new PiError(`Pi refused a prompt although no run started: ${state.refusal.error}`, state.refusal.line);
 	}
 	const mark = snapshot(clone, env);
 	const progress = state.mark !== undefined && progressed(state.mark, mark);
@@ -293,6 +309,7 @@ async function converse(pi, context) {
 		asked: { kind: "owner" },
 		refusal: undefined,
 		quietSince: now(),
+		extensionErrors: [],
 	};
 	pi.prompt(context.ownerMessage);
 	for (;;) {
@@ -300,9 +317,9 @@ async function converse(pi, context) {
 		if (left <= 0) {
 			return { end: "timeout", state, endedAt: now() };
 		}
-		const object = await pi.next(Math.min(timing.pollMs, left));
-		if (object !== undefined) {
-			observe(object, state, now);
+		const next = await pi.next(Math.min(timing.pollMs, left));
+		if (next !== undefined) {
+			observe(next, state, now);
 		}
 		if (ownerTurn(pi, state, context)) {
 			return { end: "finished", state, endedAt: now() };
@@ -431,7 +448,8 @@ function newestDoneWorker(jobs) {
 function summarize(settings, ending, stops) {
 	const { clone, out, env, started } = settings;
 	const jobs = readJobs(jobsDir(clone));
-	const read = readSession(join(out, "session"));
+	const transcript = join(out, "session");
+	const read = readSession(transcript);
 	const coordinator = read.messages;
 	const jobSessions = jobs.map(({ id }) => ({
 		session: `job ${id}`,
@@ -461,6 +479,9 @@ function summarize(settings, ending, stops) {
 		ownerMessage: settings.ownerMessage,
 		ownerTurns: ending.state.turns,
 		touchpoints: ending.state.replies,
+		touchpointsDefinition: TOUCHPOINTS_DEFINITION,
+		transcript,
+		extensionErrors: ending.state.extensionErrors,
 		jobs,
 		rounds: jobs.filter(({ role }) => role === "reviewer").length,
 		candidate,
@@ -488,6 +509,24 @@ async function stopAfterFailure(pi, context) {
 		}
 	} catch (error) {
 		context.err(`same-task: cannot stop the running jobs in ${context.clone}: ${error.message}`);
+	}
+}
+
+/**
+ * When the failure is about a line Pi wrote, writes `<out>/protocol-error.json` with the reason and the line, and
+ * names the file (D-045 (3.2)). A failed write is named beside the failure, never in its place, so that Pi and the
+ * jobs are still stopped.
+ */
+function keepProtocolError(error, { out, err }) {
+	if (!(error instanceof PiError) || error.line === undefined) {
+		return;
+	}
+	const file = join(out, "protocol-error.json");
+	try {
+		writeAtomic(file, json({ reason: error.message, line: error.line }));
+		err(`same-task: wrote the reason and Pi's line to ${file}`);
+	} catch (writeError) {
+		err(`same-task: cannot write ${file}: ${writeError.message}`);
 	}
 }
 
@@ -527,6 +566,7 @@ async function attemptOnce(options, deps) {
 			stops = await timeUp(pi, ending, context);
 		}
 	} catch (error) {
+		keepProtocolError(error, context);
 		await stopAfterFailure(pi, context);
 		throw error;
 	} finally {
@@ -590,7 +630,7 @@ function evaluateOnce(outDir, { tests, commands }, deps) {
 	print(`same-task: pass ${evaluation.pass ? "yes" : "no"}; wrote ${join(out, "evaluation.json")}`);
 }
 
-/** `report`: one line per attempt, then pass^K over the attempts that are not void. */
+/** `report`: the touchpoint definition, one line per attempt, then pass^K over the attempts that are not void. */
 function reportOnce(outs, { out: print = console.log }) {
 	const rows = outs.map((dir) => {
 		const { outcome } = readResult(resolve(dir));
@@ -599,6 +639,7 @@ function reportOnce(outs, { out: print = console.log }) {
 		const pass = outcome === "finished" && evaluation !== null && JSON.parse(evaluation).pass === true;
 		return { dir, outcome, isVoid, pass };
 	});
+	print(TOUCHPOINTS_DEFINITION);
 	for (const { dir, outcome, isVoid, pass } of rows) {
 		print(isVoid ? `${dir}: ${outcome}; void, runs again` : `${dir}: ${outcome}; pass: ${pass ? "yes" : "no"}`);
 	}

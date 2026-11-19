@@ -16,8 +16,8 @@ podsumowanie bramki 5.1; Q-8 rozstrzygnięte (D-036: `seat/deploy.ts` poza allow
 (bramka 244/244, M-10 77,1 s, lokalny tag a0.1.0); decyzje bramki 5.1 to D-045 i D-046 (zmiany linii końcowej,
 odmów, runnera, skryptu wdrożenia i `kind`; tickety R-089 w etapie 2 oraz poprawkowe R-090 i R-091 w etapie 1, po
 których tag a0.1.1 jest pierwszym wdrożeniem); R-090 zamknięty 19.11 (lista sprawdzonych rejestrów, odmowa bez
-projektu, test nazw liczy tylko pliki znane gitowi); R-091 w toku (ticket napisany ze źródeł Pi), przekazanie
-sesji limen-rebuild-7. -->
+projektu, test nazw liczy tylko pliki znane gitowi); R-091 zamknięty 19.11 (oznaczenia typów Pi, odmowa bez
+oznaczenia, koniec przebiegu na agent_settled, definicja touchpoints); dalej narzędzie przekazania sesji. -->
 
 
 
@@ -883,7 +883,7 @@ Columns:
 | R-013 | One error type, exit codes as failure classes, a final JSON line | 1 | T-01, T-02, D-022, D-028 | R-002, R-003, R-004, R-005, R-006, R-007, R-009 | L | delegated | night | yes | — | — | done |
 | R-014 | One command registry, a shared parser and generated help | 1 | T-19, T-18, T-26, T-37, D-028, D-037, D-038, D-039, D-040, D-041, D-042, D-043, D-044 | R-002, R-003, R-004, R-005, R-006, R-007, R-009, R-013 | L | pair | day-after | yes | — | — | done |
 | R-088 | The same-task runner leaves no job running after an attempt | 1 | D-027, D-021 | R-011 | S | pair | day-after | — | pi | B.2 | done |
-| R-091 | The same-task runner refuses an unmarked Pi event and states its touchpoint definition | 1 | D-045, D-046, D-021, H-21 | R-011 | S | delegated | night | — | pi | B.2 | active |
+| R-091 | The same-task runner refuses an unmarked Pi event and states its touchpoint definition | 1 | D-045, D-046, D-021, H-21 | R-011 | S | delegated | night | — | pi | B.2 | done |
 | R-090 | The deployment script names what it checked; a registry without a project refuses | 1 | D-045, D-046, D-008, §7 | R-012 | S | delegated | night | — | — | 1.0 | done |
 | R-089 | The final line's `code` and `next` are a value or `null`; `next` is always a command | 2 | T-37, T-02, D-045, D-046 | R-014 | M | delegated | night | — | — | — | planned |
 | R-015 | One configuration reader; settings come only from owner files | 2 | T-03 | R-014 | M | delegated | night | yes | — | — | planned |
@@ -1826,10 +1826,10 @@ Gate 5.1 decided (2026-11-19): D-045 and D-046; the dated addition to T-37 in `t
 2), R-090 and R-091 (stage 1) and notes for R-023, R-025 and R-032 in `## Tickets`; `## Deployment` 1.0 deploys
 `a0.1.1`, and B.2 runs with R-091's runner.
 
-Next: R-091 (active, see `Active ticket`), R-090 being done; then close stage 1 again (gate, gate-time
-tool, `check.mjs`, the commit `Stage 1: close (a0.1.1)`, the tag `a0.1.1`) and a short gate reply with the tag's full
-SHA; then stage 2 in a new session. On the seat, Adrian's: B.2 with R-091's runner, then `## Deployment` 1.0–1.3
-with `a0.1.1`.
+Next: the handover tool (`adrian-rebuild/tools/handover.mjs` with its test, Adrian's request of 2026-11-19, a
+commit of its own); then close stage 1 again (gate, gate-time tool, `check.mjs`, the commit `Stage 1: close
+(a0.1.1)`, the tag `a0.1.1`) and a short gate reply with the tag's full SHA; then stage 2 in a new session. On the
+seat, Adrian's: B.2 with R-091's runner, then `## Deployment` 1.0–1.3 with `a0.1.1`.
 
 - R-090 `done` (delegated, by day): `seat/deploy.ts` prints every registry and registry line it checked before any
   other line, and registries that hold no project refuse with exit 4 before the fetch. One `BLOCKED`: the gate failed
@@ -1843,16 +1843,29 @@ with `a0.1.1`.
   deny rule on `input/` refuses the sessions' `mkdir` there, so Adrian ran it). The `npm pack` lines are on the
   allow-list.
 
-Active ticket: R-091 (delegated, by day), at protocol step 3: its `ticket.md` is written from the Pi 1.5.1 sources
-(commit "Ticket of R-091", after `R-090:`), with Adrian's decision that the run's end is `agent_settled` and a prompt
-answered `handled` waits for no run; next, `review-guard.mjs snapshot --git --out
-node_modules/.rebuild-review/R-091.git`, then `rebuild-implementer` with the folder
-`adrian-rebuild/R-091-same-task-event-marks/`.
+- R-091 `done` (delegated, by day, `limen-rebuild-7`): `pi-rpc.mjs` marks each of the 26 types Pi 1.5.1 writes in
+  RPC mode `handled` or `skipped` (`MARKS`, from the package sources), extension requests by method and responses by
+  command; a request Pi waits on, an unmarked type, method or command, an unknown disposition or a line that is not
+  JSON ends the attempt with exit 4 and `<out>/protocol-error.json` holding the raw line; a run ends at
+  `agent_settled`, a prompt answered `handled` waits for no run, and `result.json` carries `extensionErrors`,
+  `touchpointsDefinition` and `transcript`. The implementer's run was void by `compare --git` only through Adrian's
+  own edit of `.claude/settings.local.json` (the `handover.mjs` line), and he accepted it; AC-2 was the ticket's
+  error (`fails-before.mjs` takes only `test/`), judged by the main session's before-run (57 tests, 15 failing at
+  HEAD's runner). Review PASS in round 1 (four notes, rejected with reasons; two go to B.2 as open points in
+  `outcome.md`); gate 253/253. B.2 can run with this runner.
+- Handover incidents of 2026-11-19 (for the handover tool): `limen-rebuild-6` was still alive in `tmux` after its
+  handover, idle with no child process, because `EndConversation` ends the conversation and not the `claude` process;
+  the main session killed it at Adrian's request. Then Adrian resumed this conversation with `claude -r` in a WSL
+  window while its first process still ran in `tmux` (`limen-rebuild-7`) with the implementer, so the conversation
+  ran in two processes; the auto-mode classifier refused the main session's `tmux kill-session` of its own duplicate,
+  and Adrian killed it; the implementer was resumed with `SendMessage` from its transcript (the tree was still clean).
+  PR #2 (`adrian-rebuild` into `main`, opened by accident from Adrian's phone on 2026-11-18) was closed at his
+  request, without deleting the branch.
 
-Handover of 2026-11-19 (D-033, at about 37 % context, after the commit `R-090:`): `limen-rebuild-6` starts
-`limen-rebuild-7` in `tmux` in remote-control mode with the first message of the rebuild prompt and then ends. The
-next session's first act: a push notification to Adrian that it takes over at R-091; then R-091 from step 3. The
-handover after it is `limen-rebuild-8`.
+Active ticket: none.
+
+Handover: the current session is `limen-rebuild-7` (a `claude -r` in a WSL window since 17:46, no `tmux`); the
+handover after it is `limen-rebuild-8`, by the handover tool once it exists.
 
 Open questions for Adrian: none.
 

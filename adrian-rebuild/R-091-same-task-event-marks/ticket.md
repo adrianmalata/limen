@@ -2,7 +2,8 @@
 oznacza każdy typ obiektu, który Pi 1.5.1 wypisuje w trybie RPC, jako obsługiwany albo pomijany, według źródeł
 pakietu; typ bez oznaczenia i prośba rozszerzenia, na którą Pi czeka, kończą próbę błędem z zapisanym surowym
 obiektem. Koniec przebiegu to `agent_settled`, a raport podaje definicję touchpoints i ścieżkę transkryptu. Stan:
-napisany, do implementacji przez rebuild-implementer; B.2 na seacie czeka na ten ticket. -->
+zamknięty (Adrian przyjął przebieg implementera mimo unieważnienia przez jego własną zmianę ustawień; AC-2 ocenia
+przebieg „przed zmianą” sesji głównej); B.2 na seacie może ruszyć z tym runnerem. -->
 
 # R-091 The same-task runner refuses an unmarked Pi event and states its touchpoint definition
 
@@ -145,3 +146,12 @@ none: a rebuild tool; no on-disk format of Limen changes. `result.json` gains th
 
 - 2026-11-19 (Adrian, in the day session): the two items the sources added beyond D-045 (3) stay in this ticket: the
   run's end is `agent_settled`, and a prompt answered with disposition `handled` does not wait for a run.
+- 2026-11-19 (main session, the ticket's error): AC-2's command cannot exit 0 for a test under
+  `adrian-rebuild/tools/`, because `fails-before.mjs` runs only `*.test.*` files (`fails-before.mjs:14`, `:66-69`).
+  AC-2 is judged by the main session's own before-run with the same method, as R-088's was: `git archive HEAD`
+  unpacked, the new `test-same-task.mjs` and `fake-pi-rpc.mjs` copied in, `node --test
+  adrian-rebuild/tools/test-same-task.mjs` → exit 1, tests 57, pass 42, fail 15; the three new tests that pass at
+  HEAD (HEAD passes every object on unread) are named in `outcome.md`.
+- 2026-11-19 (Adrian, in the day session): the implementer's run stands although `review-guard.mjs compare --git`
+  voided it: the only change it named was `.claude/settings.local.json` (modified at 17:48:10), where Adrian himself
+  added the one line `"Bash(node adrian-rebuild/tools/handover.mjs *)"` while the run was going, and nothing else.
