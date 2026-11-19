@@ -13,7 +13,8 @@ w R-007 i nowy snapshot po edycji w trakcie BLOCKED); w etapie 1 został R-014 (
 podsumowanie bramki 5.1; Q-8 rozstrzygnięte (D-036: `seat/deploy.ts` poza allow-listą); 19.11 w dzień D-037–D-044
 (pytania R-014: tryb, `status --all`, `movedBy`, nagłówek modułów, teksty helpu, `group wait`, wymagane flagi trasy
 `spawn`, trzecia runda poprawek) i R-014 zamknięty, więc etap 1 jest kompletny; 19.11 po południu etap 1 zamknięty
-(bramka 244/244, M-10 77,1 s, lokalny tag a0.1.0), a bramka 5.1 czeka na decyzje Adriana. -->
+(bramka 244/244, M-10 77,1 s, lokalny tag a0.1.0); decyzje bramki 5.1 to D-045 (dalej do etapu 2, ze zmianami
+linii końcowej, odmów, runnera, skryptu wdrożenia i `kind`), z dwoma otwartymi punktami: lista `next: null` i tickety. -->
 
 
 
@@ -477,6 +478,34 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   in R-023). Note 1: the shared parser's strict rule stays (a value flag given twice exits 2), `continue --label`
   included, which closes note 2 without a "last wins" exception; `outcome.md` records it as a departure from Change 2.
   Check: R-014's parser and old-name tests.
+- 2026-11-19 D-045 (Adrian, gate 5.1; amends D-022 and D-028): (1) Go on to stage 2, with no `a0.1.1`. (2) Every
+  stderr line of a refusal stays as it is. A refusal with no successor has `"next": null` in its final line, and its
+  sentence stays on stderr; the type of R-013 admits `null`, and the help line that shows the final line's shape
+  follows the type. The `jobs` defect (R-014 review round 4, note 1) goes to R-023 by D-044, with the criterion "a
+  flag present names `limen status --all`; only `limen jobs <ref>` names `limen show <ref>`" and one more: every
+  non-empty `next` of a refusal passes the shared parser and is not itself a usage error. Adrian's "six refusals with
+  no successor" took the main session's count, which was wrong: 16 of the 20 refusal lines carry a sentence or a
+  placeholder in `next`, so which of them get `null` is open (asked in the gate reply of 2026-11-19). (3) R-011's
+  choices are accepted with two additions, unless already done: (3.2) an RPC message outside the declared subset ends
+  the attempt with an error and records the raw message instead of passing it on; (3.4) the attempt's report states
+  the definition ("touchpoints = answered owner turns; questions asked while a job runs are not counted") and keeps
+  the coordinator session's transcript. At `ed7f06e` 3.2 is not done (`adrian-rebuild/tools/pi-rpc.mjs` passes every
+  other object on); of 3.4 the transcript is kept (Pi's session file in `<out>/session/`) and the definition is not
+  stated. (4) R-012's choices are accepted with one condition, unless already true: zero registries found, or a home
+  whose registry cannot be read, refuses instead of assuming that nothing runs, and the script prints the registries
+  and projects it checked. At `ed7f06e` both refusals hold (exit 4, `seat/deploy.ts` → `registeredRoots`,
+  `optionalText`); the listing does not. (5) R-013's codes, changed: (5.1) `next` is the command alone with concrete
+  values (the branch, the group id), never a placeholder, and the prose ("fix the … listed above") goes to the stderr
+  line; every non-empty `next` passes the parser. (5.2) `GITHUB_NETWORK`: `next` is the same command, because `limen
+  github doctor` checks only local settings, which are fine on a 429 or a 5xx; the limit's reset time, when GitHub
+  gives one, goes to stderr. (5.3) `group wait`'s time limit stays exit 0, an explicit `--timeout` included, and `next`
+  is `limen group wait` in the form it was called: it is a team member's normal loop, kept until R-077 (amends D-028).
+  (5.4) `UNTYPED` is class `refused`, exit 1, as today; `code` on success is `null` instead of `0` (amends D-022), so
+  that the field has one type. (6) R-014's `kind`, changed: (6.1) `rule` is `change`, since its entry covers `set` and
+  `end`, which write; (6.2) `status` and `show` are `change` while they reap dead jobs, and R-032 makes them `read`;
+  (6.3) a test: every `read` command run on a test project leaves the project's files and `.limen/` unchanged, and
+  after R-032 it passes for `status` and `show`. Open: the `null` list of (2) and the tickets that carry (2)–(6)
+  (asked in the gate reply of 2026-11-19). Check: the criteria of those tickets.
 
 ### Gate 2 §2, copied
 
@@ -1746,13 +1775,16 @@ Gate 5.1 summary (stage 1 is closed; the gate is by day, with Adrian):
 - Seat note of R-014 for the deployment: a coordinator spawn without one of `--engine`, `--provider`, `--model`,
   `--thinking` now exits 2 and names the missing flags (D-043); `LIMEN_ENGINE` no longer chooses a spawn's engine.
 
-Next: Adrian's decisions of gate 5.1 (go on, a fix or a change of the plan; the points above), recorded in
-`## Decisions`; a fix is a stage-1 ticket and the tag `a0.1.1`. Then stage 2 in a new session. On the seat, Adrian's:
+Next: Adrian's answers to the two open points of D-045; then the new tickets and notes in `## Tickets`, the dated
+addition to `taste.md` (T-37: `code` and `next` may be `null`), and stage 2 in a new session. On the seat, Adrian's:
 B.2 before a0.1.0 is deployed (B.1 was done on 2026-11-17), then `## Deployment` 1.0–1.3.
 
 Active ticket: none.
 
-Open questions for Adrian: the gate 5.1 decisions above (asked in the gate reply of 2026-11-19).
+Open questions for Adrian: Adrian answered gate 5.1 (D-045: go on to stage 2, with changes). Two points are open,
+asked on 2026-11-19: which refusals get `"next": null` (D-045 (2)), and the tickets that carry D-045 (2)–(6) (the
+main session's proposal: new R-089 for the final line, R-090 for the deployment script's listing, R-091 for the
+same-task runner, first, before B.2; additions to R-023, R-025 and R-032).
 
 Notes for the next session:
 - Start Claude Code in the repository root, so that it loads `.claude/agents/`.
