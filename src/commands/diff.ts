@@ -3,14 +3,12 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { herdrAvailable, openDiffTab } from "../integrations/herdr.ts";
 import { resolveJob } from "../job/lookup.ts";
+import type { Parsed } from "../parser.ts";
 import { limenRoot, workspaceRepository } from "../project/git.ts";
 
-export async function diffCommand(args: readonly string[], cwd: string): Promise<undefined> {
-	const query = args[0];
-	if (!query || args.length !== 1) {
-		throw new Error("diff requires exactly one job id");
-	}
-	const { id, jobDir } = await resolveJob(cwd, query, "read");
+/** `limen diff`: the change a job made against its base, in Hunk or as the git command that shows it. */
+export async function diffCommand(values: Parsed, cwd: string): Promise<undefined> {
+	const { id, jobDir } = await resolveJob(cwd, values.get("job") ?? "", "read");
 	const [base, branch, worktree, state, repo, label] = await Promise.all([
 		text(`${jobDir}/base`),
 		text(`${jobDir}/branch`),

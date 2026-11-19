@@ -4,7 +4,8 @@ import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { jobDir, limen, plant, release, spawnJob, until } from "../plant.ts";
+import { outputText } from "../../src/outcome.ts";
+import { jobDir, limen, plant, release, spawnJob, until, waitJob } from "../plant.ts";
 
 const AGENTS_TEMPLATE = fileURLToPath(new URL("../../templates/agents.md", import.meta.url));
 const STUB_TEMPLATE = fileURLToPath(new URL("../../templates/limen-extension.ts", import.meta.url));
@@ -147,4 +148,24 @@ test("limen status names a running job's note by its file, advisory", async (t) 
 	assert.equal(run.status, 0, run.stderr);
 	const line = run.stdout.split("\n").find((entry) => entry.startsWith(`  noted (${id})`)) ?? run.stdout;
 	assert.ok(line.endsWith(" · advisory: tool stall observation uncertain: CPU or process identity unavailable"), line);
+});
+
+test("limen status --all prints the summary without the 7-day window and under it one row for each job", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const old = spawnJob(p, "say old", ["--label", "old"]);
+	const recent = spawnJob(p, "say recent", ["--label", "recent"]);
+	assert.deepEqual([waitJob(p, old), waitJob(p, recent)], ["done", "done"]);
+	// A job that ended eight days ago is outside the window of the plain summary.
+	writeFileSync(join(jobDir(p, old), "finished-at"), `${new Date(Date.now() - 8 * 86_400_000).toISOString()}\n`);
+	assert.ok(limen(p, ["status"]).stdout.includes("Older: 1 record (limen status --all)"));
+	const run = limen(p, ["status", "--all"]);
+	assert.equal(run.status, 0, run.stderr);
+	const lines = outputText(run).split("\n");
+	const rows = (id: string) => lines.filter((line) => line.includes(` · id ${id} · `)).length;
+	assert.deepEqual(
+		[lines[0]?.startsWith("Plant "), lines.some((line) => line.startsWith("Older:")), lines.includes("Jobs (2):")],
+		[true, false, true],
+	);
+	assert.deepEqual([rows(old), rows(recent)], [1, 1]);
 });

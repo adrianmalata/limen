@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { jobFeatures } from "../job/job.ts";
 import { resolveJob } from "../job/lookup.ts";
+import type { Parsed } from "../parser.ts";
 import { readPicture } from "../picture/picture-build.ts";
 import { checkTickets, readTickets } from "../picture/tickets.ts";
 import {
@@ -20,14 +21,19 @@ import {
 } from "../project/git.ts";
 import { closeTickets } from "../project/lanes.ts";
 import { takenElsewhere } from "../project/series.ts";
-import { parseFlags } from "./flags.ts";
 import { deleteLandedBranches } from "./prune.ts";
 
-export async function landCommand(args: readonly string[], cwd: string): Promise<undefined> {
+/** `limen land`: merges a done job onto the checked-out branch and closes its active tickets. */
+export async function landCommand(values: Parsed, cwd: string): Promise<undefined> {
 	if (process.env.LIMEN_GROUP_ID) {
 		throw new Error("group members cannot land; the owner-facing lead owns landing");
 	}
-	const parsed = parseLandArgs(args);
+	const parsed = {
+		query: values.get("job") ?? "",
+		yes: values.has("yes"),
+		keepOpen: values.has("keep-open"),
+		onto: values.get("onto"),
+	};
 	const job = await readDoneJob(cwd, parsed.query);
 	const { id, branch, base, repo, label } = job;
 	const root = limenRoot(cwd);
@@ -347,34 +353,6 @@ function gitText(cwd: string, args: readonly string[]): string {
 
 function gitOk(cwd: string, args: readonly string[]): boolean {
 	return spawnSync("git", args, { cwd, stdio: "ignore" }).status === 0;
-}
-
-function parseLandArgs(args: readonly string[]): {
-	readonly query: string;
-	readonly yes: boolean;
-	readonly keepOpen: boolean;
-	readonly onto?: string;
-} {
-	const { values, positionals } = parseFlags(
-		args,
-		{ yes: { type: "boolean" }, "keep-open": { type: "boolean" }, onto: { type: "string" } } as const,
-		{
-			unknown: (word) => `unknown land option ${word}`,
-			missing: () => "--onto requires a branch",
-			repeated: (flag) => (flag === "--onto" ? "--onto may be supplied only once" : undefined),
-			endOfFlags: false,
-		},
-	);
-	// An empty word, such as an unset shell variable, was never a job id.
-	const [query, ...extra] = positionals.filter((word) => word !== "");
-	if (!query) {
-		throw new Error("land requires a job id");
-	}
-	if (extra.length > 0) {
-		throw new Error("land requires exactly one job id");
-	}
-	const flags = { query, yes: values.yes ?? false, keepOpen: values["keep-open"] ?? false };
-	return values.onto !== undefined ? { ...flags, onto: values.onto } : flags;
 }
 
 async function confirm(question: string): Promise<boolean> {

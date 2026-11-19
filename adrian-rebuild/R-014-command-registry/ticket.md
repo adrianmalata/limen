@@ -3,7 +3,8 @@ schemat argumentów i flag, klucze ids, handler), jeden parser ze schematu, gene
 --help` i sekcje `docs/commands.md`, nowe nazwy `status --all`, `show <job>` i `seat queue` z odmową starych form kodem
 2. Teksty helpu ustalił Adrian w trybie pair (D-037–D-041), a implementację robi `rebuild-implementer`; `group wait`
 zostaje jako polecenie wewnętrzne dla członków teamu (D-042), a `spawn` wymaga czterech flag trasy (D-043). Stan:
-aktywny (19.11), implementer wznowiony po BLOCKED. -->
+zamknięty (19.11; jeden BLOCKED, cztery recenzje PASS, trzy rundy poprawek, trzecia za zgodą Adriana, D-044). -->
+
 
 # R-014 One command registry, a shared parser and generated help
 
@@ -364,3 +365,19 @@ its name, because the seat's timer calls it until R-032.
   src/commands/seat.ts`, `git mv` of `src/commands/jobs.ts` to a job-view module under `src/job/` for the renderers, a
   new `src/commands/show.ts`, `git rm src/commands/flags.ts`, and keeper, group start and the GitHub jobs call spawn's
   handler with parsed values instead of argv.
+- 2026-11-19 (main session, review round 1, `review.md`): fix findings 1–10 and 12; finding 11 is rejected (T-38 is
+  R-023's). The implementer's move to `src/commands/seat-queue.ts` (a unique basename, `test/structure.test.ts`) and
+  the removal of `LIMEN_ENGINE` from spawn are accepted.
+- 2026-11-19 (main session, review round 2, `review.md`): fix findings 1–3 (fix round 2 of 2): the `--engine` line of
+  `templates/agents.md:88`; `limen rule --help` lists `rule set` and `rule end` again (a regression); `group start`
+  requires `--team` in its schema.
+- 2026-11-19 (Adrian): a repeatable flag carries no ` …` in a usage line (the implementer's outcome deviation 8, so
+  `group start` shows `--team <route> …` with one ellipsis).
+- 2026-11-19 (Adrian, D-044; review round 3): a third round of fixes for notes 2–5; review round 4 checks only those
+  and regressions, and there is no fifth round. Note 1: a value flag given twice exits 2 on every command, `continue
+  --label` included (note 2), recorded in `outcome.md` as a departure from Change 2. Note 5's fix has a test that
+  fails before it. Adrian named "`--help` after `--` does not ask for help"; that case already holds at `f8ac329`
+  (`flagWords` stops at `--`), so it is a regression test, and the test that fails before the fix is `--help` as a
+  flag's value (`limen continue <job> "x" --label --help` prints help today) and `limen jobs -- a1b2c3d4`, whose
+  refusal names `limen status --all` today instead of `limen show a1b2c3d4` (the main session's reading, reported to
+  Adrian).

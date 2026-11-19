@@ -3,7 +3,7 @@ import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { removedEngine } from "../old-names.ts";
+import { refuseRemovedEngine } from "../old-names.ts";
 
 export type EngineId = "pi";
 export type EngineProfile = {
@@ -39,18 +39,25 @@ export const ENGINES: { readonly [K in EngineId]: EngineProfile } = {
 		authCheck: true,
 	},
 };
+/** The engine a job record names; a removed one refuses with its line (exit code 1, T-18). */
 export function engineProfile(id: string): EngineProfile {
 	if (id === "pi") {
 		return ENGINES[id];
 	}
-	throw new Error(removedEngine(id) ?? `unknown engine ${id}`);
+	refuseRemovedEngine(id, "record");
+	throw new Error(`unknown engine ${id}`);
 }
-export function resolveSpawnEngine(flag?: string): EngineProfile {
-	const raw = (flag ?? process.env.LIMEN_ENGINE)?.trim() || "pi";
+/**
+ * The engine a command line names; a removed one is a usage error with its line (exit code 2, T-18). Spawn requires
+ * `--engine` (D-043), so no environment variable chooses it.
+ */
+export function resolveSpawnEngine(flag: string): EngineProfile {
+	const raw = flag.trim();
 	if (raw === "pi") {
 		return ENGINES[raw];
 	}
-	throw new Error(removedEngine(raw) ?? "--engine must be pi");
+	refuseRemovedEngine(raw, "argument");
+	throw new Error("--engine must be pi");
 }
 export function engineBinary(profile: EngineProfile): string {
 	return process.env[profile.binaryEnv] ?? profile.binaryDefault;
@@ -58,9 +65,12 @@ export function engineBinary(profile: EngineProfile): string {
 export async function jobProfile(jobDir: string): Promise<EngineProfile> {
 	return engineProfile((await readFile(`${jobDir}/engine`, "utf8").catch(() => "pi")).trim() || "pi");
 }
-// Package fallback when neither --model nor the role's environment variable names a model.
-export function defaultModel(review: boolean): string {
-	return process.env[review ? "LIMEN_REVIEWER_MODEL" : "LIMEN_WORKER_MODEL"]?.trim() || "openai-codex/gpt-6-astra:high";
+/**
+ * The model of a continuation without `--model`: `LIMEN_WORKER_MODEL`, else a package default. Spawn requires
+ * `--model` and has no fallback (D-043); R-062 moves the route to an owner file.
+ */
+export function defaultModel(): string {
+	return process.env.LIMEN_WORKER_MODEL?.trim() || "openai-codex/gpt-6-astra:high";
 }
 export function preflightEngine(profile: EngineProfile, model?: string, provider?: string): void {
 	const route = engineRoute(provider, model);

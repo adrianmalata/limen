@@ -6,18 +6,19 @@ import { join } from "node:path";
 import { readRun } from "../job/group-cabinet.ts";
 import { resolveJob } from "../job/lookup.ts";
 import type { Success } from "../outcome.ts";
+import type { Parsed } from "../parser.ts";
 import { branchCommit, branchExists, commitHasFile, limenRoot, workspaceRepository } from "../project/git.ts";
 import { ownerAlive } from "../runtime/reap.ts";
-import { parseFlags } from "./flags.ts";
 import { landTicketCheck, TICKET_PATH } from "./land.ts";
-import { spawnCommand } from "./spawn.ts";
+import { startSpawn } from "./spawn.ts";
 
+type Route = { readonly engine: string; readonly provider: string; readonly model: string; readonly thinking: string };
 type KeeperOptions = {
 	readonly ticket: string;
 	readonly jobs: readonly string[];
 	readonly candidate?: string;
 	readonly group?: string;
-	readonly route: readonly string[];
+	readonly route: Route;
 	readonly timeout: string;
 };
 
@@ -29,31 +30,19 @@ type KeeperJob = {
 	readonly repo: string;
 };
 
-// Every keeper flag takes a value. `--job` may repeat.
-const FLAGS = {
-	job: { type: "string", multiple: true },
-	candidate: { type: "string" },
-	group: { type: "string" },
-	timeout: { type: "string", default: "20m" },
-	engine: { type: "string" },
-	provider: { type: "string" },
-	model: { type: "string" },
-	thinking: { type: "string" },
-} as const;
-
-const ROUTE = ["engine", "provider", "model", "thinking"] as const;
+const DEFAULT_TIMEOUT = "20m";
 
 /**
  * After the work: a short job on its own branch at the candidate tip fixes the ticket, board and map links. Its
  * success is the keeper job's start, which `main` reports once.
  */
-export async function keeperCommand(args: readonly string[], cwd: string): Promise<Success> {
+export async function keeperCommand(values: Parsed, cwd: string): Promise<Success> {
 	if (process.env.LIMEN_GROUP_ID) {
 		throw new Error(
 			"group members cannot start a keeper; the owner-facing lead starts one after it merges the team branches",
 		);
 	}
-	const options = parseKeeperArgs(args);
+	const options = keeperOptions(values);
 	const code = TICKET_PATH.exec(options.ticket)?.[1];
 	if (!code) {
 		throw new Error(`keeper needs a ticket path like spec/features/active/FNNN-slug/ticket.md, not ${options.ticket}`);
@@ -108,14 +97,17 @@ export async function keeperCommand(args: readonly string[], cwd: string): Promi
 	try {
 		const packetFile = `${scratch}/task.md`;
 		await writeFile(packetFile, packet);
-		const repo = first.repo ? ["--repo", first.repo] : [];
-		const label = `spec keeper · ${code}`;
-		return await spawnCommand(
-			[
+		return await startSpawn(
+			{
+				task: [],
 				...options.route,
-				...["--role", "keeper", "--detached", "--branch", keeperBranch, "--timeout", options.timeout],
-				...["--label", label, "--task-file", packetFile, ...repo],
-			],
+				role: "keeper",
+				branch: keeperBranch,
+				timeout: options.timeout,
+				label: `spec keeper · ${code}`,
+				taskFile: packetFile,
+				repo: first.repo || undefined,
+			},
 			cwd,
 		);
 	} catch (error) {
@@ -126,34 +118,25 @@ export async function keeperCommand(args: readonly string[], cwd: string): Promi
 	}
 }
 
-function parseKeeperArgs(args: readonly string[]): KeeperOptions {
-	const { values, positionals } = parseFlags(args, FLAGS, {
-		unknown: (word) => `unknown keeper option ${word}`,
-		missing: (flag) => `${flag} requires a value`,
-	});
-	const [ticket, ...extra] = positionals;
-	if (!ticket || extra.length > 0) {
-		throw new Error("keeper requires exactly one <ticket-path>");
-	}
-	const jobs = values.job ?? [];
-	if (jobs.length === 0 && !values.group) {
+function keeperOptions(values: Parsed): KeeperOptions {
+	const jobs = values.list("job");
+	const group = values.get("group");
+	if (jobs.length === 0 && !group) {
 		throw new Error("keeper requires --job ID or --group GROUP-ID");
 	}
-	const route: string[] = [];
-	for (const name of ROUTE) {
-		const value = values[name];
-		if (!value) {
-			throw new Error(`keeper requires --engine --provider --model --thinking; missing --${name}`);
-		}
-		route.push(`--${name}`, value);
-	}
+	const candidate = values.get("candidate");
 	return {
-		ticket,
+		ticket: values.get("ticket") ?? "",
 		jobs,
-		route,
-		timeout: values.timeout,
-		...(values.candidate ? { candidate: values.candidate } : {}),
-		...(values.group ? { group: values.group } : {}),
+		route: {
+			engine: values.get("engine") ?? "",
+			provider: values.get("provider") ?? "",
+			model: values.get("model") ?? "",
+			thinking: values.get("thinking") ?? "",
+		},
+		timeout: values.get("timeout") ?? DEFAULT_TIMEOUT,
+		...(candidate ? { candidate } : {}),
+		...(group ? { group } : {}),
 	};
 }
 

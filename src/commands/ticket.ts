@@ -2,54 +2,27 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { removedCommand } from "../old-names.ts";
 import { LimenError, type Success } from "../outcome.ts";
+import type { Parsed } from "../parser.ts";
 import { readPicture } from "../picture/picture-build.ts";
 import { ID_PATTERN } from "../picture/picture-model.ts";
 import { currentBranch, limenRoot, repoRoot } from "../project/git.ts";
 import { closeTickets } from "../project/lanes.ts";
 import { withNextTicketCode } from "../project/series.ts";
-import { parseFlags } from "./flags.ts";
 import { landTicketCheck } from "./land.ts";
 
-const HELP = [
-	'limen ticket new "what becomes true" [--lane planned|active] [--touches id,id]',
-	"limen ticket check [BRANCH]  # the land gate for tickets BRANCH adds or changes against the plant branch; default: this checkout's branch",
-	"limen ticket done FNNN [FNNN ...] [--on YYYY-MM-DD]  # landed without limen land: move the active ticket to done/ with its landed date (default today); NOW and PROVEN follow",
-].join("\n");
 const PLACE_ID = ID_PATTERN;
 
-export async function ticketCommand(args: readonly string[], cwd: string): Promise<Success | undefined> {
-	// A removed subcommand gets its removal line, not the usage below; `ticket` itself is a registered command.
-	const removed = removedCommand(`ticket ${args[0] ?? ""}`);
-	if (removed) {
-		throw new Error(removed);
+/** `limen ticket new`: writes a ticket with the next free number; its success names it in `ids.ticket`. */
+export async function ticketNewCommand(values: Parsed, cwd: string): Promise<Success> {
+	const title = values.get("title") ?? "";
+	if (/[\r\n]/.test(title) || !title.trim()) {
+		throw new Error("a ticket's title is one line that says what becomes true");
 	}
-	if (args[0] === "check") {
-		return ticketCheck(args.slice(1), cwd);
-	}
-	if (args[0] === "done") {
-		return ticketDone(args.slice(1), cwd);
-	}
-	const [mode, title, ...options] = args;
-	if (mode !== "new" || !title || title.startsWith("--") || /[\r\n]/.test(title) || !title.trim()) {
-		throw new Error(HELP);
-	}
-	const help = () => HELP;
-	const { values } = parseFlags(options, { lane: { type: "string" }, touches: { type: "string" } } as const, {
-		unknown: help,
-		missing: help,
-		repeated: help,
-		positionals: false,
-		endOfFlags: false,
-	});
-	if (values.lane !== undefined && values.lane !== "planned" && values.lane !== "active") {
-		throw new Error(HELP);
-	}
-	const lane = values.lane ?? "planned";
-	const touches = values.touches?.split(",") ?? [];
+	const lane = values.get("lane") ?? "planned";
+	const touches = values.get("touches")?.split(",") ?? [];
 	if (!touches.every((id) => PLACE_ID.test(id)) || new Set(touches).size !== touches.length) {
-		throw new Error(HELP);
+		throw new Error("--touches takes map module ids joined by commas, each once");
 	}
 	const slug = title
 		.toLowerCase()
@@ -57,7 +30,7 @@ export async function ticketCommand(args: readonly string[], cwd: string): Promi
 		.replace(/[^a-z0-9]+/g, "-")
 		.replace(/^-|-$/g, "");
 	if (!slug) {
-		throw new Error(HELP);
+		throw new Error("a ticket's title needs a letter or a digit, for the name of its folder");
 	}
 	const root = repoRoot(cwd);
 	const plant = process.env.LIMEN_CONTEXT_ROOT ?? root;
@@ -110,18 +83,12 @@ export async function ticketCommand(args: readonly string[], cwd: string): Promi
 	return { next: "", ids: { ticket: written.code } };
 }
 
-/** The close `limen land` makes, for work that landed by a hand merge or needed no code. */
-async function ticketDone(args: readonly string[], cwd: string): Promise<undefined> {
-	const help = () => HELP;
-	const { values, positionals: codes } = parseFlags(args, { on: { type: "string" } } as const, {
-		unknown: help,
-		missing: help,
-		repeated: help,
-		endOfFlags: false,
-	});
-	const on = values.on;
-	if (codes.length === 0 || !codes.every((code) => /^F\d+$/i.test(code)) || (on && !/^\d{4}-\d\d-\d\d$/.test(on))) {
-		throw new Error(HELP);
+/** `limen ticket done`: the close `limen land` makes, for work that landed by a hand merge or needed no code. */
+export async function ticketDoneCommand(values: Parsed, cwd: string): Promise<undefined> {
+	const codes = values.list("tickets");
+	const on = values.get("on");
+	if (on && !/^\d{4}-\d\d-\d\d$/.test(on)) {
+		throw new Error("--on takes the landed date as YYYY-MM-DD");
 	}
 	const root = limenRoot(cwd);
 	const closed = await (on ? closeTickets(root, codes, `landed ${on}`, on) : closeTickets(root, codes, "landed"));
@@ -135,17 +102,18 @@ async function ticketDone(args: readonly string[], cwd: string): Promise<undefin
 }
 
 /**
- * The land gate on demand, so a hand merge or a keeper can check a branch before it reaches the plant branch. A failing
- * ticket is a refusal (D-028): its lines go to stderr, then the refusal that `main` ends with.
+ * `limen ticket check`: the land gate on demand, so a hand merge or a keeper can check a branch before it reaches the
+ * plant branch. A failing ticket is a refusal (D-028): its lines go to stderr, then the refusal that `main` ends with.
  */
-async function ticketCheck(args: readonly string[], cwd: string): Promise<undefined> {
-	if (args.length > 1 || args[0]?.startsWith("-")) {
-		throw new Error(HELP);
+export async function ticketCheckCommand(values: Parsed, cwd: string): Promise<undefined> {
+	const named = values.get("branch");
+	if (named?.startsWith("-")) {
+		throw new Error(`a branch name does not start with -: ${named}`);
 	}
 	const repository = repoRoot(cwd);
 	const plant = process.env.LIMEN_CONTEXT_ROOT ?? limenRoot(cwd);
 	const target = currentBranch(plant);
-	const branch = args[0] ?? currentBranch(repository);
+	const branch = named ?? currentBranch(repository);
 	if (branch === target) {
 		throw new Error(
 			`ticket check compares a branch with ${target}; name the branch to check: limen ticket check BRANCH`,

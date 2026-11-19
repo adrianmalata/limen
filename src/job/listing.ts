@@ -1,212 +1,21 @@
+// One job's record read from its folder, as the row of `limen status --all` and the detail of `limen show`, and the
+// order of a project's jobs. The views read the job files and write nothing.
 import type { Stats } from "node:fs";
-import { open, readdir, readFile, stat } from "node:fs/promises";
-import { derivePulse, type Job, type Pulse, parseJob, producedNothing, renderJob } from "../job/job.ts";
-import { resolveJob } from "../job/lookup.ts";
-import { modelLine, readSessionUsage, tokenLine } from "../job/usage.ts";
-import {
-	colorWanted,
-	humanDetail,
-	humanSnapshot,
-	type JobRecord,
-	type Paint,
-	paintWhen,
-	resolveView,
-	tallyStates,
-} from "../job/view.ts";
-import { limenRoot, liveDiffstat, workspaceRepository } from "../project/git.ts";
-import { confirmDeadJobs, ownerAlive, startingJob } from "../runtime/reap.ts";
+import { open, readFile, stat } from "node:fs/promises";
+import { liveDiffstat, workspaceRepository } from "../project/git.ts";
+import { ownerAlive, startingJob } from "../runtime/reap.ts";
 import { queuedText, readQueued } from "../runtime/start-queue.ts";
+import { derivePulse, type Job, type Pulse, parseJob, producedNothing, renderJob } from "./job.ts";
+import { modelLine, readSessionUsage, tokenLine } from "./usage.ts";
+import type { JobRecord } from "./view.ts";
 
+/** The window of `limen status`: a job that ended longer ago counts under Older. */
 export const RECENT_MS = 7 * 24 * 60 * 60 * 1000;
-const HUMAN_TERMINAL_ROWS = 6;
 
-type Selection = "snapshot" | "running" | "all" | { readonly prefix: string } | { readonly detail: string };
+/** The jobs as id, shown state and start time: running jobs first, then the newest. */
 type Ordered = ReadonlyArray<readonly [string, string, string]>;
 
-export async function jobsCommand(args: readonly string[], cwd: string): Promise<undefined> {
-	const selection = parseJobsArgs(args);
-	const tty = process.stdout.isTTY === true;
-	const human = resolveView(process.env.LIMEN_VIEW, tty) === "human";
-	const paint = paintWhen(human && colorWanted(tty, process.env.NO_COLOR, process.env.TERM));
-	const root = limenRoot(cwd),
-		jobsRoot = `${root}/.limen/jobs`;
-	await confirmDeadJobs(jobsRoot);
-	const entries = await readdir(jobsRoot, { withFileTypes: true }).catch((error: unknown) => {
-		if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
-			return [];
-		}
-		throw error;
-	});
-	if (typeof selection === "object" && "detail" in selection) {
-		const { id } = await resolveJob(cwd, selection.detail, "read");
-		const loaded = await renderJobDirectory(root, jobsRoot, id, "detail");
-		console.log(human ? humanDetail(loaded.record, paint) : loaded.compact);
-		return;
-	}
-	const ids = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
-	if (ids.length === 0) {
-		console.log("no jobs");
-		return;
-	}
-	const order = await orderedJobs(ids, jobsRoot);
-	if (typeof selection === "object") {
-		await printLabelledJobs(root, jobsRoot, order, selection.prefix, human ? paint : undefined);
-		return;
-	}
-	if (human) {
-		await printHumanJobs(root, jobsRoot, order, selection, paint);
-		return;
-	}
-	if (selection === "all") {
-		console.log(
-			(
-				await Promise.all(order.map(async ([id]) => (await renderJobDirectory(root, jobsRoot, id, "detail")).compact))
-			).join("\n\n"),
-		);
-		return;
-	}
-	await printJobRows(root, jobsRoot, order, selection);
-}
-/** Every job whose label, or id when it has none, starts with the prefix. A paint means the human view. */
-async function printLabelledJobs(
-	root: string,
-	jobsRoot: string,
-	order: Ordered,
-	prefix: string,
-	paint: Paint | undefined,
-): Promise<void> {
-	const labels = await Promise.all(order.map(([id]) => text(`${jobsRoot}/${id}/label`)));
-	const listed = order.filter(([id], index) => (labels[index] || id).startsWith(prefix));
-	if (listed.length === 0) {
-		console.log("nothing matched");
-		return;
-	}
-	const loaded = await Promise.all(
-		listed.map(([id]) => renderJobDirectory(root, jobsRoot, id, paint ? "human" : "row")),
-	);
-	if (paint) {
-		console.log(
-			humanSnapshot(
-				loaded.map((item) => item.record),
-				tallyStates(listed.map(([, state]) => state)),
-				false,
-				paint,
-			),
-		);
-		return;
-	}
-	console.log(loaded.map((item) => item.compact).join("\n"));
-}
-/** The human board: running jobs first, then the latest terminal jobs unless the selection asks for all or running. */
-async function printHumanJobs(
-	root: string,
-	jobsRoot: string,
-	order: Ordered,
-	selection: "snapshot" | "running" | "all",
-	paint: Paint,
-): Promise<void> {
-	const running = order.filter(([, state]) => state === "running");
-	const terminal = order.filter(([, state]) => state !== "running");
-	const shown =
-		selection === "all"
-			? order
-			: selection === "running"
-				? running
-				: [...running, ...terminal.slice(0, HUMAN_TERMINAL_ROWS)];
-	if (shown.length === 0) {
-		console.log("no running jobs");
-		return;
-	}
-	const records = await Promise.all(
-		shown.map(async ([id]) => (await renderJobDirectory(root, jobsRoot, id, "human")).record),
-	);
-	console.log(
-		humanSnapshot(
-			records,
-			tallyStates(order.map(([, state]) => state)),
-			selection === "snapshot" && terminal.length > HUMAN_TERMINAL_ROWS,
-			paint,
-		),
-	);
-}
-/** Running job rows; the snapshot adds recent jobs that produced nothing and counts what it hides. */
-async function printJobRows(
-	root: string,
-	jobsRoot: string,
-	order: Ordered,
-	selection: "snapshot" | "running",
-): Promise<void> {
-	const running = order.filter(([, state]) => state === "running");
-	const rendered = await Promise.all(
-		running.map(async ([id]) => (await renderJobDirectory(root, jobsRoot, id, "row")).compact),
-	);
-	if (selection !== "snapshot") {
-		console.log(rendered.length ? rendered.join("\n") : "no running jobs");
-		return;
-	}
-	const terminal = order.filter(([, state]) => state !== "running");
-	const observed = await Promise.all(
-		terminal.map(async (entry) => ({
-			entry,
-			empty: !entry[1] || (await jobProducedNothing(`${jobsRoot}/${entry[0]}`)),
-		})),
-	);
-	const empty = observed.filter(({ empty }) => empty).map(({ entry }) => entry);
-	const now = Date.now();
-	const recent = await Promise.all(
-		empty.map(async ([id, state]) => !state || now - (await finishedAt(`${jobsRoot}/${id}`)) <= RECENT_MS),
-	);
-	const shown = empty.filter((_, index) => recent[index]);
-	const emptyRendered = await Promise.all(
-		shown.map(async ([id]) => (await renderJobDirectory(root, jobsRoot, id, "row")).compact),
-	);
-	const lines = [...rendered, ...emptyRendered];
-	if (!lines.length) {
-		lines.push("no running jobs");
-	}
-	const hiddenCount = terminal.length - empty.length;
-	if (hiddenCount) {
-		lines.push(
-			`${hiddenCount} terminal ${hiddenCount === 1 ? "job" : "jobs"} hidden · use limen jobs --all or limen jobs <id> for detail`,
-		);
-	}
-	const olderCount = empty.length - shown.length;
-	if (olderCount) {
-		lines.push(`${olderCount} older empty ${olderCount === 1 ? "job" : "jobs"} hidden`);
-	}
-	console.log(lines.join("\n"));
-}
-async function finishedAt(jobDir: string): Promise<number> {
-	return Date.parse(await text(`${jobDir}/finished-at`)) || (await optionalStat(`${jobDir}/state`))?.mtimeMs || 0;
-}
-function parseJobsArgs(args: readonly string[]): Selection {
-	if (args[0] === "--label") {
-		if (args.length !== 2 || !args[1] || args[1].startsWith("--")) {
-			throw new Error("jobs --label requires a prefix");
-		}
-		return { prefix: args[1] };
-	}
-	if (args.length > 1) {
-		throw new Error(
-			"jobs accepts no argument, --running, --active, --all, --label <prefix>, or one job id, suffix, or label",
-		);
-	}
-	const arg = args[0];
-	if (!arg) {
-		return "snapshot";
-	}
-	if (arg === "--running" || arg === "--active") {
-		return "running";
-	}
-	if (arg === "--all") {
-		return "all";
-	}
-	if (arg.startsWith("--")) {
-		throw new Error(`unknown jobs option ${JSON.stringify(arg)}`);
-	}
-	return { detail: arg };
-}
-async function orderedJobs(ids: readonly string[], jobsRoot: string): Promise<Ordered> {
+export async function orderedJobs(ids: readonly string[], jobsRoot: string): Promise<Ordered> {
 	// A job its live spawner is still setting up lists as running, with pulse `starting`.
 	const order = await Promise.all(
 		ids.map(
@@ -529,21 +338,6 @@ function stopSummary(line: string): string {
 /** Row and human views cut long values; the detail view shows them whole. */
 function displayed(value: string, detailed: boolean): string {
 	return detailed || value.length <= 160 ? value : `${value.slice(0, 159)}…`;
-}
-async function jobProducedNothing(jobDir: string): Promise<boolean> {
-	const [toolCalls, commits, commitsStat] = await Promise.all([
-		text(`${jobDir}/tool-calls`),
-		text(`${jobDir}/commits`),
-		optionalStat(`${jobDir}/commits`),
-	]);
-	if (!toolCalls || !commitsStat) {
-		return false;
-	}
-	try {
-		return producedNothing(recordedCount(toolCalls), commits);
-	} catch {
-		return false;
-	}
 }
 function indented(name: string, body: string): string {
 	return `  ${name}:\n${body

@@ -64,7 +64,7 @@ type NewJob = {
 	readonly engine: EngineId;
 	/** The start-queue order: 1 is the most urgent. */
 	readonly priority?: number;
-	/** The model the spawner asked for, compared with the served model in `limen jobs <id>`. */
+	/** The model the spawner asked for, compared with the served model in `limen show <id>`. */
 	readonly model?: string;
 	readonly extensions?: readonly string[];
 	readonly repo?: string;

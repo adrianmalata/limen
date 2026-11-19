@@ -1,6 +1,7 @@
 import { access, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { resolveJob } from "../job/lookup.ts";
 import { atomicWrite } from "../job/record.ts";
+import type { Parsed } from "../parser.ts";
 import { limenRoot } from "../project/git.ts";
 import { currentNotificationSession, herdrWakePane } from "./spawn.ts";
 
@@ -10,21 +11,23 @@ import { currentNotificationSession, herdrWakePane } from "./spawn.ts";
  */
 export type WakeRoute = { readonly session: string } | { readonly pane: string };
 
-export const watchCommand = (args: readonly string[], cwd: string): Promise<undefined> =>
-	changeSubscriptions(args, cwd, true);
-export const unwatchCommand = (args: readonly string[], cwd: string): Promise<undefined> =>
-	changeSubscriptions(args, cwd, false);
-async function changeSubscriptions(args: readonly string[], cwd: string, watching: boolean): Promise<undefined> {
-	const next = watching ? "follow the job with `limen jobs <id>` instead" : "it watches nothing";
+/** `limen watch`: this coordinator gets the job's wake, or the wakes of every job running now with `--running`. */
+export function watchCommand(values: Parsed, cwd: string): Promise<undefined> {
+	return changeSubscriptions(values.has("running") ? undefined : values.get("job"), cwd, true);
+}
+/** `limen unwatch`: this coordinator stops getting the job's wake, or every job's with `--all`. */
+export function unwatchCommand(values: Parsed, cwd: string): Promise<undefined> {
+	return changeSubscriptions(values.has("all") ? undefined : values.get("job"), cwd, false);
+}
+/** Subscribes or unsubscribes one job, or every job when `query` is undefined. */
+async function changeSubscriptions(query: string | undefined, cwd: string, watching: boolean): Promise<undefined> {
+	const next = watching ? "follow the job with `limen show <id>` instead" : "it watches nothing";
 	const route = coordinatorWakeRoute(watching ? "watch" : "unwatch", next);
-	const bulk = args.length === 1 && args[0] === (watching ? "--running" : "--all");
-	if (!bulk && args.length !== 1) {
-		throw new Error(`${watching ? "watch" : "unwatch"} requires one job${watching ? " or --running" : " or --all"}`);
-	}
+	const bulk = query === undefined;
 	const root = limenRoot(cwd);
 	const jobs = bulk
 		? await jobDirectories(`${root}/.limen/jobs`, watching)
-		: [(await resolveJob(cwd, args[0] ?? "", "control")).jobDir];
+		: [(await resolveJob(cwd, query, "control")).jobDir];
 	for (const job of jobs) {
 		await setSubscription(job, route, watching);
 	}
@@ -37,7 +40,7 @@ async function changeSubscriptions(args: readonly string[], cwd: string, watchin
 	const state = await text(`${named}/state`);
 	const id = named.split("/").at(-1);
 	if (state && state !== "running") {
-		console.log(`${id} already ${state}; no wake will follow, so read \`limen jobs ${id}\``);
+		console.log(`${id} already ${state}; no wake will follow, so read \`limen show ${id}\``);
 	}
 }
 /** The route that wakes this shell's coordinator. Without one, `next` names what works instead. */

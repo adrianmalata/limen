@@ -32,7 +32,7 @@ ntfy is the fallback when Moshi is not in play:
 2. Copy `bell.sh` onto the box. `chmod +x`.
 3. Drop-in for `limen-bell.service`: `User`, `LIMEN_ROOT` (the project that contains `.limen`), `NTFY_TOPIC`, `ExecStart` → that script.
 4. `systemctl enable --now limen-bell.timer`
-5. `limen spawn --detached "echo seat-smoke && exit"` from the project. Close the SSH session. Phone should ring. `cat .limen/jobs/<id>/notify/bell` exists. Re-run the script: no second ping.
+5. `limen spawn --detached --engine pi --provider <provider> --model <model> --thinking <level> "echo seat-smoke && exit"` from the project. Close the SSH session. Phone should ring. `cat .limen/jobs/<id>/notify/bell` exists. Re-run the script: no second ping.
 
 ## Pi extensions
 
@@ -64,7 +64,7 @@ Preview: on the seat, bind the app to `127.0.0.1`, then `tailscale serve 3000`. 
 ## Prove, in this order
 
 1. Detached job finishes with the lid closed; phone rings; `state` on the box is `done`.
-2. `herdr --remote` → `limen jobs` shows that same id.
+2. `herdr --remote` → `limen status` shows that same id.
 3. Preview URL opens on the Mac. No `git pull`.
 
 If 1 fails, do not move the coordinator. If 1–3 work, the laptop is a window from then on.

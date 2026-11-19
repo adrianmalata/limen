@@ -368,7 +368,7 @@ async function reconcile(root: string, state: string, claim: GithubClaim, token:
 		claim,
 		token,
 		"start",
-		`Limen started a ${found.review ? "review" : "task"} for ${githubSubject(claim)}${found.review ? ` at pinned head \`${claim.head}\` against base \`${claim.base}\`` : " from the registered repository"}. Job: \`${found.id}\`; branch: \`${found.branch}\`. On its owning seat: \`limen jobs ${found.id}\`. This is not an approval.`,
+		`Limen started a ${found.review ? "review" : "task"} for ${githubSubject(claim)}${found.review ? ` at pinned head \`${claim.head}\` against base \`${claim.base}\`` : " from the registered repository"}. Job: \`${found.id}\`; branch: \`${found.branch}\`. On its owning seat: \`limen show ${found.id}\`. This is not an approval.`,
 	);
 	if (!found.state || found.state === "running") {
 		return;
@@ -388,7 +388,7 @@ async function reconcile(root: string, state: string, claim: GithubClaim, token:
 		claim,
 		token,
 		"terminal",
-		`Limen ${found.review ? "review" : "task"} job \`${found.id}\` ended with state **${found.state}**. This is job termination, not review approval or a merge.\n\nRecorded evidence/result:\n\n\`\`\`text\n${evidence.replaceAll("```", "''' ")}\n\`\`\`\n\nInspect on the owning seat: \`limen jobs ${found.id}\`.`,
+		`Limen ${found.review ? "review" : "task"} job \`${found.id}\` ended with state **${found.state}**. This is job termination, not review approval or a merge.\n\nRecorded evidence/result:\n\n\`\`\`text\n${evidence.replaceAll("```", "''' ")}\n\`\`\`\n\nInspect on the owning seat: \`limen show ${found.id}\`.`,
 	);
 }
 

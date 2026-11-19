@@ -17,8 +17,8 @@ import { isTerminal, makeJobId, parseDuration } from "../job/job.ts";
 import { resolveJob } from "../job/lookup.ts";
 import { publishJob } from "../job/publication.ts";
 import { atomicWrite, finalizeJob } from "../job/record.ts";
-import { refuseRemovedFlags } from "../old-names.ts";
 import { JOB_STARTED, type Success } from "../outcome.ts";
+import type { Parsed } from "../parser.ts";
 import {
 	addBranchWorktree,
 	branchCommit,
@@ -40,7 +40,6 @@ import {
 import { jobPriority, parsePriority, queuedLine } from "../runtime/start-queue.ts";
 import { normalizeWorkerExtensions, readWorkerExtensions } from "../runtime/worker-extensions.ts";
 import { launchWrapper } from "../runtime/wrapper.ts";
-import { parseFlags } from "./flags.ts";
 import {
 	capturedVersions,
 	currentNotificationSession,
@@ -51,11 +50,45 @@ import {
 } from "./spawn.ts";
 
 /**
+ * A continuation as its flags give it, before any check: the handler reads it from the command line, and the group
+ * round driver builds it itself (T-26).
+ */
+export type ContinueRequest = {
+	readonly query: string;
+	readonly instruction: readonly string[];
+	readonly label?: string | undefined;
+	readonly engine?: string | undefined;
+	readonly provider?: string | undefined;
+	readonly model?: string | undefined;
+	readonly thinking?: string | undefined;
+	readonly timeout?: string | undefined;
+	readonly priority?: string | undefined;
+	readonly extensions?: readonly string[] | undefined;
+};
+/** `limen continue`: resumes a finished job from the command line. */
+export function continueCommand(values: Parsed, cwd: string): Promise<Success> {
+	return startContinue(
+		{
+			query: values.get("job") ?? "",
+			instruction: values.list("instruction"),
+			label: values.get("label"),
+			engine: values.get("engine"),
+			provider: values.get("provider"),
+			model: values.get("model"),
+			thinking: values.get("thinking"),
+			timeout: values.get("timeout"),
+			priority: values.get("priority"),
+			extensions: values.list("extension"),
+		},
+		cwd,
+	);
+}
+/**
  * Resume a finished job's own engine session; restore a pruned checkout from its branch.
  * `round` is set only by the group round driver, which holds the launch lock and continues a team's own job.
  */
-export async function continueCommand(args: readonly string[], cwd: string, round?: number): Promise<Success> {
-	const id = await continueJob(args, cwd, round !== undefined, round);
+export async function startContinue(request: ContinueRequest, cwd: string, round?: number): Promise<Success> {
+	const id = await continueJob(request, cwd, round !== undefined, round);
 	return { next: JOB_STARTED, ids: { job: id } };
 }
 type ContinueOptions = {
@@ -70,52 +103,23 @@ type ContinueOptions = {
 	readonly query: string;
 	readonly instruction: string;
 };
-function parseContinueArgs(args: readonly string[]): ContinueOptions {
-	const { values, positionals } = parseFlags(
-		args,
-		{
-			// Removed: refused after parsing (src/old-names.ts).
-			review: { type: "boolean" },
-			tab: { type: "boolean" },
-			// Every job is detached; the flag stays accepted and changes nothing.
-			detached: { type: "boolean" },
-			// Every label is checked, the last one is used.
-			label: { type: "string", multiple: true },
-			model: { type: "string" },
-			provider: { type: "string" },
-			thinking: { type: "string" },
-			engine: { type: "string" },
-			timeout: { type: "string" },
-			priority: { type: "string" },
-			extension: { type: "string", multiple: true },
-		} as const,
-		{
-			unknown: (word) => `unknown continue option ${word}`,
-			missing: (flag) => `${flag} requires a value`,
-			dashValues: ["label", "model", "provider", "thinking", "engine", "timeout", "priority"],
-			endOfFlags: false,
-		},
-	);
-	refuseRemovedFlags("continue", values);
-	const label = values.label?.map(normalizeLabel).at(-1);
-	// An empty word, such as an unset shell variable, is dropped.
-	const [query, ...words] = positionals.filter((word) => word !== "");
-	const instruction = words.join(" ").trim();
-	if (!query || !instruction) {
+/** The checked options of a continuation; a value that does not hold refuses before any job record exists. */
+function continueOptions(request: ContinueRequest): ContinueOptions {
+	const label = request.label === undefined ? undefined : normalizeLabel(request.label);
+	const instruction = request.instruction.join(" ").trim();
+	if (!request.query || !instruction) {
 		throw new Error('continue requires <id|suffix|label> "follow-up instruction"');
 	}
-	const { model, provider, thinking } = values;
-	const engine = values.engine?.trim();
 	return {
 		label,
-		model,
-		provider,
-		thinking,
-		engine,
-		timeoutMs: values.timeout === undefined ? undefined : parseDuration(values.timeout),
-		priority: parsePriority(values.priority),
-		selected: values.extension ?? [],
-		query,
+		model: request.model,
+		provider: request.provider,
+		thinking: request.thinking,
+		engine: request.engine?.trim(),
+		timeoutMs: request.timeout === undefined ? undefined : parseDuration(request.timeout),
+		priority: parsePriority(request.priority),
+		selected: request.extensions ?? [],
+		query: request.query,
 		instruction,
 	};
 }
@@ -161,10 +165,10 @@ type Continuation = {
 	readonly timeoutMs: number | undefined;
 };
 /** Publishes and starts the continuation; returns its job id. */
-async function continueJob(args: readonly string[], cwd: string, locked = false, round?: number): Promise<string> {
-	const options = parseContinueArgs(args);
+async function continueJob(request: ContinueRequest, cwd: string, locked = false, round?: number): Promise<string> {
+	const options = continueOptions(request);
 	const { label, model, provider, thinking } = options;
-	const chosenModel = model ?? defaultModel(false);
+	const chosenModel = model ?? defaultModel();
 
 	// A job that continues from its own worktree resolves jobs in its canonical root.
 	const inherited = workspaceRoot(cwd) ? undefined : inheritedPlanning(repoRoot(cwd));
@@ -174,7 +178,7 @@ async function continueJob(args: readonly string[], cwd: string, locked = false,
 	if (membership) {
 		await checkGroupContinuation(membership, cwd, options, round);
 		if (!locked) {
-			return groupLock(`${groupPath(membership.run)}/launch`, () => continueJob(args, cwd, true), "wait");
+			return groupLock(`${groupPath(membership.run)}/launch`, () => continueJob(request, cwd, true), "wait");
 		}
 	}
 	const parent = await readParentJob(root, parentId, parentDir, membership, options.engine);
@@ -185,7 +189,7 @@ async function continueJob(args: readonly string[], cwd: string, locked = false,
 	const id = makeJobId(finalLabel);
 	const jobDir = `${root}/.limen/jobs/${id}`;
 	const role = (await text(`${parentDir}/role`)) || "worker";
-	const preamble = resolvePreamble(root, role);
+	const preamble = resolvePreamble(root, role, "record");
 	const slot = round === undefined ? "worker" : "coordinator";
 	const member = membership?.member
 		? await claimMember(membership.run, membership.member.team, slot, id, parentId, round)

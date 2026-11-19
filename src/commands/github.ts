@@ -25,9 +25,10 @@ import {
 } from "../integrations/github-review.ts";
 import { herdrBinary } from "../integrations/herdr.ts";
 import { JOB_STARTED, type Success } from "../outcome.ts";
+import type { Parsed } from "../parser.ts";
 import { repoRoot } from "../project/git.ts";
 import { githubDoctor } from "./github-doctor.ts";
-import { spawnCommand } from "./spawn.ts";
+import { startSpawn } from "./spawn.ts";
 
 // A worker shares its Unix identity with its coordinator. Neither may be able to sudo into the App user.
 export function assertUnprivileged(): void {
@@ -72,48 +73,66 @@ export async function ensureGithubCoordinator(root: string): Promise<GithubBindi
 	return binding; // Herdr done is an idle, interactive agent, not a dead pane.
 }
 
-export async function githubCommand(args: readonly string[], cwd: string): Promise<Success | undefined> {
-	const [mode, ...rest] = args;
-	if (mode === "poll") {
-		if (rest.length) {
-			throw new Error("github poll takes no arguments");
-		}
-		await pollGithub();
-		return;
-	}
-	if (mode === "doctor") {
-		if (rest.length) {
-			throw new Error("github doctor takes no arguments");
-		}
-		await githubDoctor(repoRoot(cwd));
-		return;
-	}
-	if (mode === "ensure") {
-		await ensureRegisteredCoordinator(rest, cwd);
-		return;
-	}
-	if (mode === "resolve") {
-		await recordNoJobAnswer(rest);
-		return;
-	}
-	if (mode === "deliver" || mode === "review" || mode === "work") {
-		return handOffClaim(mode, rest);
-	}
-	if (rest.length || !["connect", "disconnect", "status"].includes(mode ?? "")) {
-		throw new Error(
-			"github takes connect, disconnect, status, doctor, ensure, poll, deliver, review, work, or resolve; run limen github --help",
-		);
-	}
-	const root = repoRoot(cwd);
-	if (mode === "status") {
-		await printDoorbellStatus(root);
-		return;
-	}
-	if (mode === "disconnect") {
-		await disconnectDoorbell(root);
-		return;
-	}
-	await connectDoorbell(root);
+/** `limen github connect`: binds origin to this Herdr coordinator. */
+export async function githubConnectCommand(_values: Parsed, cwd: string): Promise<undefined> {
+	await connectDoorbell(repoRoot(cwd));
+}
+/** `limen github disconnect`: removes the binding. */
+export async function githubDisconnectCommand(_values: Parsed, cwd: string): Promise<undefined> {
+	await disconnectDoorbell(repoRoot(cwd));
+}
+/** `limen github status`: the binding and the newest local handoff copy. */
+export async function githubStatusCommand(_values: Parsed, cwd: string): Promise<undefined> {
+	await printDoorbellStatus(repoRoot(cwd));
+}
+/** `limen github doctor`: the seat's safety checks for the GitHub module. */
+export async function githubDoctorCommand(_values: Parsed, cwd: string): Promise<undefined> {
+	await githubDoctor(repoRoot(cwd));
+}
+/** `limen github poll`: one polling pass as the isolated App user. */
+export async function githubPollCommand(): Promise<undefined> {
+	await pollGithub();
+}
+/** `limen github ensure [<registered-root>]`: the registered coordinator is live and interactive. */
+export async function githubEnsureCommand(values: Parsed, cwd: string): Promise<undefined> {
+	await ensureRegisteredCoordinator(values.get("root"), cwd);
+}
+/** `limen github deliver`: the poller rings the coordinator with one claim. */
+export function githubDeliverCommand(values: Parsed): Promise<Success | undefined> {
+	return handOffClaim("deliver", values.get("root") ?? "", values.get("claim") ?? "", {
+		nonce: values.get("nonce") ?? "",
+	});
+}
+/** `limen github review`: the coordinator starts a review job for a pull request claim. */
+export function githubReviewCommand(values: Parsed): Promise<Success | undefined> {
+	return handOffClaim("review", values.get("root") ?? "", values.get("claim") ?? "", {
+		job: { model: jobRoute(values) },
+	});
+}
+/** `limen github work`: the coordinator starts a task job for a claim. */
+export function githubWorkCommand(values: Parsed): Promise<Success | undefined> {
+	const task = values.get("task") ?? "";
+	const job = task.trim() ? { model: jobRoute(values), task } : undefined;
+	return handOffClaim("work", values.get("root") ?? "", values.get("claim") ?? "", { job });
+}
+/** `limen github resolve`: the coordinator records a no-job answer for a claim. */
+export async function githubResolveCommand(values: Parsed): Promise<undefined> {
+	await recordNoJobAnswer(
+		values.get("root") ?? "",
+		values.get("claim") ?? "",
+		values.get("nonce") ?? "",
+		values.get("answer") ?? "",
+	);
+}
+
+/** The model route of a GitHub job, from its four required flags. */
+function jobRoute(values: Parsed): Parameters<typeof startGithubJob>[2] {
+	return {
+		engine: values.get("engine") ?? "",
+		provider: values.get("provider") ?? "",
+		model: values.get("model") ?? "",
+		thinking: values.get("thinking") ?? "",
+	};
 }
 
 /** True when this process runs in the Herdr pane the binding names, as its coordinator. */
@@ -126,12 +145,9 @@ function insideCoordinator(binding: GithubBinding): boolean {
 }
 
 /** `github ensure [<registered-root>]`: the registered coordinator is live and interactive. */
-async function ensureRegisteredCoordinator(rest: readonly string[], cwd: string): Promise<void> {
-	if (rest.length > 1) {
-		throw new Error("github ensure takes an optional <registered-root>");
-	}
-	const root = repoRoot(rest[0] ?? cwd);
-	if (rest.length && root !== rest[0]) {
+async function ensureRegisteredCoordinator(registered: string | undefined, cwd: string): Promise<void> {
+	const root = repoRoot(registered ?? cwd);
+	if (registered !== undefined && root !== registered) {
 		throw new Error("GitHub ensure requires the exact registered repository root");
 	}
 	assertUnprivileged();
@@ -140,21 +156,15 @@ async function ensureRegisteredCoordinator(rest: readonly string[], cwd: string)
 }
 
 /** `github resolve`: the coordinator records a no-job answer for a claim; the poller posts it. */
-async function recordNoJobAnswer(rest: readonly string[]): Promise<void> {
-	const id = claimId(rest[1] ?? "");
-	if (
-		rest.length !== 4 ||
-		id === undefined ||
-		!HANDOFF_NONCE.test(rest[2] ?? "") ||
-		!rest[3]?.trim() ||
-		rest[3].length > GITHUB_ANSWER_MAX
-	) {
+async function recordNoJobAnswer(registered: string, claimWord: string, nonce: string, answer: string): Promise<void> {
+	const id = claimId(claimWord);
+	if (id === undefined || !HANDOFF_NONCE.test(nonce) || !answer.trim() || answer.length > GITHUB_ANSWER_MAX) {
 		throw new Error(
 			`github resolve requires <registered-root> <claim-id> <handoff nonce> <no-job answer up to ${GITHUB_ANSWER_MAX} characters>`,
 		);
 	}
-	const root = repoRoot(rest[0] as string);
-	if (root !== rest[0]) {
+	const root = repoRoot(registered);
+	if (root !== registered) {
 		throw new Error("GitHub resolve requires the exact registered repository root");
 	}
 	assertUnprivileged();
@@ -177,7 +187,7 @@ async function recordNoJobAnswer(rest: readonly string[]): Promise<void> {
 	await mkdir(join(githubDir(root), "outcomes"), { recursive: true });
 	await writeFile(
 		join(githubDir(root), "outcomes", `${claim.id}.json`),
-		`${JSON.stringify({ repo: binding.repo, id: claim.id, coordinator: binding.coordinator, nonce: rest[2], answer: rest[3].trim() })}\n`,
+		`${JSON.stringify({ repo: binding.repo, id: claim.id, coordinator: binding.coordinator, nonce, answer: answer.trim() })}\n`,
 		{ flag: "wx", mode: 0o660 },
 	);
 	console.log("coordinator no-job answer recorded; awaiting poller receipt");
@@ -189,21 +199,27 @@ async function recordNoJobAnswer(rest: readonly string[]): Promise<void> {
  */
 async function handOffClaim(
 	mode: "deliver" | "review" | "work",
-	rest: readonly string[],
+	registered: string,
+	claimWord: string,
+	detail: {
+		readonly nonce?: string;
+		readonly job?: { model: Parameters<typeof startGithubJob>[2]; task?: string } | undefined;
+	},
 ): Promise<Success | undefined> {
-	const id = claimId(rest[1] ?? "");
-	if (rest.length < 2 || id === undefined) {
+	const id = claimId(claimWord);
+	if (id === undefined) {
 		throw new Error(`github ${mode} requires <registered-root> <claim-id>`);
 	}
-	const flags = rest.slice(2);
-	const job = mode === "deliver" ? undefined : jobFlags(mode, flags);
-	if (mode === "deliver" ? flags.length !== 1 || !HANDOFF_NONCE.test(flags[0] ?? "") : !job) {
+	const { job } = detail;
+	if (mode === "deliver" ? !HANDOFF_NONCE.test(detail.nonce ?? "") : !job) {
 		throw new Error(
-			"github review/work requires --engine <engine> --provider <provider> --model <model> --thinking <level>; github work also requires --task <coordinator instruction>; github deliver takes no flags",
+			mode === "deliver"
+				? "github deliver requires <registered-root> <claim-id> <handoff nonce>"
+				: "github work requires a --task <coordinator instruction> that is not blank",
 		);
 	}
-	const root = repoRoot(rest[0] as string);
-	if (root !== rest[0]) {
+	const root = repoRoot(registered);
+	if (root !== registered) {
 		throw new Error("GitHub handoff requires the exact registered repository root");
 	}
 	assertUnprivileged();
@@ -216,7 +232,7 @@ async function handOffClaim(
 		throw new Error("GitHub claim does not match binding");
 	}
 	if (!job) {
-		await promptCoordinator(root, binding, claim, flags[0] ?? "");
+		await promptCoordinator(root, binding, claim, detail.nonce ?? "");
 		return;
 	}
 	if (!insideCoordinator(binding)) {
@@ -346,37 +362,6 @@ async function connectDoorbell(root: string): Promise<void> {
 	console.log(`connected ${repo} → Herdr ${process.env.HERDR_PANE_ID}; isolated seat poller reads this registration`);
 }
 
-function jobFlags(
-	mode: "review" | "work",
-	flags: readonly string[],
-): { model: Parameters<typeof startGithubJob>[2]; task?: string } | undefined {
-	const allowed = ["--engine", "--provider", "--model", "--thinking", ...(mode === "work" ? ["--task"] : [])];
-	const values = new Map<string, string>();
-	for (let index = 0; index < flags.length; index += 2) {
-		const flag = flags[index] ?? "";
-		const value = flags[index + 1];
-		if (!allowed.includes(flag) || values.has(flag) || !value) {
-			return undefined;
-		}
-		values.set(flag, value);
-	}
-	const engine = values.get("--engine");
-	const provider = values.get("--provider");
-	const model = values.get("--model");
-	const thinking = values.get("--thinking");
-	const task = values.get("--task");
-	if (!engine || !provider || !model || !thinking) {
-		return undefined;
-	}
-	if (mode === "review") {
-		return { model: { engine, provider, model, thinking } };
-	}
-	if (!task?.trim()) {
-		return undefined;
-	}
-	return { model: { engine, provider, model, thinking }, task };
-}
-
 function git(root: string, args: string[]): string {
 	const result = spawnSync("git", args, { cwd: root, encoding: "utf8", timeout: 60_000 });
 	if (result.status !== 0) {
@@ -409,24 +394,15 @@ export async function startGithubJob(
 	}
 	const instruction = githubJobInstruction(claim, task);
 	// Spawn prints a durable job id; the poller independently reconciles the record before posting a start receipt.
-	await spawnCommand(
-		[
-			...(review ? ["--review"] : []),
-			"--engine",
-			model.engine,
-			"--provider",
-			model.provider,
-			"--model",
-			model.model,
-			"--thinking",
-			model.thinking,
-			"--branch",
-			localBranch,
-			...(review ? ["--base", review.base, "--head", review.head] : []),
-			"--label",
-			`${claim.kind === "issue" ? "issue" : "PR"} ${claim.pr} ${task ? "task" : "review"} · ${claim.id}`,
-			instruction,
-		],
+	await startSpawn(
+		{
+			task: [instruction],
+			...model,
+			branch: localBranch,
+			review: review !== undefined,
+			...(review ? { base: review.base, head: review.head } : {}),
+			label: `${claim.kind === "issue" ? "issue" : "PR"} ${claim.pr} ${task ? "task" : "review"} · ${claim.id}`,
+		},
 		root,
 	);
 	const started = await matchedGithubJob(root, claim);

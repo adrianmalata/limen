@@ -5,6 +5,7 @@ import { retainedGroupJob } from "../job/group-cabinet.ts";
 import { isTerminal } from "../job/job.ts";
 import { worktreeLock } from "../job/publication.ts";
 import { appendLimenLog } from "../job/record.ts";
+import type { Parsed } from "../parser.ts";
 import {
 	branchExists,
 	deleteBranch,
@@ -17,12 +18,10 @@ import {
 } from "../project/git.ts";
 import { STARTUP_GRACE_MS, startingJob } from "../runtime/reap.ts";
 
-export async function pruneCommand(args: readonly string[], cwd: string): Promise<undefined> {
-	const retire = args.includes("--retire"),
-		dryRun = args.includes("--dry-run");
-	if (args.some((value) => value !== "--retire" && value !== "--dry-run")) {
-		throw new Error("prune accepts no arguments, --retire, or --retire --dry-run");
-	}
+/** `limen prune`: removes finished worktrees, or with `--retire` the records of finished jobs that landed. */
+export async function pruneCommand(values: Parsed, cwd: string): Promise<undefined> {
+	const retire = values.has("retire"),
+		dryRun = values.has("dry-run");
 	if (dryRun && !retire) {
 		throw new Error("prune --dry-run requires --retire");
 	}

@@ -1,7 +1,7 @@
 # Reading Herdr and Limen status
 
 A pane can be ready for your next message while its Limen jobs are still
-`RUNNING`. Herdr describes the conversation; `limen jobs` and the files in
+`RUNNING`. Herdr describes the conversation; `limen status` and the files in
 `.limen/jobs/<id>/` describe the job. Neither tells you that a candidate landed.
 
 `limen status` is the plant inbox for the owner. `Running` lists every
@@ -60,7 +60,7 @@ Details stop after three jobs in each group, but counts include all RUNNING jobs
 The footer shows the same job line. A warning such as `1 of 14 needs attention`
 counts only dead jobs, not every running job.
 
-The footer, `limen jobs`, and the reaper use the wrapper's PID and recorded birth
+The footer, `limen status`, and the reaper use the wrapper's PID and recorded birth
 identity to judge its owner.
 
 A finished job stays on the job line until it lands or closes. It lands when

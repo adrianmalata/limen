@@ -1,10 +1,8 @@
 import { closeFeatureTabs } from "../integrations/herdr.ts";
+import type { Parsed } from "../parser.ts";
 import { limenRoot } from "../project/git.ts";
 
-export async function closeCommand(args: readonly string[], cwd: string): Promise<undefined> {
-	const feature = args[0];
-	if (!feature || args.length !== 1) {
-		throw new Error("close requires a feature like F012");
-	}
-	console.log(await closeFeatureTabs({ root: limenRoot(cwd), feature }));
+/** `limen close`: closes the Herdr tabs of a ticket's jobs. */
+export async function closeCommand(values: Parsed, cwd: string): Promise<undefined> {
+	console.log(await closeFeatureTabs({ root: limenRoot(cwd), feature: values.get("ticket") ?? "" }));
 }

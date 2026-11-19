@@ -4,8 +4,11 @@ import { readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { isTerminal } from "../../src/job/job.ts";
-import { outputText } from "../../src/outcome.ts";
+import { outputText, readOutcome } from "../../src/outcome.ts";
 import { jobDir, jobFile, limen, type Plant, plant, spawnJob, startedJob, until } from "../plant.ts";
+
+/** A job id that names no job: a usage error comes before any record is read. */
+const NO_JOB = "2026-11-18-none-1a2b3c4d";
 
 /** Resolves once the job's `state` is terminal, the commit point of its record. */
 function ended(p: Plant, id: string): Promise<void> {
@@ -38,6 +41,8 @@ test("limen continue of a finished job recorded with the removed engine devin re
 	const run = limen(p, ["continue", parent, "say continued"]);
 	assert.notEqual(run.status, 0, run.stdout);
 	assert.equal(outputText(run), "engine devin was removed with Devin cloud jobs (R-003); use --engine pi\n");
+	// Read from a record, not given on the command line: a refusal, not a usage error.
+	assert.deepEqual(readOutcome(run), { class: "refused", code: "REMOVED", next: "use --engine pi" });
 	assert.deepEqual(readdirSync(join(p.root, ".limen/jobs")), [parent]);
 });
 
@@ -51,5 +56,15 @@ test("limen continue of a finished job recorded with the removed engine omp refu
 	const run = limen(p, ["continue", parent, "say continued"]);
 	assert.notEqual(run.status, 0, run.stdout);
 	assert.equal(outputText(run), "engine omp was removed with the OMP engine (R-004); use --engine pi\n");
+	assert.deepEqual(readOutcome(run), { class: "refused", code: "REMOVED", next: "use --engine pi" });
 	assert.deepEqual(readdirSync(join(p.root, ".limen/jobs")), [parent]);
+});
+
+test("BAD_ARGUMENT: continue with --label given twice exits 2, as every value flag given twice does", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const run = limen(p, ["continue", NO_JOB, "x", "--label", "a", "--label", "b"]);
+	assert.equal(run.status, 2, run.stderr);
+	assert.deepEqual(readOutcome(run), { class: "usage", code: "BAD_ARGUMENT", next: "limen continue --help" });
+	assert.equal(outputText(run).split("\n")[0], "limen continue: --label given twice");
 });

@@ -132,3 +132,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-05)
 - Commit: R-013
 - Rollback: git revert $(git log --format=%H --grep='^R-013:' adrian-rebuild --)
+
+## 2026-11-19 R-014 One command registry, a shared parser and generated help
+- What: new `src/registry.ts` (45 entries: object, kind, visibility, summary, schema, `ids` keys, example, `movedBy`, handler), `src/parser.ts` (one schema-driven parser, `BAD_ARGUMENT` with the usage line; replaces `src/commands/flags.ts`, removed), `src/help.ts` (the golden `limen --help`, `limen <cmd> --help`, the two generated sections of `docs/commands.md`), `src/commands/show.ts`; `src/commands/queue.ts` → `src/commands/seat-queue.ts`, `src/commands/jobs.ts` → `src/job/listing.ts`; `src/main.ts` dispatches through the registry and refuses undeclared `ids`; `src/old-names.ts` (old names exit 2 `REMOVED`, `jobs` and `queue` added); `spawn` requires its four route flags (D-043); `status --all` lists every job (D-038); `group wait` member-only (D-042); every command file takes parsed values; docs, `templates/agents.md` and the tests on the new forms; new `test/registry.test.ts`, `test/parser.test.ts`, `test/help.test.ts`
+- Why: T-19, T-18, T-26, T-37, D-028, D-037–D-044
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (244/244; 198 at the parent); `node adrian-rebuild/tools/fails-before.mjs` → exit 0; `git grep -n -E 'limen (jobs|queue)\b' -- src hook templates docs` → exit 1
+- Measurement: unmeasured (plan.md → Measurement: M-05, M-01)
+- Commit: R-014
+- Rollback: git revert $(git log --format=%H --grep='^R-014:' adrian-rebuild --)

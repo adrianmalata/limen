@@ -10,9 +10,10 @@ i polecenia na allow-listę. Stan: etap 5 (przebudowa) w toku, etap planu 1; R-0
 R-011 i R-088 zamknięte, 19.11 także R-007 i (nocą) R-009, R-012 i R-013; 18.11 w dzień doszły decyzje D-025–D-035
 (m.in. zasady komunikacji z Adrianem, wyjątek dla testu A-087, przekazywanie sesji, poprawka helpera testów A-088
 w R-007 i nowy snapshot po edycji w trakcie BLOCKED); w etapie 1 został R-014 (pair, w dzień), a `## State` ma gotowe
-podsumowanie bramki 5.1; Q-8 rozstrzygnięte (D-036: `seat/deploy.ts` poza allow-listą); 19.11 w dzień D-037–D-043
+podsumowanie bramki 5.1; Q-8 rozstrzygnięte (D-036: `seat/deploy.ts` poza allow-listą); 19.11 w dzień D-037–D-044
 (pytania R-014: tryb, `status --all`, `movedBy`, nagłówek modułów, teksty helpu, `group wait`, wymagane flagi trasy
-`spawn`) i R-014 aktywny. -->
+`spawn`, trzecia runda poprawek) i R-014 zamknięty, więc etap 1 jest kompletny i czeka na bramkę 5.1. -->
+
 
 
 
@@ -467,6 +468,14 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   does not reach the model under the bridge (A-086). `continue` keeps `model ?? defaultModel` until R-062. (2) The
   line of `ticket done` shows its flag: `limen ticket done <FNNN> … [--on <date>]`. Adrian accepts the implementer's
   technical choices listed in `R-014-command-registry/ticket.md` → `## Decisions`. Check: R-014's parser and help tests.
+- 2026-11-19 D-044 (Adrian, R-014's review round 3; an exception to `## Agents`, step 6, for R-014 only): a third
+  round of fixes for round 3's notes 2–5. Review round 4 checks only those notes and the absence of regressions; a new
+  non-blocking note means the commit, and the note goes to the ticket that option (b) named (the refusal wording to
+  gate 5.1, the docs to R-081, the scan of words outside the parser to R-023, the help to R-085); a new blocking note
+  goes to Adrian; there is no fifth round. The fix of note 5 has a test that fails before it (the static scan stays
+  in R-023). Note 1: the shared parser's strict rule stays (a value flag given twice exits 2), `continue --label`
+  included, which closes note 2 without a "last wins" exception; `outcome.md` records it as a departure from Change 2.
+  Check: R-014's parser and old-name tests.
 
 ### Gate 2 §2, copied
 
@@ -814,7 +823,7 @@ Columns:
 | R-011 | The same-task runner and the gate-time tool | 1 | H-21, T-11, T-41, §2, D-021 | — | L | delegated | night | — | pi | B.2 | done |
 | R-012 | A root deployment script for a pinned SHA | 1 | D-008, D-010, §7 | R-002 | M | delegated | night | — | — | 1.0 | done |
 | R-013 | One error type, exit codes as failure classes, a final JSON line | 1 | T-01, T-02, D-022, D-028 | R-002, R-003, R-004, R-005, R-006, R-007, R-009 | L | delegated | night | yes | — | — | done |
-| R-014 | One command registry, a shared parser and generated help | 1 | T-19, T-18, T-26, T-37, D-028, D-037, D-038, D-039, D-040, D-041, D-042, D-043 | R-002, R-003, R-004, R-005, R-006, R-007, R-009, R-013 | L | pair | day-after | yes | — | — | active |
+| R-014 | One command registry, a shared parser and generated help | 1 | T-19, T-18, T-26, T-37, D-028, D-037, D-038, D-039, D-040, D-041, D-042, D-043, D-044 | R-002, R-003, R-004, R-005, R-006, R-007, R-009, R-013 | L | pair | day-after | yes | — | — | done |
 | R-088 | The same-task runner leaves no job running after an attempt | 1 | D-027, D-021 | R-011 | S | pair | day-after | — | pi | B.2 | done |
 | R-015 | One configuration reader; settings come only from owner files | 2 | T-03 | R-014 | M | delegated | night | yes | — | — | planned |
 | R-016 | One boundary parsing module with validators; the cast ratchet | 2 | T-27 | R-013 | M | delegated | night | — | — | — | planned |
@@ -952,6 +961,12 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   naming this ticket" (R-032: `sweep`, `prune`; R-034: `rule`; R-037: `close`; R-066: `keeper`). The ticket that
   removes the last `movedBy` entry also removes the field and the exception of R-014's registry test, which fails until
   it does (D-042), so that a top-level command acts only on `job`, `owner` or `project`.
+- R-023 (D-044, R-014's review round 4): the static scan that no command words are read outside `src/parser.ts`
+  (R-014 moved the `--help` lookup and the `jobs` refusal's words into the parser); the test of `--help` as a flag's
+  value (R-014's parser test) asserts the command's own exit 1, so a parser refusal no longer passes it; the
+  import cycle between `src/parser.ts` and `src/old-names.ts` (R-014 → `outcome.md` → Open points).
+- R-081 (D-044, R-014's review round 4): the caller list above the internal section of `docs/commands.md` names every
+  caller the generated lines name (a rule command after its timer died, `limen group status`).
 - R-077 (D-042): its criteria include "the command registry holds no entry with `movedBy` naming this ticket" (`group
   wait`) and a fake-engine test in which a team member with a worker allowance gets each worker's result although it
   no longer calls `group wait`, including a worker that ends after the member's turn would have ended.
@@ -1426,9 +1441,9 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-19, day session `limen-rebuild-4` after the night run, rebuild stage 5 in progress at plan stage 1:
-R-001–R-013 and R-088 `done`; R-014 (`pair`, `day-after`) `planned`; no ticket active; no question open (Q-8 →
-D-036). The night ended at 02:57 with `no-ticket`: stage 1 has no `night` ticket left.
+Updated 2026-11-19, day session `limen-rebuild-5`, rebuild stage 5 in progress at plan stage 1: R-001–R-014 and
+R-088 `done`, so every ticket of stage 1 is done; no ticket active; gate 5.1 is due (the summary below), then the tag
+`a0.1.0`. The night of 2026-11-19 ended at 02:57 with `no-ticket`.
 
 Handover of 2026-11-19 (D-033, at 30 % context): Adrian ends `limen-rebuild-4` himself (`/exit`) and starts the next
 day session himself with the first message of the rebuild prompt; it starts R-014 with him. Two older sessions were
@@ -1683,41 +1698,49 @@ Night run of 2026-11-19 (until 07:00; `night.mjs` run 1 started at 00:08:19):
   likely not typed `GITHUB_CONFIG` (guessed). For Adrian at gate 5.1: the codes and `next` texts of R-013
   (`ticket.md` → `## Decisions`).
 
-Gate 5.1 summary, ready except for R-014 (night mode: stage 1 has only a `pair` ticket left; the tag and the gate are
-by day, with Adrian):
-- Tickets: R-001–R-013 and R-088 done (14 of 15); R-014 (the command registry, `pair`) is left. Gate 198/198 at the
-  last commit (127 after R-007).
+Day session of 2026-11-19 (`limen-rebuild-5`, started by Adrian; WSL booted at 10:34, after the `.wslconfig` of
+2026-11-18 16:48, so the idle timeouts are off):
+- R-014 `done` (D-037: the texts in `pair`, the implementation by `rebuild-implementer`): `src/registry.ts` (45
+  entries), `src/parser.ts` (replaces `src/commands/flags.ts`), `src/help.ts` with Adrian's golden help, `status
+  --all`, `show <job>`, `seat queue`, old names exit 2 `REMOVED`, `spawn` requires its four route flags (D-043),
+  `group wait` member-only with `movedBy: "R-077"` (D-042). Decisions D-037–D-044 and T-19's dated addition; notes for
+  R-023, R-032, R-034, R-037, R-044, R-066, R-077 and R-081 in `## Tickets`. One `BLOCKED` (two golden lines, D-043);
+  reviews PASS in rounds 1–4 with three rounds of fixes, the third by Adrian's exception (D-044); round 4's three
+  notes went to gate 5.1, R-023 and R-081. Gate 244/244.
+- Adrian's standing request (2026-11-19, project memory): a push notification whenever a decision of his is needed,
+  in any session.
+
+Gate 5.1 summary (stage 1 is complete; the tag and the gate are by day, with Adrian):
+- Tickets: R-001–R-014 and R-088 done (15 of 15). Gate 244/244 at the last commit (198 after R-013, 127 after
+  R-007).
 - Findings addressed by stage 1 (each ticket's `## Problem` names how far): A-042 (R-001), A-027, A-060, A-076
   (R-002), A-049 (R-003, R-004), A-023 (R-005), A-079 (R-006), A-048 in part and A-088 (R-007), A-083 in part (R-008;
   the platform adapter is R-020), A-081 in part (R-009; the per-role lists are R-045); plus gate-2 items G1.3–G1.8,
-  G1.12, §6, §7 D3 (R-012) and H-21 (R-011).
-- Unmeasured: M-01 (the role texts R-002–R-009 shortened; from stage 4, E-1), M-05 (R-013's final line in every tool
-  result; R-011's runner and R-088), the seat steps B.2 and 1.0–1.3.
+  G1.12, §6, §7 D3 (R-012) and H-21 (R-011); taste rules T-18, T-19, T-26 (1), T-37 (`ids` declared) by R-014.
+- Unmeasured: M-01 (the role texts R-002–R-009 and R-014 changed; from stage 4, E-1), M-05 (R-013's final line in
+  every tool result; R-011's runner and R-088; R-014's required route flags and generated help), the seat steps B.2
+  and 1.0–1.3.
 - Fixed context before and after: not measured at stage 1 — `context-size.mjs` is on the list from stage 4, and the
   role texts stages 1–3 change sit in Pi's system prompt, which the bridge drops (E-1); the cue changed only by the
   `jg` cut, which never fired on the seat (T-36).
-- Tag `a0.1.0`: after R-014, at the gate, with Adrian.
+- Tag `a0.1.0`: at the gate, with Adrian, on the commit `R-014:` or the one that records the gate.
 - Seat steps: B.2 before the deployment; then `## Deployment` 1.0 (bootstrap of `seat/deploy.ts`), 1.1–1.3; plus the
   tickets' seat notes: the Devin login and `DEVIN_*` variables (R-003), `LIMEN_ENGINE=omp` in the worker's `~/.bashrc`
   and `moshi-hook status` (R-004), no running job at 1.0 (R-005), a retired `limen-picture.timer` (R-007), optional
   deletions under `$LIMEN_HOME/.limen/` (R-006).
-- For Adrian's decision at the gate: the refusal wordings of R-002–R-009; R-011's choices; R-012's registry discovery
-  through `/etc/passwd` and the tag name and place; R-013's codes and `next` texts; Q-8.
+- For Adrian's decision at the gate: the refusal wordings of R-002–R-009 and R-014 (with R-014's review round 4 note
+  1: `limen jobs --all a1b2c3d4` and `limen jobs -- --all` name `limen show`, while D-038 says only `jobs <ref>` does;
+  `R-014-command-registry/review.md` → Round 4); R-011's choices; R-012's registry discovery through `/etc/passwd`
+  and the tag name and place; R-013's codes and `next` texts; R-014's `kind` calls (`outcome.md` → Open points); Q-8.
+- Seat note of R-014 for the deployment: a coordinator spawn without one of `--engine`, `--provider`, `--model`,
+  `--thinking` now exits 2 and names the missing flags (D-043); `LIMEN_ENGINE` no longer chooses a spawn's engine.
 
-Next: R-014 (pair, `day-after`) by day; then the close of stage 1 (gate 5.1, the tag `a0.1.0`). Each cut ticket that removes a command adds
-its entry to `src/old-names.ts` and its leftover paths to `LEFTOVERS`. B.2 runs on the seat before a0.1.0 is deployed
-(B.1 was done on 2026-11-17).
+Next: gate 5.1 with Adrian (the summary above), the tag `a0.1.0`, the deployment steps of `## Deployment` stage 1;
+then stage 2 in a new session. B.2 runs on the seat before a0.1.0 is deployed (B.1 was done on 2026-11-17).
 
-Active ticket: R-014 (day session of 2026-11-19, after the night run). Adrian's answers to R-014's questions Q1–Q5 →
-D-037–D-041, `taste.md` → T-19 (added 2026-11-19), and the notes for R-032, R-034, R-037, R-044 and R-066 in
-`## Tickets`; `group wait` → D-042 (internal, `movedBy: "R-077"`, refuses a caller outside a team);
-`R-014-command-registry/ticket.md` is written with the golden help (step 2 of the protocol; commit `2e37a6d`).
-Step 3: the implementer stopped with `BLOCKED` on two golden lines before changing any file (`compare --git` exit 0);
-Adrian's answer → D-043 (`spawn` requires its four route flags; the `ticket done` line shows `--on`), and the
-implementer's technical choices are accepted (`ticket.md` → `## Decisions`); the implementer is resumed after a new
-`snapshot --git` (D-035).
+Active ticket: none.
 
-Open questions for Adrian: none.
+Open questions for Adrian: none (gate 5.1 is due).
 
 Notes for the next session:
 - Start Claude Code in the repository root, so that it loads `.claude/agents/`.

@@ -6,10 +6,11 @@ import { once } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
-import { test } from "node:test";
+import { type TestContext, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { isTerminal } from "../../src/job/job.ts";
-import { outputText } from "../../src/outcome.ts";
+import { OLD_ENGINES, OLD_FLAGS, OLD_NAMES, OLD_ROLES } from "../../src/old-names.ts";
+import { outputText, readOutcome } from "../../src/outcome.ts";
 import {
 	engineEvents,
 	git,
@@ -64,7 +65,7 @@ const R007_REFUSALS = {
 // The role R-009 removed with its refusal, written out so that a change of wording fails here.
 const SCOUT_REFUSAL =
 	"role scout was removed with the scout role (R-009); the coordinator answers a short question itself; a long one is a survey job, whose deliverable is a notes file";
-/** The four route flags `picture tick` and `picture watch on` took. */
+/** The four route flags that `spawn` requires (D-043), and that `picture tick` and `picture watch on` took. */
 const ROUTE = ["--engine", "pi", "--provider", "p", "--model", "m", "--thinking", "t"];
 /** A job id that names no job: a refusal reads no job record, so the id need not exist. */
 const NO_JOB = "2026-11-18-none-1a2b3c4d";
@@ -133,19 +134,14 @@ test("limen linear status and limen linear off refuse with one removal line and 
 	assert.deepEqual([snapshot(join(p.root, ".limen")), snapshot(join(p.root, "spec"))], before);
 });
 
-test("spawn with a removed engine in --engine or in LIMEN_ENGINE refuses with one removal line and makes no job", async (t) => {
+test("spawn with a removed engine in --engine refuses with one removal line and makes no job", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const before = snapshot(join(p.root, ".limen"));
 	for (const [engine, refusal] of Object.entries(ENGINE_REFUSALS)) {
-		for (const [args, env] of [
-			[["spawn", "--engine", engine, "work"], {}],
-			[["spawn", "work"], { LIMEN_ENGINE: engine }],
-		] as const) {
-			const run = limen(p, args, { env });
-			assert.notEqual(run.status, 0, args.join(" "));
-			assert.equal(outputText(run), `${refusal}\n`, args.join(" "));
-		}
+		const run = limen(p, ["spawn", "--engine", engine, ...ROUTE.slice(2), "work"]);
+		assert.notEqual(run.status, 0, engine);
+		assert.equal(outputText(run), `${refusal}\n`, engine);
 	}
 	assert.deepEqual(snapshot(join(p.root, ".limen")), before);
 });
@@ -337,7 +333,7 @@ test("spawn --role picture refuses with the removal line and leaves no job, work
 		git(p.root, "branch", "--list"),
 	];
 	const before = traces();
-	const run = limen(p, ["spawn", "--role", "picture", "work"]);
+	const run = limen(p, ["spawn", "--role", "picture", ...ROUTE, "work"]);
 	assert.deepEqual([run.status !== 0, outputText(run)], [true, `${R007_REFUSALS["role picture"]}\n`]);
 	assert.deepEqual(traces(), before);
 });
@@ -383,7 +379,7 @@ test("spawn --role scout refuses with the removal line and leaves no job, worktr
 		git(p.root, "branch", "--list"),
 	];
 	const before = traces();
-	const run = limen(p, ["spawn", "--role", "scout", "work"]);
+	const run = limen(p, ["spawn", "--role", "scout", ...ROUTE, "work"]);
 	assert.deepEqual([run.status !== 0, outputText(run)], [true, `${SCOUT_REFUSAL}\n`]);
 	assert.deepEqual(traces(), before);
 });
@@ -437,10 +433,10 @@ test("every old flag has a feature, a ticket and a pointer, and --detached is no
 	}
 });
 
-test("every old name has a feature, a ticket and a pointer, and src/main.ts registers none of them", async () => {
+test("every old name has a feature, a ticket and a pointer, and the command registry holds none of them", async () => {
 	// Imported here, so the CLI tests above fail at their own assertions before the table exists.
 	const { OLD_NAMES } = await import("../../src/old-names.ts");
-	const { COMMAND_NAMES } = await import("../../src/main.ts");
+	const { COMMAND_NAMES } = await import("../../src/registry.ts");
 	for (const entry of OLD_NAMES) {
 		const empty = Object.entries({ feature: entry.feature, ticket: entry.ticket, instead: entry.instead })
 			.filter(([, value]) => value.trim() === "")
@@ -463,4 +459,94 @@ test("every old engine has a feature, a ticket and a pointer, and engineProfile 
 		assert.deepEqual(empty, [], `old engine ${entry.name}`);
 		assert.throws(() => engineProfile(entry.name), { message: removedEngine(entry.name) }, entry.name);
 	}
+});
+
+type Form = readonly [readonly string[], string];
+
+/** Runs each form in a fresh project; each must exit 2 with `REMOVED` and its `next`. */
+async function refusesAsRemoved(t: TestContext, forms: readonly Form[]): Promise<void> {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const refused = forms.map(([args]) => {
+		const run = limen(p, args);
+		return [args.join(" "), run.status, readOutcome(run)];
+	});
+	assert.deepEqual(
+		refused,
+		forms.map(([args, next]) => [args.join(" "), 2, { class: "usage", code: "REMOVED", next }]),
+	);
+}
+
+test("REMOVED: every removed command and subcommand on the command line exits 2 and names what replaced it", async (t) => {
+	// `jobs` names one of two new forms; the test below holds both.
+	const forms = OLD_NAMES.filter((old) => old.name !== "jobs").map(
+		(old) => [old.name.split(" "), old.instead] as const,
+	);
+	await refusesAsRemoved(t, forms);
+});
+
+test("REMOVED: every removed flag on the command line exits 2 and names what replaced it", async (t) => {
+	await refusesAsRemoved(
+		t,
+		OLD_FLAGS.map((old) => [[...old.command.split(" "), old.name], old.instead] as const),
+	);
+});
+
+test("REMOVED: every removed engine value of spawn --engine exits 2 and names what replaced it", async (t) => {
+	await refusesAsRemoved(
+		t,
+		OLD_ENGINES.map((old) => [["spawn", "--engine", old.name, ...ROUTE.slice(2), "work"], old.instead] as const),
+	);
+});
+
+test("REMOVED: every removed role of spawn --role exits 2 and names what replaced it", async (t) => {
+	await refusesAsRemoved(
+		t,
+		OLD_ROLES.map((old) => [["spawn", "--role", old.name, ...ROUTE, "work"], old.instead] as const),
+	);
+});
+
+/** The first lines of the refusals of the renamed `queue` and the split `jobs`, which say what happened to them. */
+const JOBS_LINE =
+	"limen jobs was split into limen status --all, which lists every job, and limen show <job>, which shows one (R-014)";
+const QUEUE_LINE = "limen queue was renamed to limen seat queue (R-014)";
+
+test("REMOVED: limen jobs <ref> names limen show <ref>, and every other form of limen jobs names limen status --all", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const forms = [
+		[["jobs", "a1b2c3d4"], "limen show a1b2c3d4"],
+		[["jobs"], "limen status --all"],
+		[["jobs", "--all"], "limen status --all"],
+		[["jobs", "--running"], "limen status --all"],
+		[["jobs", "--label", "x"], "limen status --all"],
+	] as const;
+	const refused = forms.map(([args]) => {
+		const run = limen(p, args);
+		return [args.join(" "), run.status, readOutcome(run), outputText(run).split("\n")[0]];
+	});
+	assert.deepEqual(
+		refused,
+		forms.map(([args, next]) => [args.join(" "), 2, { class: "usage", code: "REMOVED", next }, JOBS_LINE]),
+	);
+});
+
+test("REMOVED: the shared parser reads the words of limen jobs, so limen jobs -- a1b2c3d4 names limen show a1b2c3d4", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const run = limen(p, ["jobs", "--", "a1b2c3d4"]);
+	assert.deepEqual(
+		[run.status, readOutcome(run)],
+		[2, { class: "usage", code: "REMOVED", next: "limen show a1b2c3d4" }],
+	);
+});
+
+test("REMOVED: limen queue exits 2, says it was renamed and names limen seat queue", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const run = limen(p, ["queue"]);
+	assert.deepEqual(
+		[run.status, readOutcome(run), outputText(run).split("\n")[0]],
+		[2, { class: "usage", code: "REMOVED", next: "limen seat queue" }, QUEUE_LINE],
+	);
 });

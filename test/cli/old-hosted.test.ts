@@ -47,12 +47,12 @@ async function addHostedFiles(dir: string): Promise<void> {
 	await mkdir(join(dir, "notify/delivered/_uncertainty.1._fallback"), { recursive: true });
 }
 
-test("limen status and limen jobs <id> show an old terminal hosted job as they show it without its hosted files", async (t) => {
+test("limen status and limen show <id> show an old terminal hosted job as they show it without its hosted files", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const id = spawnJob(p, "commit");
 	await ended(p, id);
-	const reads = () => [limen(p, ["status"]), limen(p, ["jobs", id])];
+	const reads = () => [limen(p, ["status"]), limen(p, ["show", id])];
 	const before = reads();
 	await addHostedFiles(jobDir(p, id));
 	const after = reads();

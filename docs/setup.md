@@ -89,13 +89,9 @@ Project choices are in `spec/build.md`. The board records the engine, provider, 
 
 The coordinator must pass the board choices explicitly. Package fallbacks apply when command flags and environment variables do not select a setting.
 
-**Engine.** Every job runs Pi, the `pi` binary on the seat. `limen spawn` takes `--engine pi` or `LIMEN_ENGINE=pi` and refuses any other value of either before a job exists. Old job records without an engine stay on Pi. A continuation keeps its parent's engine, and refuses a parent recorded with a removed engine.
+**Engine.** Every job runs Pi, the `pi` binary on the seat. `limen spawn` requires `--engine pi`, with `--provider`, `--model` and `--thinking`, and refuses a spawn without one of them, or with another engine, before a job exists. Old job records without an engine stay on Pi. A continuation keeps its parent's engine, and refuses a parent recorded with a removed engine.
 
-**Model.** The order of priority is:
-
-1. `--model`
-2. `LIMEN_WORKER_MODEL` (or `LIMEN_REVIEWER_MODEL` for `--review`)
-3. the built-in `openai-codex/gpt-6-astra:high`
+**Model.** `limen spawn` requires `--model` and has no fallback. Only `limen continue` without `--model` falls back, until routes come from an owner file: first to `LIMEN_WORKER_MODEL`, then to the built-in `openai-codex/gpt-6-astra:high`.
 
 **The `pi-claude` bridge.** A `pi-claude` model runs on the Claude Code bridge, which Limen names with `--extension`, because jobs otherwise start with `--no-extensions`. Pi loads the `pi-claude-bridge` package that `pi install` put under `~/.pi/agent/npm/node_modules` (scoped or not), and takes `--provider pi-claude --model claude-opus-5-5` or `--model pi-claude/claude-opus-5-5` as given. `spawn`, `continue` and `group start` refuse a missing bridge before any job exists. With `LIMEN_PREFLIGHT=auth`, a bridged route skips `pi auth check`, because the bridge signs in through Claude Code.
 

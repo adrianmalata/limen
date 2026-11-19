@@ -32,7 +32,7 @@ WORKER_KEY=       # a third laptop private key, for WORKER, e.g. ~/.ssh/shop-sea
 PROJECT_REPO=     # OWNER/REPO on github.com
 PROJECT_BRANCH=   # an existing work branch, not only the default branch
 LIMEN_REV=        # 40-hex Limen commit on main that contains this file; the human picks it
-MODEL_FLAGS=      # --provider P --model M --thinking T (flags that both pi and limen spawn take)
+MODEL_FLAGS=      # --provider P --model M --thinking T (flags that both pi and limen spawn take; limen spawn also requires --engine pi)
 BELL=moshi        # moshi, or ntfy if the phone does not use Moshi
 # The agent writes these during the run.
 SEAT_HOST=        # phase 2: the full MagicDNS name
@@ -197,8 +197,8 @@ systemctl daemon-reload && systemctl enable --now limen-prune.timer && systemctl
 
 ## 10 · Lid-closed proof and lock-down
 
-- **HUMAN:** pane$ ask the coordinator to run `limen spawn --detached $MODEL_FLAGS --label seat-smoke "Print seat-smoke and finish. Change no files."`. Then close the laptop lid for five minutes.
-- **Check:** worker$ `cd $PROJECT_DIR && limen jobs seat-smoke` starts with `DONE` (`produced nothing` is fine here). mac$ `herdr --remote $WORKER@$SEAT_HOST` shows the same coordinator tab. **STOP** if not.
+- **HUMAN:** pane$ ask the coordinator to run `limen spawn --detached --engine pi $MODEL_FLAGS --label seat-smoke "Print seat-smoke and finish. Change no files."`. Then close the laptop lid for five minutes.
+- **Check:** worker$ `cd $PROJECT_DIR && limen show seat-smoke` starts with `DONE` (`produced nothing` is fine here). mac$ `herdr --remote $WORKER@$SEAT_HOST` shows the same coordinator tab. **STOP** if not.
 - Prove later, not a gate: the Moshi phone ring. Ask the human if the phone rang, and write the answer in your report. A silent phone does not stop setup. Jobs start with `--no-extensions` (`src/runtime/engine.ts`), so only the coordinator's turn after the completion wake can ring Moshi.
 - **Check (lock-down end state):** mac$ `ssh $ADMIN_SSH 'echo ${SSH_CONNECTION%% *}'` prints a `100.` or `fd7a:115c:a1e0:` address; `ssh -o HostName=$PUBLIC_IP $ADMIN_SSH true` and `ssh -o IdentitiesOnly=yes -i $WORKER_KEY $WORKER@$PUBLIC_IP true` both exit 255 with `Permission denied (publickey)`; `ssh $BREAK_GLASS_SSH true` exits 0, so break-glass still works. **STOP** if any differs.
 
@@ -225,7 +225,7 @@ WORKER=$WORKER APP_ID=$APP_ID PEM_SOURCE=$PEM_SOURCE LIMEN_REPO=$LIMEN_REPO LIME
   NODE_SOURCE=/root/install/node HERDR_SOURCE=/root/install/herdr /root/limen-deploy/docs/seat/github-setup.sh
 ```
 - **Check:** it exits 0 and prints a line that starts `Setup installed`; root$ `systemctl is-enabled limen-github.timer` prints `disabled` (setup runs `systemctl disable --now limen-github.timer`, so a reboot cannot start polling before phase 13 enables it); worker$ `test ! -r /etc/limen-github/app.pem` exits 0. **STOP** if not, and show the script's message.
-- **Check:** worker$ `cd $PROJECT_DIR && limen jobs --running` prints `no running jobs` or `no jobs`. **STOP** if it lists a job: wait until the jobs finish.
+- **Check:** worker$ `cd $PROJECT_DIR && limen status` prints `Running (0):` with `  none` under it. **STOP** if it lists a job: wait until the jobs finish.
 - The installer added `WORKER` to the `limen-github` group. A process that started before that keeps its old groups. This includes the Herdr server and the user manager that linger keeps alive.
 - worker$ `herdr server stop`. This closes every pane.
 - **Check:** worker$ `id -nG` (a new SSH login) lists `limen-github`. **STOP** if not: the installer did not add the group.

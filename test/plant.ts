@@ -176,9 +176,17 @@ export function start(plant: Plant, args: readonly string[], options: RunOptions
 	return { child, done };
 }
 
-/** `limen spawn [flags] <task>`; returns the job id or throws with the CLI output. */
+/** The route of a test job: spawn requires all four flags (D-043), and the fake engine runs any of them. */
+const ROUTE = { "--engine": "pi", "--provider": "p", "--model": "m", "--thinking": "high" } as const;
+
+/** `flags` with each route flag they do not give itself. */
+export function routed(flags: readonly string[]): string[] {
+	return [...Object.entries(ROUTE).flatMap(([flag, value]) => (flags.includes(flag) ? [] : [flag, value])), ...flags];
+}
+
+/** `limen spawn [flags] <task>` on the test route; returns the job id or throws with the CLI output. */
 export function spawnJob(plant: Plant, task: string, flags: readonly string[] = [], options: RunOptions = {}): string {
-	const run = limen(plant, ["spawn", ...flags, task], options);
+	const run = limen(plant, ["spawn", ...routed(flags), task], options);
 	if (run.status !== 0) {
 		throw new Error(`spawn failed (${run.status}): ${run.stdout}${run.stderr}`);
 	}

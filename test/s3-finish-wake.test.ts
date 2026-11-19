@@ -201,9 +201,9 @@ test("a held gate queues jobs by priority and a rule's start priority holds the 
 	await head.writeFile("{}").finally(() => head.close());
 	await until(jobDir(p, later), () => /"held by rule week until .+"ahead":1/.test(jobFile(p, later, "queued")));
 	const held = "held by rule week until [^\\n]+ \\(start priority 1\\)";
-	const shown = limen(p, ["jobs", later], { env: { LIMEN_REAP_CONFIRM_MS: "1" } }).stdout;
+	const shown = limen(p, ["show", later], { env: { LIMEN_REAP_CONFIRM_MS: "1" } }).stdout;
 	assert.match(shown, new RegExp(` · queued · waiting \\d+s: ${held}, 1 ahead · `));
-	assert.match(limen(p, ["queue"]).stdout, new RegExp(`1\\. ${timed} .+\\n   ${held}\\n.+\\n2\\. ${later} `));
+	assert.match(limen(p, ["seat", "queue"]).stdout, new RegExp(`1\\. ${timed} .+\\n   ${held}\\n.+\\n2\\. ${later} `));
 	assert.ok(!engineEvents(coord).some((event) => event.text?.startsWith("limen: late started")), "no toast yet");
 	sessions[0]?.kill("SIGSTOP"); // The quick job ends while its listener sleeps, before its start notice.
 	assert.match(limen(p, ["rule", "end", "week"]).stdout, /^rule week ended/);

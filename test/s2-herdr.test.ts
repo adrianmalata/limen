@@ -10,7 +10,19 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { after, before, test } from "node:test";
 import { outputText } from "../src/outcome.ts";
-import { FINAL, jobDir, jobFile, limen, type Plant, plant, start, startedJob, until, waitJob } from "./plant.ts";
+import {
+	FINAL,
+	jobDir,
+	jobFile,
+	limen,
+	type Plant,
+	plant,
+	routed,
+	start,
+	startedJob,
+	until,
+	waitJob,
+} from "./plant.ts";
 
 const herdrSource = `#!/usr/bin/env node
 const fs = require("node:fs"), path = require("node:path");
@@ -85,7 +97,13 @@ after(() => p.cleanup().finally(() => socket.close()));
 test("in Herdr a spawn with no mode flag runs detached under its --timeout; queued, it tells its pane once that it started", async () => {
 	const reading = join(p.parent, "start-reading.json");
 	await writeFile(reading, '{"cpuIdle":90,"memoryFree":10}');
-	const run = limen(p, ["spawn", "--timeout", "5m", "--label", "flagless", `say ${FINAL.line.repeat(12)}`], { env });
+	const run = limen(
+		p,
+		["spawn", ...routed(["--timeout", "5m", "--label", "flagless"]), `say ${FINAL.line.repeat(12)}`],
+		{
+			env,
+		},
+	);
 	assert.match(run.stdout, /\nqueued flagless: CPU 90% idle \(gate 25%\), memory 10% free \(gate 20%\), 0 ahead\n/);
 	const id = startedJob(run);
 	await writeFile(reading, "{}");
@@ -133,7 +151,7 @@ test("a rule set, change, end and end time ping each live coordinator pane once 
 	spawnSync("pkill", ["-f", join(p.parent, ".limen/rules/late")]);
 	const record = join(p.parent, ".limen/rules/late/rule.json");
 	await writeFile(record, readFileSync(record, "utf8").replace(/"until": "[^"]+"/, '"until": "2000-01-01T00:00:00Z"'));
-	assert.deepEqual(await Promise.all([limenAsync(["jobs"]), limenAsync(["rule"])]), [0, 0]);
+	assert.deepEqual(await Promise.all([limenAsync(["status"]), limenAsync(["rule"])]), [0, 0]);
 	await until(herdr, () => panes("late", " ended ").length >= 3);
 	assert.deepEqual(heard("late", " ended "), [live]);
 });

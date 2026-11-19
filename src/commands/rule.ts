@@ -8,6 +8,7 @@ import { promptPane } from "../integrations/coordinator-wake.ts";
 import { herdrBinary } from "../integrations/herdr.ts";
 import { spawnerLine } from "../job/publication.ts";
 import { textFile } from "../job/record.ts";
+import type { Parsed } from "../parser.ts";
 import { registeredProjects } from "../project/seat.ts";
 import {
 	activeRules,
@@ -22,13 +23,8 @@ import {
 	type SeatRule,
 	writeRule,
 } from "../project/seat-rules.ts";
-import { parseFlags } from "./flags.ts";
 
 const LIMEN = fileURLToPath(new URL("../../bin/limen", import.meta.url));
-const HELP = `usage:
-  limen rule                     # the seat-wide rules that hold now
-  limen rule set NAME --until 90m|12h|3d|"YYYY-MM-DD HH:MM"|ISO [--start-priority 1|2|3] "text"
-  limen rule end NAME [reason]`;
 const UNITS = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
 const PING_MS = 20_000;
 type Kind = "set" | "change" | "end";
@@ -36,25 +32,9 @@ type Tab = LiveCoordinator & { readonly root: string };
 
 /**
  * Seat-wide rules for every coordinator. A set, a change and an end each ping every live coordinator tab once; a
- * detached timer ends the rule at its end time.
+ * detached timer ends the rule at its end time. `limen rule` lists the rules that hold now.
  */
-export async function ruleCommand(args: readonly string[], _cwd: string): Promise<undefined> {
-	const [verb, ...rest] = args;
-	if (verb === "timer") {
-		await ruleTimer(rest[0] ?? "", rest[1] ?? "");
-		return;
-	}
-	if (verb === "set") {
-		await setRule(rest);
-		return;
-	}
-	if (verb === "end") {
-		await endCommand(rest);
-		return;
-	}
-	if (verb !== undefined) {
-		throw new Error(HELP);
-	}
+export async function ruleCommand(): Promise<undefined> {
 	const rules = activeRules();
 	console.log(
 		rules.length
@@ -63,12 +43,17 @@ export async function ruleCommand(args: readonly string[], _cwd: string): Promis
 	);
 }
 
+/** `limen rule timer` (internal): the detached timer of one version of a rule. */
+export async function ruleTimerCommand(values: Parsed): Promise<undefined> {
+	await ruleTimer(values.get("folder") ?? "", values.get("version") ?? "");
+}
+
 /**
- * The fallback for a timer that died: every `limen` command run where Herdr is reachable starts a fresh timer for a
- * rule whose end time passed. The end claim keeps its end ping to one per tab.
+ * The fallback for a timer that died: every `limen` command, by its registry name, run where Herdr is reachable
+ * starts a fresh timer for a rule whose end time passed. The end claim keeps its end ping to one per tab.
  */
-export function endDueRules(args: readonly string[]): void {
-	if (process.env.LIMEN_JOB === "1" || (args[0] === "rule" && args[1] === "timer") || !herdrBinary()) {
+export function endDueRules(command: string): void {
+	if (process.env.LIMEN_JOB === "1" || command === "rule timer" || !herdrBinary()) {
 		return;
 	}
 	for (const rule of openRules()) {
@@ -78,30 +63,21 @@ export function endDueRules(args: readonly string[]): void {
 	}
 }
 
-async function setRule(args: readonly string[]): Promise<void> {
-	const { values, positionals } = parseFlags(
-		args,
-		{ until: { type: "string" }, "start-priority": { type: "string" } },
-		{
-			unknown: (word) => `unknown rule set argument ${JSON.stringify(word)}\n${HELP}`,
-			missing: (flag) => `${flag} needs a value\n${HELP}`,
-		},
-	);
-	const [name = "", ...words] = positionals;
-	const text = words.join(" ").replace(/\s+/g, " ").trim();
-	if (!RULE_NAME.test(name) || !text || !values.until) {
-		throw new Error(`rule set needs a name of letters, digits, dot, dash or underscore, --until and a text\n${HELP}`);
+/** `limen rule set`: sets or changes a rule for every coordinator on the seat until its end time. */
+export async function ruleSetCommand(values: Parsed): Promise<undefined> {
+	const name = values.get("name") ?? "";
+	const text = (values.get("text") ?? "").replace(/\s+/g, " ").trim();
+	const until = values.get("until") ?? "";
+	if (!RULE_NAME.test(name) || !text) {
+		throw new Error("rule set needs a name of letters, digits, dot, dash or underscore, and a text");
 	}
-	const priority = values["start-priority"];
-	if (priority !== undefined && !/^[123]$/.test(priority)) {
-		throw new Error("--start-priority takes 1, 2 or 3; 1 is the most urgent");
-	}
+	const priority = values.get("start-priority");
 	const before = readRule(ruleFolder(name));
 	const change = before !== undefined && !ruleEnded(before) && Date.parse(before.until) > Date.now();
 	const rule: SeatRule = {
 		name,
 		text,
-		until: parseUntil(values.until),
+		until: parseUntil(until),
 		setBy: spawnerLine(),
 		setAt: new Date().toISOString(),
 		...(priority ? { startPriority: Number(priority) } : {}),
@@ -116,13 +92,14 @@ async function setRule(args: readonly string[]): Promise<void> {
 	}
 }
 
-async function endCommand(args: readonly string[]): Promise<void> {
-	const [name = "", ...words] = args;
+/** `limen rule end`: ends a rule now and pings every live coordinator tab once. */
+export async function ruleEndCommand(values: Parsed): Promise<undefined> {
+	const name = values.get("name") ?? "";
 	const rule = openRules().find((open) => open.name === name && !open.due);
 	if (!rule) {
 		throw new Error(`no active rule ${JSON.stringify(name)}; limen rule lists them`);
 	}
-	const reason = words.join(" ").replace(/\s+/g, " ").trim();
+	const reason = (values.get("reason") ?? "").replace(/\s+/g, " ").trim();
 	const lines = await endRule(rule, `by limen rule end${reason ? `: ${reason}` : ""}`);
 	console.log(lines ? [`rule ${name} ended`, ...lines].join("\n") : `rule ${name} had already ended`);
 }

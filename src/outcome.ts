@@ -6,8 +6,9 @@ export const EXIT_CODES = { ok: 0, refused: 1, usage: 2, transient: 3, environme
 export type OutcomeClass = keyof typeof EXIT_CODES;
 export type FailureClass = Exclude<OutcomeClass, "ok">;
 
-/** The identifiers of what a command created or changed, never its data (D-022); R-014 declares each command's keys. */
+/** The identifiers of what a command created or changed, never its data (D-022); the registry declares each command's keys. */
 export type Ids = { readonly job?: string; readonly ticket?: string; readonly question?: string };
+export type IdKey = keyof Ids;
 /** A command's result on success; a command that returns nothing ends with `next` "". */
 export type Success = { readonly next: string; readonly ids?: Ids };
 /** The final line: `code` is `0` exactly when `class` is `ok` (D-022), otherwise the failure's identifier. */
@@ -37,7 +38,14 @@ const ID_FORMATS = {
 	ticket: /^F\d{3,}$/,
 	question: /^Q-\d{3}$/,
 } as const;
-const KEYS: readonly string[] = ["class", "code", "next", "ids"];
+/** The keys of the final line in their order; `ids` is the one a line may leave out (D-022). The help names them. */
+export const FINAL_LINE_KEYS: ReadonlyArray<{ readonly key: string; readonly optional?: true }> = [
+	{ key: "class" },
+	{ key: "code" },
+	{ key: "next" },
+	{ key: "ids", optional: true },
+];
+const KEYS: readonly string[] = FINAL_LINE_KEYS.map(({ key }) => key);
 
 type FailureFields = {
 	readonly class: FailureClass;

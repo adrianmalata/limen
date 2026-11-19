@@ -34,14 +34,6 @@ export type JobRecord = {
 	readonly diffstat?: string;
 	readonly logTail?: string;
 };
-export type StateTally = {
-	readonly total: number;
-	readonly running: number;
-	readonly done: number;
-	readonly failed: number;
-	readonly stopped: number;
-	readonly invalid: number;
-};
 export type Paint = (style: "dim" | "bold" | "red" | "green" | "yellow", text: string) => string;
 
 export function resolveView(forced: string | undefined, tty: boolean): "human" | "compact" {
@@ -57,9 +49,6 @@ export function paintWhen(color: boolean): Paint {
 	const codes = { dim: "2", bold: "1", red: "31", green: "32", yellow: "33" } as const;
 	return color ? (style, text) => `\u001b[${codes[style]}m${text}\u001b[0m` : (_style, text) => text;
 }
-export function jobSuffix(id: string): string {
-	return clip(id.slice(id.lastIndexOf("-") + 1) || id, 12);
-}
 export function formatAge(milliseconds: number): string {
 	const minutes = Math.floor(Math.max(0, milliseconds) / 60_000);
 	if (minutes < 1) {
@@ -73,37 +62,6 @@ export function formatAge(milliseconds: number): string {
 		return `${hours}h ago`;
 	}
 	return `${Math.floor(hours / 24)}d ago`;
-}
-export function tallyStates(states: readonly string[]): StateTally {
-	const tally = { total: states.length, running: 0, done: 0, failed: 0, stopped: 0, invalid: 0 };
-	for (const state of states) {
-		if (state === "running" || state === "done" || state === "failed" || state === "stopped") {
-			tally[state] += 1;
-		} else {
-			tally.invalid += 1;
-		}
-	}
-	return tally;
-}
-export function humanSnapshot(records: readonly JobRecord[], tally: StateTally, hint: boolean, paint: Paint): string {
-	const width = Math.min(32, Math.max(12, ...records.map((record) => [...(record.job?.label ?? record.id)].length)));
-	return [...records.map((record) => humanRow(record, width, paint)), cabinetLine(tally, hint, paint)].join("\n");
-}
-export function humanRow(record: JobRecord, labelWidth: number, paint: Paint): string {
-	const job = record.job;
-	if (record.invalid || !job) {
-		return `${paint("red", "!")} ${clip(record.id, labelWidth).padEnd(labelWidth)}  ${paint("red", record.invalid ?? "unreadable")}`;
-	}
-	const label = clip(job.label, labelWidth).padEnd(labelWidth);
-	const facts =
-		job.phase === "running"
-			? [
-					...runningFacts(record, paint),
-					...(record.advisory ? [paint("yellow", "advisory")] : []),
-					...flags(record).map((flag) => paint("dim", flag)),
-				]
-			: terminalFacts(record, paint);
-	return `${glyph(record, paint)} ${job.phase === "running" ? paint("bold", label) : label}  ${paint("dim", jobSuffix(record.id).padEnd(12))}  ${facts.join(paint("dim", " · "))}`;
 }
 export function humanDetail(record: JobRecord, paint: Paint): string {
 	const job = record.job;
@@ -208,14 +166,6 @@ function runningFacts(record: JobRecord, paint: Paint): string[] {
 	}
 	return facts;
 }
-function terminalFacts(record: JobRecord, paint: Paint): string[] {
-	const facts = record.ageMs === undefined ? [] : [paint("dim", formatAge(record.ageMs))];
-	facts.push(formatDuration(record.elapsedMs ?? 0), ...workFacts(record, paint));
-	if (record.reason) {
-		facts.push(clip(record.reason, 48));
-	}
-	return [...facts, ...flags(record).map((flag) => paint("dim", flag))];
-}
 function terminalRanLine(record: JobRecord, paint: Paint): string {
 	const facts = [formatDuration(record.elapsedMs ?? 0), ...workFacts(record, paint)];
 	if (record.ageMs !== undefined) {
@@ -246,21 +196,6 @@ function flags(record: JobRecord): string[] {
 		out.push(`repo ${record.repo}`);
 	}
 	return out;
-}
-function cabinetLine(tally: StateTally, hint: boolean, paint: Paint): string {
-	const parts = [paint("dim", `${tally.total} ${tally.total === 1 ? "job" : "jobs"}`)];
-	for (const phase of ["running", "done", "failed", "stopped"] as const) {
-		if (tally[phase]) {
-			parts.push(paint("dim", `${tally[phase]} ${phase}`));
-		}
-	}
-	if (tally.invalid) {
-		parts.push(paint("red", `${tally.invalid} invalid`));
-	}
-	if (hint) {
-		parts.push(paint("dim", "limen jobs --all"));
-	}
-	return parts.join(paint("dim", " · "));
 }
 function keyed(key: string, value: string, paint: Paint): string[] {
 	const [first = "", ...rest] = value.split("\n");

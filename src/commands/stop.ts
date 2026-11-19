@@ -3,24 +3,26 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { SESSION_ID } from "../job/job.ts";
 import { resolveJob } from "../job/lookup.ts";
 import { appendLimenLog, finalizeJob, requestedTerminal } from "../job/record.ts";
+import type { Parsed } from "../parser.ts";
 import {
 	containEscapedDescendants,
 	discoverEscapedDescendants,
 	signalProcessGroup,
 	waitForProcessGroup,
 } from "../runtime/contain.ts";
-export async function stopCommand(args: readonly string[], cwd: string): Promise<undefined> {
-	const query = args[0];
-	if (!query) {
-		throw new Error("stop requires a job id");
-	}
+/** `limen stop`: stops a running job with the reason given, or "stopped by request". */
+export async function stopCommand(values: Parsed, cwd: string): Promise<undefined> {
+	await stopJob(values.get("job") ?? "", values.get("reason") ?? "", cwd);
+}
+/** Stops the running job `query` names; a group's stop calls it for each member job. */
+export async function stopJob(query: string, given: string, cwd: string): Promise<void> {
 	const { id, jobDir } = await resolveJob(cwd, query, "control");
 	const state = (await readFile(`${jobDir}/state`, "utf8")).trim();
 	if (state !== "running") {
 		console.log(`${id} is already ${state}`);
 		return;
 	}
-	const reason = args.slice(1).join(" ").trim() || "stopped by request";
+	const reason = given.trim() || "stopped by request";
 	await appendLimenLog(jobDir, `stop requested: ${reason}`);
 	const pid = Number((await readFile(`${jobDir}/pid`, "utf8")).trim());
 	if (!Number.isSafeInteger(pid) || pid <= 0) {

@@ -11,8 +11,9 @@ import { memberPacket, routeFlags } from "../job/group-packet.ts";
 import { makeJobId, parseDuration, SESSION_ID } from "../job/job.ts";
 import { publishJob } from "../job/publication.ts";
 import { atomicWrite, finalizeJob } from "../job/record.ts";
-import { refuseRemovedFlags, removedFlag, removedRole } from "../old-names.ts";
+import { type NameSource, refuseRemovedRole } from "../old-names.ts";
 import { JOB_STARTED, type Success } from "../outcome.ts";
+import type { Parsed } from "../parser.ts";
 import {
 	addBranchWorktree,
 	addDetachedWorktree,
@@ -29,20 +30,36 @@ import {
 } from "../project/git.ts";
 import { inheritedPlanning, ticketPointers } from "../project/planning.ts";
 import { signalProcessGroup, waitForProcessGroup } from "../runtime/contain.ts";
-import {
-	defaultModel,
-	type EngineProfile,
-	engineBinary,
-	preflightEngine,
-	resolveSpawnEngine,
-} from "../runtime/engine.ts";
+import { type EngineProfile, engineBinary, preflightEngine, resolveSpawnEngine } from "../runtime/engine.ts";
 import { liveJob } from "../runtime/reap.ts";
 import { DEFAULT_PRIORITY, parsePriority, queuedLine } from "../runtime/start-queue.ts";
 import { normalizeWorkerExtensions } from "../runtime/worker-extensions.ts";
 import { launchWrapper } from "../runtime/wrapper.ts";
 import { hunkBinary } from "./diff.ts";
-import { parseFlags } from "./flags.ts";
 
+/**
+ * A spawn as its flags give it, before any check: the handler reads it from the command line, and keeper, group start
+ * and the GitHub jobs build it themselves (T-26). The four route fields are required (D-043).
+ */
+export type SpawnRequest = {
+	readonly task: readonly string[];
+	readonly engine: string;
+	readonly provider: string;
+	readonly model: string;
+	readonly thinking: string;
+	readonly label?: string | undefined;
+	readonly branch?: string | undefined;
+	readonly repo?: string | undefined;
+	readonly role?: string | undefined;
+	readonly review?: boolean | undefined;
+	readonly base?: string | undefined;
+	readonly head?: string | undefined;
+	readonly timeout?: string | undefined;
+	readonly taskFile?: string | undefined;
+	readonly prepare?: string | undefined;
+	readonly priority?: string | undefined;
+	readonly extensions?: readonly string[] | undefined;
+};
 type SpawnOptions = {
 	task: string;
 	taskFile?: string;
@@ -51,32 +68,33 @@ type SpawnOptions = {
 	base?: string;
 	head?: string;
 	repo?: string;
-	model?: string;
-	provider?: string;
-	thinking?: string;
+	engine: string;
+	model: string;
+	provider: string;
+	thinking: string;
 	timeoutMs?: number;
 	prepare?: string;
 	priority?: number;
 	review: boolean;
 	role?: string;
-	engine?: string;
 	extensions: string[];
 };
 const PACKAGE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 /**
  * The project's own `.agents/limen/<role>.md`, else the package's template. With neither, a role a cut removed refuses
- * with its line from `src/old-names.ts`; spawn and continue call this before the job id and the job folder.
+ * with its line from `src/old-names.ts`, by `source`: spawn's `--role`, or continue's parent record. Spawn and continue
+ * call this before the job id and the job folder.
  */
-export function resolvePreamble(root: string, role: string): string {
+export function resolvePreamble(root: string, role: string, source: NameSource = "argument"): string {
 	const places = [`${root}/.agents/limen/${role}.md`, resolve(PACKAGE_ROOT, "templates", `${role}.md`)];
 	for (const path of places) {
 		if (existsSync(path)) {
 			return path;
 		}
 	}
+	refuseRemovedRole(role, source);
 	throw new Error(
-		removedRole(role) ??
-			`no preamble for role ${role} in ${places.join(" or ")}; write .agents/limen/${role}.md to add the role`,
+		`no preamble for role ${role} in ${places.join(" or ")}; write .agents/limen/${role}.md to add the role`,
 	);
 }
 type WorktreePlan =
@@ -87,9 +105,34 @@ type WorktreePlan =
 const HANDSHAKE_POLL_MS = 20;
 const handshakeMs = (): number =>
 	Number(process.env.LIMEN_HANDSHAKE_MS) > 0 ? Number(process.env.LIMEN_HANDSHAKE_MS) : 10_000;
+/** `limen spawn`: starts one job from the command line. */
+export function spawnCommand(values: Parsed, cwd: string): Promise<Success> {
+	return startSpawn(
+		{
+			task: values.list("task"),
+			engine: values.get("engine") ?? "",
+			provider: values.get("provider") ?? "",
+			model: values.get("model") ?? "",
+			thinking: values.get("thinking") ?? "",
+			label: values.get("label"),
+			branch: values.get("branch"),
+			repo: values.get("repo"),
+			role: values.get("role"),
+			review: values.has("review"),
+			base: values.get("base"),
+			head: values.get("head"),
+			timeout: values.get("timeout"),
+			taskFile: values.get("task-file"),
+			prepare: values.get("prepare"),
+			priority: values.get("priority"),
+			extensions: values.list("extension"),
+		},
+		cwd,
+	);
+}
 /** Starts one job; its success names the job in `ids.job` (D-022). A group's in-process launch ignores the result. */
-export async function spawnCommand(
-	args: readonly string[],
+export async function startSpawn(
+	request: SpawnRequest,
 	cwd: string,
 	coordinator?: { run: GroupRun; team: string },
 ): Promise<Success> {
@@ -103,8 +146,8 @@ export async function spawnCommand(
 		throw new Error("group workers cannot launch jobs; ask their team coordinator");
 	}
 	const id = group
-		? await groupLock(`${groupPath(group.run)}/launch`, () => spawnJob(args, cwd, group), "wait")
-		: await spawnJob(args, cwd);
+		? await groupLock(`${groupPath(group.run)}/launch`, () => spawnJob(request, cwd, group), "wait")
+		: await spawnJob(request, cwd);
 	return { next: JOB_STARTED, ids: { job: id } };
 }
 type SpawnGroup = { run: GroupRun; team: string; role: "coordinator" | "worker" };
@@ -156,8 +199,8 @@ type SpawnedJob = {
 	readonly setup: { readonly LIMEN_SETUP_KEEP: string; readonly LIMEN_SETUP_PREPARE: string };
 };
 /** Checks, records and starts the job; returns its id. */
-async function spawnJob(args: readonly string[], cwd: string, group?: SpawnGroup): Promise<string> {
-	const parsed = parseSpawnArgs(args);
+async function spawnJob(request: SpawnRequest, cwd: string, group?: SpawnGroup): Promise<string> {
+	const parsed = spawnOptions(request);
 	const profile = resolveSpawnEngine(parsed.engine);
 	await checkLaunchAuthority(parsed, group);
 	const loaded = await readSpawnTask(parsed.task, parsed.taskFile, cwd);
@@ -166,7 +209,7 @@ async function spawnJob(args: readonly string[], cwd: string, group?: SpawnGroup
 		task: loaded.text,
 		label: parsed.label ?? (loaded.text.trim().split(/\r?\n/, 1)[0]?.trim().slice(0, 80) || "job"),
 	};
-	const model = options.model ?? defaultModel(options.review);
+	const model = options.model;
 	const extensions = await launchExtensions(group, options.extensions, cwd);
 	preflightEngine(profile, model, options.provider);
 	const notificationSession = currentNotificationSession();
@@ -280,7 +323,7 @@ async function recordSpawnedJob(launch: SpawnLaunch): Promise<string> {
 	const role = options.review ? "reviewer" : (group?.role ?? options.role ?? "worker");
 	const pinnedBase = options.base ? resolveCommit(repository, options.base, "--base") : undefined;
 	const pinnedHead = options.head ? resolveCommit(repository, options.head, "--head") : undefined;
-	const preamble = resolvePreamble(root, role);
+	const preamble = resolvePreamble(root, role, "argument");
 	const id = makeJobId(options.label);
 	const jobsRoot = `${root}/.limen/jobs`;
 	await mkdir(jobsRoot, { recursive: true });
@@ -507,110 +550,56 @@ function claimsOwnerFacingLead(role: string | undefined): string | undefined {
 	}
 }
 
-const SPAWN_FLAGS = {
-	review: { type: "boolean" },
-	// Removed: refused after parsing (src/old-names.ts).
-	tab: { type: "boolean" },
-	// Every job is detached; the flag stays accepted and changes nothing.
-	detached: { type: "boolean" },
-	branch: { type: "string" },
-	repo: { type: "string" },
-	label: { type: "string" },
-	model: { type: "string" },
-	provider: { type: "string" },
-	thinking: { type: "string" },
-	timeout: { type: "string" },
-	"task-file": { type: "string" },
-	prepare: { type: "string" },
-	priority: { type: "string" },
-	role: { type: "string" },
-	engine: { type: "string" },
-	base: { type: "string" },
-	head: { type: "string" },
-	extension: { type: "string", multiple: true },
-} as const;
-
-function parseSpawnArgs(args: readonly string[]): SpawnOptions {
-	const { values, positionals } = parseFlags(args, SPAWN_FLAGS, {
-		unknown: (word) => `unknown spawn option ${word}`,
-		missing: (flag) => `${flag} requires a value`,
-		repeated: (flag) =>
-			removedFlag("spawn", flag) ??
-			(flag === "--review" || flag === "--detached" ? undefined : `${flag} may be supplied only once`),
-		// Every string flag but --extension takes a value that starts with `--`: `--label --review` labels the job
-		// `--review`, and a removed flag reads as a label the same way.
-		dashValues: [
-			"branch",
-			"repo",
-			"label",
-			"model",
-			"provider",
-			"thinking",
-			"timeout",
-			"task-file",
-			"prepare",
-			"priority",
-			"role",
-			"engine",
-			"base",
-			"head",
-		],
-	});
-	refuseRemovedFlags("spawn", values);
-	const role = values.role?.trim();
+/** The checked options of a spawn; a value that does not hold refuses before any job record exists. */
+function spawnOptions(request: SpawnRequest): SpawnOptions {
+	const role = request.role?.trim();
 	if (role !== undefined && !/^[a-z][a-z0-9-]*$/.test(role)) {
 		throw new Error("--role must be a lowercase name");
 	}
-	const engine = values.engine?.trim();
-	const timeoutMs = values.timeout === undefined ? undefined : parseDuration(values.timeout);
-	const priority = parsePriority(values.priority);
-	if (values.review && role) {
+	const timeoutMs = request.timeout === undefined ? undefined : parseDuration(request.timeout);
+	const priority = parsePriority(request.priority);
+	if (request.review && role) {
 		throw new Error("--role and --review cannot be combined");
 	}
 	// Every `--` and every empty word is dropped from the task.
-	const task = positionals.filter((word) => word !== "" && word !== "--");
-	const label = spawnLabel(values, task);
-	const taskFile = values["task-file"];
+	const task = request.task.filter((word) => word !== "" && word !== "--");
+	const label = spawnLabel(request, task);
 	const out: SpawnOptions = {
-		task: taskFile ? "" : task.join(" "),
-		extensions: values.extension ?? [],
-		review: values.review ?? false,
+		task: request.taskFile ? "" : task.join(" "),
+		extensions: [...(request.extensions ?? [])],
+		review: request.review ?? false,
+		engine: request.engine.trim(),
+		model: request.model,
+		provider: request.provider,
+		thinking: request.thinking,
 		...(role ? { role } : {}),
-		...(engine ? { engine } : {}),
 		...(label ? { label } : {}),
-		...(taskFile ? { taskFile } : {}),
+		...(request.taskFile ? { taskFile: request.taskFile } : {}),
 		...(timeoutMs ? { timeoutMs } : {}),
 		...(priority ? { priority } : {}),
 	};
-	for (const key of ["prepare", "branch", "base", "head", "repo", "model", "provider", "thinking"] as const) {
-		const value = values[key];
+	for (const key of ["prepare", "branch", "base", "head", "repo"] as const) {
+		const value = request[key];
 		if (value) {
 			out[key] = value;
 		}
 	}
 	return out;
 }
-type SpawnTaskFlags = {
-	readonly review?: boolean | undefined;
-	readonly base?: string | undefined;
-	readonly head?: string | undefined;
-	readonly label?: string | undefined;
-	readonly "task-file"?: string | undefined;
-};
 /** Check the task against its flags; the label, which positional words give with --task-file. */
-function spawnLabel(values: SpawnTaskFlags, task: readonly string[]): string | undefined {
+function spawnLabel(values: SpawnRequest, task: readonly string[]): string | undefined {
 	if ((values.base || values.head) && !values.review) {
 		throw new Error("--base and --head require --review");
 	}
 	const label = values.label === undefined ? undefined : normalizeLabel(values.label);
 	// With --task-file the file is the task, so positional words can only be its title.
-	if (values["task-file"] && task.length) {
+	if (values.taskFile && task.length) {
 		if (label) {
 			throw new Error("with --task-file, give the title positionally or as --label, not both");
 		}
 		return normalizeLabel(task.join(" "));
 	}
-	if (!values["task-file"] && !task.join(" ").trim()) {
+	if (!values.taskFile && !task.join(" ").trim()) {
 		throw new Error("spawn requires task text");
 	}
 	return label;

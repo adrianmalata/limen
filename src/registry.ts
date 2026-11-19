@@ -1,0 +1,944 @@
+// The one registry of Limen's commands (T-19): each entry's name, what it acts on (T-18), its kind (T-04), its
+// visibility, its summary, its schema of positionals and flags, the `ids` keys it may return (D-022), one example and
+// its handler. `src/main.ts` dispatches through it, `src/parser.ts` reads its words by it, and `src/help.ts` generates
+// the help and the command sections of docs/commands.md from it.
+import { boardCommand } from "./commands/board-view.ts";
+import { closeCommand } from "./commands/close.ts";
+import { continueCommand } from "./commands/continue.ts";
+import { diffCommand } from "./commands/diff.ts";
+import {
+	githubConnectCommand,
+	githubDeliverCommand,
+	githubDisconnectCommand,
+	githubDoctorCommand,
+	githubEnsureCommand,
+	githubPollCommand,
+	githubResolveCommand,
+	githubReviewCommand,
+	githubStatusCommand,
+	githubWorkCommand,
+} from "./commands/github.ts";
+import {
+	groupAdvanceCommand,
+	groupCloseCommand,
+	groupPublishCommand,
+	groupStartCommand,
+	groupStatusCommand,
+	groupStopCommand,
+	groupWaitCommand,
+} from "./commands/group.ts";
+import { initCommand, workspaceInitCommand } from "./commands/init.ts";
+import { keeperCommand } from "./commands/keeper.ts";
+import { landCommand } from "./commands/land.ts";
+import { openCommand } from "./commands/open.ts";
+import { pictureBuildCommand, pictureServeCommand } from "./commands/picture.ts";
+import { pruneCommand } from "./commands/prune.ts";
+import { ruleCommand, ruleEndCommand, ruleSetCommand, ruleTimerCommand } from "./commands/rule.ts";
+import { seatQueueCommand } from "./commands/seat-queue.ts";
+import { showCommand } from "./commands/show.ts";
+import { spawnCommand } from "./commands/spawn.ts";
+import { statusCommand } from "./commands/status.ts";
+import { steerCommand } from "./commands/steer.ts";
+import { stopCommand } from "./commands/stop.ts";
+import { sweepCommand } from "./commands/sweep.ts";
+import { ticketCheckCommand, ticketDoneCommand, ticketNewCommand } from "./commands/ticket.ts";
+import { unwatchCommand, watchCommand } from "./commands/watch.ts";
+import type { IdKey, Success } from "./outcome.ts";
+import type { Command, Flag, Parsed, Positional } from "./parser.ts";
+
+/** What a command acts on (T-18): one job, the owner's conversation, this project, or the group it belongs to. */
+export type CommandObject =
+	| "job"
+	| "owner"
+	| "project"
+	| "ticket"
+	| "seat"
+	| "github"
+	| "group"
+	| "picture"
+	| "workspace";
+/** A command returns its result or throws (D-028); `undefined` is a success with `next` "". */
+export type Handler = (values: Parsed, cwd: string) => Promise<Success | undefined>;
+/**
+ * One command. An internal one names its `caller` and stays out of `limen --help`. `movedBy` names the ticket that
+ * moves or cuts it (D-039, D-042); the help does not show it.
+ */
+export type Entry = Command & {
+	readonly object: CommandObject;
+	readonly kind: "read" | "change";
+	readonly visibility: "public" | "internal";
+	readonly caller?: string;
+	readonly summary: string;
+	readonly ids: readonly IdKey[];
+	readonly example: string;
+	readonly movedBy?: string;
+	readonly handler: Handler;
+};
+/** A group of the general help: a header over its lines, or a module, one line with its summary under "Modules". */
+export type Group =
+	| { readonly object: CommandObject; readonly header: string }
+	| { readonly object: CommandObject; readonly module: true; readonly summary: string };
+
+export const GROUPS: readonly Group[] = [
+	{
+		object: "job",
+		header: "Jobs: spawn starts a job; the others act on one job, or on several with --running or --all",
+	},
+	{ object: "project", header: "This project" },
+	{ object: "ticket", header: "Tickets: files under spec/features/" },
+	{ object: "seat", header: "Seat: all projects on this machine" },
+	{ object: "github", module: true, summary: "answer @limen mentions on GitHub pull requests" },
+	{ object: "group", module: true, summary: "several agents on one ticket" },
+	{ object: "picture", module: true, summary: "the architecture map check and the job activity feed" },
+	{
+		object: "workspace",
+		module: true,
+		summary: "a folder outside Git that holds several Git repositories; each job works in one (--repo)",
+	},
+];
+/** D-040: until module switches exist (R-044), the header says only what is true now. */
+export const MODULES_HEADER = "Modules";
+
+const JOB: Positional = { positional: "job", type: "job", about: "the job's id, its suffix or its label" };
+const ROUTE_ABOUT = {
+	engine: "the engine that runs the job; pi is the only one",
+	provider: "the provider of the job's model",
+	model: "the model the job runs",
+	thinking: "the model's reasoning level, such as high",
+} as const;
+/** The four route flags that a new job requires (D-043). */
+const ROUTE: readonly Flag[] = [
+	{ flag: "engine", value: "engine", required: true, about: ROUTE_ABOUT.engine },
+	{ flag: "provider", value: "provider", required: true, about: ROUTE_ABOUT.provider },
+	{ flag: "model", value: "model", required: true, about: ROUTE_ABOUT.model },
+	{ flag: "thinking", value: "level", required: true, about: ROUTE_ABOUT.thinking },
+];
+/** The route flags whose separate value may start with `--`, as spawn and the GitHub jobs have always read them. */
+const DASHED_ROUTE: readonly Flag[] = ROUTE.map((flag) => ({ ...flag, dashValue: true }));
+const DETACHED: Flag = { flag: "detached", about: "accepted, and changes nothing: every job runs detached" };
+const EXTENSION: Flag = {
+	flag: "extension",
+	value: "path",
+	repeatable: true,
+	about: "a Pi extension file or package folder the job loads; repeat it for more",
+};
+const ROOT: Positional = { positional: "root", type: "path", about: "the registered project's repository root" };
+const CLAIM: Positional = {
+	positional: "claim",
+	type: "word",
+	shown: "claim-id",
+	about: "the claim: the comment's id, or issue-<number> for an issue body",
+};
+const NONCE: Positional = {
+	positional: "nonce",
+	type: "word",
+	shown: "handoff-nonce",
+	about: "the nonce of the claim's prompt",
+};
+const GROUP_ID: Positional = {
+	positional: "group",
+	type: "word",
+	optional: true,
+	about: "the group's id; the lead gives it, a member leaves it out",
+};
+const GITHUB_PROMPT = "the coordinator, as the prompt of a GitHub claim says";
+
+const SPAWN: Entry = {
+	name: "spawn",
+	object: "job",
+	kind: "change",
+	visibility: "public",
+	summary: "start a job in its own worktree; the task points to its ticket",
+	abbreviated: true,
+	schema: [
+		{
+			positional: "task",
+			type: "text",
+			replacedBy: "task-file",
+			about: "what the job does: a short instruction that names its ticket",
+		},
+		...DASHED_ROUTE,
+		{
+			flag: "label",
+			value: "label",
+			dashValue: true,
+			about: "the job's name in lists and tabs; default the task's first line",
+		},
+		{
+			flag: "branch",
+			value: "branch",
+			dashValue: true,
+			about: "work on this branch, not a new limen/<id>; a review reads it",
+		},
+		{ flag: "repo", value: "repo", dashValue: true, about: "the child repository a workspace job works in" },
+		{
+			flag: "role",
+			value: "role",
+			dashValue: true,
+			about: "use .agents/limen/<role>.md, else templates/<role>.md of the package",
+		},
+		{ flag: "review", about: "start a reviewer job that reads --branch" },
+		{ flag: "base", value: "commit", dashValue: true, about: "with --review: the commit the reviewed range starts at" },
+		{
+			flag: "head",
+			value: "commit",
+			dashValue: true,
+			about: "with --review: where the range ends; refuses if the branch moved",
+		},
+		{
+			flag: "timeout",
+			value: "duration",
+			dashValue: true,
+			about: "end the job after this time, such as 20m; default 90m",
+		},
+		{
+			flag: "task-file",
+			value: "file",
+			dashValue: true,
+			about: "the task from this file, or stdin with -; the task words become the label",
+		},
+		{
+			flag: "prepare",
+			value: "command",
+			dashValue: true,
+			about: "a shell command the job runs before its engine starts",
+		},
+		{
+			flag: "priority",
+			choices: ["1", "2", "3"],
+			dashValue: true,
+			about: "the job's place in the seat's start queue; 1 is first, 2 the default",
+		},
+		EXTENSION,
+		DETACHED,
+		{ removed: "tab" },
+	],
+	ids: ["job"],
+	example:
+		'limen spawn "Implement F012. Ticket: spec/features/active/F012-demo/ticket.md" --engine pi --provider pi-claude --model claude-opus-5-5 --thinking high',
+	handler: spawnCommand,
+};
+
+const CONTINUE: Entry = {
+	name: "continue",
+	object: "job",
+	kind: "change",
+	visibility: "public",
+	summary: "resume a finished job in its worktree",
+	abbreviated: true,
+	schema: [
+		JOB,
+		{ positional: "instruction", type: "text", about: "what the job does next, in the same session and worktree" },
+		{
+			flag: "label",
+			value: "label",
+			dashValue: true,
+			about: "the new job's name; default the parent's label and · continue",
+		},
+		{ flag: "engine", value: "engine", dashValue: true, about: "the engine; it must be the parent's" },
+		{ flag: "provider", value: "provider", dashValue: true, about: ROUTE_ABOUT.provider },
+		{ flag: "model", value: "model", dashValue: true, about: ROUTE_ABOUT.model },
+		{ flag: "thinking", value: "level", dashValue: true, about: ROUTE_ABOUT.thinking },
+		{ flag: "timeout", value: "duration", dashValue: true, about: "end the job after this time, such as 20m" },
+		{
+			flag: "priority",
+			choices: ["1", "2", "3"],
+			dashValue: true,
+			about: "the job's place in the start queue; default the parent's",
+		},
+		{ ...EXTENSION, about: "replaces the parent's list of Pi extensions; repeat it for more" },
+		DETACHED,
+		{ removed: "tab" },
+		{ removed: "review" },
+	],
+	ids: ["job"],
+	example: 'limen continue a1b2c3d4 "Fix the test the review names, then commit"',
+	handler: continueCommand,
+};
+
+const JOBS: readonly Entry[] = [
+	SPAWN,
+	CONTINUE,
+	{
+		name: "steer",
+		object: "job",
+		kind: "change",
+		visibility: "public",
+		summary: "send a correction to a running job",
+		schema: [
+			{ ...JOB, replacedBy: "running" },
+			{ flag: "running", about: "every running job that wakes this coordinator" },
+			{ positional: "text", type: "text", about: "the correction; the job reads it at its next turn" },
+		],
+		ids: [],
+		example: 'limen steer a1b2c3d4 "Leave docs/ alone; fix src/main.ts first"',
+		handler: steerCommand,
+	},
+	{
+		name: "stop",
+		object: "job",
+		kind: "change",
+		visibility: "public",
+		summary: "stop a running job",
+		schema: [
+			JOB,
+			{
+				positional: "reason",
+				type: "text",
+				optional: true,
+				about: "why, kept in the record; a reason that starts with done: records it done",
+			},
+		],
+		ids: [],
+		example: 'limen stop a1b2c3d4 "the ticket changed"',
+		handler: stopCommand,
+	},
+	{
+		name: "land",
+		object: "job",
+		kind: "change",
+		visibility: "public",
+		summary: "merge a done job onto this branch and close its ticket",
+		schema: [
+			JOB,
+			{ flag: "onto", value: "branch", about: "refuse unless <branch> is the checked-out branch" },
+			{ flag: "yes", about: "do not ask for confirmation in a terminal" },
+			{ flag: "keep-open", about: "keep the ticket active, because more slices remain" },
+		],
+		ids: [],
+		example: "limen land a1b2c3d4",
+		handler: landCommand,
+	},
+	{
+		name: "diff",
+		object: "job",
+		kind: "read",
+		visibility: "public",
+		summary: "the change a job made against its base",
+		schema: [JOB],
+		ids: [],
+		example: "limen diff a1b2c3d4",
+		handler: diffCommand,
+	},
+	{
+		name: "show",
+		object: "job",
+		kind: "read",
+		visibility: "public",
+		summary: "one job's record",
+		schema: [JOB],
+		ids: [],
+		example: "limen show a1b2c3d4",
+		handler: showCommand,
+	},
+	{
+		name: "open",
+		object: "job",
+		kind: "read",
+		visibility: "public",
+		summary: "open the job's log tab in Herdr",
+		schema: [JOB],
+		ids: [],
+		example: "limen open a1b2c3d4",
+		handler: openCommand,
+	},
+	{
+		name: "watch",
+		object: "job",
+		kind: "change",
+		visibility: "public",
+		summary: "wake this coordinator when the job ends",
+		schema: [
+			{ ...JOB, replacedBy: "running" },
+			{ flag: "running", about: "every job of this project that runs now" },
+		],
+		ids: [],
+		example: "limen watch a1b2c3d4",
+		handler: watchCommand,
+	},
+	{
+		name: "unwatch",
+		object: "job",
+		kind: "change",
+		visibility: "public",
+		summary: "stop waking this coordinator for the job",
+		schema: [
+			{ ...JOB, replacedBy: "all" },
+			{ flag: "all", about: "every job of this project" },
+		],
+		ids: [],
+		example: "limen unwatch a1b2c3d4",
+		handler: unwatchCommand,
+	},
+];
+
+const PROJECT: readonly Entry[] = [
+	{
+		name: "init",
+		object: "project",
+		kind: "change",
+		visibility: "public",
+		summary: "set up Limen here; --drop-leftovers deletes files Limen no longer reads",
+		schema: [
+			{
+				flag: "drop-leftovers",
+				about: "delete the files limen status lists under Leftover files, and old hook copies",
+			},
+		],
+		ids: [],
+		example: "limen init",
+		handler: initCommand,
+	},
+	{
+		name: "status",
+		object: "project",
+		kind: "read",
+		visibility: "public",
+		summary: "what runs, what landed, what waits for the owner; --all lists every job",
+		schema: [{ flag: "all", about: "also the records older than 7 days, then one row for every job" }],
+		ids: [],
+		example: "limen status --all",
+		handler: statusCommand,
+	},
+	{
+		name: "board",
+		object: "project",
+		kind: "change",
+		visibility: "public",
+		summary: "the board with NOW and PROVEN; --write rewrites them in spec/build.md",
+		schema: [{ flag: "write", about: "rewrite NOW and PROVEN in spec/build.md from the ticket folders" }],
+		ids: [],
+		example: "limen board",
+		handler: boardCommand,
+	},
+	{
+		name: "prune",
+		object: "project",
+		kind: "change",
+		visibility: "public",
+		summary: "remove finished worktrees; --retire deletes records of landed jobs",
+		schema: [
+			{ flag: "retire", about: "delete the records of finished jobs whose branch landed or is gone" },
+			{ flag: "dry-run", about: "with --retire: list the records it would delete, and delete none" },
+		],
+		ids: [],
+		example: "limen prune --retire --dry-run",
+		movedBy: "R-032",
+		handler: pruneCommand,
+	},
+];
+
+const TICKETS: readonly Entry[] = [
+	{
+		name: "ticket new",
+		object: "ticket",
+		kind: "change",
+		visibility: "public",
+		summary: "write a ticket with the next free number",
+		schema: [
+			{
+				positional: "title",
+				type: "text",
+				shown: "what becomes true",
+				about: "the title: what is true once it is done",
+			},
+			{ flag: "lane", choices: ["planned", "active"], about: "the folder the ticket starts in; default planned" },
+			{ flag: "touches", value: "ids", about: "the map places it changes, as module ids joined by commas" },
+		],
+		ids: ["ticket"],
+		example: 'limen ticket new "Spawn names every missing route flag" --lane active',
+		handler: ticketNewCommand,
+	},
+	{
+		name: "ticket check",
+		object: "ticket",
+		kind: "read",
+		visibility: "public",
+		summary: "the ticket check land runs, for the tickets a branch changes",
+		schema: [
+			{
+				positional: "branch",
+				type: "branch",
+				optional: true,
+				about: "the branch to check; default the checked-out one",
+			},
+		],
+		ids: [],
+		example: "limen ticket check limen/2026-11-19-f012-a1b2c3d4",
+		handler: ticketCheckCommand,
+	},
+	{
+		name: "ticket done",
+		object: "ticket",
+		kind: "change",
+		visibility: "public",
+		summary: "close a ticket that landed without limen land",
+		schema: [
+			{ positional: "tickets", type: "ticket", repeated: true, about: "an active ticket's number; repeat for more" },
+			{ flag: "on", value: "date", about: "the landed date, YYYY-MM-DD; default today" },
+		],
+		ids: [],
+		example: "limen ticket done F012",
+		handler: ticketDoneCommand,
+	},
+	{
+		name: "close",
+		object: "ticket",
+		kind: "change",
+		visibility: "public",
+		summary: "close the ticket's Herdr tabs",
+		// A word, not a checked ticket number: the command also takes a ticket's path and reads the number from it.
+		schema: [
+			{
+				positional: "ticket",
+				type: "word",
+				shown: "FNNN",
+				about: "a ticket in done/ or dropped/, whose job tabs close",
+			},
+		],
+		ids: [],
+		example: "limen close F012",
+		movedBy: "R-037",
+		handler: closeCommand,
+	},
+	{
+		name: "keeper",
+		object: "ticket",
+		kind: "change",
+		visibility: "public",
+		summary: "a short job fixes the ticket, board and map links after the work",
+		abbreviated: true,
+		schema: [
+			{
+				positional: "ticket",
+				type: "path",
+				about: "the ticket file, spec/features/<lane>/FNNN-slug/ticket.md",
+			},
+			...ROUTE,
+			{ flag: "job", value: "job", repeatable: true, about: "a finished job whose work it reads; repeat for more" },
+			{ flag: "group", value: "group", about: "a group whose member jobs it reads" },
+			{ flag: "candidate", value: "branch", about: "the branch it starts from; needed for several jobs" },
+			{ flag: "timeout", value: "duration", about: "end the job after this time; default 20m" },
+		],
+		ids: ["job"],
+		example:
+			"limen keeper spec/features/active/F012-demo/ticket.md --engine pi --provider pi-claude --model claude-opus-5-5 --thinking high --job a1b2c3d4",
+		movedBy: "R-066",
+		handler: keeperCommand,
+	},
+];
+
+const RULE: Positional = {
+	positional: "name",
+	type: "word",
+	about: "the rule's name: letters, digits, dot, dash or underscore",
+};
+const SEAT: readonly Entry[] = [
+	{
+		name: "seat queue",
+		object: "seat",
+		kind: "read",
+		visibility: "public",
+		summary: "the start queue and its CPU and memory reading",
+		schema: [],
+		ids: [],
+		example: "limen seat queue",
+		handler: seatQueueCommand,
+	},
+	{
+		name: "sweep",
+		object: "seat",
+		kind: "change",
+		visibility: "public",
+		summary: "reap dead jobs in every project and notify about jobs nobody heard of",
+		schema: [
+			{ flag: "install", about: "install a macOS LaunchAgent that runs the sweep every 60 s" },
+			{ flag: "uninstall", about: "remove that LaunchAgent" },
+		],
+		ids: [],
+		example: "limen sweep",
+		movedBy: "R-032",
+		handler: sweepCommand,
+	},
+	{
+		name: "rule",
+		object: "seat",
+		kind: "read",
+		visibility: "public",
+		summary: "the seat-wide rules that hold now",
+		schema: [],
+		ids: [],
+		example: "limen rule",
+		movedBy: "R-034",
+		handler: ruleCommand,
+	},
+	{
+		name: "rule set",
+		object: "seat",
+		kind: "change",
+		visibility: "public",
+		summary: "a rule for every coordinator on this machine",
+		schema: [
+			RULE,
+			{
+				flag: "until",
+				value: "time",
+				required: true,
+				about: 'when it ends: 90m, 12h, 3d, "YYYY-MM-DD HH:MM" or an ISO time',
+			},
+			{
+				flag: "start-priority",
+				choices: ["1", "2", "3"],
+				about: "while it holds, the start queue starts only jobs this urgent",
+			},
+			{ positional: "text", type: "text", about: "the rule; every coordinator sees it in its turn" },
+		],
+		ids: [],
+		example: 'limen rule set claude-week --until 12h --start-priority 1 "Only urgent jobs until the reset"',
+		movedBy: "R-034",
+		handler: ruleSetCommand,
+	},
+	{
+		name: "rule end",
+		object: "seat",
+		kind: "change",
+		visibility: "public",
+		summary: "end a rule now",
+		schema: [
+			RULE,
+			{ positional: "reason", type: "text", optional: true, about: "why; each coordinator's end ping names it" },
+		],
+		ids: [],
+		example: 'limen rule end claude-week "the limit reset"',
+		movedBy: "R-034",
+		handler: ruleEndCommand,
+	},
+	{
+		name: "rule timer",
+		object: "seat",
+		kind: "change",
+		visibility: "internal",
+		caller: "the detached timer that rule set starts, or a later command when that timer died",
+		summary: "end one version of a rule once, at its end time",
+		schema: [
+			{ positional: "folder", type: "path", about: "the rule's folder" },
+			{ positional: "version", type: "word", about: "the version of the rule the timer ends" },
+		],
+		ids: [],
+		example: "limen rule timer .limen/rules/claude-week 1763540000000-4242",
+		movedBy: "R-034",
+		handler: ruleTimerCommand,
+	},
+];
+
+const GITHUB: readonly Entry[] = [
+	{
+		name: "github connect",
+		object: "github",
+		kind: "change",
+		visibility: "public",
+		summary: "bind this project's GitHub origin to this Herdr coordinator",
+		schema: [],
+		ids: [],
+		example: "limen github connect",
+		handler: githubConnectCommand,
+	},
+	{
+		name: "github disconnect",
+		object: "github",
+		kind: "change",
+		visibility: "public",
+		summary: "remove this project's GitHub binding; past claims stay",
+		schema: [],
+		ids: [],
+		example: "limen github disconnect",
+		handler: githubDisconnectCommand,
+	},
+	{
+		name: "github status",
+		object: "github",
+		kind: "read",
+		visibility: "public",
+		summary: "the binding and the newest local copy of a handoff",
+		schema: [],
+		ids: [],
+		example: "limen github status",
+		handler: githubStatusCommand,
+	},
+	{
+		name: "github doctor",
+		object: "github",
+		kind: "read",
+		visibility: "public",
+		summary: "check that this seat runs the GitHub module safely",
+		schema: [],
+		ids: [],
+		example: "limen github doctor",
+		handler: githubDoctorCommand,
+	},
+	{
+		name: "github ensure",
+		object: "github",
+		kind: "read",
+		visibility: "internal",
+		caller: "the GitHub poller",
+		summary: "check that the registered Herdr coordinator is live and interactive",
+		schema: [{ ...ROOT, optional: true, about: "the registered repository root; default this repository" }],
+		ids: [],
+		example: "limen github ensure",
+		handler: githubEnsureCommand,
+	},
+	{
+		name: "github poll",
+		object: "github",
+		kind: "change",
+		visibility: "internal",
+		caller: "the GitHub poller's timer, as the isolated App user",
+		summary: "run one polling pass over the registered projects",
+		schema: [],
+		ids: [],
+		example: "limen github poll",
+		handler: githubPollCommand,
+	},
+	{
+		name: "github deliver",
+		object: "github",
+		kind: "change",
+		visibility: "internal",
+		caller: "the GitHub poller",
+		summary: "hand one claim to the live coordinator of its project",
+		schema: [ROOT, CLAIM, NONCE],
+		ids: [],
+		example: "limen github deliver /srv/project 2468 0123456789abcdef0123456789abcdef",
+		handler: githubDeliverCommand,
+	},
+	{
+		name: "github review",
+		object: "github",
+		kind: "change",
+		visibility: "internal",
+		caller: GITHUB_PROMPT,
+		summary: "start a review job for one pull request claim",
+		abbreviated: true,
+		schema: [ROOT, CLAIM, ...DASHED_ROUTE],
+		ids: ["job"],
+		example:
+			"limen github review /srv/project 2468 --engine pi --provider pi-claude --model claude-opus-5-5 --thinking high",
+		handler: githubReviewCommand,
+	},
+	{
+		name: "github work",
+		object: "github",
+		kind: "change",
+		visibility: "internal",
+		caller: GITHUB_PROMPT,
+		summary: "start a task job for one claim",
+		abbreviated: true,
+		schema: [
+			ROOT,
+			CLAIM,
+			...DASHED_ROUTE,
+			{ flag: "task", value: "instruction", required: true, dashValue: true, about: "what the job does" },
+		],
+		ids: ["job"],
+		example:
+			'limen github work /srv/project 2468 --engine pi --provider pi-claude --model claude-opus-5-5 --thinking high --task "Fix the typo"',
+		handler: githubWorkCommand,
+	},
+	{
+		name: "github resolve",
+		object: "github",
+		kind: "change",
+		visibility: "internal",
+		caller: GITHUB_PROMPT,
+		summary: "answer one claim without a job; the poller posts the answer",
+		schema: [ROOT, CLAIM, NONCE, { positional: "answer", type: "text", about: "the answer to post" }],
+		ids: [],
+		example: 'limen github resolve /srv/project 2468 0123456789abcdef0123456789abcdef "Already fixed on main"',
+		handler: githubResolveCommand,
+	},
+];
+
+const GROUP: readonly Entry[] = [
+	{
+		name: "group start",
+		object: "group",
+		kind: "change",
+		visibility: "public",
+		summary: "start one agent per --team on one ticket; the lead gets the result once",
+		abbreviated: true,
+		schema: [
+			{ positional: "folder", type: "path", about: "the ticket's folder, spec/features/active/FNNN-slug" },
+			{
+				flag: "team",
+				value: "route",
+				repeatable: true,
+				required: true,
+				about: "one team as ENGINE:PROVIDER/MODEL:THINKING; repeat it for each team",
+			},
+			{ flag: "rounds", value: "rounds", about: "the rounds in order, joined by commas; default draft" },
+			{ flag: "workers", value: "n", about: "the workers each team may start; default 0" },
+			{ flag: "timeout", value: "duration", about: "the group's time limit; default 90m" },
+			{ ...EXTENSION, about: "a Pi extension every team loads; repeat it for more" },
+			{
+				flag: "team-extension",
+				value: "team-N=path",
+				repeatable: true,
+				about: "a Pi extension one team loads; repeat it for more",
+			},
+			DETACHED,
+			{ removed: "tab" },
+		],
+		ids: [],
+		example: "limen group start spec/features/active/F012-demo --team pi:pi-claude/claude-opus-5-5:high",
+		handler: groupStartCommand,
+	},
+	{
+		name: "group status",
+		object: "group",
+		kind: "change",
+		visibility: "public",
+		summary: "the group's round, deadline and each member's state; moves on a stuck round",
+		schema: [GROUP_ID, { removed: "json" }],
+		ids: [],
+		example: "limen group status 3f2a9c1e-7b4d-4e8a-9c0f-1a2b3c4d5e6f",
+		handler: groupStatusCommand,
+	},
+	{
+		name: "group publish",
+		object: "group",
+		kind: "change",
+		visibility: "public",
+		summary: "tell the other teams a finding, or one team with --team",
+		schema: [
+			GROUP_ID,
+			{ flag: "team", value: "team", about: "the one team that gets it, such as team-2" },
+			{ positional: "finding", type: "text", about: "the finding, its check and its evidence" },
+		],
+		ids: [],
+		example: 'limen group publish "Finding: stale revisions conflict. Check: npm test"',
+		handler: groupPublishCommand,
+	},
+	{
+		name: "group stop",
+		object: "group",
+		kind: "change",
+		visibility: "public",
+		summary: "stop every member job and start no more; the lead only",
+		schema: [GROUP_ID],
+		ids: [],
+		example: "limen group stop 3f2a9c1e-7b4d-4e8a-9c0f-1a2b3c4d5e6f",
+		handler: groupStopCommand,
+	},
+	{
+		name: "group close",
+		object: "group",
+		kind: "change",
+		visibility: "public",
+		summary: "close a group whose members are over, so prune can remove their worktrees",
+		schema: [GROUP_ID],
+		ids: [],
+		example: "limen group close 3f2a9c1e-7b4d-4e8a-9c0f-1a2b3c4d5e6f",
+		handler: groupCloseCommand,
+	},
+	{
+		name: "group wait",
+		object: "group",
+		kind: "change",
+		visibility: "internal",
+		caller: "team members with a worker allowance",
+		summary: "keep a member's turn open: wait at most 20 s for the group's next events",
+		schema: [
+			{
+				...GROUP_ID,
+				about: "refused for every caller outside a team, given or not, and for a member who gives one",
+			},
+			{ flag: "timeout", value: "duration", about: "wait at most this long, such as 5s" },
+		],
+		ids: [],
+		example: "limen group wait --timeout 5s",
+		movedBy: "R-077",
+		handler: groupWaitCommand,
+	},
+	{
+		name: "group advance",
+		object: "group",
+		kind: "change",
+		visibility: "internal",
+		caller: "each team job that ends, and limen group status",
+		summary: "start the group's next round once every team of this one has ended",
+		schema: [{ positional: "group", type: "word", about: "the group's id" }],
+		ids: [],
+		example: "limen group advance 3f2a9c1e-7b4d-4e8a-9c0f-1a2b3c4d5e6f",
+		handler: groupAdvanceCommand,
+	},
+];
+
+const PICTURE: readonly Entry[] = [
+	{
+		name: "picture build",
+		object: "picture",
+		// A change, by the rule of `board`: `--json <file>` writes a file.
+		kind: "change",
+		visibility: "public",
+		summary: "check the map with its tickets and board offline; writes no page",
+		schema: [
+			{ flag: "dir", value: "dir", about: "the map's folder, or one with .limen/picture; default this repository" },
+			{ flag: "json", value: "file", about: "write the map's model to this file" },
+			{ flag: "strict", about: "refuse when the check finds an error" },
+			{ removed: "out" },
+		],
+		ids: [],
+		example: "limen picture build --strict",
+		handler: pictureBuildCommand,
+	},
+	{
+		name: "picture serve",
+		object: "picture",
+		kind: "read",
+		visibility: "public",
+		summary: "serve this project's job activity on 127.0.0.1 at /activity.json and /events",
+		schema: [{ flag: "port", value: "port", about: "the port; default 4747" }, { removed: "dir" }],
+		ids: [],
+		example: "limen picture serve --port 4747",
+		handler: pictureServeCommand,
+	},
+];
+
+const WORKSPACE: readonly Entry[] = [
+	{
+		name: "workspace init",
+		object: "workspace",
+		kind: "change",
+		visibility: "public",
+		summary: "set up this folder outside Git as a workspace of the Git repositories in it",
+		schema: [],
+		ids: [],
+		example: "limen workspace init",
+		handler: workspaceInitCommand,
+	},
+];
+
+/** Every command, in the order of the help. */
+export const REGISTRY: readonly Entry[] = [
+	...JOBS,
+	...PROJECT,
+	...TICKETS,
+	...SEAT,
+	...GITHUB,
+	...GROUP,
+	...PICTURE,
+	...WORKSPACE,
+];
+/** The registered command names; the table of old names (`src/old-names.ts`) holds none of them. */
+export const COMMAND_NAMES: readonly string[] = REGISTRY.map((entry) => entry.name);
+
+/** The entry the first words name, the longest name when a command and its subcommand both match; with the rest. */
+export function lookup(
+	words: readonly string[],
+	registry: readonly Entry[] = REGISTRY,
+): { readonly entry: Entry; readonly rest: readonly string[] } | undefined {
+	const named = registry.filter((entry) => entry.name.split(" ").every((word, index) => words[index] === word));
+	const entry = named.sort((left, right) => right.name.length - left.name.length)[0];
+	return entry && { entry, rest: words.slice(entry.name.split(" ").length) };
+}

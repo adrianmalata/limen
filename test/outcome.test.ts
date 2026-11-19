@@ -174,7 +174,7 @@ test("limen --help ends its stdout with the success line and exits 0", () => {
 	const run = limen(p, ["--help"]);
 	assert.equal(run.status, 0, run.stderr);
 	assert.deepEqual(readOutcome(run), { class: "ok", code: 0, next: "" });
-	assert.match(outputText(run), /^limen — /);
+	assert.match(outputText(run), /^limen: /);
 });
 
 test("UNKNOWN_COMMAND: an unknown command exits 2 with its code in the last line of stderr", () => {
@@ -184,17 +184,17 @@ test("UNKNOWN_COMMAND: an unknown command exits 2 with its code in the last line
 	assert.match(outputText(run), /^unknown command "nosuch"\n/);
 });
 
-test("BAD_FLAG: spawn with an unknown flag exits 2 before it writes anything", () => {
+test("BAD_ARGUMENT: spawn with an unknown flag exits 2 before it writes anything", () => {
 	const jobs = readdirSync(join(p.root, ".limen/jobs"));
 	const run = limen(p, ["spawn", "--nosuch", "work"]);
 	assert.equal(run.status, 2, run.stderr);
-	assert.deepEqual(readOutcome(run), { class: "usage", code: "BAD_FLAG", next: "limen --help" });
-	assert.equal(outputText(run), "unknown spawn option --nosuch\n");
+	assert.deepEqual(readOutcome(run), { class: "usage", code: "BAD_ARGUMENT", next: "limen spawn --help" });
+	assert.equal(outputText(run).split("\n")[0], "limen spawn: unknown flag --nosuch");
 	assert.deepEqual(readdirSync(join(p.root, ".limen/jobs")), jobs);
 });
 
 test("UNTYPED: a refusal that carries no type of its own exits 1 with code UNTYPED", () => {
-	const run = limen(p, ["jobs", "2026-11-18-none-1a2b3c4d"]);
+	const run = limen(p, ["show", "2026-11-18-none-1a2b3c4d"]);
 	assert.equal(run.status, 1, run.stderr);
 	assert.deepEqual(readOutcome(run), { class: "refused", code: "UNTYPED", next: "" });
 	assert.equal(outputText(run), 'no job matches "2026-11-18-none-1a2b3c4d"\n');

@@ -5,11 +5,12 @@ import { relative, resolve } from "node:path";
 import { herdrBinary } from "../integrations/herdr.ts";
 import { type GroupIdentity, jobMembership } from "../job/group-cabinet.ts";
 import { isTerminal } from "../job/job.ts";
+import { orderedJobs, RECENT_MS, renderJobDirectory, shownState } from "../job/listing.ts";
 import type { JobRecord } from "../job/view.ts";
+import type { Parsed } from "../parser.ts";
 import { limenRoot, unlandedBranches, workspaceRepository, workspaceRoot } from "../project/git.ts";
 import { listLeftovers } from "../project/leftovers.ts";
 import { confirmDeadJobs } from "../runtime/reap.ts";
-import { RECENT_MS, renderJobDirectory, shownState } from "./jobs.ts";
 
 const text = (path: string) =>
 	readFile(path, "utf8").then(
@@ -65,8 +66,12 @@ type Scan = {
 	lastOrigin: string;
 };
 
-export async function statusCommand(args: readonly string[], cwd: string): Promise<undefined> {
-	const all = parseStatusArgs(args);
+/**
+ * `limen status`: what runs, what landed, what waits for a decision, in the last 7 days. With `--all` it reports every
+ * record, and under the summary one row for each job of the project (D-038).
+ */
+export async function statusCommand(values: Parsed, cwd: string): Promise<undefined> {
+	const all = values.has("all");
 	const root = existsSync(`${resolve(cwd)}/.limen/jobs`) ? resolve(cwd) : limenRoot(cwd);
 	const jobsRoot = `${root}/.limen/jobs`;
 	await confirmDeadJobs(jobsRoot);
@@ -120,8 +125,18 @@ export async function statusCommand(args: readonly string[], cwd: string): Promi
 			...(all ? [] : [`Older: ${scan.older} record${scan.older === 1 ? "" : "s"} (limen status --all)`]),
 			"Coordinator tabs:",
 			...coordinators,
+			...(all ? await jobRows(root, jobsRoot, ids) : []),
 		].join("\n"),
 	);
+}
+
+/** One row for each job, running jobs first and then the newest, as the job list has always shown them. */
+async function jobRows(root: string, jobsRoot: string, ids: readonly string[]): Promise<string[]> {
+	const order = await orderedJobs(ids, jobsRoot);
+	const rows = await Promise.all(
+		order.map(async ([id]) => (await renderJobDirectory(root, jobsRoot, id, "row")).compact),
+	);
+	return [`Jobs (${rows.length}):`, ...(rows.length ? rows : ["  none"])];
 }
 
 /** The leftover files of cut features, for the owner to check before the drop (A-042); empty when there are none. */
@@ -134,15 +149,6 @@ function leftoverLines(root: string): string[] {
 		`Leftover files (${found.length}); check them, then run limen init --drop-leftovers:`,
 		...found.map((entry) => `  ${entry.path} (${entry.feature})`),
 	];
-}
-
-/** True for `--all`. Status takes no other argument. */
-function parseStatusArgs(args: readonly string[]): boolean {
-	const all = args[0] === "--all";
-	if (args.length > (all ? 1 : 0)) {
-		throw new Error("status accepts no arguments or --all");
-	}
-	return all;
 }
 
 async function jobIds(jobsRoot: string): Promise<string[]> {

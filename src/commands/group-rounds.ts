@@ -15,11 +15,11 @@ import {
 	teamRoute,
 } from "../job/group-cabinet.ts";
 import { publishResult } from "../job/group-events.ts";
-import { roundInstruction, routeFlags, routeName } from "../job/group-packet.ts";
+import { roundInstruction, routeName } from "../job/group-packet.ts";
 import { isTerminal } from "../job/job.ts";
 import { textFile } from "../job/record.ts";
 import { processInfo } from "../runtime/contain.ts";
-import { continueCommand } from "./continue.ts";
+import { startContinue } from "./continue.ts";
 
 const PROMPT_MS = 15_000;
 
@@ -152,14 +152,13 @@ async function startRound(run: GroupRun, team: string, round: number): Promise<v
 		return;
 	}
 	try {
-		await continueCommand(
-			[
-				parent.id,
-				await roundPrompt(run, team, round),
-				"--label",
-				teamJobLabel(run, team, round),
-				...routeFlags(teamRoute(run, team)).split(" "),
-			],
+		await startContinue(
+			{
+				query: parent.id,
+				instruction: [await roundPrompt(run, team, round)],
+				label: teamJobLabel(run, team, round),
+				...teamRoute(run, team),
+			},
 			run.root,
 			round,
 		);

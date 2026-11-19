@@ -2,7 +2,7 @@
 
 [README](../README.md) · [Setup](setup.md) · [Jobs](jobs.md)
 
-The coordinator runs job commands. The operator runs setup commands. Run `limen --help` for the installed command list. Run `limen <command> --help`, for example `limen picture --help`, for the usage lines of one command.
+The coordinator runs job commands. The operator runs setup commands. Run `limen --help` for the installed command list. Run `limen <command> --help`, for example `limen land --help`, for one command's usage line, its flags and an example, and `limen <group> --help`, for example `limen picture --help`, for the lines of a group.
 
 Where the reference shows them, IDs, unique suffixes, and unique labels work the same.
 
@@ -13,21 +13,119 @@ Every command ends with one line of JSON, its final line, after the text for peo
 | Exit code | `class` | Meaning |
 |---|---|---|
 | 0 | `ok` | success, also "nothing to do" |
-| 1 | `refused` | a condition that Limen checks is not met |
-| 2 | `usage` | an unknown command, or a flag that the shared flag parser refuses: unknown, without its value, or given twice |
+| 1 | `refused` | a condition that Limen checks is not met; a removed engine or role that a job record names (`REMOVED`) |
+| 2 | `usage` | an unknown command (`UNKNOWN_COMMAND`); words that the shared parser refuses (`BAD_ARGUMENT`): an unknown flag, a flag without its value or given twice, a missing required flag, a missing or an extra argument; a removed command, flag, engine or role on the command line (`REMOVED`) |
 | 3 | `transient` | safe to retry: `github poll` after a failed request, HTTP 429, a 5xx, or a 403 that is a rate limit (`x-ratelimit-remaining: 0` or a `retry-after` header); `group wait` at its time limit |
 | 4 | `environment` | `github poll` with a missing or invalid setting, projects file or credential, HTTP 401 or any other 403; a Node.js older than 24 |
-| 5 | `internal` | an unexpected exception; its stack comes before the final line |
+| 5 | `internal` | an unexpected exception, whose stack comes before the final line; a command that returns an `ids` key its registry entry does not declare (`UNDECLARED_IDS`) |
 
 A failure that has no class of its own, a missing tool such as git among them, exits 1 with the code `UNTYPED`.
 
 The line has the fields `class`, `code` and `next` in this order, then `ids` when the command names what it created:
 
-- `code` is `0` on success. On a failure it is an upper-case identifier, such as `UNKNOWN_COMMAND`, `BAD_FLAG` or `TICKET_CHECK_FAILED`; a refusal that has no identifier of its own has `UNTYPED`, and an unexpected exception has `INTERNAL`.
-- `next` is the next command, or `""` when the command names none.
-- `ids` holds identifiers, never data: `job`, the full job ID, after `spawn`, `continue`, `keeper`, `github review` and `github work`; `ticket`, the `FNNN` of the new ticket, after `ticket new`. The key `question` (`Q-NNN`) is part of the format; no command returns it today.
+- `code` is `0` on success. On a failure it is an upper-case identifier, such as `UNKNOWN_COMMAND`, `BAD_ARGUMENT`, `REMOVED` or `TICKET_CHECK_FAILED`; a refusal that has no identifier of its own has `UNTYPED`, and an unexpected exception has `INTERNAL`.
+- `next` is the next command, or `""` when the command names none. After `BAD_ARGUMENT` it is `limen <command> --help`, and the message has two lines: what is wrong, then the command's usage line. After `REMOVED` it names what replaced the removed name.
+- `ids` holds identifiers, never data: `job`, the full job ID, after `spawn`, `continue`, `keeper`, `github review` and `github work`; `ticket`, the `FNNN` of the new ticket, after `ticket new`. Each command's registry entry (`src/registry.ts`) declares its keys. The key `question` (`Q-NNN`) is part of the format; no command returns it today.
 
-For example, a spawn ends with `{"class":"ok","code":0,"next":"End your turn; Limen wakes you when the job ends.","ids":{"job":"<full id>"}}`. A program that runs Limen reads the final line through one client function, `readOutcome` (`src/outcome.ts`), never the text before it, with one exception: when `limen github deliver` fails, the GitHub poller tells an unavailable coordinator from an unconfirmed delivery by the text on its stderr. The internal job run that a job's wrapper starts prints no final line.
+For example, `limen land a1b2c3d4 --ontoo main` prints `limen land: unknown flag --ontoo` and `usage: limen land <job> [--onto <branch>] [--yes] [--keep-open]` on stderr and exits 2, and a spawn ends with `{"class":"ok","code":0,"next":"End your turn; Limen wakes you when the job ends.","ids":{"job":"<full id>"}}`. A program that runs Limen reads the final line through one client function, `readOutcome` (`src/outcome.ts`), never the text before it, with one exception: when `limen github deliver` fails, the GitHub poller tells an unavailable coordinator from an unconfirmed delivery by the text on its stderr. The internal job run that a job's wrapper starts prints no final line.
+
+## Command list
+
+The lines of `limen --help`, generated from the command registry (`src/registry.ts`); a test fails when they differ from it.
+
+<!-- registry:public:begin -->
+```text
+Jobs: spawn starts a job; the others act on one job, or on several with --running or --all
+  limen spawn "task" --engine <engine> --provider <provider> --model <model> --thinking <level> …
+      start a job in its own worktree; the task points to its ticket
+  limen continue <job> "instruction" …       resume a finished job in its worktree
+  limen steer <job>|--running "text"         send a correction to a running job
+  limen stop <job> ["reason"]                stop a running job
+  limen land <job> [--onto <branch>] [--yes] [--keep-open]
+                                             merge a done job onto this branch and close its ticket
+  limen diff <job>                           the change a job made against its base
+  limen show <job>                           one job's record
+  limen open <job>                           open the job's log tab in Herdr
+  limen watch <job>|--running                wake this coordinator when the job ends
+  limen unwatch <job>|--all                  stop waking this coordinator for the job
+
+This project
+  limen init [--drop-leftovers]
+      set up Limen here; --drop-leftovers deletes files Limen no longer reads
+  limen status [--all]
+      what runs, what landed, what waits for the owner; --all lists every job
+  limen board [--write]
+      the board with NOW and PROVEN; --write rewrites them in spec/build.md
+  limen prune [--retire] [--dry-run]
+      remove finished worktrees; --retire deletes records of landed jobs
+
+Tickets: files under spec/features/
+  limen ticket new "what becomes true" [--lane planned|active] [--touches <ids>]
+                                             write a ticket with the next free number
+  limen ticket check [<branch>]
+      the ticket check land runs, for the tickets a branch changes
+  limen ticket done <FNNN> … [--on <date>]   close a ticket that landed without limen land
+  limen close <FNNN>                         close the ticket's Herdr tabs
+  limen keeper <ticket> --engine <engine> --provider <provider> --model <model> --thinking <level> …
+      a short job fixes the ticket, board and map links after the work
+
+Seat: all projects on this machine
+  limen seat queue                           the start queue and its CPU and memory reading
+  limen sweep [--install] [--uninstall]
+      reap dead jobs in every project and notify about jobs nobody heard of
+  limen rule                                 the seat-wide rules that hold now
+  limen rule set <name> --until <time> [--start-priority 1|2|3] "text"
+                                             a rule for every coordinator on this machine
+  limen rule end <name> ["reason"]           end a rule now
+
+Modules
+  limen github connect|disconnect|status|doctor
+                                             answer @limen mentions on GitHub pull requests
+  limen group start|status|publish|stop|close …
+                                             several agents on one ticket
+  limen picture build|serve …                the architecture map check and the job activity feed
+  limen workspace init
+      a folder outside Git that holds several Git repositories; each job works in one (--repo)
+```
+<!-- registry:public:end -->
+
+## Internal commands
+
+Each line names who runs the command: the GitHub poller, a rule's timer, team members and team jobs, and the coordinator, which runs `github review`, `work` and `resolve` when a GitHub claim's prompt names them. `limen --help` does not list them, and `limen <command> --help` shows each. Generated from the command registry, like the list above.
+
+<!-- registry:internal:begin -->
+```text
+limen rule timer <folder> <version>
+      end one version of a rule once, at its end time
+      run by the detached timer that rule set starts, or a later command when that timer died
+limen github ensure [<root>]
+      check that the registered Herdr coordinator is live and interactive
+      run by the GitHub poller
+limen github poll
+      run one polling pass over the registered projects
+      run by the GitHub poller's timer, as the isolated App user
+limen github deliver <root> <claim-id> <handoff-nonce>
+      hand one claim to the live coordinator of its project
+      run by the GitHub poller
+limen github review <root> <claim-id> --engine <engine> --provider <provider> --model <model>
+      --thinking <level>
+      start a review job for one pull request claim
+      run by the coordinator, as the prompt of a GitHub claim says
+limen github work <root> <claim-id> --engine <engine> --provider <provider> --model <model>
+      --thinking <level> --task <instruction>
+      start a task job for one claim
+      run by the coordinator, as the prompt of a GitHub claim says
+limen github resolve <root> <claim-id> <handoff-nonce> "answer"
+      answer one claim without a job; the poller posts the answer
+      run by the coordinator, as the prompt of a GitHub claim says
+limen group wait [<group>] [--timeout <duration>]
+      keep a member's turn open: wait at most 20 s for the group's next events
+      run by team members with a worker allowance
+limen group advance <group>
+      start the group's next round once every team of this one has ended
+      run by each team job that ends, and limen group status
+```
+<!-- registry:internal:end -->
 
 ## Coordinator actions
 
@@ -48,6 +146,8 @@ limen continue <id|suffix|label> "follow-up instruction" [--label L] [--engine p
 
 **Start queue.** A detached job waits in the seat's start queue until the machine has room for it; see [Start queue](jobs.md#start-queue). Spawn and continue then print `queued <label>: <reading>, N ahead` before the ID. `--priority` sets the queue order: 1 is the most urgent, 2 is the default, and `continue` keeps the parent's priority unless it gets its own flag. The job records it in `priority`. Spawn when the work is ready; Limen starts the job and tells its coordinator.
 
+Spawn requires `--engine`, `--provider`, `--model` and `--thinking`: without one of them it exits 2 and names every missing flag, before a job exists. `continue` takes them as options and keeps the parent's engine.
+
 `--base` and `--head` pin the range that a review reads. They take a full SHA, a short SHA, or a ref such as a branch or tag; Limen resolves it with `git rev-parse` and records the full SHA. They require `--review`.
 
 **Pi extensions.** Repeat `--extension PATH` to select existing local extension files or package directories. Relative paths use the caller's directory, not the worker worktree; quoted `~/` paths expand from the caller's home. Quote paths with spaces. Limen resolves symlinks and removes duplicate paths in first-seen order. Empty values, remote sources (`npm:`, `git:`, URLs), built-in selectors and globs are rejected before preflight or job/worktree creation.
@@ -66,7 +166,7 @@ Read the plant inbox, the job records, and the diff of a job, or open a job in H
 
 ```text
 limen status [--all]
-limen jobs [--running|--active|--all|--label PREFIX|<id|suffix|label>]
+limen show <id|suffix|label>
 limen diff <id|suffix|label>
 limen open <id|suffix|label>
 ```
@@ -80,17 +180,17 @@ limen open <id|suffix|label>
 
 Open groups replace individual member candidates with one line: `group <feature>: N member branches; the lead decides (limen group status <id>)`. Closed groups leave the inbox. Work outside groups keeps its ordinary candidate or decision row.
 
+`status --all` reports every record, also those older than 7 days, and under the summary prints `Jobs (N):` with one row for each job of the project, running jobs first, then the newest. The row is the compact format that tools read.
+
 When the project has leftover files, a section `Leftover files (N); check them, then run limen init --drop-leftovers:` comes before the `Older:` line, or before `Coordinator tabs:` with `--all`, with one line `<path> (<feature>)` for each file. It lists each path that a cut feature left in the project (a file, a directory or a symlink), and each copy of a package prompt (`AGENTS.md`, `.agents/limen/worker.md`, `.agents/limen/reviewer.md`, `.agents/limen/communication.md`) that is byte-identical to the package's template, as `identical copy of the package's templates/<name>`. When the project has no leftover files, the section is not shown. The list only reads files; it removes nothing.
 
-In a terminal, `jobs` shows an aligned table for people. Through a pipe, it prints the compact format that tools read. `LIMEN_VIEW=human|compact` selects a view. `NO_COLOR` removes the color.
+In a terminal, `show` shows the job for people. Through a pipe, it prints the compact format that tools read. `LIMEN_VIEW=human|compact` selects a view. `NO_COLOR` removes the color. An unknown job ID exits 1 with `no job matches "<id>"`. The old `jobs` command was split into `limen status --all` and `limen show <job>`: `jobs <id>` exits 2 and names `limen show <id>`, and every other form of it names `limen status --all`.
 
-The default compact `jobs` view lists running jobs and recent empty jobs. It hides empty jobs that ended more than 7 days ago and prints `N older empty jobs hidden`. `limen jobs --all` shows every job. An unknown job ID exits 1 with `no job matches "<id>"`.
+`limen show <id>` also shows `model`, the provider and model that the session's turns ran, and `tokens`, the turns and the input, output, cache-read and cache-write totals of that job's own turns. When a turn ran a model other than the one spawn recorded in the job's `model` file, the line shows both: `served … · requested …`. This informs; it does not block.
 
-`limen jobs <id>` also shows `model`, the provider and model that the session's turns ran, and `tokens`, the turns and the input, output, cache-read and cache-write totals of that job's own turns. When a turn ran a model other than the one spawn recorded in the job's `model` file, the line shows both: `served … · requested …`. This informs; it does not block.
+A job in the start queue lists as running with the pulse `queued`, then its wait and the reason: the CPU and memory reading against the gate, or each rule that holds its priority with the rule's end, and the number of jobs ahead. `limen seat queue` prints the gate, the current reading, and every waiting job of the seat in start order, each held job with the rules that hold it. It samples the load for about two seconds. The old top-level `queue` command was renamed: it exits 2 and names `limen seat queue`.
 
-A job in the start queue lists as running with the pulse `queued`, then its wait and the reason: the CPU and memory reading against the gate, or each rule that holds its priority with the rule's end, and the number of jobs ahead. `limen queue` prints the gate, the current reading, and every waiting job of the seat in start order, each held job with the rules that hold it. It samples the load for about two seconds.
-
-A job is starting while `limen spawn` still sets it up: the worktree and the launch. Its record holds the spawn's pid in `starting` from the first moment. `jobs` and `status` list it as running with the pulse `starting`. A job with no state whose spawn process is gone is `ORPHAN`. Spawn prints the job ID as soon as the record exists and again after its start line, and its final line carries it in `ids.job` ([Exit codes and the final line](#exit-codes-and-the-final-line)). The job's wrapper then prunes finished worktrees and runs `--prepare` before the engine starts; the job log records each result and its time. A prepare command has 5 minutes; a plant can change that (see [Limits](jobs.md#limits)). A setup failure after the ID printed marks the job `failed`.
+A job is starting while `limen spawn` still sets it up: the worktree and the launch. Its record holds the spawn's pid in `starting` from the first moment. `show` and `status` list it as running with the pulse `starting`. A job with no state whose spawn process is gone is `ORPHAN`. Spawn prints the job ID as soon as the record exists and again after its start line, and its final line carries it in `ids.job` ([Exit codes and the final line](#exit-codes-and-the-final-line)). The job's wrapper then prunes finished worktrees and runs `--prepare` before the engine starts; the job log records each result and its time. A prepare command has 5 minutes; a plant can change that (see [Limits](jobs.md#limits)). A setup failure after the ID printed marks the job `failed`.
 
 ### Control running jobs
 
@@ -161,15 +261,16 @@ limen picture serve [--port N]
 
 ### Team groups
 
-Start a group, and show the status of, publish, wait for, stop, or close it.
+Start a group, and show the status of, publish, stop, or close it.
 
 ```text
 limen group start FEATURE --team ENGINE:PROVIDER/MODEL:THINKING [--team …] [--rounds draft,critique,revise,final] [--workers N] [--timeout D] [--extension PATH ...] [--team-extension team-N=PATH ...] [--detached]
 limen group status [GROUP-ID]
 limen group publish [GROUP-ID] [--team team-N] "finding"
-limen group wait [GROUP-ID] [--timeout D]
 limen group stop|close [GROUP-ID]
 ```
+
+`limen group wait` is for team members only ([Groups](groups.md)); the lead gets the group's result once and is refused it.
 
 Each `--team` is one agent on its own route, for example `--team pi:pi-claude/claude-opus-5-5:high`; the teams are `team-1`, `team-2`, and so on, in flag order. `--rounds` defaults to `draft`, `--workers` to 0 and `--timeout` to 90m. Members get their group from their recorded membership. The group lead gives the group ID. For Pi, repeat `--extension PATH` for common extensions and `--team-extension team-N=PATH` for team-only additions. Common paths precede team paths; the recorded effective lists are inherited by members, reviews and worker continuations. See [Groups](groups.md).
 

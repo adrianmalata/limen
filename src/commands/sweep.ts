@@ -4,6 +4,7 @@ import { removeDeadCoordinators } from "../integrations/coordinator-registration
 import { showSeatNotification } from "../integrations/herdr.ts";
 import { isTerminal } from "../job/job.ts";
 import { receiptFamily } from "../job/wake-delivery.ts";
+import type { Parsed } from "../parser.ts";
 import { installSeatSweep, uninstallSeatSweep, updateRegisteredProjects } from "../project/seat.ts";
 import { confirmDeadJobs } from "../runtime/reap.ts";
 
@@ -20,17 +21,18 @@ const metadata = (path: string) => {
 	}
 };
 
-export async function sweepCommand(args: readonly string[], _cwd: string): Promise<undefined> {
-	if (args.length === 1 && args[0] === "--install") {
+/** `limen sweep`: one pass over every registered project, or the install or removal of the timer that runs it. */
+export async function sweepCommand(values: Parsed): Promise<undefined> {
+	if (values.has("install") && values.has("uninstall")) {
+		throw new Error("sweep takes --install or --uninstall, not both");
+	}
+	if (values.has("install")) {
 		await installSeatSweep();
 		return;
 	}
-	if (args.length === 1 && args[0] === "--uninstall") {
+	if (values.has("uninstall")) {
 		await uninstallSeatSweep();
 		return;
-	}
-	if (args.length) {
-		throw new Error("sweep accepts no arguments, --install, or --uninstall");
 	}
 	const living = updateRegisteredProjects((projects) =>
 		projects.filter((project) => isAbsolute(project) && fs.existsSync(project) && fs.statSync(project).isDirectory()),

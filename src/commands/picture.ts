@@ -1,58 +1,22 @@
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import type { ParseArgsOptionsConfig } from "node:util";
-import { refuseRemovedFlags, removedCommand, removedFlag } from "../old-names.ts";
 import { LimenError } from "../outcome.ts";
+import type { Parsed } from "../parser.ts";
 import { readDataset } from "../picture/dataset.ts";
 import { parseFrontmatter } from "../picture/frontmatter.ts";
 import { buildPicture } from "../picture/picture-build.ts";
 import { servePicture } from "../picture/picture-serve.ts";
 import { gitCommonDir, repoRoot } from "../project/git.ts";
-import { parseFlags } from "./flags.ts";
 
-const HELP = "limen picture build [--dir D] [--json F] [--strict]\nlimen picture serve [--port N]";
 const SERVE_PORT = 4747;
-const VALUE = { type: "string" } as const;
-const SWITCH = { type: "boolean" } as const;
-// A removed flag stays in its table and is refused right after parsing (src/old-names.ts), so it never reads as unknown.
-const TABLES: Record<"build" | "serve", ParseArgsOptionsConfig> = {
-	build: { dir: VALUE, out: VALUE, json: VALUE, strict: SWITCH },
-	serve: { dir: VALUE, port: VALUE },
-};
 
-export async function pictureCommand(args: readonly string[], cwd: string): Promise<undefined> {
-	const [mode, ...options] = args;
-	// A removed subcommand gets its removal line before any word after it is read and before the usage below.
-	const removed = removedCommand(`picture ${mode ?? ""}`);
-	if (removed) {
-		throw new Error(removed);
-	}
-	if (mode !== "build" && mode !== "serve") {
-		throw new Error(HELP);
-	}
-	const command = `picture ${mode}`;
-	const table = TABLES[mode];
-	// A removed flag gives its removal line also when it lacks a value or repeats.
-	const invalid = (word: string) => removedFlag(command, word) ?? `invalid picture option ${word}\n${HELP}`;
-	const parsed = parseFlags(options, table, {
-		unknown: invalid,
-		missing: invalid,
-		repeated: (flag) => (table[flag.slice(2)]?.type === "string" ? invalid(flag) : undefined),
-		positionals: false,
-		endOfFlags: false,
-	});
-	refuseRemovedFlags(command, parsed.values);
-	const values = new Map<string, string>();
-	for (const [name, value] of Object.entries(parsed.values)) {
-		if (typeof value === "string") {
-			values.set(name, value);
-		}
-	}
-	if (mode === "serve") {
-		await serve(cwd, values.get("port"));
-		return;
-	}
-	await build(cwd, values.get("dir"), values.get("json"), parsed.values.strict === true);
+/** `limen picture build`: the offline check of the map with its tickets and board. */
+export async function pictureBuildCommand(values: Parsed, cwd: string): Promise<undefined> {
+	await build(cwd, values.get("dir"), values.get("json"), values.has("strict"));
+}
+/** `limen picture serve`: this project's job activity on 127.0.0.1. */
+export async function pictureServeCommand(values: Parsed, cwd: string): Promise<undefined> {
+	await serve(cwd, values.get("port"));
 }
 
 /**
@@ -108,7 +72,7 @@ async function mapFolder(dir: string): Promise<string> {
 
 async function serve(cwd: string, port = String(SERVE_PORT)): Promise<void> {
 	if (!/^\d{1,5}$/.test(port) || Number(port) > 65_535) {
-		throw new Error(`invalid picture serve port ${JSON.stringify(port)}\n${HELP}`);
+		throw new Error(`invalid picture serve port ${JSON.stringify(port)}; give a number from 0 to 65535`);
 	}
 	const served = await servePicture({ jobsRoot: primaryJobs(cwd), port: Number(port) });
 	console.log(`picture: serving ${served.url}activity.json and /events; Ctrl-C stops`);

@@ -33,7 +33,7 @@ Do not: SSHFS the worktrees; run a coordinator on the laptop against a different
 ## Daily loop
 
 1. **Direct agents** — Tailscale up, attach with `herdr --remote you@seat-name` (optional `--session` if the seat is not the default). The coordinator runs *there*. Spawn only on the seat; every job runs detached, and inside Herdr it gets a tab that follows its log. Close the window; jobs keep running. No Limen command needs the laptop awake.
-2. **Judge** — wake, `limen jobs`, or `limen open`. Job files on the seat are truth; the footer can lag.
+2. **Judge** — wake, `limen status`, or `limen open`. Job files on the seat are truth; the footer can lag.
 3. **See the product**
    - Usual: preview bound to localhost on the seat, published with `tailscale serve` — open that HTTPS URL. No pull.
    - Local feel (simulator, GPU, your browser profile): `git fetch` the **branch** into a disposable laptop clone and run the app. That clone is a viewer, not a Limen root.
@@ -153,7 +153,7 @@ gh pr comment <pr-number> --repo iceener/alice --body '@limen Please review this
 limen github doctor
 limen github status
 limen github ensure              # warm interactive agent, including Herdr's done/idle state
-limen jobs --all
+limen status --all
 # Root operator, only if diagnosing the service:
 journalctl -u limen-github.service -n 50 --no-pager
 ```
@@ -164,7 +164,7 @@ The coordinator chooses a review job (`limen github review <root> <claim-id>` wi
 
 No-job answer text is written under the coordinator's Unix identity, which workers share. The poller's private nonce prevents a forged checkout claim from creating a new App request, but it does not authenticate that answer against a compromised worker account; the PR reply labels this limit and is never an approval.
 
-Accepted claims and cursors live under `/var/lib/limen-github/state/<sha256-of-absolute-project-root>/`, private to the poller. Comments use `cursor.json` and issue bodies use `issue-cursor.json`; a failed poll leaves either cursor in place. `.limen/github/claims/<claim-id>.json` is a worker-readable status copy without the no-job nonce, never posting authority. A missing or rejected bare-shell coordinator gets one pending notice and a safe retry after it becomes live; an ambiguous accepted prompt is not automatically replayed. Inspect `limen github status`, `limen github doctor`, `limen jobs --all`, and the coordinator tab before deliberate recovery. If the handoff is truly unresolved, submit a new mention rather than deleting private state; a moved PR head/base needs a new review request. No automatic job, approval, or merge.
+Accepted claims and cursors live under `/var/lib/limen-github/state/<sha256-of-absolute-project-root>/`, private to the poller. Comments use `cursor.json` and issue bodies use `issue-cursor.json`; a failed poll leaves either cursor in place. `.limen/github/claims/<claim-id>.json` is a worker-readable status copy without the no-job nonce, never posting authority. A missing or rejected bare-shell coordinator gets one pending notice and a safe retry after it becomes live; an ambiguous accepted prompt is not automatically replayed. Inspect `limen github status`, `limen github doctor`, `limen status --all`, and the coordinator tab before deliberate recovery. If the handoff is truly unresolved, submit a new mention rather than deleting private state; a moved PR head/base needs a new review request. No automatic job, approval, or merge.
 
 ## When you come back
 
@@ -172,7 +172,7 @@ Accepted claims and cursors live under `/var/lib/limen-github/state/<sha256-of-a
 2. Pair Moshi on the box (`--store file`, linger) **before** moving the coordinator. ntfy only if Moshi is out.
 3. Node 24, Git, `gh`, `pi`, Herdr, `limen` (`npm link` from `~/limen`). Checkout the work branch. `limen init`.
 4. Persistent Herdr session. `herdr --remote alice` (or your `Host` alias). First smoke: `--detached`.
-5. Prove, in order: lid-closed `--detached` job → phone rings → `limen jobs` on attach shows the same id → `tailscale serve` preview opens on the Mac.
+5. Prove, in order: lid-closed `--detached` job → phone rings → `limen status` on attach shows the same id → `tailscale serve` preview opens on the Mac.
 6. Only then live on the seat. The opt-in PR doorbell needs the separate App-user setup above. `LIMEN_SPAWN` and `LIMEN_NOTIFY` do not exist.
 
 ## Related

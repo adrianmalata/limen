@@ -1,22 +1,24 @@
 import { readdir, readFile } from "node:fs/promises";
 import { resolveJob } from "../job/lookup.ts";
 import { enqueueSteer } from "../job/steer-inbox.ts";
+import type { Parsed } from "../parser.ts";
 import { limenRoot } from "../project/git.ts";
 import { processGroupAlive } from "../runtime/contain.ts";
 import { coordinatorWakeRoute, watches } from "./watch.ts";
 
 const READY_WAIT_MS = 2_000;
 
-export async function steerCommand(args: readonly string[], cwd: string): Promise<undefined> {
+/** `limen steer`: sends a correction to one running job, or to every running job this coordinator watches. */
+export async function steerCommand(values: Parsed, cwd: string): Promise<undefined> {
 	if (process.env.LIMEN_GROUP_ID) {
 		throw new Error("group peer messages are informational; use group publish, not owner steering");
 	}
-	const running = args[0] === "--running";
-	const message = args.slice(1).join(" ").trim();
-	if (!message || (!running && !args[0])) {
-		throw new Error(running ? "steer requires a message" : "steer requires a job id and a message");
+	const running = values.has("running");
+	const message = (values.get("text") ?? "").trim();
+	if (!message) {
+		throw new Error("steer requires a message");
 	}
-	const targets = running ? await watchedRunning(cwd) : [await resolveJob(cwd, args[0] ?? "", "control")];
+	const targets = running ? await watchedRunning(cwd) : [await resolveJob(cwd, values.get("job") ?? "", "control")];
 	if (!targets.length) {
 		console.log("nothing was reached");
 		return;

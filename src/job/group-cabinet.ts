@@ -179,12 +179,12 @@ export async function groupIdentity(cwd: string, explicitId?: string): Promise<G
 	if (process.env.LIMEN_GROUP_ID) {
 		const root = process.env.LIMEN_CONTEXT_ROOT;
 		if (!root || !memberId) {
-			throw new Error("this job has incomplete group membership; run limen jobs to inspect its job record");
+			throw new Error("this job has incomplete group membership; run limen status --all to inspect its job record");
 		}
 		const run = await readRun(root, process.env.LIMEN_GROUP_ID);
 		const member = run.members.find((entry) => entry.id === memberId);
 		if (!member || member.team !== process.env.LIMEN_TEAM_ID || (explicitId && explicitId !== run.id)) {
-			throw new Error(`this job does not match group ${run.feature} (${run.id})'s roster; run limen jobs ${memberId}`);
+			throw new Error(`this job does not match group ${run.feature} (${run.id})'s roster; run limen show ${memberId}`);
 		}
 		return { run, member, recipient: member.id };
 	}

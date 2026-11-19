@@ -16,6 +16,7 @@ import {
 	plant,
 	release,
 	repository,
+	routed,
 	spawnJob,
 	TICKET,
 	waitJob,
@@ -50,7 +51,7 @@ test("each spawn refusal exits 1, names its cause and leaves no job, worktree or
 		[["--provider", "pi-claude", "--model", "claude-opus-5-5", "work"], "pi install"],
 	];
 	for (const [args, cause, env] of refusals) {
-		const run = limen(p, ["spawn", ...args], env ? { env } : {});
+		const run = limen(p, ["spawn", ...routed(args)], env ? { env } : {});
 		assert.equal(run.status, 1, args.join(" "));
 		assert.ok(run.stderr.includes(cause), `${args.join(" ")}: ${run.stderr}`);
 	}
@@ -71,13 +72,13 @@ test("a detached job runs in its own worktree from the base with the exact task 
 	const dir = jobDir(p, id);
 	const tree = jobFile(p, id, "worktree");
 	assert.deepEqual([git(tree, "branch", "--show-current"), git(tree, "rev-parse", "HEAD")], [`limen/${id}`, base]);
-	await rm(join(dir, "spawner")); // `jobs` below reads the picture's link to the spawner job, `spawned-by`, alone.
+	await rm(join(dir, "spawner")); // `show` below reads the picture's link to the spawner job, `spawned-by`, alone.
 
 	// Plain `git status` on stale stat data rewrites the index under the worker's own `git add` (43c01cf).
 	const index = join(git(tree, "rev-parse", "--absolute-git-dir"), "index");
 	await utimes(join(tree, "README.md"), new Date(0), new Date(0));
 	const bytes = readFileSync(index);
-	for (const read of [["jobs"], ["status"], ["jobs", id]]) {
+	for (const read of [["status", "--all"], ["status"], ["show", id]]) {
 		assert.equal(limen(p, read).status, 0, read.join(" "));
 	}
 	assert.deepEqual(readFileSync(index), bytes);
@@ -93,7 +94,7 @@ test("a detached job runs in its own worktree from the base with the exact task 
 	const commits = git(p.root, "rev-list", `${base}..limen/${id}`).split("\n");
 	assert.equal(commits.length, 1);
 	assert.deepEqual([git(p.root, "rev-parse", "HEAD"), git(p.root, "status", "--porcelain")], [base, ""]);
-	const shown = limen(p, ["jobs", id]);
+	const shown = limen(p, ["show", id]);
 	assert.ok(shown.stdout.includes(commits[0]?.slice(0, 7) ?? "?"), shown.stdout);
 	assert.ok(shown.stdout.includes("all done"), shown.stdout);
 	assert.ok(shown.stdout.includes(`\n  spawned-by job ${caller.LIMEN_JOB_ID}\n`), shown.stdout);
@@ -105,14 +106,14 @@ test("a detached job runs in its own worktree from the base with the exact task 
 	const now = new Date().toISOString();
 	const turns = [turn("2020-01-01T00:00:00.000Z", "parent"), turn(now, "other"), turn(now, "other")];
 	await writeFile(join(dir, "session", "turns.jsonl"), `${turns.join("\n")}\n`);
-	const detail = limen(p, ["jobs", id]).stdout;
+	const detail = limen(p, ["show", id]).stdout;
 	assert.ok(detail.includes(`model served p/other · requested ${jobFile(p, id, "model")}`), detail);
 	assert.ok(detail.includes("tokens 2 turns · input 2 · output 20 · cache read 200 · cache write 2,000"), detail);
 });
 
 test("a detached spawn ends with the golden final line, whose ids.job names the job folder it made", () => {
 	const before = new Set(readdirSync(join(p.root, ".limen/jobs")));
-	const run = limen(p, ["spawn", "say golden"]);
+	const run = limen(p, ["spawn", ...routed([]), "say golden"]);
 	assert.equal(run.status, 0, run.stderr);
 	const made = readdirSync(join(p.root, ".limen/jobs")).filter((name) => !before.has(name));
 	assert.equal(made.length, 1, made.join(", "));
@@ -131,7 +132,7 @@ test("a workspace job works in one child repository", async () => {
 	assert.equal(waitJob(p, id, { cwd: workspace }), "done");
 	const dir = join(workspace, ".limen/jobs", id);
 	assert.equal(readFileSync(join(dir, "repo"), "utf8"), "api\n");
-	assert.match(limen(p, ["jobs", id], { cwd: workspace }).stdout, /\n {2}spawned-by user \S+, parent .+ \(pid \d+\)\n/);
+	assert.match(limen(p, ["show", id], { cwd: workspace }).stdout, /\n {2}spawned-by user \S+, parent .+ \(pid \d+\)\n/);
 	assert.equal(git(join(workspace, "api"), "rev-list", "--count", `main..limen/${id}`), "1");
 	assert.equal(git(join(workspace, "web"), "branch", "--list", `limen/${id}`), "");
 });

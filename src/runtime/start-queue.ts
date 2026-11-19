@@ -378,7 +378,7 @@ export function readQueued(jobDir: string): Queued | undefined {
 		return { since: "" };
 	}
 }
-/** The wait and the reason a queued job shows in `limen jobs`. */
+/** The wait and the reason a queued job shows in `limen status` and `limen show`. */
 export function queuedText(queued: Queued): string {
 	const since = Date.parse(queued.since);
 	const wait = Number.isFinite(since) ? ` ${formatDuration(Date.now() - since)}` : "";
@@ -406,7 +406,7 @@ export async function queuedLine(jobDir: string, label: string): Promise<string 
 	}
 }
 
-/** `limen queue`: the gate, the current reading, and every waiting job in start order with the rules that hold it. */
+/** `limen seat queue`: the gate, the current reading, and every waiting job in start order with the rules that hold it. */
 export async function queueReport(): Promise<string> {
 	const { gate, ignored } = startGate();
 	const lines: string[] = [];

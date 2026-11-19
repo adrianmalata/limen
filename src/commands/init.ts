@@ -2,18 +2,16 @@ import { constants } from "node:fs";
 import { access, appendFile, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Parsed } from "../parser.ts";
 import { hasCommit, isGitRepository, NO_COMMIT, repoRoot, workspaceRoot } from "../project/git.ts";
 import { formatDrift, listDrift, removeHookCopies } from "../project/inherit.ts";
 import { dropLeftovers, LEFTOVERS } from "../project/leftovers.ts";
 import { registerProject } from "../project/seat.ts";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
-export async function initCommand(args: readonly string[], cwd: string): Promise<undefined> {
-	const drop = args[0] === "--drop-leftovers";
-	if (args.length && !(drop && args.length === 1)) {
-		throw new Error("init takes no arguments, or only --drop-leftovers");
-	}
-	if (drop) {
+/** `limen init`: sets up a project, or with `--drop-leftovers` removes the files Limen no longer reads. */
+export async function initCommand(values: Parsed, cwd: string): Promise<undefined> {
+	if (values.has("drop-leftovers")) {
 		const root = workspaceRoot(cwd) ?? (isGitRepository(cwd) ? repoRoot(cwd) : undefined);
 		if (!root) {
 			throw new Error("init --drop-leftovers requires a Limen project or workspace");
@@ -51,10 +49,8 @@ export async function initCommand(args: readonly string[], cwd: string): Promise
 		"next: write spec/vision.md and .agents/limen/styleguide.md, commit, then open a coordinator in this folder (docs/setup.md)",
 	);
 }
-export async function workspaceCommand(args: readonly string[], cwd: string): Promise<undefined> {
-	if (args.length !== 1 || args[0] !== "init") {
-		throw new Error("workspace requires init");
-	}
+/** `limen workspace init`: sets up a folder outside Git whose child repositories its jobs work in. */
+export async function workspaceInitCommand(_values: Parsed, cwd: string): Promise<undefined> {
 	if (isGitRepository(cwd)) {
 		throw new Error("workspace init requires a non-Git parent directory");
 	}

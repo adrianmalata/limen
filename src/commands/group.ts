@@ -18,17 +18,16 @@ import {
 	teamRoute,
 } from "../job/group-cabinet.ts";
 import { acceptBatch, acceptTransport, publishEvent, syncLifecycle } from "../job/group-events.ts";
-import { roundNames, routeFlags } from "../job/group-packet.ts";
+import { roundNames } from "../job/group-packet.ts";
 import { parseDuration, SESSION_ID } from "../job/job.ts";
-import { refuseRemovedFlags, refuseRemovedWords, removedFlag } from "../old-names.ts";
 import { LimenError } from "../outcome.ts";
+import type { Parsed } from "../parser.ts";
 import { commitHasFile, headCommit, limenRoot, repoRoot, worktreeState } from "../project/git.ts";
 import { preflightEngine, resolveSpawnEngine } from "../runtime/engine.ts";
 import { normalizeWorkerExtensions } from "../runtime/worker-extensions.ts";
-import { parseFlags } from "./flags.ts";
 import { advanceGroup, teamJobLabel } from "./group-rounds.ts";
-import { herdrWakePane, spawnCommand } from "./spawn.ts";
-import { stopCommand } from "./stop.ts";
+import { herdrWakePane, startSpawn } from "./spawn.ts";
+import { stopJob } from "./stop.ts";
 
 const WAIT_CAP_MS = 20_000;
 const WRAP_UP_RESERVE_MS = 60_000;
@@ -45,47 +44,26 @@ type GroupStartOptions = {
 };
 const GROUP_START =
 	"run limen group start FEATURE --team ENGINE:PROVIDER/MODEL:THINKING (once per team) [--rounds draft,critique,final] [--workers N] [--timeout 90m]";
-const INVALID_START = `invalid or repeated group start argument; ${GROUP_START}`;
 const INVALID_TEAM = `invalid --team; ${GROUP_START}, for example --team pi:openai-codex/gpt-6.1-sol:high`;
 
-function parseGroupStartArgs(args: readonly string[]): GroupStartOptions {
-	const { values } = parseFlags(
-		args.slice(1),
-		{
-			team: { type: "string", multiple: true },
-			rounds: { type: "string" },
-			workers: { type: "string" },
-			timeout: { type: "string" },
-			extension: { type: "string", multiple: true },
-			"team-extension": { type: "string", multiple: true },
-			// Removed: refused after parsing (src/old-names.ts).
-			tab: { type: "boolean" },
-			// Every team job is detached; the flag stays accepted and changes nothing.
-			detached: { type: "boolean" },
-		} as const,
-		{
-			// Every word after the feature is a flag; a known one with a bad value reads as invalid, not unknown.
-			unknown: (word, next) =>
-				word && next && !next.startsWith("--") ? `unknown group flag ${word}; ${GROUP_START}` : INVALID_START,
-			missing: (flag) => {
-				if (flag === "--team") {
-					return INVALID_TEAM;
-				}
-				return flag === "--extension" || flag === "--team-extension" ? `${flag} requires a value` : INVALID_START;
-			},
-			repeated: (flag) => removedFlag("group start", flag) ?? INVALID_START,
-			positionals: false,
-			endOfFlags: false,
-		},
-	);
-	refuseRemovedFlags("group start", values);
+/** `limen group start` as its flags give it, before any check. */
+type GroupStartRequest = {
+	readonly folder: string;
+	readonly teams: readonly string[];
+	readonly rounds: string | undefined;
+	readonly workers: string | undefined;
+	readonly timeout: string | undefined;
+	readonly extensions: readonly string[];
+	readonly teamExtensions: readonly string[];
+};
+function groupStartOptions(request: GroupStartRequest): GroupStartOptions {
 	return {
-		routes: (values.team ?? []).map(teamRouteFlag),
-		rounds: (values.rounds ?? "draft").split(",").map((name) => name.trim()),
-		workers: values.workers ?? "0",
-		timeout: values.timeout ?? DEFAULT_TIMEOUT,
-		extensions: values.extension ?? [],
-		teamSelections: teamExtensionPaths(values["team-extension"] ?? []),
+		routes: request.teams.map(teamRouteFlag),
+		rounds: (request.rounds ?? "draft").split(",").map((name) => name.trim()),
+		workers: request.workers ?? "0",
+		timeout: request.timeout ?? DEFAULT_TIMEOUT,
+		extensions: request.extensions,
+		teamSelections: teamExtensionPaths(request.teamExtensions),
 	};
 }
 /** `--team ENGINE:PROVIDER/MODEL:THINKING`; the model may hold `/` and `:`, the reasoning level is last. */
@@ -121,19 +99,14 @@ type GroupActivation = {
 	readonly settings: GroupSettings;
 	readonly options: GroupStartOptions;
 };
-export async function startGroup(args: readonly string[], cwd: string): Promise<GroupRun> {
+async function startGroup(request: GroupStartRequest, cwd: string): Promise<GroupRun> {
 	if (process.env.LIMEN_GROUP_ID || process.env.LIMEN_JOB === "1") {
 		throw new Error(
 			"only the owner-facing lead may start a group: run limen group start from the plant's interactive Herdr coordinator pane (LIMEN_COORDINATOR=1) with hook/group-peer.ts loaded — a limen job (LIMEN_JOB=1) cannot register as lead or start groups",
 		);
 	}
-	const featureArgument = args[0];
-	if (!featureArgument || featureArgument.startsWith("--")) {
-		throw new Error(
-			`group start has no feature directory; ${GROUP_START.replace("FEATURE", "spec/features/active/FEATURE")}`,
-		);
-	}
-	const options = parseGroupStartArgs(args);
+	const featureArgument = request.folder;
+	const options = groupStartOptions(request);
 	// Deliberately ignore inherited LIMEN_CONTEXT_ROOT for new activation.
 	const root = repoRoot(cwd);
 	const feature = groupFeature(root, cwd, featureArgument);
@@ -309,13 +282,12 @@ async function spawnTeamCoordinators(root: string, run: GroupRun): Promise<void>
 	for (const team of run.teams) {
 		const route = teamRoute(run, team);
 		try {
-			await spawnCommand(
-				[
-					`Work the ticket as ${team} of the group. Ticket: ${ticket}`,
-					"--label",
-					teamJobLabel(run, team, 0),
-					...routeFlags(route).split(" "),
-				],
+			await startSpawn(
+				{
+					task: [`Work the ticket as ${team} of the group. Ticket: ${ticket}`],
+					label: teamJobLabel(run, team, 0),
+					...route,
+				},
 				root,
 				{ run, team },
 			);
@@ -392,80 +364,94 @@ export async function waitCapped<T>(
 		clearTimeout(timer);
 	}
 }
-export async function groupCommand(args: readonly string[], cwd: string): Promise<undefined> {
-	if (args[0] !== "wait") {
-		await runGroupCommand(args, cwd);
-		return;
-	}
-	// Bound the wait even if a cabinet lock or filesystem operation stalls. The lead names the group; a member does not.
-	const named = !process.env.LIMEN_GROUP_ID && !args[1]?.startsWith("--");
-	const id = named ? args[1] : undefined;
-	await waitCapped(WAIT_CAP_MS, statusNext(id), (signal) => runGroupCommand(args, cwd, signal));
+/** `limen group start`: starts the group and prints its id. */
+export async function groupStartCommand(values: Parsed, cwd: string): Promise<undefined> {
+	const request = {
+		folder: values.get("folder") ?? "",
+		teams: values.list("team"),
+		rounds: values.get("rounds"),
+		workers: values.get("workers"),
+		timeout: values.get("timeout"),
+		extensions: values.list("extension"),
+		teamExtensions: values.list("team-extension"),
+	};
+	console.log((await startGroup(request, cwd)).id);
 }
-async function runGroupCommand(args: readonly string[], cwd: string, signal?: AbortSignal): Promise<void> {
-	const [command, ...rest] = args;
-	if (!command || !["start", "status", "publish", "wait", "stop", "close", "advance"].includes(command)) {
-		throw new Error(
-			`${command ? `unknown group command ${JSON.stringify(command)}` : "no group command supplied"}; run limen group status GROUP-ID`,
-		);
-	}
-	if (command === "start") {
-		console.log((await startGroup(rest, cwd)).id);
-		return;
-	}
-	if (command === "advance") {
-		// Internal: a finished team job starts this; it moves the group only once its round has ended.
-		await advanceGroup(limenRoot(cwd), rest[0] ?? "");
-		return;
-	}
-	// Before the lead's first word is read as the group id, and before status publishes lifecycle events.
-	if (command === "status") {
-		refuseRemovedWords("group status", rest);
-	}
-	const explicit = process.env.LIMEN_GROUP_ID ? undefined : rest.shift();
+/** `limen group advance` (internal): a finished team job starts this; it moves the group only once its round ended. */
+export async function groupAdvanceCommand(values: Parsed, cwd: string): Promise<undefined> {
+	await advanceGroup(limenRoot(cwd), values.get("group") ?? "");
+}
+/**
+ * The group a command acts on: a member's own, from its recorded membership, or the one the lead names. A member's
+ * group word is no id, so it is returned for the command to refuse or to read as its text.
+ */
+async function selectedGroup(values: Parsed, cwd: string): Promise<{ identity: GroupIdentity; word?: string }> {
+	const given = values.get("group");
+	const explicit = process.env.LIMEN_GROUP_ID ? undefined : given;
 	const identity = await groupIdentity(cwd, explicit);
 	if (!identity) {
 		throw new Error("no group selected; run limen group status GROUP-ID from the lead pane");
 	}
-	if (command === "publish") {
-		await publishGroupFinding(identity, rest);
-		return;
-	}
-	if (command === "wait") {
-		await printGroupWait(identity, rest, signal);
-		return;
-	}
-	if (command === "status") {
-		await printGroupStatus(identity, rest);
-		return;
-	}
+	return explicit === undefined && given !== undefined ? { identity, word: given } : { identity };
+}
+/** `limen group status`: the run, its round and every member's state. */
+export async function groupStatusCommand(values: Parsed, cwd: string): Promise<undefined> {
+	const { identity, word } = await selectedGroup(values, cwd);
+	await printGroupStatus(identity, word === undefined ? [] : [word]);
+}
+/** `limen group publish`: a finding for every other team, or for one with `--team`. */
+export async function groupPublishCommand(values: Parsed, cwd: string): Promise<undefined> {
+	const { identity, word } = await selectedGroup(values, cwd);
+	// A member names no group, so its first word belongs to the finding.
+	const finding = [...(word === undefined ? [] : [word]), ...values.list("finding")].join(" ");
+	console.log((await publishEvent(identity, finding, "finding", values.get("team"))).id);
+}
+/** `limen group stop`: the lead blocks new launches and stops every member job. */
+export async function groupStopCommand(values: Parsed, cwd: string): Promise<undefined> {
+	await stopGroup(await leadGroup(values, cwd, "stop"));
+}
+/** `limen group close`: the lead closes a group whose members are over. */
+export async function groupCloseCommand(values: Parsed, cwd: string): Promise<undefined> {
+	await closeGroup(await leadGroup(values, cwd, "close"));
+}
+async function leadGroup(values: Parsed, cwd: string, command: string): Promise<GroupIdentity> {
+	const { identity } = await selectedGroup(values, cwd);
 	if (identity.member) {
 		throw new Error(`only the group lead may ${command}; run limen group status to inspect your group's members`);
 	}
-	if (command === "stop") {
-		await stopGroup(identity);
-		return;
-	}
-	if (command === "close") {
-		await closeGroup(identity);
-	}
+	return identity;
 }
-async function publishGroupFinding(identity: GroupIdentity, rest: string[]): Promise<void> {
-	let target: string | undefined;
-	if (rest[0] === "--team") {
-		rest.shift();
-		target = rest.shift();
-		if (!target) {
-			throw new Error("group publish --team has no team name; run limen group publish --team team-N 'Finding: …'");
+/**
+ * `limen group wait` (internal, D-042): a team member with a worker allowance is itself a job whose work ends with its
+ * turn, so it keeps the turn open here while its workers run. The lead gets the group's result once, as a group event,
+ * and never waits. The check reads the job's environment (`LIMEN_GROUP_ID`): a guard against mistakes, not a security
+ * boundary, since a member's own shell sets that environment (A-029). The wait is bounded even if a group lock or a
+ * file system operation stalls.
+ */
+export async function groupWaitCommand(values: Parsed, cwd: string): Promise<undefined> {
+	if (!process.env.LIMEN_GROUP_ID) {
+		throw new LimenError({
+			class: "refused",
+			code: "GROUP_WAIT_MEMBERS_ONLY",
+			message:
+				"group wait is for team members, which keep their turn open while their workers run; the lead gets the group's result once, when the group ends",
+			next: `limen group status ${values.get("group") ?? "<group id>"}`,
+		});
+	}
+	await waitCapped(WAIT_CAP_MS, statusNext(undefined), async (signal) => {
+		const { identity, word } = await selectedGroup(values, cwd);
+		if (word !== undefined) {
+			throw new Error("invalid group wait arguments; run limen group wait --timeout 5s");
 		}
-	}
-	console.log((await publishEvent(identity, rest.join(" "), "finding", target)).id);
+		await printGroupWait(identity, values.get("timeout"), signal);
+	});
 }
-async function printGroupWait(identity: GroupIdentity, rest: readonly string[], signal?: AbortSignal): Promise<void> {
-	if (rest.length > 2 || (rest.length && rest[0] !== "--timeout")) {
-		throw new Error("invalid group wait arguments; run limen group wait --timeout 5s");
-	}
-	const output = await waitGroup(identity, rest[1] ? parseDuration(rest[1]) : WAIT_CAP_MS, signal);
+async function printGroupWait(
+	identity: GroupIdentity,
+	timeout: string | undefined,
+	signal?: AbortSignal,
+): Promise<void> {
+	const output = await waitGroup(identity, timeout ? parseDuration(timeout) : WAIT_CAP_MS, signal);
 	// Past the cap, `main` has printed the final line: the batch is not printed, and its transport is not acknowledged.
 	signal?.throwIfAborted();
 	console.log(output);
@@ -555,7 +541,7 @@ async function stopMemberJob(run: GroupRun, member: GroupMember): Promise<string
 		return;
 	}
 	try {
-		await stopCommand([member.id, "group stopped by lead"], run.root);
+		await stopJob(member.id, "group stopped by lead", run.root);
 		const until = Date.now() + 6_000;
 		let live = await memberLive(run.root, member);
 		while (live && Date.now() < until) {

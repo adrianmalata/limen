@@ -102,7 +102,7 @@ test("a killed wrapper is reaped at once and a stopped job leaves no escaped chi
 	assert.ok(pid > 0, "the wrapper recorded its pid");
 	process.kill(pid, "SIGKILL");
 	// A young job: only the product's dead-pid confirmation window applies, never the startup grace.
-	const listed = limen(p, ["jobs", killed], { env: { LIMEN_REAP_CONFIRM_MS: "1" } });
+	const listed = limen(p, ["show", killed], { env: { LIMEN_REAP_CONFIRM_MS: "1" } });
 	assert.deepEqual([listed.status, jobFile(p, killed, "state")], [0, "failed"], listed.stderr);
 	await release(jobDir(p, killed));
 

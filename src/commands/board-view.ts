@@ -1,16 +1,14 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { jobFeatures } from "../job/job.ts";
+import { shownState } from "../job/listing.ts";
 import { formatAge } from "../job/view.ts";
+import type { Parsed } from "../parser.ts";
 import { readTickets } from "../picture/tickets.ts";
 import { commitList, limenRoot, unlandedBranches, workspaceRepository } from "../project/git.ts";
 import { renderBoard, writeBoard } from "../project/lanes.ts";
 import { activeRules, ruleLine } from "../project/seat-rules.ts";
 import { archiveRows } from "../project/series.ts";
-import { shownState } from "./jobs.ts";
-
-const HELP =
-	"limen board [--write]  # print the board with NOW and PROVEN from the feature lanes and each ticket's jobs; --write rewrites NOW and PROVEN in spec/build.md";
 
 interface BoardJob {
 	readonly id: string;
@@ -23,10 +21,8 @@ interface BoardJob {
 	readonly finishedAt: number;
 }
 
-export async function boardCommand(args: readonly string[], cwd: string): Promise<undefined> {
-	if (args.length > 1 || (args.length === 1 && args[0] !== "--write")) {
-		throw new Error(HELP);
-	}
+/** `limen board`: prints the board with each active ticket's jobs; `--write` rewrites NOW and PROVEN in the file. */
+export async function boardCommand(values: Parsed, cwd: string): Promise<undefined> {
 	const root = limenRoot(cwd);
 	const text = await readFile(join(root, "spec/build.md"), "utf8").catch((error: NodeJS.ErrnoException) => {
 		if (error.code === "ENOENT") {
@@ -34,7 +30,7 @@ export async function boardCommand(args: readonly string[], cwd: string): Promis
 		}
 		throw error;
 	});
-	if (args[0] === "--write") {
+	if (values.has("write")) {
 		if (text === undefined) {
 			throw new Error(`no board at ${root}/spec/build.md; limen init writes one`);
 		}
