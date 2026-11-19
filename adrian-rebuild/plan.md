@@ -17,7 +17,8 @@ podsumowanie bramki 5.1; Q-8 rozstrzygnięte (D-036: `seat/deploy.ts` poza allow
 odmów, runnera, skryptu wdrożenia i `kind`; tickety R-089 w etapie 2 oraz poprawkowe R-090 i R-091 w etapie 1, po
 których tag a0.1.1 jest pierwszym wdrożeniem); R-090 zamknięty 19.11 (lista sprawdzonych rejestrów, odmowa bez
 projektu, test nazw liczy tylko pliki znane gitowi); R-091 zamknięty 19.11 (oznaczenia typów Pi, odmowa bez
-oznaczenia, koniec przebiegu na agent_settled, definicja touchpoints); dalej narzędzie przekazania sesji. -->
+oznaczenia, koniec przebiegu na agent_settled, definicja touchpoints); D-047: narzędzie przekazania sesji
+tools/handover.mjs (start nowej sesji w tmux i zamykanie poprzednich sesji przebudowy). -->
 
 
 
@@ -531,6 +532,20 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   the `limen group wait` call as it was made, so the code `GROUP_WAIT_TIMEOUT` leaves the final line and the text line
   says that the limit passed; the code `TICKET_CHECK_FAILED` is already spelled so (`src/commands/ticket.ts:133`), and
   nothing changes there. Check: the criteria of R-089, R-090, R-091, R-023, R-025 and R-032.
+- 2026-11-19 D-047 (Adrian, the handover; amends D-033): the handover closes the previous session by a tool, not by
+  prose or by hand. `node adrian-rebuild/tools/handover.mjs start <n>` starts `limen-rebuild-<n>` in `tmux` with the
+  first message of the rebuild prompt (`FIRST_MESSAGE` of `night.mjs`), without the variables Claude Code sets for
+  its Bash tool, and checks that it still exists after 2 s; `node adrian-rebuild/tools/handover.mjs close-previous`,
+  the new session's first command after its push notification, closes every older rebuild session: each `tmux`
+  session `limen-rebuild-<digits>` in the repository whose panes all started before the caller's own session and
+  none of which runs the caller, and each `claude` process in the repository that started before the caller's own
+  session and is not its ancestor, so a process the session started, being younger, is kept (SIGTERM; a process
+  alive 5 s after the signal is named, exit 1). Both refuse unless the branch is `adrian-rebuild`, the tree is
+  clean and `HEAD` is `origin/adrian-rebuild`. The old session no longer ends itself: `EndConversation` ended `limen-rebuild-6`'s
+  conversation but not its process, and a conversation resumed with `claude -r` while its first process lived ran in
+  two processes (both on 2026-11-19). Any older `claude` in the repository counts as a previous session. Adrian put
+  `Bash(node adrian-rebuild/tools/handover.mjs *)` on the allow-list. Spec, review and outcome:
+  `evidence/handover/`. Check: `node --test adrian-rebuild/tools/test-handover.mjs`.
 
 ### Gate 2 §2, copied
 
@@ -1497,9 +1512,9 @@ Every stage:
 |---|---|
 | everyone: reading | `git status`, `git diff`, `git log`, `git show`, `git ls-files`, `git rev-parse`, `git cat-file`, `git grep`, `git for-each-ref`, `ls`, `cat`, `head`, `tail`, `wc`, `grep`, `find` (without `-delete` and `-exec`), `sed -n`, `sort`, `uniq`, `cmp`, `diff`, `file`, `command -v` |
 | reviewer: checks | `node --test <test file>`, `node bin/limen <args>` on a test fixture (never the full gate, D-015) |
-| main session, implementer: checks | `node adrian-rebuild/tools/gate.mjs`, `npm run check`, `npm run typecheck`, `npx tsc --noEmit`, `npx biome check --error-on-warnings <path>`, `node --test <test file>`, `node adrian-rebuild/tools/check.mjs`, `node --test adrian-rebuild/tools/test-changes-entries.mjs`, `node --test adrian-rebuild/tools/test-review-guard.mjs`, `node --test adrian-rebuild/tools/test-fails-before.mjs`, `node --test adrian-rebuild/tools/test-review-verdict.mjs`, `node --test adrian-rebuild/tools/test-night.mjs`, `node --test adrian-rebuild/tools/test-tool-calls.mjs`, `sh adrian-rebuild/tools/test-pre-push.sh`, `node bin/limen <args>` on a test fixture |
+| main session, implementer: checks | `node adrian-rebuild/tools/gate.mjs`, `npm run check`, `npm run typecheck`, `npx tsc --noEmit`, `npx biome check --error-on-warnings <path>`, `node --test <test file>`, `node adrian-rebuild/tools/check.mjs`, `node --test adrian-rebuild/tools/test-changes-entries.mjs`, `node --test adrian-rebuild/tools/test-review-guard.mjs`, `node --test adrian-rebuild/tools/test-fails-before.mjs`, `node --test adrian-rebuild/tools/test-review-verdict.mjs`, `node --test adrian-rebuild/tools/test-night.mjs`, `node --test adrian-rebuild/tools/test-tool-calls.mjs`, `node --test adrian-rebuild/tools/test-handover.mjs`, `sh adrian-rebuild/tools/test-pre-push.sh`, `node bin/limen <args>` on a test fixture |
 | main session, implementer: changes | `npx biome format --write <path>`, `npm ci`; `git rm <path>`, `git rm -r <path>` and `git mv <old> <new>` on the paths a ticket's `## Change` names (the cuts of stage 1, R-042 and R-059 replace files, R-083 renames test files, and others); every deletion and move goes through them, so the list stays the same every night (D-014) |
-| main session only | `node adrian-rebuild/tools/review-guard.mjs snapshot --out <file>`, `snapshot --git --out <file>`, `diff --out <file>`, `compare <file>` and `compare --git <file> <ticket.md>`; `node adrian-rebuild/tools/fails-before.mjs`; `node adrian-rebuild/tools/review-verdict.mjs <reply> <ticket.md>`; `git restore --source=HEAD -- <path>` and `git apply --include=<path> <diff>` (after a void review); `git add <paths>` (`git add -A -- <paths>` for deletions and renames), `git commit`, `git push origin adrian-rebuild`; `sh adrian-rebuild/tools/install-hooks.sh` (after a move or a new clone); at the close of a stage `git tag <tag> <sha>` (local), the gate-time tool of R-011 (`node adrian-rebuild/tools/gate-time.mjs --out <file>`) and, from stage 4, `node adrian-rebuild/tools/context-size.mjs <ref>` |
+| main session only | `node adrian-rebuild/tools/review-guard.mjs snapshot --out <file>`, `snapshot --git --out <file>`, `diff --out <file>`, `compare <file>` and `compare --git <file> <ticket.md>`; `node adrian-rebuild/tools/fails-before.mjs`; `node adrian-rebuild/tools/review-verdict.mjs <reply> <ticket.md>`; `git restore --source=HEAD -- <path>` and `git apply --include=<path> <diff>` (after a void review); `git add <paths>` (`git add -A -- <paths>` for deletions and renames), `git commit`, `git push origin adrian-rebuild`; `sh adrian-rebuild/tools/install-hooks.sh` (after a move or a new clone); `node adrian-rebuild/tools/handover.mjs start <n>` and `node adrian-rebuild/tools/handover.mjs close-previous` (by day, D-047); at the close of a stage `git tag <tag> <sha>` (local), the gate-time tool of R-011 (`node adrian-rebuild/tools/gate-time.mjs --out <file>`) and, from stage 4, `node adrian-rebuild/tools/context-size.mjs <ref>` |
 
 In addition, per stage:
 
@@ -1826,8 +1841,7 @@ Gate 5.1 decided (2026-11-19): D-045 and D-046; the dated addition to T-37 in `t
 2), R-090 and R-091 (stage 1) and notes for R-023, R-025 and R-032 in `## Tickets`; `## Deployment` 1.0 deploys
 `a0.1.1`, and B.2 runs with R-091's runner.
 
-Next: the handover tool (`adrian-rebuild/tools/handover.mjs` with its test, Adrian's request of 2026-11-19, a
-commit of its own); then close stage 1 again (gate, gate-time tool, `check.mjs`, the commit `Stage 1: close
+Next: close stage 1 again (gate, gate-time tool, `check.mjs`, the commit `Stage 1: close
 (a0.1.1)`, the tag `a0.1.1`) and a short gate reply with the tag's full SHA; then stage 2 in a new session. On the
 seat, Adrian's: B.2 with R-091's runner, then `## Deployment` 1.0–1.3 with `a0.1.1`.
 
@@ -1861,11 +1875,18 @@ seat, Adrian's: B.2 with R-091's runner, then `## Deployment` 1.0–1.3 with `a0
   and Adrian killed it; the implementer was resumed with `SendMessage` from its transcript (the tree was still clean).
   PR #2 (`adrian-rebuild` into `main`, opened by accident from Adrian's phone on 2026-11-18) was closed at his
   request, without deleting the branch.
+- D-047 `done`: the handover tool `tools/handover.mjs` (`start <n>`, `close-previous`) with its test (21 tests, each
+  failing before its change: 12 before the tool existed, 6 before review round 1's fixes, 3 before round 2's, 1
+  before round 3's) and a review by `rebuild-reviewer` in three rounds, PASS each time; round 3's two code notes were
+  fixed without a fourth review (Adrian, (a)) (`evidence/handover/`). The project memory note on the handover follows
+  D-047.
 
 Active ticket: none.
 
-Handover: the current session is `limen-rebuild-7` (a `claude -r` in a WSL window since 17:46, no `tmux`); the
-handover after it is `limen-rebuild-8`, by the handover tool once it exists.
+Handover (D-047): the current session is `limen-rebuild-7` (a `claude -r` in a WSL window since 17:46, no `tmux`).
+At a safe point the session runs `node adrian-rebuild/tools/handover.mjs start 8` and ends its turn; the new
+session's first acts are the push notification and `node adrian-rebuild/tools/handover.mjs close-previous` (exit 1
+names what it could not close: tell Adrian), then `Next`. The handover after it is `limen-rebuild-9`.
 
 Open questions for Adrian: none.
 
