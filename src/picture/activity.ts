@@ -3,7 +3,7 @@ import { basename, dirname, join } from "node:path";
 import type { GroupRun } from "../job/group-cabinet.ts";
 import { isTerminal } from "../job/job.ts";
 import { textFile } from "../job/record.ts";
-import { processAlive } from "../runtime/contain.ts";
+import { platform } from "../platform/platform.ts";
 import { ownerAlive, startingJob } from "../runtime/reap.ts";
 
 export type LiveState = "starting" | "working" | "waiting" | "quiet" | "dead" | "done" | "failed" | "stopped";
@@ -378,7 +378,7 @@ async function ownerState(dir: string, id: string, owners: Map<string, boolean>)
 		verified = await ownerAlive(dir);
 		owners.set(key, verified);
 	}
-	return verified && processAlive(pid) ? "alive" : "gone";
+	return verified && platform.processAlive(pid) ? "alive" : "gone";
 }
 
 /** The command of the last tool, which the job log holds after the tool name. */

@@ -5,7 +5,7 @@ import { atomicWriteSync } from "../atomic-write.ts";
 import { exception, transport } from "../config.ts";
 import { SESSION_ID } from "../job/job.ts";
 import { textFile } from "../job/record.ts";
-import { processInfo } from "../runtime/contain.ts";
+import { platform } from "../platform/platform.ts";
 import type { PiContext } from "../runtime/pi-api.ts";
 
 /** What the registration reads of the coordinator's Pi context, which the wake hook has checked. */
@@ -33,7 +33,8 @@ export function coordinatorRegistration() {
 		if (!dir || existsSync(join(dir, "born"))) {
 			return;
 		}
-		void processInfo(process.pid)
+		void platform
+			.processInfo(process.pid)
 			.then((outcome) => {
 				if (outcome.kind === "present") {
 					write("born", outcome.process.born);
@@ -125,7 +126,7 @@ async function registeredProcess(dir: string): Promise<"live" | "dead" | "unknow
 	if (!Number.isSafeInteger(pid) || pid <= 0) {
 		return "unknown";
 	}
-	const outcome = await processInfo(pid);
+	const outcome = await platform.processInfo(pid);
 	if (outcome.kind === "unavailable") {
 		return "unknown";
 	}

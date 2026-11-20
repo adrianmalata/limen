@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
-// An old Node is an environment failure (T-02: exit code 4). It cannot load src/outcome.ts, so the final line is literal.
+// An old Node is an environment failure (T-02: exit code 4). It cannot load src/, so the message and the final line are
+// literal copies of `nodeFailure` in src/platform/requirements.ts, which a test compares.
 const major = Number.parseInt(process.versions.node, 10);
 if (!Number.isFinite(major) || major < 24) {
-	console.error(`limen requires Node.js 24 (this is ${process.versions.node})`);
-	console.error('{"class":"environment","code":"NODE_VERSION","next":"install Node.js 24 or newer"}');
+	console.error(`limen requires Node.js 24 or newer (this is ${process.versions.node})`);
+	console.error('{"class":"environment","code":"NODE_VERSION","next":""}');
 	process.exit(4);
 }
 

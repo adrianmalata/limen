@@ -1,9 +1,9 @@
-import { execFileSync } from "node:child_process";
 import { mkdir, readFile, rm, stat } from "node:fs/promises";
 import { userInfo } from "node:os";
 import { basename, dirname } from "node:path";
 import { atomicRename, atomicWrite } from "../atomic-write.ts";
 import { exception, transport } from "../config.ts";
+import { platform } from "../platform/platform.ts";
 import type { EngineId } from "../runtime/engine.ts";
 import { groupLock } from "./group-cabinet.ts";
 import { SESSION_ID } from "./job.ts";
@@ -39,21 +39,11 @@ export function spawnerLine(): string {
 	if (user) {
 		parts.push(`user ${user}`);
 	}
-	const command = parentCommand();
+	const command = platform.commandName(process.ppid);
 	if (command) {
 		parts.push(`parent ${command} (pid ${process.ppid})`);
 	}
 	return parts.join(", ");
-}
-
-/** The parent's executable as `ps` shows it; empty when `ps` cannot say. */
-function parentCommand(): string {
-	try {
-		const shown = execFileSync("ps", ["-o", "comm=", "-p", String(process.ppid)], { encoding: "utf8", timeout: 2000 });
-		return shown.trim().split("\n", 1)[0]?.trim() ?? "";
-	} catch {
-		return "";
-	}
 }
 
 type NewJob = {

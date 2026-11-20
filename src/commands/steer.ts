@@ -3,8 +3,8 @@ import { transport } from "../config.ts";
 import { resolveJob } from "../job/lookup.ts";
 import { enqueueSteer } from "../job/steer-inbox.ts";
 import type { Parsed } from "../parser.ts";
+import { platform } from "../platform/platform.ts";
 import { limenRoot } from "../project/git.ts";
-import { processGroupAlive } from "../runtime/contain.ts";
 import { coordinatorWakeRoute, watches } from "./watch.ts";
 
 const READY_WAIT_MS = 2_000;
@@ -43,7 +43,7 @@ async function deliver(target: { readonly id: string; readonly jobDir: string },
 		throw new Error(`${id} is already ${state}; not steered`);
 	}
 	const pid = Number(await text(`${jobDir}/pid`));
-	if (!Number.isSafeInteger(pid) || pid <= 0 || !processGroupAlive(pid)) {
+	if (!Number.isSafeInteger(pid) || pid <= 0 || !platform.processGroupAlive(pid)) {
 		throw new Error(`${id} is not running; not steered`);
 	}
 	if (!(await waitForReady(jobDir))) {

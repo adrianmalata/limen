@@ -1,58 +1,25 @@
-import { spawn } from "node:child_process";
-import { readFile } from "node:fs/promises";
 import { atomicWrite } from "../atomic-write.ts";
 import { appendLimenLog } from "../job/record.ts";
+import { type Platform, type ProcessInfo, platform, type SignalResult } from "../platform/platform.ts";
 
 const ESCAPED_TERM_GRACE_MS = 2_000;
 const ESCAPED_KILL_GRACE_MS = 1_000;
 const PROCESS_QUERY_TIMEOUT_MS = 1_000;
-const PROCESS_QUERY_MAX_BYTES = 1024 * 1024;
-type ProcessIdentity = { readonly pid: number; readonly born: string };
-export type JobProcess = ProcessIdentity & { readonly pgid: number; readonly command: string };
-type ProcessInfo = JobProcess & { readonly ppid: number };
-export type ProcessQueryOutcome =
-	| { readonly kind: "present"; readonly process: ProcessInfo }
-	| { readonly kind: "absent" }
-	| { readonly kind: "unavailable" };
-type ProcessTableRow = { readonly pid: number; readonly ppid: number; readonly pgid: number; readonly state: string };
+export type JobProcess = Pick<ProcessInfo, "pid" | "pgid" | "born" | "command">;
 type ContainmentDependencies = {
-	readonly query?: (pid: number) => Promise<ProcessQueryOutcome>;
-	readonly signal?: (pid: number, signal: NodeJS.Signals) => "sent" | "missing" | "denied";
+	readonly query?: Platform["processInfo"];
+	readonly signal?: (pid: number, signal: NodeJS.Signals) => SignalResult;
 };
-export function processGroupAlive(pid: number): boolean {
-	const result = signalProcessGroup(pid, 0);
-	return result === "sent" || result === "denied";
-}
-export function signalProcessGroup(pid: number, signal: NodeJS.Signals | 0): "sent" | "missing" | "denied" {
-	return signalTarget(-pid, signal);
-}
-export function processAlive(pid: number): boolean {
-	return signalTarget(pid, 0) !== "missing";
-}
-function signalTarget(target: number, signal: NodeJS.Signals | 0): "sent" | "missing" | "denied" {
-	try {
-		process.kill(target, signal);
-		return "sent";
-	} catch (error) {
-		if (isCode(error, "ESRCH")) {
-			return "missing";
-		}
-		if (isCode(error, "EPERM")) {
-			return "denied";
-		}
-		throw error;
-	}
-}
 export async function waitForProcessGroup(pid: number, milliseconds: number): Promise<boolean> {
 	const deadline = Date.now() + milliseconds;
-	while (processGroupAlive(pid) && Date.now() < deadline) {
+	while (platform.processGroupAlive(pid) && Date.now() < deadline) {
 		await delay(100);
 	}
-	return !processGroupAlive(pid);
+	return !platform.processGroupAlive(pid);
 }
 async function listEscapedDescendants(rootPid: number): Promise<readonly JobProcess[]> {
 	const deadline = Date.now() + PROCESS_QUERY_TIMEOUT_MS;
-	const table = await processTable(deadline);
+	const table = await platform.processTable(deadline);
 	const root = table.find((row) => row.pid === rootPid);
 	if (!root || root.state.startsWith("Z")) {
 		throw new Error(`root process ${rootPid} was missing or terminal in process snapshot`);
@@ -82,7 +49,7 @@ async function listEscapedDescendants(rootPid: number): Promise<readonly JobProc
 	}
 	const captured = await Promise.all(
 		escaped.map(async (row): Promise<JobProcess | undefined> => {
-			const outcome = await processInfo(row.pid);
+			const outcome = await platform.processInfo(row.pid);
 			if (outcome.kind === "present") {
 				return outcome.process;
 			}
@@ -118,8 +85,8 @@ export async function containEscapedDescendants(
 	if (escaped.length === 0) {
 		return;
 	}
-	const query = dependencies.query ?? processInfo,
-		signal = dependencies.signal ?? signalTarget,
+	const query = dependencies.query ?? platform.processInfo,
+		signal = dependencies.signal ?? platform.signalProcess,
 		warned: JobProcess[] = [];
 	const check = async (process: JobProcess): Promise<"same" | "changed" | "absent" | "unavailable"> => {
 		const outcome = await query(process.pid);
@@ -179,106 +146,8 @@ export async function recordCleanup(jobDir: string, processes: readonly JobProce
 	);
 	await appendLimenLog(jobDir, `cleanup note written: unconfirmed pid(s) ${processes.map((p) => p.pid).join(", ")}`);
 }
-export async function processInfo(pid: number): Promise<ProcessQueryOutcome> {
-	if (!Number.isSafeInteger(pid) || pid <= 0) {
-		return { kind: "unavailable" };
-	}
-	try {
-		const stat = await readFile(`/proc/${pid}/stat`, "utf8");
-		const close = stat.lastIndexOf(") ");
-		if (close < 0) {
-			return { kind: "unavailable" };
-		}
-		const fields = stat
-			.slice(close + 2)
-			.trim()
-			.split(/\s+/);
-		const ppid = Number(fields[1]);
-		const pgid = Number(fields[2]);
-		const born = fields[19];
-		if (fields[0] === "Z") {
-			return { kind: "absent" };
-		}
-		if (!Number.isSafeInteger(ppid) || !Number.isSafeInteger(pgid) || !born || !/^\d+$/.test(born)) {
-			return { kind: "unavailable" };
-		}
-		return { kind: "present", process: { pid, ppid, pgid, born, command: stat.slice(stat.indexOf("(") + 1, close) } };
-	} catch (error) {
-		return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT"
-			? { kind: "absent" }
-			: { kind: "unavailable" };
-	}
-}
-async function processTable(deadline: number): Promise<readonly ProcessTableRow[]> {
-	let scannerPid: number | undefined;
-	const output = await runBounded("ps", ["-Ao", "pid=,pgid=,ppid=,stat="], "ps discovery", deadline, (pid) => {
-		scannerPid = pid;
-	});
-	return output.split("\n").flatMap((line) => {
-		const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s*$/.exec(line);
-		if (!match || Number(match[1]) === scannerPid || !match[4]) {
-			return [];
-		}
-		return [{ pid: Number(match[1]), pgid: Number(match[2]), ppid: Number(match[3]), state: match[4] }];
-	});
-}
-async function runBounded(
-	command: string,
-	args: readonly string[],
-	description: string,
-	deadline: number,
-	onSpawn?: (pid: number) => void,
-): Promise<string> {
-	return new Promise((resolve, reject) => {
-		const remaining = deadline - Date.now();
-		if (remaining <= 0) {
-			return reject(new Error(`${description} exceeded the process-query deadline`));
-		}
-		const child = spawn(command, args, { detached: true, stdio: ["ignore", "pipe", "ignore"] });
-		if (child.pid) {
-			onSpawn?.(child.pid);
-		}
-		let stdout = "",
-			settled = false;
-		const finish = (error?: Error) => {
-			if (settled) {
-				return;
-			}
-			settled = true;
-			clearTimeout(timeout);
-			if (error) {
-				reject(error);
-			} else {
-				resolve(stdout);
-			}
-		};
-		const terminate = () => {
-			if (child.pid) {
-				signalProcessGroup(child.pid, "SIGKILL");
-			}
-		};
-		const timeout = setTimeout(() => {
-			terminate();
-			finish(new Error(`${description} exceeded the process-query deadline`));
-		}, remaining);
-		child.stdout?.on("data", (chunk: Buffer | string) => {
-			stdout += chunk.toString();
-			if (Buffer.byteLength(stdout) > PROCESS_QUERY_MAX_BYTES) {
-				terminate();
-				finish(new Error(`${description} exceeded ${PROCESS_QUERY_MAX_BYTES} bytes`));
-			}
-		});
-		child.once("error", (error) => finish(error));
-		child.once("close", (code, signal) =>
-			finish(code === 0 ? undefined : new Error(`${description} exited with ${signal ?? `code ${code ?? "unknown"}`}`)),
-		);
-	});
-}
 async function recordCleanupWarning(jobDir: string, warning: string): Promise<void> {
 	await atomicWrite(`${jobDir}/cleanup`, `[limen ${new Date().toISOString()}] ${warning}\n`).catch(() => {});
 	await appendLimenLog(jobDir, `cleanup warning: ${warning}`).catch(() => {});
-}
-function isCode(error: unknown, code: string): boolean {
-	return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }
 const delay = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));

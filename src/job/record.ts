@@ -2,8 +2,8 @@ import { appendFile, readdir, readFile, rm } from "node:fs/promises";
 import { atomicWrite, TEMPORARY_NAME, temporaryWriter } from "../atomic-write.ts";
 import { promptCoordinator } from "../integrations/coordinator-wake.ts";
 import { settleJobTab } from "../integrations/herdr.ts";
+import { platform } from "../platform/platform.ts";
 import { commitList, headCommit } from "../project/git.ts";
-import { processAlive, processInfo } from "../runtime/contain.ts";
 import { jobMembership, saveJson, startGroupAdvance } from "./group-cabinet.ts";
 import { syncLifecycle } from "./group-events.ts";
 import { isTerminal, type TerminalState } from "./job.ts";
@@ -58,7 +58,7 @@ export async function finalizeJob(
 	// A tmp whose writer still runs is an in-flight rename by a racing finalizer, not a leftover; deleting it makes that rename ENOENT and crashes the other process.
 	for (const name of await readdir(jobDir).catch(() => [])) {
 		const writer = temporaryWriter(name);
-		if (writer !== undefined && !processAlive(writer)) {
+		if (writer !== undefined && !platform.processAlive(writer)) {
 			await rm(`${jobDir}/${name}`, { force: true });
 		}
 	}
@@ -96,7 +96,7 @@ export async function writeHandshake(jobDir: string): Promise<void> {
 	void recordBorn(jobDir);
 }
 async function recordBorn(jobDir: string): Promise<void> {
-	const outcome = await processInfo(process.pid);
+	const outcome = await platform.processInfo(process.pid);
 	if (outcome.kind !== "present" || isTerminal(await textFile(`${jobDir}/state`))) {
 		return;
 	}

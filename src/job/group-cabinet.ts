@@ -7,8 +7,8 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { atomicWrite, TEMPORARY_NAME } from "../atomic-write.ts";
 import { groupAdvanceEnvironment, transport } from "../config.ts";
+import { platform } from "../platform/platform.ts";
 import { limenRoot } from "../project/git.ts";
-import { processAlive, processInfo } from "../runtime/contain.ts";
 import { SESSION_ID } from "./job.ts";
 
 export type GroupMember = {
@@ -125,7 +125,7 @@ export async function groupLock<T>(
 				continue;
 			}
 			const age = Date.now() - identity.mtimeMs;
-			if (age > 5_000 && (!pid || !processAlive(pid))) {
+			if (age > 5_000 && (!pid || !platform.processAlive(pid))) {
 				const claim = `${path}.reclaimer.${identity.dev}.${identity.ino}`;
 				let claimed = false;
 				try {
@@ -220,7 +220,7 @@ export async function leadSession(root: string): Promise<string | undefined> {
 		if (session) {
 			return session;
 		}
-		const parent = await processInfo(pid);
+		const parent = await platform.processInfo(pid);
 		if (parent.kind !== "present") {
 			return;
 		}
@@ -240,7 +240,11 @@ export async function leadHookLive(root: string, session: string, now = Date.now
 		stat(path).catch(() => undefined),
 	]);
 	return Boolean(
-		info && now - info.mtimeMs < LEAD_HEARTBEAT_MS && Number.isSafeInteger(pid) && pid > 1 && processAlive(pid),
+		info &&
+			now - info.mtimeMs < LEAD_HEARTBEAT_MS &&
+			Number.isSafeInteger(pid) &&
+			pid > 1 &&
+			platform.processAlive(pid),
 	);
 }
 export async function commandRoot(cwd: string): Promise<string> {
@@ -343,14 +347,14 @@ export async function memberLive(root: string, member: GroupMember): Promise<str
 		return "its state is running";
 	}
 	const pid = Number(await readFile(`${dir}/pid`, "utf8").catch(() => ""));
-	if (pid > 0 && (await processInfo(pid)).kind !== "absent") {
+	if (pid > 0 && (await platform.processInfo(pid)).kind !== "absent") {
 		return `its process ${pid} still runs or cannot be checked`;
 	}
 	const owner = JSON.parse(await readFile(`${dir}/group-owner.json`, "utf8").catch(() => "null")) as {
 		pid: number;
 		born: string;
 	} | null;
-	const info = owner ? await processInfo(owner.pid) : undefined;
+	const info = owner ? await platform.processInfo(owner.pid) : undefined;
 	if (info?.kind === "unavailable" || (info?.kind === "present" && info.process.born === owner?.born)) {
 		return `its owner process ${owner?.pid} ${info.kind === "present" ? "still runs" : "cannot be checked"}`;
 	}

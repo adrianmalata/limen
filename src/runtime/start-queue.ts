@@ -1,6 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readdir, readFile, rm } from "node:fs/promises";
-import { cpus } from "node:os";
 import { basename, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { atomicWrite } from "../atomic-write.ts";
@@ -10,10 +9,10 @@ import { groupLock } from "../job/group-cabinet.ts";
 import { formatDuration } from "../job/job.ts";
 import { appendLimenLog, textFile } from "../job/record.ts";
 import { LimenError } from "../outcome.ts";
+import { platform } from "../platform/platform.ts";
 import { readOptional } from "../project/inherit.ts";
 import { seatDir } from "../project/seat.ts";
 import { activeRules, localTime, type SeatRule } from "../project/seat-rules.ts";
-import { processAlive } from "./contain.ts";
 
 // The machine is shared by every plant, so one queue and one gate serve the whole seat. A detached job's own wrapper
 // waits in it after its handshake and before setup; no daemon runs it. Adam's decision 85 (a) set 25% and 20%.
@@ -97,27 +96,25 @@ export async function readLoad(signal?: AbortSignal): Promise<Reading> {
 		);
 		return { cpuIdle: percent(recorded.cpuIdle), memoryFree: percent(recorded.memoryFree) };
 	}
-	const before = cpus();
+	const before = platform.coreTimes();
 	await delay(SAMPLE_MS, undefined, signal ? { signal } : {});
-	const after = cpus();
+	const after = platform.coreTimes();
 	let idle = 0;
 	let total = 0;
 	after.forEach((core, index) => {
-		const earlier = before[index]?.times;
+		const earlier = before[index];
 		if (!earlier) {
 			return;
 		}
-		idle += core.times.idle - earlier.idle;
-		total += Object.values(core.times).reduce((sum, value) => sum + value, 0);
-		total -= Object.values(earlier).reduce((sum, value) => sum + value, 0);
+		idle += core.idle - earlier.idle;
+		total += core.total - earlier.total;
 	});
-	return { cpuIdle: total > 0 ? (100 * idle) / total : undefined, memoryFree: await memoryFree() };
+	return { cpuIdle: total > 0 ? (100 * idle) / total : undefined, memoryFree: memoryFree() };
 }
-/** MemAvailable over MemTotal in `/proc/meminfo`. */
-async function memoryFree(): Promise<number | undefined> {
-	const info = readOptional("/proc/meminfo") ?? "";
-	const kib = (name: string) => Number(new RegExp(`^${name}:\\s+(\\d+)`, "m").exec(info)?.[1]);
-	return percent((100 * kib("MemAvailable")) / kib("MemTotal"));
+/** The share of memory the system can give to new work without swapping. */
+function memoryFree(): number | undefined {
+	const memory = platform.memory();
+	return memory ? percent((100 * memory.availableKib) / memory.totalKib) : undefined;
 }
 function percent(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : undefined;
@@ -318,7 +315,7 @@ async function liveEntries(): Promise<Entry[]> {
 		}
 		const entry = parseEntry(body);
 		// A recycled pid can keep a dead entry until the reaper ends its job; the state check then removes it.
-		if (entry && processAlive(entry.pid) && (await textFile(`${entry.jobDir}/state`)) === "running") {
+		if (entry && platform.processAlive(entry.pid) && (await textFile(`${entry.jobDir}/state`)) === "running") {
 			entries.push(entry);
 		} else {
 			await rm(join(folder, name), { force: true });

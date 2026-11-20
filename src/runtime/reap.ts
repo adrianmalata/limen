@@ -1,7 +1,7 @@
 import { readdir } from "node:fs/promises";
 import { testKnob } from "../config.ts";
 import { finalizeJob, textFile } from "../job/record.ts";
-import { type ProcessQueryOutcome, processAlive, processGroupAlive, processInfo } from "./contain.ts";
+import { type Platform, platform } from "../platform/platform.ts";
 import { claimRecovery } from "./recovery.ts";
 
 export const STARTUP_GRACE_MS = 10 * 60_000;
@@ -13,7 +13,7 @@ export async function liveJob(jobDir: string, now = Date.now()): Promise<boolean
 	const recorded = Number.isSafeInteger(pid) && pid > 0 ? pid : undefined;
 	if (
 		recorded !== undefined &&
-		processGroupAlive(recorded) &&
+		platform.processGroupAlive(recorded) &&
 		(await sameBirth(recorded, await textFile(`${jobDir}/born`)))
 	) {
 		return true;
@@ -30,11 +30,11 @@ export async function startingJob(jobDir: string): Promise<boolean> {
 		return false;
 	}
 	const pid = Number(await textFile(`${jobDir}/starting`));
-	return Number.isSafeInteger(pid) && pid > 0 && processAlive(pid);
+	return Number.isSafeInteger(pid) && pid > 0 && platform.processAlive(pid);
 }
-export async function ownerAlive(jobDir: string, query = processInfo): Promise<boolean> {
+export async function ownerAlive(jobDir: string, query = platform.processInfo): Promise<boolean> {
 	const pid = Number(await textFile(`${jobDir}/pid`));
-	if (!Number.isSafeInteger(pid) || pid <= 0 || !processAlive(pid)) {
+	if (!Number.isSafeInteger(pid) || pid <= 0 || !platform.processAlive(pid)) {
 		return false;
 	}
 	return sameBirth(pid, await textFile(`${jobDir}/born`), query);
@@ -45,7 +45,7 @@ const gone = new Set<string>();
 async function sameBirth(
 	pid: number,
 	born: string,
-	query: (pid: number) => Promise<ProcessQueryOutcome> = processInfo,
+	query: Platform["processInfo"] = platform.processInfo,
 ): Promise<boolean> {
 	if (!born) {
 		return true;

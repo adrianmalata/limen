@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { transport } from "../config.ts";
+import { gitStartFailure } from "../platform/requirements.ts";
 export type GitWorktree = {
 	readonly path: string;
 	readonly branch?: string;
@@ -349,7 +350,7 @@ function git(cwd: string, args: readonly string[], input?: string): GitResult {
 		result = run(gitBin || "git");
 	}
 	if (miss(result.error) && !gitBin) {
-		const fallback = ["/usr/bin/git", "/usr/local/bin/git", "/opt/homebrew/bin/git"].find((path) => existsSync(path));
+		const fallback = ["/usr/bin/git", "/usr/local/bin/git"].find((path) => existsSync(path));
 		if (fallback) {
 			gitBin = fallback;
 			result = run(fallback);
@@ -357,8 +358,11 @@ function git(cwd: string, args: readonly string[], input?: string): GitResult {
 	} else if (!gitBin && !result.error) {
 		gitBin = "git";
 	}
+	// A git that cannot start (not found, not executable) is the requirements check's environment failure (T-02: exit code
+	// 4); any other spawn error goes up as it is.
 	if (result.error) {
-		throw miss(result.error) ? new Error("git is not on PATH") : result.error;
+		const code = "code" in result.error ? result.error.code : undefined;
+		throw code === "ENOENT" || code === "EACCES" ? gitStartFailure(result.error) : result.error;
 	}
 	return { stdout: result.stdout ?? "", stderr: result.stderr ?? "", status: result.status ?? 1 };
 }

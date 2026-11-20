@@ -7,9 +7,10 @@ Install Limen, define the project, and ask an agent to do the work.
 ## Requirements
 
 - **Operating system:** Linux. Limen supports no other operating system.
-- **Tools:** Node.js 24 or later, and Git.
-- **Engine:** Pi (`pi`) on `PATH`.
-- **Last known-good versions:** pi 1.2.0 and Herdr 0.9.1. Limen records the versions on each job, but it does not refuse other versions.
+- **Tools:** Node.js 24 or later; Git with `git worktree list --porcelain -z` (Git 2.36 or later); `tar`; `ps`.
+- **Engine:** Pi 1.5.1 (`pi`) on `PATH`, with the bridge `@vanillagreen/pi-claude-bridge` 5.0.3 for Claude models.
+- **Herdr:** 0.9.3, needed only when you run Limen inside a Herdr pane.
+- **Check:** `limen init` and `limen workspace init` check these tools first. When one is missing, or Git lacks the feature, the command exits with code 4 and names it. Limen records the versions on each job, but it does not yet refuse another version of Pi or the bridge.
 
 ## Install
 

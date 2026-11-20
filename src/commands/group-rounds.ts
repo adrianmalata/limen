@@ -19,7 +19,7 @@ import { publishResult } from "../job/group-events.ts";
 import { roundInstruction, routeName } from "../job/group-packet.ts";
 import { isTerminal } from "../job/job.ts";
 import { textFile } from "../job/record.ts";
-import { processInfo } from "../runtime/contain.ts";
+import { platform } from "../platform/platform.ts";
 import { startContinue } from "./continue.ts";
 
 const PROMPT_MS = 15_000;
@@ -82,7 +82,7 @@ async function ownersExited(run: GroupRun): Promise<void> {
 				pid: number;
 				born: string;
 			} | null;
-			const info = recorded ? await processInfo(recorded.pid) : undefined;
+			const info = recorded ? await platform.processInfo(recorded.pid) : undefined;
 			if (!recorded || info?.kind === "absent" || (info?.kind === "present" && info.process.born !== recorded.born)) {
 				break;
 			}

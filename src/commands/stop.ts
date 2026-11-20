@@ -5,12 +5,8 @@ import { SESSION_ID } from "../job/job.ts";
 import { resolveJob } from "../job/lookup.ts";
 import { appendLimenLog, finalizeJob, requestedTerminal } from "../job/record.ts";
 import type { Parsed } from "../parser.ts";
-import {
-	containEscapedDescendants,
-	discoverEscapedDescendants,
-	signalProcessGroup,
-	waitForProcessGroup,
-} from "../runtime/contain.ts";
+import { platform } from "../platform/platform.ts";
+import { containEscapedDescendants, discoverEscapedDescendants, waitForProcessGroup } from "../runtime/contain.ts";
 /** `limen stop`: stops a running job with the reason given, or "stopped by request". */
 export async function stopCommand(values: Parsed, cwd: string): Promise<undefined> {
 	await stopJob(values.get("job") ?? "", values.get("reason") ?? "", cwd);
@@ -37,7 +33,7 @@ export async function stopJob(query: string, given: string, cwd: string): Promis
 	// Complete the bounded ownership snapshot while the parent chain is intact, then signal. A queued wrapper runs no
 	// engine child, so it has no process tree to search and an empty one is no attribution loss.
 	const escaped = queued ? [] : await discoverEscapedDescendants(jobDir, pid, "during stop");
-	const result = signalProcessGroup(pid, "SIGTERM");
+	const result = platform.signalProcessGroup(pid, "SIGTERM");
 	void containEscapedDescendants(jobDir, escaped, "after stop").catch((error: unknown) =>
 		appendLimenLog(
 			jobDir,
@@ -47,7 +43,7 @@ export async function stopJob(query: string, given: string, cwd: string): Promis
 	void (async () => {
 		if (result !== "missing" && !(await waitForProcessGroup(pid, 5_000))) {
 			await appendLimenLog(jobDir, "TERM grace elapsed; sending KILL");
-			signalProcessGroup(pid, "SIGKILL");
+			platform.signalProcessGroup(pid, "SIGKILL");
 			await waitForProcessGroup(pid, 1_000);
 		}
 	})().catch(() => {});

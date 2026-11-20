@@ -3,14 +3,19 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { atomicWrite } from "../atomic-write.ts";
 import type { Parsed } from "../parser.ts";
+import { checkRequirements } from "../platform/requirements.ts";
 import { hasCommit, isGitRepository, NO_COMMIT, repoRoot, workspaceRoot } from "../project/git.ts";
 import { formatDrift, listDrift, removeHookCopies } from "../project/inherit.ts";
 import { dropLeftovers, LEFTOVERS } from "../project/leftovers.ts";
 import { registerProject } from "../project/seat.ts";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
-/** `limen init`: sets up a project, or with `--drop-leftovers` removes the files Limen no longer reads. */
+/**
+ * `limen init`: sets up a project, or with `--drop-leftovers` removes the files Limen no longer reads. The system
+ * requirements come first (T-12 (2)), so a missing tool refuses before anything is written.
+ */
 export async function initCommand(values: Parsed, cwd: string): Promise<undefined> {
+	checkRequirements();
 	if (values.has("drop-leftovers")) {
 		const root = workspaceRoot(cwd) ?? (isGitRepository(cwd) ? repoRoot(cwd) : undefined);
 		if (!root) {
@@ -49,8 +54,9 @@ export async function initCommand(values: Parsed, cwd: string): Promise<undefine
 		"next: write spec/vision.md and .agents/limen/styleguide.md, commit, then open a coordinator in this folder (docs/setup.md)",
 	);
 }
-/** `limen workspace init`: sets up a folder outside Git whose child repositories its jobs work in. */
+/** `limen workspace init`: sets up a folder outside Git whose child repositories its jobs work in; tools come first. */
 export async function workspaceInitCommand(_values: Parsed, cwd: string): Promise<undefined> {
+	checkRequirements();
 	if (isGitRepository(cwd)) {
 		throw new Error("workspace init requires a non-Git parent directory");
 	}

@@ -2,7 +2,7 @@
 grupy procesów i sygnały, odczyt pamięci i obciążenia; przenosi tam odczyty /proc i wywołania ps rozsiane po
 src/runtime i src/job, usuwa pozostałość macOS w ścieżkach gita. Deklaruje wymagania systemowe (Node, git z funkcją
 `worktree list --porcelain -z`, tar, ps, Pi, most, Herdr), które `limen init` sprawdza i odmawia kodem 4 z nazwą
-brakującego narzędzia. Stan: gotowy do nocy (ready). -->
+brakującego narzędzia. Test plant bierze gita uruchamiającego (D-060). Stan: zamknięty (done) w dzień 20.11. -->
 
 # R-020 A Linux platform adapter and declared system requirements
 
@@ -104,3 +104,27 @@ none: no on-disk format, command or file name changes; `limen init` refuses only
   coordinator start belongs to R-050's start script, since no start path exists before it, and calls the same
   function (`plan.md` → `## Tickets` → notes, R-050, written by the main session); Herdr's presence is checked only
   inside a Herdr pane, where Limen uses it.
+- 2026-11-20 D-060 (Adrian, "A", with the session doing it): the laptop's git is now 2.56.1 from Linuxbrew, the first
+  `git` on PATH, while `/usr/bin/git` stays 2.34.1. A test plant's PATH is fixed (`<bin>:<the node's folder>:/usr/bin:
+  /bin:/usr/sbin:/sbin`, `test/plant.ts`), so outside the gate every plant still meets 2.34.1 and `limen init`
+  refuses with `MISSING_FEATURE` (`node --test test/cli/init.test.ts` → 8 of 8 fail), and in the gate the shim no
+  longer appears, because `gate-env.mjs` probes the PATH's git, which has `-z`. Addition to `## Change` (Change 7, by
+  the main session as a technical default, D-060 (1)): `test/plant.ts` links the runner's `git` (the first `git` on
+  the test process's PATH) into a plant-private folder placed right after the node's folder, unless that git already
+  sits in the node's folder (the gate's shim, which then comes first, so the shim never meets a link to itself); every
+  other tool keeps the fixed PATH. A test shows that a plant runs the runner's git: with a PATH whose first `git` is a
+  fixture script, the plant's `git --version` prints the fixture's line. AC-2 then holds as written outside the gate.
+- 2026-11-20 (main session, review round 1, `review.md`): findings to fix:
+  - (1) The git probe runs `git --git-dir=<bare repository> worktree list --porcelain -z`, not `-C`, so
+    `safe.bareRepository=explicit` cannot refuse it; a test with that setting in the probe's environment.
+  - (2) A test of the `ps` probe's refusal (`MISSING_TOOL` naming `ps`).
+  - (3) `NODE_VERSION`: one message and one `next` in `bin/limen` and `nodeFailure` (the declared number from one
+    place, which the agreement test already compares).
+  - (5) `docs/setup.md` lists the declared requirements: Node ≥ 24, git with `git worktree list --porcelain -z`
+    (2.36 or newer), `tar`, `ps`, Pi 1.5.1 with the bridge 5.0.3, Herdr 0.9.3, and says that `limen init` refuses
+    with exit code 4 when one is missing.
+  - (7) The central `git()` maps to `MISSING_TOOL` only the errors of starting git (`ENOENT`, `EACCES`); any other
+    spawn error goes up as before; a test of a non-start error.
+  - (8) T-29 (3): split the `ps` parser test so each test fails for one reason (columns; CPU-time forms; the
+    scanner row; header and empty lines).
+  Rejected with reasons in `review.md`: (4) and (6).

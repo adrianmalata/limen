@@ -1,7 +1,7 @@
 <!-- PL: Dziennik zmian przebudowy Limena: jeden wpis na zamknięty ticket R-NNN, tylko dopisywany, najnowszy na dole.
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
-R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017. -->
+R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020. -->
 
 # Changes
 
@@ -188,3 +188,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-10)
 - Commit: R-017
 - Rollback: git revert $(git log --format=%H --grep='^R-017:' adrian-rebuild --)
+
+## 2026-11-20 R-020 A Linux platform adapter and declared system requirements
+- What: new `src/platform/platform.ts` (the interface `Platform`: process identity and table, command name, liveness and signals of a process and a group, CPU times, memory), `src/platform/linux.ts` (its one implementation, with the code moved from `src/runtime/contain.ts`, `stalled-tool.ts`, `start-queue.ts`, `src/job/publication.ts` and `src/project/seat.ts`; one `ps` process table), `src/platform/requirements.ts` (Node ≥ 24, git with `worktree list --porcelain -z` probed through `--git-dir`, `tar`, `ps`, `pi`, Herdr inside a pane; Pi 1.5.1, bridge 5.0.3 and Herdr 0.9.3 as data; refusals of class `environment`, exit 4, naming the tool); `limen init` and `limen workspace init` run the check first; the central `git()` types only start errors and drops the `/opt/homebrew` fallback; `bin/limen` prints the adapter's Node message; callers moved to `platform`; `docs/setup.md`; tests `test/platform/{linux,requirements}.test.ts`, `test/project/git.test.ts`, `test/cli/workspace.test.ts` (new), `test/cli/init.test.ts`, `test/structure.test.ts` (the A-083 scan and its self-test), `test/plant.ts` and `test/plant.test.ts` (a plant links the runner's git, D-060), `test/u9-process-identity.test.ts`
+- Why: A-083, T-12, T-32, D-060
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (401/401); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (eight test files fail at HEAD); `node --test test/cli/init.test.ts` → exit 0 (10/10, outside the gate)
+- Measurement: unmeasured (plan.md → Measurement: M-10)
+- Commit: R-020
+- Rollback: git revert $(git log --format=%H --grep='^R-020:' adrian-rebuild --)

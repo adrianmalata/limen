@@ -8,7 +8,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
-import { containEscapedDescendants, processInfo } from "../src/runtime/contain.ts";
+import { platform } from "../src/platform/platform.ts";
+import { containEscapedDescendants } from "../src/runtime/contain.ts";
 import { ownerAlive, reapDeadJobs } from "../src/runtime/reap.ts";
 
 /** A sleeping child, its exit and its recorded identity; the test kills it when it ends. */
@@ -16,7 +17,7 @@ async function sleeper(t: TestContext, detached: boolean) {
 	const code = "Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0)";
 	const child = spawn(process.execPath, ["-e", code], { detached, stdio: "ignore" });
 	t.after(() => child.kill("SIGKILL"));
-	const [exited, info] = [once(child, "exit"), await processInfo(child.pid ?? 0)];
+	const [exited, info] = [once(child, "exit"), await platform.processInfo(child.pid ?? 0)];
 	assert.ok(info.kind === "present", "the child is present");
 	return { child, exited, info };
 }
@@ -50,7 +51,7 @@ test("the reaper keeps a live owner and finalizes a dead owner and a stranger at
 	assert.equal(await ownerAlive(stranger), false, "a live pid with another birth is not the owner");
 	child.kill("SIGKILL");
 	await exited;
-	assert.equal((await processInfo(info.process.pid)).kind, "absent", "a gone pid is absent");
+	assert.equal((await platform.processInfo(info.process.pid)).kind, "absent", "a gone pid is absent");
 	const seen = new Map<string, number>();
 	await reapDeadJobs(jobs, seen, t0 + 31_000);
 	await reapDeadJobs(jobs, seen, t0 + 91_000);

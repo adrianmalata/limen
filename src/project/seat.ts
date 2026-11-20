@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { atomicWriteSync } from "../atomic-write.ts";
 import { testKnob } from "../config.ts";
+import { platform } from "../platform/platform.ts";
 
 const PACKAGE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const home = () => testKnob("LIMEN_HOME") || homedir();
@@ -108,13 +109,8 @@ function removeAbandonedLock(lock: string, reclaimer: string): boolean {
 			ownerText = fs.existsSync(join(lock, "owner")) ? fs.readFileSync(join(lock, "owner"), "utf8").trim() : "",
 			owner = Number(ownerText);
 		if (owner > 0) {
-			try {
-				process.kill(owner, 0);
+			if (platform.processAlive(owner)) {
 				return false;
-			} catch (error) {
-				if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
-					return false;
-				}
 			}
 		} else if (Date.now() - identity.mtimeMs < 5_000) {
 			return false;

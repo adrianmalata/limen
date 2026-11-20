@@ -15,14 +15,9 @@ import {
 	writeHandshake,
 } from "../job/record.ts";
 import { enqueueSteer } from "../job/steer-inbox.ts";
+import { platform } from "../platform/platform.ts";
 import { limitCount } from "../project/limits.ts";
-import {
-	containEscapedDescendants,
-	discoverEscapedDescendants,
-	type JobProcess,
-	processInfo,
-	signalProcessGroup,
-} from "./contain.ts";
+import { containEscapedDescendants, discoverEscapedDescendants, type JobProcess } from "./contain.ts";
 import { argvFor, jobProfile } from "./engine.ts";
 import { setUpJob, worktreeMissing } from "./job-setup.ts";
 import { observeToolStall, ownedToolDescendants, type ToolStallWatch, toolStallMs } from "./stalled-tool.ts";
@@ -144,11 +139,11 @@ export async function runInternalJob(): Promise<void> {
 			if (!captured) {
 				shutdownDeadline = Date.now() + STOP_GRACE_MS - 500;
 			}
-			signalProcessGroup(process.pid, "SIGTERM");
+			platform.signalProcessGroup(process.pid, "SIGTERM");
 			if (captured) {
 				await containEscapedDescendants(jobDir, descendants, "after stalled tool");
 			} else {
-				graceTimer = setTimeout(() => signalProcessGroup(process.pid, "SIGKILL"), STOP_GRACE_MS);
+				graceTimer = setTimeout(() => platform.signalProcessGroup(process.pid, "SIGKILL"), STOP_GRACE_MS);
 				graceTimer.unref();
 				void containEscapedDescendants(jobDir, descendants, "after exhaustion").catch(() => {});
 			}
@@ -252,7 +247,7 @@ export async function runInternalJob(): Promise<void> {
 		await rm(`${jobDir}/advisory`, { force: true });
 	};
 	const observeStall = async (pid: number) => {
-		const identity = await processInfo(pid);
+		const identity = await platform.processInfo(pid);
 		if (identity.kind !== "present" || identity.process.ppid !== process.pid || identity.process.pgid !== process.pid) {
 			stallWatch.previous = undefined;
 			stallWatch.started = Date.now();
@@ -268,7 +263,7 @@ export async function runInternalJob(): Promise<void> {
 			await clearUncertain();
 			return;
 		}
-		const [owner, engine] = await Promise.all([processInfo(process.pid), processInfo(pid)]);
+		const [owner, engine] = await Promise.all([platform.processInfo(process.pid), platform.processInfo(pid)]);
 		if (
 			owner.kind !== "present" ||
 			owner.process.pgid !== process.pid ||

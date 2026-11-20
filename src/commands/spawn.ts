@@ -16,6 +16,7 @@ import { finalizeJob } from "../job/record.ts";
 import { type NameSource, refuseRemovedRole } from "../old-names.ts";
 import { JOB_STARTED, type Success } from "../outcome.ts";
 import type { Parsed } from "../parser.ts";
+import { platform } from "../platform/platform.ts";
 import {
 	addBranchWorktree,
 	addDetachedWorktree,
@@ -31,7 +32,7 @@ import {
 	worktreeForBranch,
 } from "../project/git.ts";
 import { inheritedPlanning, ticketPointers } from "../project/planning.ts";
-import { signalProcessGroup, waitForProcessGroup } from "../runtime/contain.ts";
+import { waitForProcessGroup } from "../runtime/contain.ts";
 import { type EngineProfile, preflightEngine, resolveSpawnEngine } from "../runtime/engine.ts";
 import { liveJob } from "../runtime/reap.ts";
 import { DEFAULT_PRIORITY, parsePriority, queuedLine } from "../runtime/start-queue.ts";
@@ -713,9 +714,9 @@ export async function waitForHandshake(jobDir: string, wrapperPid: number): Prom
 		}
 		await new Promise((resolve) => setTimeout(resolve, HANDSHAKE_POLL_MS));
 	}
-	signalProcessGroup(wrapperPid, "SIGTERM");
+	platform.signalProcessGroup(wrapperPid, "SIGTERM");
 	if (!(await waitForProcessGroup(wrapperPid, 1_000))) {
-		signalProcessGroup(wrapperPid, "SIGKILL");
+		platform.signalProcessGroup(wrapperPid, "SIGKILL");
 		await waitForProcessGroup(wrapperPid, 1_000);
 	}
 	await finalizeJob(jobDir, "failed", "detached wrapper did not become ready");

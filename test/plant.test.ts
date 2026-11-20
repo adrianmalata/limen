@@ -1,12 +1,13 @@
-// The shared test helpers of test/plant.ts: `waitJob` returns only once the job's wrapper has given up its folder.
+// The shared test helpers of test/plant.ts: `waitJob` returns only once the job's wrapper has given up its folder, and
+// a plant runs the git that comes first on the runner's PATH.
 import assert from "node:assert/strict";
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { type Plant, waitJob } from "./plant.ts";
+import { plant as newPlant, type Plant, waitJob } from "./plant.ts";
 
 const JOB = "2026-11-18-waited-1a2b3c4d";
 /**
@@ -43,4 +44,29 @@ test("A-088: waitJob returns only after the job's state is terminal and its pid 
 	const plant = { parent: root, root, bin: root, env: {}, cleanup: async () => {} } satisfies Plant;
 	const state = waitJob(plant, JOB);
 	assert.deepEqual([state, existsSync(join(dir, "pid")), existsSync(join(dir, "born"))], ["done", false, true]);
+});
+
+// D-060: the laptop's first git is not the system's, and a plant's PATH is fixed, so without the link a plant would
+// meet the system's git instead of the one the suite runs with.
+test("D-060: a plant runs the git that comes first on the runner's PATH", async (t) => {
+	const folder = mkdtempSync(join(tmpdir(), "limen-runner-git-"));
+	const runnerPath = process.env.PATH ?? "";
+	// The fixture answers --version itself and passes every other call to the git of the runner's own PATH.
+	const script = [
+		"#!/bin/sh",
+		'if [ "$1" = --version ]; then',
+		'\techo "git version 0.0.0-fixture"',
+		"\texit 0",
+		"fi",
+		`PATH='${runnerPath}' exec git "$@"`,
+	].join("\n");
+	writeFileSync(join(folder, "git"), `${script}\n`, { mode: 0o755 });
+	process.env.PATH = `${folder}:${runnerPath}`;
+	t.after(() => {
+		process.env.PATH = runnerPath;
+		rmSync(folder, { recursive: true, force: true });
+	});
+	const p = await newPlant();
+	t.after(() => p.cleanup());
+	assert.equal(execFileSync("git", ["--version"], { env: p.env, encoding: "utf8" }), "git version 0.0.0-fixture\n");
 });

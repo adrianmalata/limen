@@ -3,9 +3,9 @@
 // every request a Limen process makes. Scenarios wait on file events and FIFOs; nothing here sleeps.
 import { type ChildProcess, execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, watch } from "node:fs";
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { TERMINAL_STATES } from "../src/job/job.ts";
 import { readOutcome } from "../src/outcome.ts";
@@ -89,6 +89,23 @@ sources:
 ---
 `;
 
+/**
+ * The plant's folder for the runner's git (D-060): a link to the first `git` on the PATH of the process that runs the
+ * tests, so a plant meets the git the suite runs with, not the system's in /usr/bin. None when that git sits in the
+ * node's folder `nodeFolder` (the gate's shim, which then comes first and never meets a link to itself) or there is
+ * none.
+ */
+async function runnerGit(parent: string, nodeFolder: string): Promise<string[]> {
+	const found = (process.env.PATH ?? "").split(":").find((folder) => folder !== "" && existsSync(join(folder, "git")));
+	if (found === undefined || resolve(found) === resolve(nodeFolder)) {
+		return [];
+	}
+	const folder = join(parent, "runner-git");
+	await mkdir(folder);
+	await symlink(resolve(found, "git"), join(folder, "git"));
+	return [folder];
+}
+
 /** A fresh plant. `root` is the real path: macOS tmpdir is a /var symlink and Git reports /private/var. */
 export async function plant(): Promise<Plant> {
 	const parent = await realpath(await mkdtemp(join(tmpdir(), "limen-plant-")));
@@ -99,8 +116,11 @@ export async function plant(): Promise<Plant> {
 	await writeFile(join(parent, ".limen", "start-gate.json"), '{"settle":"1ms"}\n');
 	await symlink(FAKE_ENGINE, join(bin, "pi"));
 	await writeFile(join(parent, "sink.mjs"), sinkSource(parent));
+	const nodeFolder = dirname(process.execPath);
 	const env = {
-		PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin:/usr/sbin:/sbin`,
+		PATH: [bin, nodeFolder, ...(await runnerGit(parent, nodeFolder)), "/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(
+			":",
+		),
 		HOME: join(parent, "home"),
 		TMPDIR: tmpdir(),
 		LIMEN_HOME: parent,
@@ -298,6 +318,48 @@ export async function respond(
 	}>,
 ): Promise<void> {
 	await writeFile(join(plant.parent, "fetch-responses.json"), JSON.stringify(rows));
+}
+
+/**
+ * The plant's PATH without `tool`: each folder that holds it gives way to a new folder of links to its other entries, so
+ * every other program stays where the plant finds it, the runner's git and the gate's git shim included.
+ */
+export async function pathWithout(plant: Plant, tool: string): Promise<string> {
+	const folders = (plant.env.PATH ?? "").split(":");
+	const kept: string[] = [];
+	for (const [index, folder] of folders.entries()) {
+		if (!existsSync(join(folder, tool))) {
+			kept.push(folder);
+			continue;
+		}
+		const links = join(plant.parent, `path-without-${tool}-${index}`);
+		await mkdir(links);
+		const names = (await readdir(folder)).filter((name) => name !== tool);
+		await Promise.all(names.map((name) => symlink(join(folder, name), join(links, name))));
+		kept.push(links);
+	}
+	return kept.join(":");
+}
+
+/**
+ * A PATH whose `git` refuses `-z` as git before 2.36 does (exit 129) and passes every other call to the plant's git,
+ * under the plant's own PATH, so a git shim on that PATH never finds this one again.
+ */
+export async function pathWithOldGit(plant: Plant): Promise<string> {
+	const folder = join(plant.parent, "old-git");
+	await mkdir(folder);
+	const script = [
+		"#!/bin/sh",
+		'for arg in "$@"; do',
+		'\tif [ "$arg" = -z ]; then',
+		"\t\techo \"error: unknown switch 'z'\" >&2",
+		"\t\texit 129",
+		"\tfi",
+		"done",
+		`PATH='${plant.env.PATH}' exec git "$@"`,
+	].join("\n");
+	await writeFile(join(folder, "git"), `${script}\n`, { mode: 0o755 });
+	return `${folder}:${plant.env.PATH}`;
 }
 
 export function git(cwd: string, ...args: readonly string[]): string {

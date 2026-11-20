@@ -663,6 +663,51 @@ test("T-32: no file of src/ or hook/ outside src/runtime/pi-api.ts declares a ty
 	);
 });
 
+/** The folder of the platform adapter (A-083), the only code that reads the operating system's process and load data. */
+const PLATFORM = "src/platform/";
+
+/**
+ * Each operating-system read or signal in the code `text`, as `<path>:<line>: <match>`: a `/proc/` path, a `ps`
+ * literal (the program a spawn names), a `cpus(` call, and `process.kill`.
+ */
+function platformCalls(path: string, text: string): string[] {
+	return text
+		.split("\n")
+		.flatMap((line, index) =>
+			[...line.matchAll(/\/proc\/|(["'`])ps\1|\bcpus\s*\(|\bprocess\.kill\b/g)].map(
+				(match) => `${path}:${index + 1}: ${match[0]}`,
+			),
+		);
+}
+
+test("the platform scan finds a /proc/ path, a ps literal, a cpus call and process.kill, and skips other text", () => {
+	const fixture = [
+		'readFileSync("/proc/meminfo");',
+		'execFile("ps", ["-A"]);',
+		"const cores = os.cpus();",
+		"process.kill(pid, 0);",
+		'const said = "ps discovery and steps";',
+		"// the CPUs of the seat",
+		"const options = { cpus: 2 };",
+		"child.kill();",
+	].join("\n");
+	assert.deepEqual(platformCalls("fixture.ts", fixture), [
+		"fixture.ts:1: /proc/",
+		'fixture.ts:2: "ps"',
+		"fixture.ts:3: cpus(",
+		"fixture.ts:4: process.kill",
+	]);
+});
+
+// A-083: the platform adapter is an interface with one implementation, Linux; a second operating system is a second
+// implementation, so its reads and signals must not be spread over the code that calls them.
+test("A-083: outside src/platform/ no file of src/ or hook/ reads /proc/, names ps, calls cpus or signals with process.kill", async () => {
+	const found = (await knownSources(["src", "hook"]))
+		.filter(({ path }) => !path.startsWith(PLATFORM))
+		.flatMap(({ path, text }) => platformCalls(path, text));
+	assert.deepEqual(found, []);
+});
+
 // Each shipped templates/.history/<name> starts with the hash of the current templates/<name>.
 test("shipped template history starts at the current template", async () => {
 	for (const name of await readdir(join(root, "templates/.history"))) {

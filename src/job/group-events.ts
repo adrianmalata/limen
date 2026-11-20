@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile } from "node:fs/promises";
-import { processAlive } from "../runtime/contain.ts";
+import { platform } from "../platform/platform.ts";
 import type { GroupIdentity, GroupRun } from "./group-cabinet.ts";
 import { groupLock, groupPath, readRun, saveJson } from "./group-cabinet.ts";
 
@@ -215,7 +215,8 @@ async function eligibleEvents(identity: GroupIdentity, now: number) {
 		}
 		if (
 			recorded.token &&
-			(((recorded.owner ?? 0) > 0 && processAlive(recorded.owner ?? 0)) || now - (recorded.at ?? now) < CLAIM_STALE_MS)
+			(((recorded.owner ?? 0) > 0 && platform.processAlive(recorded.owner ?? 0)) ||
+				now - (recorded.at ?? now) < CLAIM_STALE_MS)
 		) {
 			continue;
 		}

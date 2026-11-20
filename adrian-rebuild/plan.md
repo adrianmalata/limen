@@ -37,7 +37,9 @@ R-021: `limen migrate`, foldery nieprzenoszalne do `.limen/unmigrated/`, zmigrow
 więc R-021 też jest gotowy; R-018 zamknięty w dzień (moduł zapisu atomowego, bramka 340/340); przekazanie do
 limen-rebuild-12; D-059: sesja główna uruchamia bramkę po raporcie końcowym subagenta, bez czekania na powiadomienie
 o zakończeniu zadania; D-060: git 2.56.1 z Linuxbrew na laptopie zamiast 2.34 (bez sudo); D-058 (usunięcie martwego kodu, którego Pi 1.5.1 nie ma) i R-017 zamknięty w dzień (adapter API
-Pi `src/runtime/pi-api.ts` ze strażnikami, kontrakt typów na prawdziwych typach Pi 1.5.1, bramka 377/377). -->
+Pi `src/runtime/pi-api.ts` ze strażnikami, kontrakt typów na prawdziwych typach Pi 1.5.1, bramka 377/377); R-020
+zamknięty w dzień (adapter platformy src/platform/ i wymagania systemowe przy limen init, bramka 401/401); R-022 i
+R-023 przygotowane do nocy, cztery pytania czekają na odpowiedź Adriana. -->
 
 
 
@@ -1085,7 +1087,7 @@ Columns:
 | R-017 | One Pi API adapter with type guards, checked against Pi's real types | 2 | T-32, D-055, D-058 | R-012, R-016 | M | delegated | night | — | pi | 2.2 | done |
 | R-018 | One atomic-write module | 2 | A-022, T-25 | R-013 | L | delegated | night | — | — | — | done |
 | R-019 | One lock module with process identity and a bounded wait | 2 | A-017, A-018, A-055, A-058, A-087, T-25, D-029, D-056 | R-018, R-020 | M | delegated | night | yes | — | — | ready (D-056) |
-| R-020 | A Linux platform adapter and declared system requirements | 2 | A-083, T-12, T-32 | R-013 | M | delegated | night | — | — | — | ready |
+| R-020 | A Linux platform adapter and declared system requirements | 2 | A-083, T-12, T-32, D-060 | R-013 | M | delegated | night | — | — | — | done |
 | R-021 | One `record.json` per job, written only by the transition function | 2 | S1+, A-019, A-053, A-056, T-20, T-25, D-057 | R-016, R-018, R-019 | L | delegated | night | yes | — | — | ready (D-057) |
 | R-022 | Exact job references through one resolver | 2 | T-20 | R-014, R-021 | M | delegated | night | yes | — | — | planned |
 | R-023 | Commands are thin adapters over domain operations; a refusal leaves no trace | 2 | T-26, T-38, D-045, D-046 | R-014, R-021, R-089 | L | delegated | night | — | — | — | planned |
@@ -2313,15 +2315,29 @@ redundant):
   gate starts on the subagent's final report and `compare --git` exit 0, without the completion notification;
   committed on its own as `911f8ae`, so that R-017's rollback leaves it.
 
+- R-020 `done` (delegated, by day): `src/platform/` (the interface `Platform` of operating-system primitives, its one
+  implementation `linux`, and `requirements.ts` with a probe per declared tool, exit 4 naming it); `limen init` and
+  `limen workspace init` check them first; the A-083 scan bans `/proc/`, `ps`, `cpus` and `process.kill` outside the
+  adapter. Its AC-2 showed that every test plant refuses on the laptop's git 2.34 outside the gate → D-060 (Adrian,
+  "A"; the session upgraded git itself through Linuxbrew, since `sudo` is denied; commit `6ef1840`) and Change 7 (a
+  plant links the runner's git). Review round 1 PASS with eight notes (six fixed, two rejected), round 2 FAIL on two
+  notes in `outcome.md` (fixed by the main session), round 3 PASS with none. Gate 401/401. Cost: weekly 85 % → 88 %.
+- R-022 and R-023 prepared for the night from two read-only inventories; Adrian's first answers were withheld: he
+  asked the session to read `gate-2-decisions.md`, `taste.md`, the harness principles and this plan and ask again.
+  After that reading (a fresh subagent read all four in full), seven of the eleven questions were settled by T-20,
+  T-24, T-26, T-38, T-01, T-28, D-039, D-046 and R-018's precedent; four were asked again on 2026-11-20 at 23:40
+  (R-022: the class of an id that names no job; R-023: the split into R-023 and a new R-092, the early `spawn` line,
+  one launcher module for Limen's own CLI).
+
 Active ticket: none.
 
-Next (by day on 2026-11-20):
-0. Until Adrian's night mode, the next day ticket by protocol step 1: R-020 (the lowest `ready` ID whose dependencies
-   are `done`; its `ticket.md` is written), delegated. Taking it by day leaves the night R-089, R-019 and R-021 (R-019
-   after R-020, R-021 after R-019), on two independent branches (D-054 (1)).
+Next (2026-11-20, late evening):
+0. Adrian's answers to the four questions → `ticket.md` → `## Decisions` (R-022 and R-023 written as `ready (D-NNN)`,
+   their `ticket.md` written by the night at the HEAD it starts from, as for R-019 and R-021); on (2b) the new R-092
+   row, `planned`, with R-025, R-030 and R-037 depending on it.
 1. On Adrian's "Tryb nocny do HH:MM": the checks of D-024, then `night.mjs`; this is the rehearsal of D-053 (3). The
-   night has four `ready` tickets: R-020 and R-089 on independent branches, R-019 after R-020 (R-018 is `done`), and
-   R-021 after R-019.
+   night's `ready` tickets: R-089 (independent), R-019 (its dependencies R-018 and R-020 are `done`), R-021 after
+   R-019, and, once answered, R-022 after R-021 and R-023 after R-021 and R-089.
 2. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
    D-047 and D-054 were.

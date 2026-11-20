@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readdir, rm, rmdir } from "node:fs/promises";
 import { atomicRename, atomicWrite } from "../atomic-write.ts";
 import { textFile } from "../job/record.ts";
-import { processAlive, processInfo } from "./contain.ts";
+import { platform } from "../platform/platform.ts";
 
 /** A populated directory is published atomically. Retire only the observed unique entry:
  * competing stale-claim removers cannot unlink a replacement owner's entry. */
@@ -12,7 +12,7 @@ export async function claimRecovery(jobDir: string): Promise<(() => Promise<void
 	const entry = `${process.pid}.${Date.now()}.${randomUUID()}`;
 	const prepared = `${claim}.${entry}`;
 	await mkdir(prepared);
-	const identity = await processInfo(process.pid);
+	const identity = await platform.processInfo(process.pid);
 	await atomicWrite(`${prepared}/${entry}`, identity.kind === "present" ? identity.process.born : "");
 	try {
 		for (let attempt = 0; attempt < 2; attempt++) {
@@ -32,9 +32,9 @@ export async function claimRecovery(jobDir: string): Promise<(() => Promise<void
 				const pid = Number(rawPid),
 					time = Number(rawTime);
 				const validPid = Number.isSafeInteger(pid) && pid > 0;
-				if (validPid && processAlive(pid)) {
+				if (validPid && platform.processAlive(pid)) {
 					const born = await textFile(`${claim}/${name}`);
-					const info = born ? await processInfo(pid) : undefined;
+					const info = born ? await platform.processInfo(pid) : undefined;
 					if (!info || info.kind === "unavailable" || (info.kind === "present" && info.process.born === born)) {
 						return;
 					}

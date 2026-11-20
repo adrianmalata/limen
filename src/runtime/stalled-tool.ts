@@ -1,6 +1,6 @@
-import { execFile } from "node:child_process";
+import { type ProcessRow, platform } from "../platform/platform.ts";
 import { limitMs } from "../project/limits.ts";
-import { type JobProcess, processInfo } from "./contain.ts";
+import type { JobProcess } from "./contain.ts";
 
 const DEFAULT_TOOL_STALL_MS = 3 * 60_000;
 const PROCESS_SAMPLE_MS = 2_000;
@@ -8,50 +8,14 @@ export function toolStallMs(): number {
 	return limitMs("toolStall", DEFAULT_TOOL_STALL_MS);
 }
 
-type Row = { pid: number; ppid: number; cpu: number; state: string };
-type Sample = { children: Row[]; cpu: number };
-function cpuSeconds(value: string): number {
-	const parts = value.split(":");
-	if (parts.length < 2 || parts.length > 3) {
-		return Number.NaN;
+type Sample = { children: ProcessRow[]; cpu: number };
+/** The process table, which a sample needs whole: a CPU time ps could not print leaves the sample unread. */
+async function processRows(): Promise<readonly ProcessRow[]> {
+	const rows = await platform.processTable(Date.now() + PROCESS_SAMPLE_MS);
+	if (rows.some((row) => !Number.isFinite(row.cpuSeconds))) {
+		throw new Error("unreadable process CPU time");
 	}
-	const first = (parts[0] ?? "").split("-");
-	if (first.length > 2) {
-		return Number.NaN;
-	}
-	const numbers = [...first, ...parts.slice(1)].map(Number);
-	if (numbers.some((n) => !Number.isFinite(n) || n < 0)) {
-		return Number.NaN;
-	}
-	const days = first.length === 2 ? (numbers.shift() ?? 0) : 0;
-	return days * 86400 + numbers.reduce((total, n) => total * 60 + n, 0);
-}
-function processRows(): Promise<Row[]> {
-	const { promise, resolve, reject } = Promise.withResolvers<Row[]>();
-	const scanner = execFile(
-		"ps",
-		["-Ao", "pid=,ppid=,time=,stat="],
-		{ timeout: PROCESS_SAMPLE_MS, maxBuffer: 1024 * 1024 },
-		(error, stdout) => {
-			if (error) {
-				return reject(error);
-			}
-			const rows: Row[] = [];
-			for (const line of stdout.split("\n")) {
-				const match = /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s*$/.exec(line);
-				if (!match?.[1] || !match[2] || !match[3] || !match[4] || Number(match[1]) === scanner.pid) {
-					continue;
-				}
-				const cpu = cpuSeconds(match[3]);
-				if (!Number.isFinite(cpu)) {
-					return reject(new Error("unreadable process CPU time"));
-				}
-				rows.push({ pid: Number(match[1]), ppid: Number(match[2]), cpu, state: match[4] });
-			}
-			resolve(rows);
-		},
-	);
-	return promise;
+	return rows;
 }
 
 /** The caller confirmed `pid` has `born` just before; the same birth after the scan proves every row is that process's own. */
@@ -61,7 +25,7 @@ async function sampleTree(pid: number, born: string): Promise<Sample | undefined
 	if (!root) {
 		return;
 	}
-	const byParent = new Map<number, Row[]>();
+	const byParent = new Map<number, ProcessRow[]>();
 	for (const row of rows) {
 		if (row.state.startsWith("Z")) {
 			continue;
@@ -73,7 +37,7 @@ async function sampleTree(pid: number, born: string): Promise<Sample | undefined
 			byParent.set(row.ppid, [row]);
 		}
 	}
-	const children: Row[] = [];
+	const children: ProcessRow[] = [];
 	const seen = new Set([pid]);
 	for (let index = 0; index <= children.length; index += 1) {
 		const parent = index === 0 ? pid : children[index - 1]?.pid;
@@ -88,11 +52,11 @@ async function sampleTree(pid: number, born: string): Promise<Sample | undefined
 			children.push(row);
 		}
 	}
-	const after = await processInfo(pid);
+	const after = await platform.processInfo(pid);
 	if (after.kind !== "present" || after.process.born !== born) {
 		return;
 	}
-	return { children, cpu: root.cpu + children.reduce((total, row) => total + row.cpu, 0) };
+	return { children, cpu: root.cpuSeconds + children.reduce((total, row) => total + row.cpuSeconds, 0) };
 }
 
 export type ToolStallWatch = {
@@ -148,7 +112,9 @@ export async function observeToolStall(
 		watch.hadChild &&
 		current.children.length === previous.children.length &&
 		current.children.every((row) =>
-			previous.children.some((prior) => prior.pid === row.pid && prior.ppid === row.ppid && row.cpu === prior.cpu),
+			previous.children.some(
+				(prior) => prior.pid === row.pid && prior.ppid === row.ppid && row.cpuSeconds === prior.cpuSeconds,
+			),
 		);
 	if (!previous || !stableChildren || current.cpu !== previous.cpu) {
 		watch.started = now;
@@ -166,7 +132,7 @@ export async function ownedToolDescendants(pid: number, born: string): Promise<J
 	}
 	const captured = await Promise.all(
 		sample.children.map(async (row) => {
-			const result = await processInfo(row.pid);
+			const result = await platform.processInfo(row.pid);
 			return result.kind === "present" && result.process.ppid === row.ppid ? result.process : undefined;
 		}),
 	);
@@ -177,14 +143,9 @@ export async function ownedToolDescendants(pid: number, born: string): Promise<J
 }
 
 export async function signalOwnedProcess(pid: number, born: string, signal: NodeJS.Signals): Promise<boolean> {
-	const info = await processInfo(pid);
+	const info = await platform.processInfo(pid);
 	if (info.kind !== "present" || info.process.born !== born) {
 		return false;
 	}
-	try {
-		process.kill(pid, signal);
-		return true;
-	} catch {
-		return false;
-	}
+	return platform.signalProcess(pid, signal) === "sent";
 }
