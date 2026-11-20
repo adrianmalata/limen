@@ -1772,9 +1772,10 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-20, day session `limen-rebuild-11`, rebuild stage 5 in plan stage 2: stage 1 is closed at `a0.1.1`
-(deployed on 2026-11-20, with B.2 closed by D-050); stage 2 has R-015 and R-016 done and R-017–R-020 and R-089
-`ready` for the night. The newest entries are at the end of this section, from "Day session of 2026-11-20".
+Updated 2026-11-20, day session `limen-rebuild-13`, rebuild stage 5 in plan stage 2: stage 1 is closed at `a0.1.1`
+(deployed on 2026-11-20, with B.2 closed by D-050); stage 2 has R-015–R-018 and R-020 done and R-019, R-021–R-023 and
+R-089 `ready` for the night of 2026-11-20/21. The newest entries are at the end of this section, from "Day session of
+2026-11-20".
 
 Handover of 2026-11-19 (D-033, at 37 % context, after the commit `R-014:`): `limen-rebuild-5` started
 `limen-rebuild-6` in `tmux` in remote-control mode (14:10) and ended. WSL booted at 10:34 on 2026-11-19, after the
@@ -2353,16 +2354,23 @@ redundant):
 - R-019's `ticket.md` written by day (`check.mjs` requires it once R-020 is `done`, D-054 (1)), from a read-only
   inventory at R-020's tree; R-020 committed as `90a34ca`.
 
+Day session of 2026-11-20, continued (`limen-rebuild-13`; its `close-previous` printed `handover: closed tmux session
+limen-rebuild-12` and one `handover: stopped claude …` line and exited 0; its push notification was skipped as
+redundant):
+- Night preflight at `6d854ff` (D-024): `node adrian-rebuild/tools/test-night.mjs` → exit 0 (29/29); `node
+  adrian-rebuild/tools/check.mjs` → exit 0 (5 `ready` tickets, their criteria against the allow-list); `HEAD` equal to
+  `origin/adrian-rebuild`, clean tree; a new `claude -p` session listed `rebuild-implementer` and `rebuild-reviewer`.
+  Use at 23:25: weekly 88 %, five-hour window 22 %. The old `.night/status.json` (`no-ticket`, 2026-11-19) predates
+  this night's runs, so the runner ignores it.
+- Adrian (2026-11-20, 23:26): "Uruchom tryb nocny do 7:00 rano". `limen-rebuild-13` starts `night.mjs --until 07:00`
+  right after the commit of this entry and then changes nothing in the repository until Adrian writes (D-024).
+
 Active ticket: none.
 
 Next (night of 2026-11-20/21, then by day):
-0. `limen-rebuild-13` starts the night run only when Adrian gives it the night phrase ("Tryb nocny do HH:MM"; D-024,
-   D-053 (3)): it shows the runner's tests, the pushed SHA and a clean tree, checks that a new `claude -p` session
-   lists both subagent definitions, runs `mkdir -p adrian-rebuild/.night` and `nohup node adrian-rebuild/tools/night.mjs
-   --until HH:MM` with stdout and stderr to `adrian-rebuild/.night/launcher.log`, in the background, and then changes
-   nothing in the repository until Adrian writes. The night's `ready` tickets in dependency order: R-019 (`ticket.md`
-   written) and R-089 on independent branches, R-021 after R-019, R-022 after R-021, R-023 after R-021 and R-089; the
-   night writes the `ticket.md` of R-021, R-022 and R-023 at the HEAD it starts each from (D-057, D-061, the
+0. The night run until 07:00 (started by `limen-rebuild-13` on Adrian's word; D-024, D-053 (3)). The night's
+   `ready` tickets in dependency order: R-019 (`ticket.md` written) and R-089 on independent branches, R-021 after
+   R-019, R-022 after R-021, R-023 after R-021 and R-089; the night writes the `ticket.md` of R-021, R-022 and R-023 at the HEAD it starts each from (D-057, D-061, the
    inventories in `evidence/`).
 1. Morning: the day session reads `.night/status.json` and `.night/questions.md`, moves answers to `ticket.md` →
    `## Decisions`, and goes on with stage 2 (R-092, R-024, R-025, then the close: tag `a0.2.0`, gate 5.2 by phone).
