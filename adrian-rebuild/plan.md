@@ -30,8 +30,8 @@ i rzutowań, bramka 310/310); D-053 i D-054: praca pod nieobecność Adriana 21�
 recenzja, status ready dla nocy, domyślne decyzje techniczne nocą, arkusz wariantów dla ticketów pair); przekazanie
 do limen-rebuild-10, która zrobiła D-054 w check.mjs (moduł tools/ticket-rules.mjs: status ready, nocny ticket pair
 z zapisanymi wyborami, polecenia kryteriów sprawdzane z allow-listą); R-018 i R-020 gotowe do nocy (ready); R-017
-gotowy po D-055 (kontrakt typów Pi tylko jako test w repo, błędy kształtu zdarzeń jako BAD_DATA); R-019 czeka na
-trzecią odpowiedź (zależność od R-020). -->
+gotowy po D-055 (kontrakt typów Pi tylko jako test w repo, błędy kształtu zdarzeń jako BAD_DATA), R-089 gotowy;
+R-019 czeka na trzecią odpowiedź (zależność od R-020); przekazanie do limen-rebuild-11. -->
 
 
 
@@ -1006,7 +1006,7 @@ Columns:
 | R-088 | The same-task runner leaves no job running after an attempt | 1 | D-027, D-021 | R-011 | S | pair | day-after | — | pi | B.2 | done |
 | R-091 | The same-task runner refuses an unmarked Pi event and states its touchpoint definition | 1 | D-045, D-046, D-021, H-21 | R-011 | S | delegated | night | — | pi | B.2 | done |
 | R-090 | The deployment script names what it checked; a registry without a project refuses | 1 | D-045, D-046, D-008, §7 | R-012 | S | delegated | night | — | — | 1.0 | done |
-| R-089 | The final line's `code` and `next` are a value or `null`; `next` is always a command | 2 | T-37, T-02, D-045, D-046 | R-014 | M | delegated | night | — | — | — | planned |
+| R-089 | The final line's `code` and `next` are a value or `null`; `next` is always a command | 2 | T-37, T-02, D-045, D-046 | R-014 | M | delegated | night | — | — | — | ready |
 | R-015 | One configuration reader; settings come only from owner files | 2 | T-03 | R-014 | M | delegated | night | yes | — | — | done |
 | R-016 | One boundary parsing module with validators; the cast ratchet | 2 | T-27 | R-013 | M | delegated | night | — | — | — | done |
 | R-017 | One Pi API adapter with type guards, checked against Pi's real types | 2 | T-32, D-055 | R-012, R-016 | M | delegated | night | — | pi | 2.2 | ready |
@@ -2177,6 +2177,9 @@ session limen-rebuild-9` and two `handover: stopped claude …` lines and exited
   with exceptions for the locks until R-019 and the LaunchAgent until R-032) and R-020 `ready` (`src/platform/`; the
   requirements check at `limen init`; the check at coordinator start goes to R-050, a note in `## Tickets`): two
   independent branches for the night (D-054 (1)); `check.mjs` passes their criteria against the allow-list.
+- R-089 `ready` from a third read-only inventory (every place that sets `next` or `code`, the old-names entries,
+  the tests): D-045 (2), (5) and D-046 (1)–(3), (5) settle it; the main session put the parser check of D-046 (3) into
+  the tests' reader of the final line.
 - R-019 waits for Adrian's answer 3 (asked 2026-11-20): whether it depends on R-020 as well, so that the lock's owner
   identity (pid, start time, boot id) comes from the platform adapter (recommended), and his consent to its technical
   defaults (a 60 s bounded wait, then an error naming the lock file, the owner and a hint; an old owner file holding
@@ -2184,14 +2187,21 @@ session limen-rebuild-9` and two `handover: stopped claude …` lines and exited
   a decision entry, and R-019 becomes `ready (D-NNN)`.
 
 Next (by day on 2026-11-20, in this order):
-1. Adrian's answer 3: R-019's decision entry, then `ready (D-NNN)`.
-2. R-089's `ticket.md` (its dependency R-014 is `done`), `ready`: a third branch for the night.
-3. On Adrian's "Tryb nocny do HH:MM": the checks of D-024, then `night.mjs`; this is the rehearsal of D-053 (3). R-018
-   and R-020 stay for the night; with R-017 the night has three independent branches.
+1. Adrian's answer 3: a decision entry D-056 (with 3a, R-019 also depends on R-020 in `## Tickets`), then R-019
+   `ready (D-056)`; the night writes its `ticket.md` at its HEAD.
+2. On Adrian's "Tryb nocny do HH:MM": the checks of D-024, then `night.mjs`; this is the rehearsal of D-053 (3). The
+   night has four `ready` tickets on four independent branches: R-017, R-018, R-020 and R-089 (and R-019 after R-018,
+   and R-020 with 3a).
 Then the plan of the day session's reply of 2026-11-20: Saturday R-021 first (the root of R-022–R-025), R-089, R-022;
 Sunday the rest of stage 2 and its close (tag `a0.2.0`, gate 5.2 by phone); stage 3 after his "go on".
 
 Open questions for Adrian: answer 3 (R-019) above.
+
+Handover of 2026-11-20 (D-047, at 42 % context, after the commit that makes R-089 `ready`): `limen-rebuild-10`
+starts `limen-rebuild-11` with `node adrian-rebuild/tools/handover.mjs start 11` and ends its turn. The next session's
+first acts: a push notification to Adrian that it takes over at stage 2 and waits for his answer 3 and the night mode;
+then `node adrian-rebuild/tools/handover.mjs close-previous`, whose lines it reports to Adrian; then `Next`. The
+handover after it is `limen-rebuild-12`.
 
 Notes for the next session:
 - Start Claude Code in the repository root, so that it loads `.claude/agents/`.
