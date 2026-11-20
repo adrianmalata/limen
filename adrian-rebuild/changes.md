@@ -1,7 +1,7 @@
 <!-- PL: Dziennik zmian przebudowy Limena: jeden wpis na zamknięty ticket R-NNN, tylko dopisywany, najnowszy na dole.
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
-R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018. -->
+R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017. -->
 
 # Changes
 
@@ -180,3 +180,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-10)
 - Commit: R-018
 - Rollback: git revert $(git log --format=%H --grep='^R-018:' adrian-rebuild --)
+
+## 2026-11-20 R-017 One Pi API adapter with type guards, checked against Pi's real types
+- What: new `src/runtime/pi-api.ts` (`PiApi`, `PiEvents`, `PiContext`, the handler results; the guards `piEvent`, `piSettleEvent`, `piContext`, `piToolInput`, `piCommandArgs`, each returning the value itself or throwing BAD_DATA that names the event and the field); `src/boundary.ts` (`refusedValue`); the five hooks `hook/{communication,finish,group-peer,steering,wake}.ts` declare no Pi types and read every payload, context field, tool parameter and command argument through a guard; the `tool_call` guard of `group-peer` runs only inside a group, since Pi 1.5.1 rethrows a `tool_call` handler's error; the dead code Pi 1.5.1 lacks removed (`before_subagent_spawn`, the three `context.agent?.kind` checks; `CoordinatorSession` in `src/integrations/coordinator-registration.ts` is a `Pick` of the adapter's context, D-058); `attribution` and the `await` of `sendMessage` dropped, the command handler `async`; tests `test/runtime/pi-api.test.ts`, `test/runtime/pi-contract.ts` with `test/runtime/pi-contract.test.ts` (the type contract on fixtures and on the vendor copy of Pi 1.5.1, D-055 (1)), `test/hook/group-peer.test.ts`, `test/hook/wake.test.ts` (new), `test/structure.test.ts` (the T-32 scan and its self-test), `test/boundary.test.ts`, the doubles `test/fake-engine.mjs`, `test/u14-task-note.test.ts`, `test/integrations/coordinator-registration.test.ts`; `plan.md` (D-058, a note for R-029)
+- Why: T-32, D-055, D-058
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (377/377, skipped 0); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (eight test files fail at HEAD); `node --test test/runtime/pi-contract.test.ts` → exit 0 (7/7, the vendor test ran)
+- Measurement: unmeasured (plan.md → Measurement: M-10)
+- Commit: R-017
+- Rollback: git revert $(git log --format=%H --grep='^R-017:' adrian-rebuild --)

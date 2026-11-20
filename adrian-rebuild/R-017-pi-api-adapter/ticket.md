@@ -1,8 +1,9 @@
 <!-- PL: Ticket R-017: jeden adapter API Pi (src/runtime/pi-api.ts) zamiast lokalnych typów w pięciu hookach, ze
 strażnikami typów, które przy zdarzeniu o złym kształcie rzucają typowany BAD_DATA (oznaczenie joba i ostrzeżenie
 w limen status to R-029, D-055 (2)). Kontrakt typów porównuje adapter z prawdziwymi typami Pi 1.5.1 z kopii
-w adrian-rebuild/input/vendor/, jako test w node --test, a nie w skrypcie wdrożenia (D-055 (1)). Stan: gotowy do nocy
-(ready). -->
+w adrian-rebuild/input/vendor/, jako test w node --test, a nie w skrypcie wdrożenia (D-055 (1)). Martwy kod, którego
+Pi 1.5.1 nie ma (zdarzenie before_subagent_spawn i context.agent), ticket usuwa (D-058). Stan: zamknięty (done)
+w dzień 20.11, po trzech rundach recenzji. -->
 
 # R-017 One Pi API adapter with type guards, checked against Pi's real types
 
@@ -60,6 +61,10 @@ Facts at HEAD:
    is skipped with its reason when it does not (a fresh clone has no `input/`).
 5. A scan in `test/structure.test.ts`: no file of `hook/` or `src/` outside `src/runtime/pi-api.ts` declares a type or
    interface with an `on(event` member or named `PiApi`.
+6. (D-058) The dead code that Pi 1.5.1 lacks goes: the `before_subagent_spawn` handler of `hook/group-peer.ts` and the
+   three `context.agent?.kind === "sub"` checks (`hook/group-peer.ts:54`, `hook/group-peer.ts:69`,
+   `src/integrations/coordinator-registration.ts:48`); `CoordinatorSession` in
+   `src/integrations/coordinator-registration.ts` takes its fields from the adapter's context type and declares none.
 
 ## Out of scope
 
@@ -105,3 +110,30 @@ none: the hooks keep their behaviour on well-formed events; no file, command or 
 - 2026-11-20 (main session): the adapter lives at `src/runtime/pi-api.ts`, beside `src/runtime/engine.ts`; the contract
   helper and its fixtures live under `test/runtime/`, since D-055 makes it a test, not a seat tool; `skipLibCheck` with
   compile-time "not `any`" assertions, since the full type closure of Pi (provider SDKs) is not vendored.
+- 2026-11-20 D-058 (Adrian, answer "a" to the implementer's `BLOCKED`): Pi 1.5.1 has no `before_subagent_spawn` event
+  (none of the three vendored packages holds the string; `ExtensionAPI.on`, `types.d.ts:1229-1270`, has no overload
+  for it) and no `agent` member of `ExtensionContext` (`types.d.ts:233-275`); under the bridge Claude Code's subagent
+  tools are always denied (E-5: "`Agent`, `Task`, `Skill`, `AskUserQuestion` and other Claude Code tools are always
+  denied"). So R-017 removes that dead code rather than declaring it (Change 6), and the adapter declares only what Pi
+  1.5.1 has. Behaviour on Pi 1.5.1 is unchanged. The implementer's other three alignments with Pi's types stand
+  without a decision: no `attribution` field in `sendMessage` (Pi copies only `customType`, `content`, `display`,
+  `details`), no `await` of `sendMessage` (it returns `void`), and an `async` `registerCommand` handler in
+  `hook/wake.ts` (Pi's type is `Promise<void>`).
+- 2026-11-20 (main session, review round 1, `review.md`): a correction of the engine fact above. Pi 1.5.1 catches a
+  handler's error and emits it as an extension error for every event except `tool_call`: `emitToolCall`
+  (`dist/core/extensions/runner.js:965-980`) has no try/catch, and `_beforeToolCall`
+  (`dist/core/agent-session.js:386-400`) rethrows the error, which blocks the tool call. Findings to fix:
+  - (1) `hook/group-peer.ts` `tool_call`: return before the guard when `LIMEN_GROUP_ID` is not set, so the guard runs
+    only inside a group, as the read of `toolName` did at HEAD; a test shows that a malformed `tool_call` outside a
+    group throws nothing and that inside a group it throws `BAD_DATA`.
+  - (2) T-29 (3): each guard test in `test/runtime/pi-api.test.ts` fails for one reason; split the `tool_result`,
+    `message_end`, context and settle tests so that each asserts the refusal its name states.
+  - (4) The message-part guard requires `text: string` on a part whose `type` is `"text"` (Pi's `TextContent`,
+    `pi-ai/package/dist/types.d.ts:259-262`), with a test.
+  - (5) `hook/wake.ts`: the `limen` command's `args` pass through a guard that throws `BAD_DATA` when it is not a
+    string, with a test; AC-9 covers every Pi value a handler reads.
+  Rejected with reasons in `review.md`: (3) and (6).
+- 2026-11-20 (main session, review round 2, `review.md`): fix (2) of round 2: the comment above the `tool_call`
+  handler of `hook/group-peer.ts` states the cost exactly: inside a group a payload of the wrong shape blocks every
+  tool call of the member (Pi rethrows), not only `task`; outside a group the handler reads nothing. Finding (1) is
+  rejected, (3) and (4) are the main session's (`## Fails before`; D-059 committed on its own as `911f8ae`).

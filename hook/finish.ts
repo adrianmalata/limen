@@ -3,25 +3,7 @@ import { join } from "node:path";
 import { atomicWriteSync } from "../src/atomic-write.ts";
 import { transport } from "../src/config.ts";
 import { noteCheck } from "../src/job/task-note.ts";
-
-type Text = { readonly type: "text"; readonly text: string };
-type SettleEvent = { readonly outcome?: string; readonly entries?: readonly unknown[] };
-type PiApi = {
-	registerTool?(tool: {
-		readonly name: string;
-		readonly label: string;
-		readonly description: string;
-		readonly parameters: object;
-		execute(
-			toolCallId: string,
-			params: { readonly handoff?: string },
-			signal: unknown,
-			onUpdate: unknown,
-			ctx: { shutdown?(): void },
-		): Promise<{ content: Text[]; details: object }>;
-	}): void;
-	on(event: "agent_before_settle", handler: (event: SettleEvent) => object | undefined): void;
-};
+import { type PiApi, type PiMessageDraft, piContext, piSettleEvent, piToolInput } from "../src/runtime/pi-api.ts";
 
 /**
  * `finish` for every Limen job. The handoff becomes the job result, and the session ends after this turn.
@@ -30,7 +12,7 @@ type PiApi = {
  * check, and a run that ends without `finish` gets it as one more turn. Pi gives that turn from 1.2.0
  * (`agent_before_settle`).
  */
-export default function limenFinish(pi: PiApi): void {
+export default function limenFinish(pi: Pick<PiApi, "on" | "registerTool">): void {
 	const root = transport("LIMEN_CONTEXT_ROOT");
 	const id = transport("LIMEN_JOB_ID");
 	if (transport("LIMEN_JOB") !== "1" || !root || !id) {
@@ -49,7 +31,7 @@ export default function limenFinish(pi: PiApi): void {
 		appendFileSync(join(jobDir, "log"), `[limen ${new Date().toISOString()}] note check sent\n`);
 		return noteCheck(jobDir, finishTool);
 	};
-	pi.registerTool?.({
+	pi.registerTool({
 		name: "finish",
 		label: "Finish",
 		description: "End this job. Pass the handoff text; the job is recorded done and the session exits.",
@@ -58,12 +40,14 @@ export default function limenFinish(pi: PiApi): void {
 			properties: { handoff: { type: "string", description: "Handoff for the coordinator" } },
 			required: ["handoff"],
 		},
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+		async execute(_toolCallId, params, _signal, _onUpdate, rawContext) {
 			const ask = check(true);
 			if (ask) {
 				return { content: [{ type: "text", text: ask }], details: {} };
 			}
-			const handoff = typeof params?.handoff === "string" ? params.handoff.trim() : "";
+			const input = piToolInput("finish", params);
+			const context = piContext("tool finish", rawContext, ["shutdown"]);
+			const handoff = typeof input.handoff === "string" ? input.handoff.trim() : "";
 			try {
 				if (handoff) {
 					atomicWriteSync(join(jobDir, "result"), `${handoff}\n`);
@@ -71,16 +55,22 @@ export default function limenFinish(pi: PiApi): void {
 			} catch {
 				// The engine's exit still ends the job; only the handoff text is lost.
 			}
-			ctx.shutdown?.();
+			context.shutdown();
 			return { content: [{ type: "text", text: "done" }], details: {} };
 		},
 	});
-	pi.on("agent_before_settle", (event) => {
+	pi.on("agent_before_settle", (raw) => {
+		const event = piSettleEvent(raw);
 		const ask = event.outcome === "completed" ? check(false) : undefined;
 		if (!ask) {
 			return;
 		}
-		const entry = { type: "custom_message", customType: "limen-note-check", content: ask, display: false };
-		return { entries: [...(event.entries ?? []), entry], continue: true };
+		const entry: PiMessageDraft = {
+			type: "custom_message",
+			customType: "limen-note-check",
+			content: ask,
+			display: false,
+		};
+		return { entries: [...event.entries, entry], continue: true };
 	});
 }

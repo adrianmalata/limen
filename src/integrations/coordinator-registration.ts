@@ -6,12 +6,10 @@ import { exception, transport } from "../config.ts";
 import { SESSION_ID } from "../job/job.ts";
 import { textFile } from "../job/record.ts";
 import { processInfo } from "../runtime/contain.ts";
+import type { PiContext } from "../runtime/pi-api.ts";
 
-export type CoordinatorSession = {
-	readonly cwd: string;
-	readonly agent?: { readonly kind: string };
-	readonly sessionManager: { getSessionId(): string };
-};
+/** What the registration reads of the coordinator's Pi context, which the wake hook has checked. */
+export type CoordinatorSession = Pick<PiContext, "sessionManager">;
 
 /**
  * The coordinator's registration, written by the wake hook. The session registers under `.limen/coordinators/<session>`
@@ -45,7 +43,7 @@ export function coordinatorRegistration() {
 	};
 	return {
 		start(project: string, context: CoordinatorSession): void {
-			if (transport("LIMEN_JOB") === "1" || context.agent?.kind === "sub") {
+			if (transport("LIMEN_JOB") === "1") {
 				return;
 			}
 			const pane = process.env.HERDR_ENV === "1" ? (process.env.HERDR_PANE_ID?.trim() ?? "") : "";

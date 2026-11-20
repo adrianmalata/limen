@@ -18,6 +18,7 @@ import {
 	oneOf,
 	optional,
 	parseJson,
+	refusedValue,
 	string,
 	type Validator,
 } from "../src/boundary.ts";
@@ -201,6 +202,18 @@ test("the message shows at most 40 characters of the value it got, and a missing
 	const long = "x".repeat(60);
 	assert.equal(refusal(long, numberIn({})).message, `fixture.json: expected a number, got "${"x".repeat(39)}…`);
 	assert.equal(refusal(undefined, string).message, "fixture.json: expected a string, got nothing");
+});
+
+test("refusedValue gives the typed error of a check outside the module, with its file, field and expectation", () => {
+	const error = refusedValue("Pi event tool_call", { field: "toolName", expected: "a string", got: 3 });
+	assert.deepEqual(parts(error), [
+		"environment",
+		"BAD_DATA",
+		"Pi event tool_call",
+		"toolName",
+		"a string",
+		"Pi event tool_call: toolName: expected a string, got 3",
+	]);
 });
 
 test("checkValue with uncut shows a long value in full", () => {

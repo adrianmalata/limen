@@ -35,32 +35,15 @@ import { advisoryWake, completionWake } from "../src/job/wake-text.ts";
 import { removedCommand } from "../src/old-names.ts";
 import { unlandedBranches } from "../src/project/git.ts";
 import { registerProject } from "../src/project/seat.ts";
+import {
+	type PiApi,
+	type PiContext,
+	type PiMessageEvent,
+	piCommandArgs,
+	piContext,
+	piEvent,
+} from "../src/runtime/pi-api.ts";
 import { ownerAlive, reapDeadJobs } from "../src/runtime/reap.ts";
-
-type Context = {
-	readonly cwd: string;
-	isIdle(): boolean;
-	readonly sessionManager: { getSessionId(): string };
-	readonly ui: {
-		notify(message: string, level: "info"): void;
-		setStatus(key: string, value: string | undefined): void;
-	};
-};
-type PiApi = {
-	on(
-		event: "session_start" | "session_shutdown" | "agent_settled" | "message_start" | "message_end",
-		handler: (event: unknown, context: Context) => void,
-	): void;
-	sendUserMessage(content: string, options?: { readonly deliverAs: "steer" | "followUp" }): Promise<void> | void;
-	registerCommand?(
-		name: string,
-		options: {
-			readonly description: string;
-			getArgumentCompletions?(prefix: string): ReadonlyArray<{ readonly value: string; readonly label: string }> | null;
-			handler(args: string, context: { readonly ui: { notify(message: string, level: "info"): void } }): void;
-		},
-	): void;
-};
 
 const CACHE_REFRESH_MS = 30_000;
 const SWEEP_MS = 500;
@@ -90,7 +73,7 @@ const OPEN_DONE = {
 };
 
 // biome-ignore lint/complexity/noExcessiveLinesPerFunction: split pending: hook factory, handlers share its state
-export default function limenWake(pi: PiApi): void {
+export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "registerCommand">): void {
 	let watcher: FSWatcher | undefined;
 	let sweepTimer: NodeJS.Timeout | undefined;
 	let changeTimer: NodeJS.Timeout | undefined;
@@ -98,7 +81,7 @@ export default function limenWake(pi: PiApi): void {
 	let statusBody = "";
 	let active = false;
 	let muted = false;
-	let session: Context | undefined;
+	let session: Pick<PiContext, "isIdle" | "ui"> | undefined;
 	let sessionGeneration = 0;
 	let jobsDir: string | undefined;
 	let sessionId = "";
@@ -810,10 +793,11 @@ export default function limenWake(pi: PiApi): void {
 		}
 		scheduleSweep();
 	};
-	pi.on("session_start", (_event, context) => {
+	pi.on("session_start", (_event, rawContext) => {
 		if (transport("LIMEN_JOB") === "1") {
 			return;
 		}
+		const context = piContext("session_start", rawContext, ["cwd", "isIdle", "sessionManager", "ui"]);
 		const root = projectRoot(context.cwd);
 		if (!root) {
 			return;
@@ -888,9 +872,9 @@ export default function limenWake(pi: PiApi): void {
 		sweepTimer.unref();
 		sweep();
 	});
-	pi.on("message_start", (event) => {
-		const message = eventMessage(event);
-		if (message?.role !== "user") {
+	pi.on("message_start", (raw) => {
+		const message = eventMessage(piEvent("message_start", raw));
+		if (message.role !== "user") {
 			return;
 		}
 		// Every Limen wake opens with "Limen job"; any other user message is the owner's turn and resets the title's finished count.
@@ -906,9 +890,9 @@ export default function limenWake(pi: PiApi): void {
 		pending.entered = true;
 		activeDeliveries.add(pending.claim);
 	});
-	pi.on("message_end", (event) => {
-		const message = eventMessage(event);
-		if (message?.role !== "assistant") {
+	pi.on("message_end", (raw) => {
+		const message = eventMessage(piEvent("message_end", raw));
+		if (message.role !== "assistant") {
 			return;
 		}
 		const failed = message.stopReason === "error" || message.stopReason === "aborted";
@@ -955,14 +939,15 @@ export default function limenWake(pi: PiApi): void {
 	if (transport("LIMEN_JOB") === "1") {
 		return;
 	}
-	pi.registerCommand?.("limen", {
+	pi.registerCommand("limen", {
 		description: "Mute or resume limen job display and wakes for this session",
 		getArgumentCompletions(prefix) {
 			const items = ["on", "off"].filter((value) => value.startsWith(prefix)).map((value) => ({ value, label: value }));
 			return items.length ? items : null;
 		},
-		handler(args, commandContext) {
-			const request = args.trim();
+		async handler(rawArgs, rawContext) {
+			const request = piCommandArgs("limen", rawArgs).trim();
+			const commandContext = piContext("command limen", rawContext, ["ui"]);
 			// A removed command typed here gets its removal line; any other word would toggle the mute state below.
 			const removed = removedCommand(request.split(/\s+/)[0] ?? "");
 			if (removed) {
@@ -1154,31 +1139,18 @@ function notifyBookkeeping(filename: string | null): boolean {
 	}
 	return /(?:^|\/)notify\/(claims|delivered|unconfirmed|seat)(?:\/|$)/.test(filename.replaceAll("\\", "/"));
 }
-function eventMessage(
-	event: unknown,
-): { readonly role: string; readonly content: string; readonly stopReason?: string } | undefined {
-	if (!event || typeof event !== "object" || !("message" in event)) {
-		return undefined;
-	}
-	const message = event.message;
-	if (!message || typeof message !== "object" || !("role" in message) || typeof message.role !== "string") {
-		return undefined;
-	}
-	const content = "content" in message && Array.isArray(message.content) ? message.content : [];
-	const textContent = content
-		.filter((part): part is { readonly type: "text"; readonly text: string } =>
-			Boolean(
-				part &&
-					typeof part === "object" &&
-					"type" in part &&
-					part.type === "text" &&
-					"text" in part &&
-					typeof part.text === "string",
-			),
-		)
-		.map((part) => part.text)
+/** The role, the text of the text parts, one per line, and the stop reason of an event's message. */
+function eventMessage(event: PiMessageEvent): {
+	readonly role: string;
+	readonly content: string;
+	readonly stopReason?: string;
+} {
+	const { message } = event;
+	const parts = typeof message.content === "string" ? [] : (message.content ?? []);
+	const textContent = parts
+		.flatMap((part) => (part.type === "text" && typeof part.text === "string" ? [part.text] : []))
 		.join("\n");
-	const stopReason = "stopReason" in message && typeof message.stopReason === "string" ? message.stopReason : undefined;
+	const { stopReason } = message;
 	return { role: message.role, content: textContent, ...(stopReason ? { stopReason } : {}) };
 }
 /** The tab's current name, so a rewritten tail preserves whatever stem the coordinator set. */

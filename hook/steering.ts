@@ -13,15 +13,11 @@ import { join } from "node:path";
 import { atomicRenameSync, atomicWriteSync } from "../src/atomic-write.ts";
 import { transport } from "../src/config.ts";
 import { noteSteer } from "../src/job/task-note.ts";
-
-type PiApi = {
-	on(event: "session_start" | "session_shutdown", handler: (event: unknown, context: unknown) => void): void;
-	sendUserMessage(content: string, options?: { readonly deliverAs: "steer" }): void;
-};
+import type { PiApi } from "../src/runtime/pi-api.ts";
 
 const CLAIM_STALE_MS = 30_000;
 
-export default function limenSteering(pi: PiApi): void {
+export default function limenSteering(pi: Pick<PiApi, "on" | "sendUserMessage">): void {
 	let watcher: FSWatcher | undefined;
 	let sweepTimer: NodeJS.Timeout | undefined;
 	let changeTimer: NodeJS.Timeout | undefined;
@@ -104,7 +100,7 @@ export default function limenSteering(pi: PiApi): void {
 	pi.on("session_shutdown", stop);
 }
 
-function deliver(pi: PiApi, job: string, name: string): boolean {
+function deliver(pi: Pick<PiApi, "sendUserMessage">, job: string, name: string): boolean {
 	const inbox = join(job, "steer", "inbox", name);
 	const claim = join(job, "steer", "claims", name);
 	const delivered = join(job, "steer", "delivered", name);

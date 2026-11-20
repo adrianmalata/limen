@@ -5,6 +5,7 @@ import { noteStart, recordNote } from "../src/job/task-note.ts";
 import { formatDrift, inheritFile, listDrift, packageRoot, readOptional } from "../src/project/inherit.ts";
 import { ticketPointers } from "../src/project/planning.ts";
 import { activeRules, ruleLine } from "../src/project/seat-rules.ts";
+import { type PiApi, type PiPart, type PiToolResultEvent, piContext, piEvent } from "../src/runtime/pi-api.ts";
 import { assistantStopReason } from "../src/runtime/stream.ts";
 
 const CONTEXT_TYPE = "limen-project-context";
@@ -27,25 +28,6 @@ const LANGUAGES: Readonly<Record<string, readonly string[]>> = {
 	python: ["py"],
 };
 
-type Context = { readonly cwd: string };
-type Message = { readonly customType: string; readonly content: string; readonly display: boolean };
-type StartEvent = { readonly prompt?: string; readonly systemPrompt?: string };
-type StartResult = { readonly message?: Message; readonly systemPrompt?: string };
-type ToolContent = { readonly type: string; readonly text?: string };
-type ToolEvent = {
-	readonly toolName?: string;
-	readonly input?: Record<string, unknown>;
-	readonly content?: readonly ToolContent[];
-	readonly isError?: boolean;
-};
-type ToolPatch = { readonly content: ToolContent[] };
-type PiApi = {
-	on(event: "before_agent_start", handler: (event: StartEvent, context: Context) => StartResult | undefined): void;
-	on(event: "message_end", handler: (event: unknown) => void): void;
-	on(event: "session_start" | "session_compact", handler: () => void): void;
-	on(event: "tool_result", handler: (event: ToolEvent, context: Context) => ToolPatch | undefined): void;
-};
-
 type ReminderKind = "specs" | "style" | "vision";
 type Ask = { readonly kind: ReminderKind; readonly paths: readonly string[] };
 type Section = { readonly title: string; readonly level: number; readonly start: number; readonly end: number };
@@ -65,13 +47,15 @@ const GUIDANCE: Readonly<Record<ReminderKind, { readonly file: string; readonly 
  * Stable guidance rides the system prompt once per call. The per-turn note is a short cue. After an edit, a spawn or a
  * merge, the tool result asks the agent to read the guidance lines that apply, once per context, until it has read them.
  */
-export default function limenCommunication(pi: PiApi): void {
+export default function limenCommunication(pi: Pick<PiApi, "on">): void {
 	let lastTouch: string | undefined;
 	let lastFailure: string | undefined;
 	// The job folder once the first prompt showed the task note, and the note text this hook saw last.
 	let noteDir: string | undefined;
 	let noteSeen: string | undefined;
-	pi.on("before_agent_start", (event, context) => {
+	pi.on("before_agent_start", (raw, rawContext) => {
+		const event = piEvent("before_agent_start", raw);
+		const context = piContext("before_agent_start", rawContext, ["cwd"]);
 		const root = transport("LIMEN_CONTEXT_ROOT") ?? context.cwd;
 		const job = transport("LIMEN_JOB") === "1";
 		const touched = lastTouch;
@@ -98,12 +82,9 @@ export default function limenCommunication(pi: PiApi): void {
 			systemPrompt: event.systemPrompt ? `${event.systemPrompt}\n\n${extra}` : extra,
 		};
 	});
-	pi.on("message_end", (event) => {
-		if (!event || typeof event !== "object" || !("message" in event)) {
-			return;
-		}
-		const message = event.message;
-		if (!message || typeof message !== "object" || !("role" in message) || message.role !== "assistant") {
+	pi.on("message_end", (raw) => {
+		const { message } = piEvent("message_end", raw);
+		if (message.role !== "assistant") {
 			return;
 		}
 		lastFailure = assistantStopReason(message) || undefined;
@@ -115,7 +96,9 @@ export default function limenCommunication(pi: PiApi): void {
 	};
 	pi.on("session_start", forget);
 	pi.on("session_compact", forget);
-	pi.on("tool_result", (event, context) => {
+	pi.on("tool_result", (raw, rawContext) => {
+		const event = piEvent("tool_result", raw);
+		const context = piContext("tool_result", rawContext, ["cwd"]);
 		if (noteDir) {
 			noteSeen = recordNote(noteDir, noteSeen);
 		}
@@ -344,8 +327,8 @@ function jobTicket(cwd: string): string {
 }
 
 /** A write or an edit names one file, which `toolPath` reads. */
-function guidanceAsks(event: ToolEvent, job: boolean): readonly Ask[] {
-	const name = event.toolName ?? "";
+function guidanceAsks(event: PiToolResultEvent, job: boolean): readonly Ask[] {
+	const name = event.toolName;
 	if (name === "write" || name === "edit") {
 		const paths = [toolPath(event)];
 		const asks: Ask[] = [
@@ -360,7 +343,7 @@ function guidanceAsks(event: ToolEvent, job: boolean): readonly Ask[] {
 	return [];
 }
 
-function touchLine(event: ToolEvent, asks: readonly Ask[]): string {
+function touchLine(event: PiToolResultEvent, asks: readonly Ask[]): string {
 	const paths = asks.flatMap((ask) => ask.paths);
 	if (!paths.length) {
 		return "Last turn started or merged work.";
@@ -368,12 +351,12 @@ function touchLine(event: ToolEvent, asks: readonly Ask[]): string {
 	return `Last turn ${event.toolName === "edit" ? "edited" : "wrote"} ${paths.join(", ")}.`;
 }
 
-function toolPath(event: ToolEvent): string {
+function toolPath(event: PiToolResultEvent): string {
 	return stringField(event.input, "path") || stringField(event.input, "file_path");
 }
 
-function stringField(input: Record<string, unknown> | undefined, key: string): string {
-	const value = input?.[key];
+function stringField(input: Readonly<Record<string, unknown>>, key: string): string {
+	const value = input[key];
 	return typeof value === "string" ? value : "";
 }
 
@@ -404,8 +387,8 @@ function isVisionCommand(command: string, job: boolean): boolean {
 }
 
 /** A read tool covers the lines it showed; `cat` covers the whole file, while `head` or `sed` may show only a slice. */
-function noteRead(recall: Recall, event: ToolEvent): void {
-	const name = event.toolName ?? "";
+function noteRead(recall: Recall, event: PiToolResultEvent): void {
+	const name = event.toolName;
 	if (name === "read") {
 		const [file = ""] = /^.*\.md$/i.exec(posixPath(toolPath(event))) ?? [];
 		const kind = REMINDER_KINDS.find((candidate) => GUIDANCE[candidate].pattern.test(file));
@@ -429,14 +412,14 @@ function noteRead(recall: Recall, event: ToolEvent): void {
  * A truncated read says `[Showing lines 1-300 of 429`. Otherwise Pi takes offset and limit; a read without either
  * shows the whole file.
  */
-function readRanges(event: ToolEvent): LineRange[] {
-	const text = (event.content ?? []).map((part) => part.text ?? "").join("\n");
+function readRanges(event: PiToolResultEvent): LineRange[] {
+	const text = event.content.map((part) => (part.type === "text" ? part.text : "")).join("\n");
 	const shown = /\[Showing lines (\d+)-(\d+) of \d+/.exec(text);
 	if (shown) {
 		return [[Number(shown[1]), Number(shown[2])]];
 	}
-	const offset = event.input?.offset;
-	const limit = event.input?.limit;
+	const offset = event.input.offset;
+	const limit = event.input.limit;
 	if (typeof offset === "number" || typeof limit === "number") {
 		const start = typeof offset === "number" ? Math.max(1, offset) : 1;
 		return [[start, typeof limit === "number" ? start + limit - 1 : Number.POSITIVE_INFINITY]];
@@ -590,10 +573,10 @@ function markdownSections(text: string): readonly Section[] {
 	return starts.map((section, index) => ({ ...section, end: (starts[index + 1]?.start ?? lines.length + 1) - 1 }));
 }
 
-function appendText(content: readonly ToolContent[] | undefined, text: string): ToolContent[] {
-	const parts: ToolContent[] = content ? content.map((part) => ({ ...part })) : [];
+function appendText(content: readonly PiPart[], text: string): PiPart[] {
+	const parts: PiPart[] = content.map((part) => ({ ...part }));
 	const last = parts.at(-1);
-	if (last?.type === "text" && typeof last.text === "string") {
+	if (last?.type === "text") {
 		parts[parts.length - 1] = { type: "text", text: `${last.text}\n\n${text}` };
 		return parts;
 	}

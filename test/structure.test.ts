@@ -590,6 +590,79 @@ test("T-25: every primitive of the write exception list keeps a call in its file
 	assert.deepEqual(unused, []);
 });
 
+/** The adapter of T-32 (1): the one file that declares the Pi API Limen uses. */
+const PI_ADAPTER = "src/runtime/pi-api.ts";
+
+/** Whether `node` holds, at any depth, a member `on` whose first parameter is `event`, as a method or a function type. */
+function declaresOn(node: ts.Node): boolean {
+	const isOn = (member: ts.Node): boolean => {
+		const named = ts.isMethodSignature(member) || ts.isMethodDeclaration(member) || ts.isPropertySignature(member);
+		if (!named || member.name.getText() !== "on") {
+			return false;
+		}
+		const signature = ts.isPropertySignature(member) ? member.type : member;
+		const parameters = signature && ts.isFunctionLike(signature) ? signature.parameters : undefined;
+		return parameters?.[0]?.name.getText() === "event";
+	};
+	let found = false;
+	const visit = (child: ts.Node): void => {
+		found ||= isOn(child);
+		if (!found) {
+			ts.forEachChild(child, visit);
+		}
+	};
+	ts.forEachChild(node, visit);
+	return found;
+}
+
+/** Each type or interface of the TypeScript `text` at `path` that declares Pi's API: named PiApi, or with `on(event`. */
+function piApiDeclarations(path: string, text: string): string[] {
+	const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+	const found: string[] = [];
+	const visit = (node: ts.Node): void => {
+		const declared = ts.isTypeAliasDeclaration(node) || ts.isInterfaceDeclaration(node);
+		if (declared && (node.name.text === "PiApi" || declaresOn(node))) {
+			const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
+			found.push(`${path}:${line}: ${node.name.text}`);
+		}
+		ts.forEachChild(node, visit);
+	};
+	visit(source);
+	return found;
+}
+
+test("the Pi API scan finds a type named PiApi and a type or interface with an on(event member at any depth, and skips other on members", () => {
+	const fixture = [
+		"type PiApi = { sendUserMessage(text: string): void };",
+		"interface Api { on(event: string, handler: () => void): void }",
+		"type Nested = { readonly pi: { on: (event: string) => void } };",
+		"type Emitter = { on(name: string): void };",
+		"type Context = { readonly cwd: string };",
+		"const pi = { on(event: string) { return event; } };",
+	].join("\n");
+	assert.deepEqual(piApiDeclarations("fixture.ts", fixture), [
+		"fixture.ts:1: PiApi",
+		"fixture.ts:2: Api",
+		"fixture.ts:3: Nested",
+	]);
+});
+
+// T-32 (1): a hook that declares the part of Pi's API it uses can drift from Pi with no failing check; the adapter's
+// declarations are the ones the contract of test/runtime/pi-contract.test.ts compares with Pi's own types.
+test("T-32: no file of src/ or hook/ outside src/runtime/pi-api.ts declares a type named PiApi or with an on(event member", async () => {
+	const files = (await knownSources(["src", "hook"])).filter(({ path }) => path.endsWith(".ts"));
+	const elsewhere = files
+		.filter(({ path }) => path !== PI_ADAPTER)
+		.flatMap(({ path, text }) => piApiDeclarations(path, text));
+	assert.deepEqual(elsewhere, []);
+	const adapter = files.filter(({ path }) => path === PI_ADAPTER);
+	assert.deepEqual(
+		adapter.flatMap(({ path, text }) => piApiDeclarations(path, text)).map((found) => found.split(": ")[1]),
+		["PiApi"],
+		"the adapter declares PiApi",
+	);
+});
+
 // Each shipped templates/.history/<name> starts with the hash of the current templates/<name>.
 test("shipped template history starts at the current template", async () => {
 	for (const name of await readdir(join(root, "templates/.history"))) {

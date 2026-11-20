@@ -104,6 +104,18 @@ function badData(
 	return Object.assign(error, { file, field, expected });
 }
 
+/**
+ * The typed error for a value that a type guard outside this module refused at `field`. The guards of Pi's events
+ * (src/runtime/pi-api.ts) return the value itself, with its getters and methods, which a validator here would copy,
+ * so they check it with their own predicates and give a refusal this same error.
+ */
+export function refusedValue(
+	file: string,
+	refused: { readonly field: string; readonly expected: string; readonly got: unknown },
+): BadData {
+	return badData(file, refused, {});
+}
+
 /** "a", "a or b", "a, b or c". */
 function alternatives(items: readonly string[]): string {
 	return items.length > 1 ? `${items.slice(0, -1).join(", ")} or ${items.at(-1)}` : items.join("");

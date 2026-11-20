@@ -19,7 +19,7 @@ test("the sweep removes a registration whose process died, also after a normal e
 	delete process.env.LIMEN_JOB;
 	const base = join(root, ".limen/coordinators");
 	const registration = coordinatorRegistration();
-	registration.start(root, { cwd: root, sessionManager: { getSessionId: () => "s-ended" } });
+	registration.start(root, { sessionManager: { getSessionId: () => "s-ended" } });
 	registration.shutdown();
 	// The pid of a process that ran and ended, as a coordinator's pid reads once its process is gone.
 	await writeFile(join(base, "s-ended", "pid"), `${spawnSync("true").pid}\n`);

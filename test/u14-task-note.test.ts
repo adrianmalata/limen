@@ -17,7 +17,9 @@ function load(hook: (pi: never) => void) {
 		on: handlers.set.bind(handlers),
 		registerTool: (tool: { execute: Hook }) => handlers.set("finish", tool.execute),
 	} as never);
-	const end = async (handoff: string) => (await handlers.get("finish")?.("t", { handoff }, 0, 0, {}))?.content[0]?.text;
+	const context = { shutdown() {} };
+	const end = async (handoff: string) =>
+		(await handlers.get("finish")?.("t", { handoff }, 0, 0, context))?.content[0]?.text;
 	return { call: (name: string, ...args: unknown[]) => handlers.get(name)?.(...args), end, handlers };
 }
 
@@ -30,14 +32,15 @@ test("a job's note shows once, keeps its first version, logs changes, and is che
 	await Promise.all([writeFile(join(job, "log"), ""), writeFile(reminders, " \n")]);
 	Object.assign(process.env, { LIMEN_JOB: "1", LIMEN_CONTEXT_ROOT: root, LIMEN_JOB_ID: "j1" });
 	const hook = load(limenCommunication);
-	const prompt = (pi = hook) => pi.call("before_agent_start", {}, { cwd: root })?.message?.content ?? "";
+	const start = { systemPrompt: "" };
+	const prompt = (pi = hook) => pi.call("before_agent_start", start, { cwd: root })?.message?.content ?? "";
 	const first = prompt();
 	assert.ok(first.includes(`${job}/note.md, or write it if there is none.\nWrite a plan`) && !/🔴|🟡|⚪/.test(first));
 	assert.match(first, /\n- Done means: .*\n- Easy to miss: .*\n- Not proven yet: .*\nRead an existing note [^\n]*$/s);
 	assert.ok(!prompt().includes(`${job}/note.md`), "the second prompt");
 	for (const text of ["- a.", "- a.", "- a.\nChanged: b. Reason: c."]) {
 		await writeFile(join(job, "note.md"), text);
-		hook.call("tool_result", { toolName: "bash", content: [] }, { cwd: root });
+		hook.call("tool_result", { toolName: "bash", input: {}, content: [], isError: false }, { cwd: root });
 	}
 	assert.equal(await readFile(join(job, "note.first.md"), "utf8"), "- a.");
 	assert.equal((await readFile(join(job, "log"), "utf8")).split("] note changed\n").length, 3);

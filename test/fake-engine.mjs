@@ -50,6 +50,8 @@ const context = {
 	cwd: process.cwd(),
 	ui,
 	isIdle: () => idle,
+	// Pi ends the session after the current turn; the fake ends when its script does.
+	shutdown: () => {},
 	sessionManager: {
 		getSessionId: () => process.env.PI_SESSION_ID ?? "fake",
 		getSessionFile: () => join(dir, "session.jsonl"),

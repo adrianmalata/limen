@@ -36,7 +36,8 @@ od R-020, ograniczone 60 s oczekiwanie na blokadę), więc R-019 jest gotowy do 
 R-021: `limen migrate`, foldery nieprzenoszalne do `.limen/unmigrated/`, zmigrowane rekordy tylko jako historia),
 więc R-021 też jest gotowy; R-018 zamknięty w dzień (moduł zapisu atomowego, bramka 340/340); przekazanie do
 limen-rebuild-12; D-059: sesja główna uruchamia bramkę po raporcie końcowym subagenta, bez czekania na powiadomienie
-o zakończeniu zadania. -->
+o zakończeniu zadania; D-058 (usunięcie martwego kodu, którego Pi 1.5.1 nie ma) i R-017 zamknięty w dzień (adapter API
+Pi `src/runtime/pi-api.ts` ze strażnikami, kontrakt typów na prawdziwych typach Pi 1.5.1, bramka 377/377). -->
 
 
 
@@ -694,6 +695,15 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   this record's version" (`## Stages` conventions); writes through R-018's `atomicWrite`; file modes as today;
   (7.9) the migration checks the uniqueness of the tokens (T-20 (6)) and lists collisions in its report
   (`## Deployment` 2.1); the resolver that relies on it is R-022. Check: R-021's criteria; `## Deployment` 2.1 and 2.3.
+- 2026-11-20 D-058 (Adrian, R-017's `BLOCKED` question, answered "a" as recommended): Pi 1.5.1 has no
+  `before_subagent_spawn` event and no `agent` member of `ExtensionContext` (none of the three vendored packages holds
+  the string; `ExtensionAPI.on` and `ExtensionContext` in `dist/core/extensions/types.d.ts`), and under the bridge
+  Claude Code's subagent tools are always denied (E-5). R-017 removes the dead code instead of declaring it: the
+  `before_subagent_spawn` handler of `hook/group-peer.ts` and the three `context.agent?.kind === "sub"` checks (two in
+  `hook/group-peer.ts`, one in `src/integrations/coordinator-registration.ts`); `CoordinatorSession` takes its
+  fields from the adapter's context type, so `src/integrations/coordinator-registration.ts` joins R-017's
+  `## Change`. Behaviour on Pi 1.5.1 is unchanged, since Pi never emits that event nor sets `agent`. Check: R-017's
+  AC-2 and AC-9 (the contract on the real types), its scan of Change 5.
 - 2026-11-20 D-059 (Adrian, "zrezygnuj z czekania na to powiadomienie, bo ten mechanizm coś nie działa"; amends
   protocol step 4): by day the main session starts the gate once the subagent's final report (its hand-back) has
   arrived and `compare --git` exits 0; it no longer waits for the task's completion notification, which it found
@@ -1061,7 +1071,7 @@ Columns:
 | R-089 | The final line's `code` and `next` are a value or `null`; `next` is always a command | 2 | T-37, T-02, D-045, D-046 | R-014 | M | delegated | night | — | — | — | ready |
 | R-015 | One configuration reader; settings come only from owner files | 2 | T-03 | R-014 | M | delegated | night | yes | — | — | done |
 | R-016 | One boundary parsing module with validators; the cast ratchet | 2 | T-27 | R-013 | M | delegated | night | — | — | — | done |
-| R-017 | One Pi API adapter with type guards, checked against Pi's real types | 2 | T-32, D-055 | R-012, R-016 | M | delegated | night | — | pi | 2.2 | ready |
+| R-017 | One Pi API adapter with type guards, checked against Pi's real types | 2 | T-32, D-055, D-058 | R-012, R-016 | M | delegated | night | — | pi | 2.2 | done |
 | R-018 | One atomic-write module | 2 | A-022, T-25 | R-013 | L | delegated | night | — | — | — | done |
 | R-019 | One lock module with process identity and a bounded wait | 2 | A-017, A-018, A-055, A-058, A-087, T-25, D-029, D-056 | R-018, R-020 | M | delegated | night | yes | — | — | ready (D-056) |
 | R-020 | A Linux platform adapter and declared system requirements | 2 | A-083, T-12, T-32 | R-013 | M | delegated | night | — | — | — | ready |
@@ -1166,6 +1176,10 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
 - R-009, R-046: under the bridge Claude Code's subagent tool is always denied (E-5), so the condition of T-33 for a
   subagent in the coordinator's session does not hold; the manual recommends no subagent. A short question is the
   coordinator's own, a long one is a survey ticket (T-34).
+- R-029 (from R-017's review, 2026-11-20): on Pi 1.5.1 an error a hook's handler throws becomes an extension error
+  for every event except `tool_call`, whose handler error Pi rethrows, and that blocks the tool call (`runner.js`
+  `emitToolCall` has no try/catch). A guard's `BAD_DATA` therefore reaches the job by two paths, which R-029's
+  `engine-error` must both record.
 - R-013: until R-082, the `catch` scan of T-01 is a ratchet over the author's 148 sites (40 `.catch(() => {})`, 108
   `catch {`, T-01 → Why). It depends on the cuts of stage 1 (D-028), so it reworks no code a cut removes and its
   `process.exit` scan holds over `src`, `hook` and `bin` at its own commit (D-025).
@@ -2271,15 +2285,32 @@ redundant):
   own module path, so the `github poll` tests of `test/cli/github.test.ts` fail at HEAD whenever that file is among
   the changed tests, for a reason unrelated to the ticket.
 
+Day session of 2026-11-20, continued (`limen-rebuild-12`; its `close-previous` printed `handover: closed tmux session
+limen-rebuild-11` and one `handover: stopped claude …` line and exited 0; its push notification was skipped as
+redundant):
+- R-017 `done` (delegated, by day). The implementer's `BLOCKED` (Pi 1.5.1 has no `before_subagent_spawn` event and no
+  `context.agent`, so the adapter could not both declare what the hooks use and pass on Pi's real types) → D-058
+  (Adrian, "a"): R-017 removes that dead code. `src/runtime/pi-api.ts` is the one declaration of the Pi API the hooks
+  use; every handler gets `unknown` and reads through guards that throw BAD_DATA; the type contract
+  (`test/runtime/pi-contract.ts`) ran on the vendor copy of Pi 1.5.1 in the gate, not skipped. Review round 1 PASS with
+  six notes (four fixed by the resumed implementer, among them the `tool_call` guard only inside a group, because Pi
+  1.5.1 rethrows a `tool_call` handler's error and blocks the call, an engine fact the ticket had wrong and a note for
+  R-029; two rejected), round 2 PASS with four notes (a comment fixed by the implementer; the `## Fails before` quote
+  and D-059's own commit by the main session; one rejected), round 3 PASS with none. Gate 377/377. Cost: weekly 82 % →
+  85 %.
+- D-059 (Adrian, 2026-11-20, "zrezygnuj z czekania na to powiadomienie, bo ten mechanizm coś nie działa"): by day the
+  gate starts on the subagent's final report and `compare --git` exit 0, without the completion notification;
+  committed on its own as `911f8ae`, so that R-017's rollback leaves it.
+
 Active ticket: none.
 
 Next (by day on 2026-11-20):
-0. Until Adrian's night mode, the next day ticket by protocol step 1: R-017 (the lowest `ready` ID whose dependencies
-   are `done`; its `ticket.md` is written), delegated. Taking it by day leaves the night R-020, R-089, R-019 and R-021,
-   still on two independent branches (D-054 (1)).
+0. Until Adrian's night mode, the next day ticket by protocol step 1: R-020 (the lowest `ready` ID whose dependencies
+   are `done`; its `ticket.md` is written), delegated. Taking it by day leaves the night R-089, R-019 and R-021 (R-019
+   after R-020, R-021 after R-019), on two independent branches (D-054 (1)).
 1. On Adrian's "Tryb nocny do HH:MM": the checks of D-024, then `night.mjs`; this is the rehearsal of D-053 (3). The
-   night has five `ready` tickets: R-017, R-020 and R-089 on independent branches, R-019 after R-020 (R-018 is
-   `done`), and R-021 after R-019.
+   night has four `ready` tickets: R-020 and R-089 on independent branches, R-019 after R-020 (R-018 is `done`), and
+   R-021 after R-019.
 2. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
    D-047 and D-054 were.
