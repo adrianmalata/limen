@@ -20,8 +20,9 @@ projektu, test nazw liczy tylko pliki znane gitowi); R-091 zamknięty 19.11 (ozn
 oznaczenia, koniec przebiegu na agent_settled, definicja touchpoints); D-047: narzędzie przekazania sesji
 tools/handover.mjs (start nowej sesji w tmux i zamykanie poprzednich sesji przebudowy); 19.11 wieczorem
 limen-rebuild-8 zamknęła etap 1 ponownie (bramka 253/253, M-10 82,2 s, lokalny tag a0.1.1, pierwsze wdrożenie);
-D-048: B.2 tego samego wieczoru zamiast nocy, etap 2 w dzień 20.11; B.2 w toku: seat check R-011 zaliczony,
-trzy próby F013 bez żadnego joba (koordynator robi ticket sam), jedna unieważniona; czeka decyzja, jak je liczyć. -->
+D-048: B.2 tego samego wieczoru zamiast nocy, etap 2 w dzień 20.11; D-049 i D-050: B.2 zamknięte z K = 2
+(seat check R-011 zaliczony, dwie ważne próby F013 bez kandydata, dwie unieważnione, raport w evidence/);
+następne jest wdrożenie a0.1.1 z Adrianem, potem etap 2. -->
 
 
 
@@ -563,6 +564,15 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   number of void attempts. (3) The owner message stays as D-021 has it; C (a message that asks for delegation) is
   rejected, because it would move a rule of Limen into the test's input and hide the gap the rebuild closes. (4) The
   void attempt runs again, then B.2 closes and the deployment follows the plan. Check: `## State` → B.2.
+- 2026-11-20 D-050 (Adrian, B.2's shortfall): B.2 closes with K = 2. Its report gives the missing third attempt, the
+  two void attempts with their cause, and that the coordinator under the fixed input usually does not delegate
+  (A-086); the diagnostic of the coordinators' branches says that the hidden tests failed at `tsc` on names of the
+  reference, so the behaviour is not verified. Before 4.8 the main session proposes together a name-independent
+  evaluator and a way to keep the attempts out of the production checkout. Every change of the task after B.2 leaves
+  B.2's result unchanged (z. 40): a new evaluator does, because B.2 has no candidate; a change of the input, such as
+  the project's notes, needs its own justification. At the start of the deployment the main session confirms the full
+  snapshot of `.limen/` (gate 2 §9 item 15, step 0.1), that no job runs (§7 D3) and that the deployed commit holds
+  R-090. Check: `evidence/b2-same-task.md`.
 
 ### Gate 2 §2, copied
 
@@ -1194,7 +1204,8 @@ commit, outside `/opt/limen`, and points it at the `rebuild-base` checkout in `/
   turn and one job turn (M-02). From the same log: whether each turn reuses or rewrites the Claude Code session, the
   cache TTL (`modelUsage` 5m or 1h), the context window of `claude-opus-5-5` on the Max login, and the cache read of
   the turn after a manual `/compact`, which forces a rewrite (E-1, E-2, E-8).
-- **B.2** The same-task baseline: the same-task runner of R-011, as R-088 and R-091 left it, with `rebuild-base`, k
+- **B.2** Done on 2026-11-20 with K = 2 of 3, pass^k no, two attempts void (D-049, D-050; `evidence/b2-same-task.md`).
+  The same-task baseline: the same-task runner of R-011, as R-088 and R-091 left it, with `rebuild-base`, k
   attempts (M-05); an attempt that meets a Pi event the runner has not marked ends at once with the raw event in its
   result (R-091). First the
   seat check of R-011 (D-021): the coordinator started headless through Pi's RPC mode loads Limen's hooks and
@@ -1277,7 +1288,8 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
 - **4.6** In the coordinator's Bash, `sleep 240` is refused with the wake sentence (R-047).
 - **4.7** With every module off, the coordinator session loads no group hook (R-044).
 - **4.8** Measurements after stage 4: M-02 and M-05 with a0.4.0 (M-01 is recorded by the main session at the close of
-  the stage).
+  the stage). Before it, the main session proposes a name-independent evaluator and a way to keep the attempts out of
+  the production checkout, each leaving B.2's result unchanged (D-050).
 - **4.9** Switch on, in each project's `.agents/limen/limits.json`, the modules its migration report lists as in use;
   until a0.5.0 Adrian edits the file directly, from then on only through the owner channel (R-044).
 
@@ -1960,15 +1972,16 @@ Measurement). The next day session is `limen-rebuild-9`, with `start 9`; its fir
 notification, `close-previous`, then `Next`. A night run started from `limen-rebuild-8` (D-024) leaves this session
 alive in `tmux` and idle; it changes nothing in the repository until Adrian writes (D-024).
 
-Next: Adrian's decision on B.2's shortfall (`Open questions`); then B.2's report and `## Deployment` 1.0–1.3 with
-`a0.1.1`; stage 2 by day on 2026-11-20 in `limen-rebuild-9` (D-048).
+- B.2 closed on 2026-11-20 by D-050 (K = 2): `evidence/b2-same-task.md`. R-090 (`2be4b80`) and R-091 (`049097d`)
+  are ancestors of `a0.1.1` (`91cc2e4`); the commits after it change only `plan.md` and `evidence/`.
+
+Next: `## Deployment` 1.0–1.3 with `a0.1.1`, guided step by step at the hour Adrian names, starting with D-050's
+three confirmations (the snapshot of 0.1, no running job, R-090 in the deployed commit); then the handover to
+`limen-rebuild-9`, which starts stage 2 by day (D-048). A night run of stage 2 needs Adrian's word (D-024) and the
+checks D-024 lists; it should not overlap the trial route of step 0.6, which uses the same Max window.
 
 Open questions for Adrian:
-- B.2 has two valid attempts of the planned three, and two void ones, both because an agent read the production
-  checkout, whose path is written in the project's committed notes (the same action failed twice, z. 1, so no fifth
-  attempt runs without his word): (A) close B.2 with K = 2 and record the shortfall, since pass^3 is "no" already
-  (recommended); (B) run more attempts until three are valid, at most two more; (C) first keep the production
-  checkout out of the attempts' reach (a runner or seat change, a ticket), then run again. A full answer: A, B or C.
+- The hour of the deployment: now or in the morning at HH:MM (his reply of 2026-11-20 left the choice open).
 
 Notes for the next session:
 - Start Claude Code in the repository root, so that it loads `.claude/agents/`.
