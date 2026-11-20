@@ -5,6 +5,7 @@
    recenzję. Stan: działa; test w tools/test-review-verdict.mjs. */
 // Usage: node adrian-rebuild/tools/review-verdict.mjs <reply file> <ticket.md>
 import { readFileSync } from "node:fs";
+import { criteria } from "./ticket-rules.mjs";
 
 const SECTIONS = ["Criteria", "Findings", "Taste questions"];
 const CRITERION = /^(AC-\d+): (met|not met|unknown): \S/;
@@ -12,8 +13,7 @@ const FINDING = /^(blocking|note) · (proven|observed|guessed) · \S.* · \S.*$/
 
 /** The criterion IDs of a ticket, in the order of its `## Acceptance`. */
 export function acceptanceIds(ticket) {
-	const section = ticket.split(/^## /m).find((block) => block.startsWith("Acceptance\n")) ?? "";
-	return [...section.matchAll(/^- (AC-\d+)\b/gm)].map(([, id]) => id);
+	return criteria(ticket).map(({ id }) => id);
 }
 
 /** The lines of each `## <name>` section of the reply. */

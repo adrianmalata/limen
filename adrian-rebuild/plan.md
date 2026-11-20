@@ -28,7 +28,8 @@ etap 2 w dzień; 20.11 D-052 (wyjątki zmiennych LIMEN_* i miejsca ustawień) i 
 konfiguracji src/config.ts, bramka 277/277); R-016 zamknięty (moduł granicy src/boundary.ts, zapadki JSON.parse
 i rzutowań, bramka 310/310); D-053 i D-054: praca pod nieobecność Adriana 21–23.11 (push przy 98 % limitu, tańsza
 recenzja, status ready dla nocy, domyślne decyzje techniczne nocą, arkusz wariantów dla ticketów pair); przekazanie
-do limen-rebuild-10. -->
+do limen-rebuild-10, która zrobiła D-054 w check.mjs (moduł tools/ticket-rules.mjs: status ready, nocny ticket pair
+z zapisanymi wyborami, polecenia kryteriów sprawdzane z allow-listą); R-017 czeka na dwie odpowiedzi Adriana. -->
 
 
 
@@ -961,14 +962,19 @@ Columns:
   `## Agents`.
 - **Run**: `night` for a delegated ticket, which a night run can take without Adrian; `day-after` for a pair ticket
   that depends, directly or through other tickets, on a night ticket of its stage, so it runs by day after that night run; `day` for a pair ticket with no
-  such dependency, by day before or after the night run. No delegated ticket depends on a pair ticket of its own stage
-  (D-011); `check.mjs` checks the column against the dependencies.
+  such dependency, by day before or after the night run; `night` also for a pair ticket whose `ticket.md` → `## Decisions`
+  holds Adrian's dated answers to its variants sheet (D-054 (3)). No delegated ticket depends on a pair ticket of its own
+  stage (D-011); `check.mjs` checks the column against the dependencies and, for a night pair ticket, the dated entry.
 - **Mig.**: `yes` when the ticket needs a migration path (`## Stages` → conventions).
 - **API**: Pi, bridge, Herdr or systemd behaviour that the fake engine cannot prove.
 - **Seat**: the `## Deployment` steps that verify it on the seat.
-- **Status**: `planned`, `active`, `blocked` (a night run's question waits for Adrian in `.night/questions.md`, the
-  night mode of the rebuild prompt v6; the day session resumes the ticket), `done`, or `dropped (<reason>)` by
-  Adrian's decision.
+- **Status**: `planned`, `ready` (a night run may take it, D-054 (1): its `ticket.md` exists, or, while a dependency
+  is not `done`, the status is `ready (D-NNN, …)` and names the entries of `## Decisions` that hold what it needs, each
+  naming the ticket), `active`, `blocked` (a night run's question waits for Adrian in `.night/questions.md`, the night
+  mode of the rebuild prompt v6; the day session resumes the ticket), `done`, or `dropped (<reason>)` by Adrian's
+  decision. `check.mjs` checks the record of `ready`, and that every criterion of a `ready` or `active` ticket that is
+  no judgment names a command with its exit code that the allow-list of `.claude/settings.local.json` passes
+  (`tools/ticket-rules.mjs`).
 
 | ID | Title | Stage | Sources | Depends | Size | Mode | Run | Mig. | API | Seat | Status |
 |---|---|---|---|---|---|---|---|---|---|---|---|
@@ -1620,7 +1626,7 @@ Every stage:
 |---|---|
 | everyone: reading | `git status`, `git diff`, `git log`, `git show`, `git ls-files`, `git rev-parse`, `git cat-file`, `git grep`, `git for-each-ref`, `ls`, `cat`, `head`, `tail`, `wc`, `grep`, `find` (without `-delete` and `-exec`), `sed -n`, `sort`, `uniq`, `cmp`, `diff`, `file`, `command -v` |
 | reviewer: checks | `node --test <test file>`, `node bin/limen <args>` on a test fixture (never the full gate, D-015) |
-| main session, implementer: checks | `node adrian-rebuild/tools/gate.mjs`, `npm run check`, `npm run typecheck`, `npx tsc --noEmit`, `npx biome check --error-on-warnings <path>`, `node --test <test file>`, `node adrian-rebuild/tools/check.mjs`, `node --test adrian-rebuild/tools/test-changes-entries.mjs`, `node --test adrian-rebuild/tools/test-review-guard.mjs`, `node --test adrian-rebuild/tools/test-fails-before.mjs`, `node --test adrian-rebuild/tools/test-review-verdict.mjs`, `node --test adrian-rebuild/tools/test-night.mjs`, `node --test adrian-rebuild/tools/test-tool-calls.mjs`, `node --test adrian-rebuild/tools/test-handover.mjs`, `sh adrian-rebuild/tools/test-pre-push.sh`, `node bin/limen <args>` on a test fixture |
+| main session, implementer: checks | `node adrian-rebuild/tools/gate.mjs`, `npm run check`, `npm run typecheck`, `npx tsc --noEmit`, `npx biome check --error-on-warnings <path>`, `node --test <test file>`, `node adrian-rebuild/tools/check.mjs`, `node --test adrian-rebuild/tools/test-changes-entries.mjs`, `node --test adrian-rebuild/tools/test-review-guard.mjs`, `node --test adrian-rebuild/tools/test-fails-before.mjs`, `node --test adrian-rebuild/tools/test-review-verdict.mjs`, `node --test adrian-rebuild/tools/test-night.mjs`, `node --test adrian-rebuild/tools/test-tool-calls.mjs`, `node --test adrian-rebuild/tools/test-handover.mjs`, `node --test adrian-rebuild/tools/test-ticket-rules.mjs`, `sh adrian-rebuild/tools/test-pre-push.sh`, `node bin/limen <args>` on a test fixture |
 | main session, implementer: changes | `npx biome format --write <path>`, `npm ci`; `git rm <path>`, `git rm -r <path>` and `git mv <old> <new>` on the paths a ticket's `## Change` names (the cuts of stage 1, R-042 and R-059 replace files, R-083 renames test files, and others); every deletion and move goes through them, so the list stays the same every night (D-014) |
 | main session only | `node adrian-rebuild/tools/review-guard.mjs snapshot --out <file>`, `snapshot --git --out <file>`, `diff --out <file>`, `compare <file>` and `compare --git <file> <ticket.md>`; `node adrian-rebuild/tools/fails-before.mjs`; `node adrian-rebuild/tools/review-verdict.mjs <reply> <ticket.md>`; `git restore --source=HEAD -- <path>` and `git apply --include=<path> <diff>` (after a void review); `git add <paths>` (`git add -A -- <paths>` for deletions and renames), `git commit`, `git push origin adrian-rebuild`; `sh adrian-rebuild/tools/install-hooks.sh` (after a move or a new clone); `node adrian-rebuild/tools/handover.mjs start <n>` and `node adrian-rebuild/tools/handover.mjs close-previous` (by day, D-047); at the close of a stage `git tag <tag> <sha>` (local), the gate-time tool of R-011 (`node adrian-rebuild/tools/gate-time.mjs --out <file>`) and, from stage 4, `node adrian-rebuild/tools/context-size.mjs <ref>` |
 
@@ -2133,21 +2139,35 @@ Handover of 2026-11-20 (D-047, at 42 % context, after the commit `D-053, D-054:`
 first acts: a push notification to Adrian that it takes over at stage 2; `node adrian-rebuild/tools/handover.mjs
 close-previous`, whose lines it reports to Adrian; then `Next`. The handover after it is `limen-rebuild-11`.
 
-Next (`limen-rebuild-10`, by day on 2026-11-20, in this order):
-1. D-054 (1) in `adrian-rebuild/tools/check.mjs`: the status `ready` (with its `ticket.md` or decision entry), a pair
-   ticket whose `Run` is `night` once its choices are recorded (D-054 (3)), and every criterion command matched
-   against the allow-list of `.claude/settings.local.json` when the file exists; a spec, a test that fails before,
-   a review by `rebuild-reviewer` and an outcome in `adrian-rebuild/evidence/night-ready/`, one commit `D-054:`, as
-   D-047 was done.
-2. Make the tonight's tickets `ready`: full `ticket.md` for R-017, R-018 and R-020 (their dependencies are `done`),
-   and the decisions R-019 needs (it waits for R-018), each asked of Adrian in a plain message with a push. R-017 is
-   the lowest ID; R-018 → R-019 and R-020 are independent branches of it.
-3. If time and the 5-hour window allow, R-017 by day.
-4. On Adrian's "Tryb nocny do HH:MM": the checks of D-024, then `night.mjs`; this is the rehearsal of D-053 (3).
+Day session of 2026-11-20, continued (`limen-rebuild-10`; its `close-previous` printed `handover: closed tmux
+session limen-rebuild-9` and two `handover: stopped claude …` lines and exited 0):
+- D-054 (1) and (3) in `check.mjs` (`evidence/night-ready/`, the main session's work, as D-047 was): the new module
+  `tools/ticket-rules.mjs` holds the status `ready` and `ready (D-NNN, …)`, a pair ticket whose `Run` is `night`
+  once its `ticket.md` → `## Decisions` holds a dated entry (it then counts as a night ticket of its stage), and,
+  for every `ready` or `active` ticket, a command with its exit code in each criterion that is no judgment, which the
+  allow, deny and ask rules of `.claude/settings.local.json` must pass (`refusal`, built on the night logs' facts);
+  `section` and `checkRuns` moved there from `check.mjs`, and `review-verdict.mjs` takes the criterion IDs from it.
+  32 tests, each failing before its change; reviews PASS in rounds 1–3 (eight, two and one notes, all fixed; two
+  rounds of fixes, round 3's note was text of the spec, fixed without a fourth round by D-053 (2)); commit `D-054:`. Run as if `active`, the check names R-012's AC-6 (`node seat/deploy.ts`, Q-8) and ten criteria of
+  done tickets that predate D-025.
+- R-017 waits for Adrian's answers (asked 2026-11-20, in plain words at his request): (1) where the Pi type contract
+  runs, since the seat has no `tsc` (a: `npm ci` in `seat/deploy.ts`; b: a TypeScript root installs once; c: only
+  as a test on the vendor copy, the seat's version guarded by R-049; recommended c); (2) what a hook does with a Pi
+  event of the wrong shape before R-021 and R-029 (a: a typed `BAD_DATA` error now, the job's `engine-error` and the
+  warning in `limen status` by R-029; b: all of T-32 (4) now, with an interim file; recommended a).
+- Inventories for R-018 (every temp-and-rename writer and every direct write to `spec/` and job files) and R-020
+  (platform operations, external programs, requirement checks) came from two read-only subagents; their facts go into
+  those tickets' `ticket.md`.
+
+Next (by day on 2026-11-20, in this order):
+1. `ticket.md` for R-018 and R-020 from the inventories, each `ready`; the decisions R-019 needs as an entry of
+   `## Decisions` and the status `ready (D-NNN)`; R-017 `ready` once Adrian has answered.
+2. If time and the 5-hour window allow, the lowest `ready` ticket by day.
+3. On Adrian's "Tryb nocny do HH:MM": the checks of D-024, then `night.mjs`; this is the rehearsal of D-053 (3).
 Then the plan of the day session's reply of 2026-11-20: Saturday R-021 first (the root of R-022–R-025), R-089, R-022;
 Sunday the rest of stage 2 and its close (tag `a0.2.0`, gate 5.2 by phone); stage 3 after his "go on".
 
-Open questions for Adrian: none (the answers of 2026-11-20 are D-053 and D-054).
+Open questions for Adrian: R-017's two questions above.
 
 Notes for the next session:
 - Start Claude Code in the repository root, so that it loads `.claude/agents/`.

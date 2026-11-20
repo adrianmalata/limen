@@ -5,11 +5,14 @@
    w każdym etapie (D-008), brak przekierowań `>` w poleceniach narzędzi (D-018) i definicje pomiarów M-NN. Sprawdza też polskie streszczenia plików w adrian-rebuild/
    i .claude/agents/, a od etapu 5 foldery ticketów (szablon ticket.md, kryteria bez `!` przed poleceniem, D-025)
    i wpisy changes.md według D-009 (changes-entries.mjs); status ticketu może być też `blocked` z trybu nocnego.
-   Stan: działa; kończy się kodem 1 i listą błędów. */
+   Reguły D-054 bierze z ticket-rules.mjs: status `ready` z ticket.md albo wpisem decyzji, `Run` = `night` ticketu
+   pair z zapisanymi wyborami i polecenia kryteriów ticketów `ready` i `active` dopasowane do allow-listy
+   `.claude/settings.local.json`, gdy ten plik istnieje. Stan: działa; kończy się kodem 1 i listą błędów. */
 // Usage: node adrian-rebuild/tools/check.mjs   (run from the repository root)
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { CHANGES, checkEntries, parseEntries } from "./changes-entries.mjs";
+import { checkReady, checkRuns, loadPermissions, STATUS, section } from "./ticket-rules.mjs";
 
 const BASE = "rebuild-base";
 const DIR = "adrian-rebuild";
@@ -17,6 +20,8 @@ const AUDIT = `${DIR}/audit.md`;
 const TASTE = `${DIR}/taste.md`;
 const PLAN = `${DIR}/plan.md`;
 const AGENTS = ".claude/agents";
+// Untracked and Adrian's (D-016); absent in a fresh clone, where the criteria are checked without it.
+const SETTINGS = ".claude/settings.local.json";
 // T-17: the rebuild parks nothing; "not now" is `rejected` with a non-empty `Revisit when:`.
 const FILLER = /\b(backlog|deferred|later|tbd)\b|do ustalenia/i;
 
@@ -41,8 +46,6 @@ const OPTIONAL = {
 const COLUMNS = ["ID", "Title", "Stage", "Sources", "Depends", "Size", "Mode", "Run", "Mig.", "API", "Seat", "Status"];
 const SOURCE = /^(A-\d{3}|T-\d{2}|G1\.\d+|G[2-4]|§\d|S1\+|H-\d{2}|E-\d+|D-\d{3})$/;
 const ENGINE_APIS = new Set(["pi", "bridge", "herdr", "systemd"]);
-// `blocked`: a night run's question waits for Adrian in `.night/questions.md` (night mode of the rebuild prompt v6).
-const STATUS = /^(planned|active|blocked|done|dropped \(.+\))$/;
 // The template of `ticket.md` in plan.md → `## Agents`.
 const TICKET_SECTIONS = [
 	"Problem",
@@ -88,27 +91,6 @@ function checkReferences(text, file) {
 		}
 	}
 	return count;
-}
-
-/** The body of the level-2 section `## <name>`, up to the next level-2 heading. */
-function section(text, name) {
-	// A `## ` line inside a fenced code block (the ticket.md template, a reply format) is not a heading.
-	const lines = text.split("\n");
-	let fenced = false;
-	let inside = false;
-	const body = [];
-	for (const line of lines) {
-		if (line.startsWith("```")) {
-			fenced = !fenced;
-		}
-		const heading = !fenced && line.startsWith("## ");
-		if (heading) {
-			inside = line === `## ${name}`;
-		} else if (inside) {
-			body.push(line);
-		}
-	}
-	return body.length === 0 ? "" : `${body.join("\n")}\n`;
 }
 
 /** Splits audit.md into findings: a `### A-NNN <title>` heading followed by `- Field: value` lines. */
@@ -356,45 +338,6 @@ function checkSeatSteps(ticket, steps, where) {
 	}
 }
 
-/** The tickets a ticket depends on, directly or through others (the ticket itself is included only on a cycle). */
-function dependencyClosure(ticket, byId) {
-	const closure = new Set();
-	const queue = [ticket];
-	while (queue.length > 0) {
-		for (const id of queue.pop().Depends.split(", ")) {
-			const target = byId.get(id);
-			if (target !== undefined && !closure.has(target)) {
-				closure.add(target);
-				queue.push(target);
-			}
-		}
-	}
-	return closure;
-}
-
-/** D-011: no delegated ticket depends on a pair ticket of its stage; `Run` follows from the mode and the dependencies. */
-function checkRuns(tickets) {
-	const byId = new Map(tickets.map((ticket) => [ticket.ID, ticket]));
-	for (const ticket of tickets) {
-		const closure = dependencyClosure(ticket, byId);
-		if (closure.has(ticket)) {
-			errors.push(`${PLAN}: ${ticket.ID}: lies on a cycle of dependencies`);
-		}
-		const sameStage = [...closure].filter(({ Stage }) => Stage === ticket.Stage);
-		const pairs = sameStage.filter(({ Mode }) => Mode === "pair").map(({ ID }) => ID);
-		if (ticket.Mode === "delegated" && pairs.length > 0) {
-			errors.push(
-				`${PLAN}: ${ticket.ID}: delegated, but depends on the pair ticket(s) ${pairs.join(", ")} of its stage`,
-			);
-		}
-		const afterNight = sameStage.some(({ Mode }) => Mode === "delegated");
-		const run = ticket.Mode === "delegated" ? "night" : afterNight ? "day-after" : "day";
-		if (ticket.Run !== run) {
-			errors.push(`${PLAN}: ${ticket.ID}: Run is "${ticket.Run}", but its mode and dependencies make it "${run}"`);
-		}
-	}
-}
-
 /** Every `fix` finding and every taste rule is a source of a ticket (taste rules may be listed as without one). */
 function checkCoverage(tickets, list, tasteIds, ticketsText) {
 	const sourced = new Set(tickets.flatMap(({ Sources }) => Sources.split(", ")));
@@ -474,7 +417,7 @@ function checkMeasurements(planText) {
 	return defined.size;
 }
 
-function checkPlan(planText, auditText, list, tasteIds) {
+function checkPlan(planText, auditText, list, tasteIds, files) {
 	const references = checkReferences(planText, PLAN);
 	const stages = planStages(planText);
 	const steps = planSteps(planText);
@@ -495,14 +438,31 @@ function checkPlan(planText, auditText, list, tasteIds) {
 			errors.push(`${PLAN}: stage ${number} has no ticket`);
 		}
 	}
-	checkRuns(tickets);
+	errors.push(...checkRuns(tickets, files));
+	const permissions = readPermissions();
+	errors.push(...checkReady(tickets, { files, decisions: section(planText, "Decisions"), permissions }));
+	const ready = tickets.filter(({ Status }) => Status.startsWith("ready")).length;
 	checkCoverage(tickets, list, tasteIds, section(planText, "Tickets"));
 	checkGateCopy(planText, auditText);
 	checkDeployCalls(planText, stages);
 	const toolCommands = checkRedirections(planText);
 	const metrics = checkMeasurements(planText);
-	const summary = `plan: ${stages.size} stages, ${tickets.length} tickets, ${steps.size} deployment steps, ${toolCommands} tool commands, ${metrics}`;
+	const allowList = permissions === undefined ? `no ${SETTINGS}` : `criteria against ${SETTINGS}`;
+	const summary = `plan: ${stages.size} stages, ${tickets.length} tickets (${ready} ready, ${allowList}), ${steps.size} deployment steps, ${toolCommands} tool commands, ${metrics}`;
 	return { tickets, summary: `${summary} metrics, ${references} references, ${checkWording(PLAN)} revisit signals` };
+}
+
+/** The allow, deny and ask rules of Claude Code, when the settings file exists (D-054 (1)). */
+function readPermissions() {
+	if (!existsSync(SETTINGS)) {
+		return undefined;
+	}
+	try {
+		return loadPermissions(readFileSync(SETTINGS, "utf8"));
+	} catch (error) {
+		errors.push(`${SETTINGS}: ${error.message}`);
+		return undefined;
+	}
 }
 
 /** Rebuild prompt: every file in adrian-rebuild/ and .claude/agents/ opens with a Polish summary comment. */
@@ -558,11 +518,27 @@ function checkTicketFile(file, id) {
 	}
 }
 
-/** Stage 5 on: every ticket folder has its files, and every done ticket has a folder. */
-function checkTicketFolders(tickets) {
-	const folders = readdirSync(DIR, { withFileTypes: true })
+/** The ticket folders `adrian-rebuild/R-NNN-<slug>/`. */
+function ticketFolders() {
+	return readdirSync(DIR, { withFileTypes: true })
 		.filter((entry) => entry.isDirectory() && /^R-\d{3}-/.test(entry.name))
 		.map((entry) => entry.name);
+}
+
+/** Each ticket's `ticket.md` by its ID, for the rules of `ticket-rules.mjs`. */
+function ticketFiles(folders) {
+	const files = new Map();
+	for (const folder of folders) {
+		const path = `${DIR}/${folder}/ticket.md`;
+		if (existsSync(path)) {
+			files.set(folder.slice(0, 5), { path, text: readFileSync(path, "utf8") });
+		}
+	}
+	return files;
+}
+
+/** Stage 5 on: every ticket folder has its files, and every done ticket has a folder. */
+function checkTicketFolders(tickets, folders) {
 	for (const folder of folders) {
 		const ticket = tickets.find(({ ID }) => ID === folder.slice(0, 5));
 		const needed = ticket?.Status === "done" ? ["ticket.md", "review.md", "outcome.md"] : ["ticket.md"];
@@ -603,14 +579,15 @@ const tasteText = readFileSync(TASTE, "utf8");
 const planText = readFileSync(PLAN, "utf8");
 const findingList = findings(auditText);
 const tasteIds = checkTasteRules(tasteText);
-const plan = checkPlan(planText, auditText, findingList, tasteIds);
+const folders = ticketFolders();
+const plan = checkPlan(planText, auditText, findingList, tasteIds, ticketFiles(folders));
 const summary = [
 	checkAudit(auditText, findingList),
 	`taste rules: ${tasteIds.length}`,
 	`taste: ${checkReferences(tasteText, TASTE)} references, ${checkWording(TASTE)} revisit signals`,
 	plan.summary,
 	`PL summaries: ${checkSummaries()} files`,
-	`ticket folders: ${checkTicketFolders(plan.tickets)}`,
+	`ticket folders: ${checkTicketFolders(plan.tickets, folders)}`,
 	`changes: ${checkChanges(plan.tickets)} entries`,
 ];
 for (const error of errors) {
