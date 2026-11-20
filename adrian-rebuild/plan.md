@@ -26,7 +26,9 @@ D-051: koordynatory używają /opt/limen; a0.1.1 wdrożony 20.11 (1.0–1.3 i pr
 F009 i F010, land bez „land”); projekty stoją do a0.3.0 (D-012); przekazanie do limen-rebuild-9, które zaczyna
 etap 2 w dzień; 20.11 D-052 (wyjątki zmiennych LIMEN_* i miejsca ustawień) i R-015 zamknięty (jeden moduł
 konfiguracji src/config.ts, bramka 277/277); R-016 zamknięty (moduł granicy src/boundary.ts, zapadki JSON.parse
-i rzutowań, bramka 310/310); otwarte pytania o pracę pod nieobecność Adriana 21–23.11. -->
+i rzutowań, bramka 310/310); D-053 i D-054: praca pod nieobecność Adriana 21–23.11 (push przy 98 % limitu, tańsza
+recenzja, status ready dla nocy, domyślne decyzje techniczne nocą, arkusz wariantów dla ticketów pair); przekazanie
+do limen-rebuild-10. -->
 
 
 
@@ -596,6 +598,43 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   `start-gate.json` only; `LIMEN_PREPARE`, `LIMEN_PREFLIGHT`, `LIMEN_VIEW`, `LIMEN_WAKE` and `LIMEN_PI` are no longer
   read; the three waits with no setter become constants; `LIMEN_HOME` and the six other knobs of the tests are test
   knobs. Check: R-015's criteria (`R-015-one-config-reader/ticket.md`).
+- 2026-11-20 D-053 (Adrian, before three days away, 2026-11-21 to 2026-11-23, with only his phone: no terminal and no
+  seat access; work goes on by day through Remote Control and push notifications and by night through `night.mjs`):
+  (1) His weekly limit resets on Mondays at 17:00, and he has one free reset of the limits: by day the session reads
+  `seven_day_used_percentage` at every safe point and before it starts a subagent, and at 98 % or more it sends the
+  push "Hej, mamy 98% limitu tygodniowego, zresetuj licznik" and keeps working; there is no other stop threshold by
+  day or by night (a night run cannot read its use; the morning session reports a night that hit the limit). (2) A
+  cheaper review (amends `## Agents` step 6): a round whose verdict is PASS and whose findings to fix touch only
+  `docs/`, `outcome.md` or `review.md` is closed by the main session's own fixes, with no further review round; a fix
+  of code or tests still gets a round. (3) A rehearsal of the night mode on the night of 2026-11-20: he asks for it from
+  his phone, and the main session starts `night.mjs` by D-024. (4) Before he leaves: Windows Update paused, sleep
+  "Never" on mains power, the lid action "Do nothing", power and network kept (an automatic Windows update shut the
+  laptop down in the night of 2026-11-19, which restarted WSL at 06:14 on 2026-11-20). The seat steps, edits of
+  `.claude/settings.local.json` and `.claude/agents/*`, and a void review that leaves a file the reviewer created wait
+  for his return. Check: the memory note on the weekly limit; `review.md` of each ticket.
+- 2026-11-20 D-054 (Adrian, three proposals of the main session against night blocks and slow pair tickets, each
+  accepted as recommended; amends the night mode of the rebuild prompt and `## Agents`): (1) **`ready`**: a status of
+  `## Tickets` that the day session sets once a ticket can run at night without Adrian: a ticket whose dependencies
+  are `done` has its full `ticket.md`, its criteria run at HEAD (D-025) and naming only commands of the allow-list
+  (D-036); a ticket whose dependencies are not yet `done` has every decision it needs recorded (in `plan.md` →
+  `## Decisions` or its `ticket.md` → `## Decisions`), and the night writes its `ticket.md` at the HEAD it starts from.
+  A night run takes only `ready` tickets. The day session makes tickets of at least two independent branches of the
+  dependency graph `ready`, so that one block does not end the night. `check.mjs` accepts `ready`, requires for it a
+  `ticket.md` or a recorded decision entry, and checks that every criterion command matches the allow-list of
+  `.claude/settings.local.json` when that file exists (a change of `adrian-rebuild/tools/`, with its test and a review
+  by `rebuild-reviewer`, outside the ticket list, as D-047 was). (2) **Night defaults, category A**: in a night run the
+  session decides a question of category A itself, with its own recommendation, records it in `ticket.md` →
+  `## Decisions` as "night default, for Adrian to confirm in the morning", and goes on; category A is (a) a criterion
+  of the ticket that contradicts its own `## Change` or D-025, which is narrowed to the ticket's scope, and (b) a
+  technical choice inside `## Change` that `taste.md` does not settle (an internal name, the place of a test by
+  T-29). Every other question (taste, a departure from the plan, an irreversible step, security, an on-disk format
+  beyond the ticket, a refused permission, the same step failed twice) stays a question in `.night/questions.md`.
+  The morning session lists the night defaults for Adrian; a wrong one is fixed by the next ticket. (3) **Pair
+  tickets by a variants sheet**: once the tickets a pair ticket depends on are `done`, the main session sends Adrian
+  every choice of the ticket (texts, names, UX) in two variants on the real fragment, with its recommendation, as one
+  numbered message with a push; his answers ("1a 2b …" or his own text) go to `ticket.md` → `## Decisions`; the
+  ticket keeps the mode `pair` and its `Run` becomes `night`, and `rebuild-implementer` implements it, as D-037 did for
+  R-014. Check: `check.mjs` once (1) is built; the night defaults in each `ticket.md`.
 
 ### Gate 2 §2, copied
 
@@ -1486,8 +1525,10 @@ Template of `ticket.md` (`check.mjs` requires these headings in every ticket fol
 ```
 
 Protocol per ticket (rebuild stage 5):
-1. The next ticket is the lowest `planned` ID of the current stage whose dependencies are all `done`: in a night run
-   only among the `night` tickets; by day among the `day` and `day-after` tickets as well (D-011).
+1. The next ticket is the lowest `planned` or `ready` ID of the current stage whose dependencies are all `done`: in a
+   night run only among the `ready` tickets (D-054 (1)); by day among the `day` and `day-after` tickets as well
+   (D-011). By day the session also makes the tickets of the coming night `ready` (D-054 (1)) and sends the variants
+   sheet of every pair ticket whose dependencies are `done` (D-054 (3)).
 2. The main session writes `adrian-rebuild/R-NNN-<slug>/ticket.md` and sets the ticket's status to `active`. A
    criterion checks only the ticket's scope, with its expected result as an exit code and no `!` before the command;
    the main session runs every grep and scan criterion at HEAD and confines it to the paths of `## Change` unless
@@ -1532,13 +1573,16 @@ Protocol per ticket (rebuild stage 5):
 6. The main session writes the round into `review.md`. It records why it rejects a finding, or adds the findings to fix
    to `ticket.md` → `## Decisions`; the fixes are made by the resumed implementer (`delegated`) or by the main session
    (`pair`), and the review runs again on the new diff. At most two rounds of fixes; then Adrian decides, and his
-   decision goes to `ticket.md` → `## Decisions`.
+   decision goes to `ticket.md` → `## Decisions`. A round whose verdict is `PASS` and whose findings to fix touch only
+   `docs/`, `outcome.md` or `review.md` is closed by the main session's own fixes, with no further round; a fix of code
+   or tests still gets a round (D-053 (2)).
 7. `outcome.md`, the `changes.md` entry (D-009), the status `done` in `## Tickets` and `## State`; then `check.mjs`
    and Biome on `adrian-rebuild`; one commit `R-NNN: <title>` with all of it; `git push origin adrian-rebuild`.
 - No `SendMessage` to other sessions, no `ListAgents`, no agent teams; state passes only through files.
 - In a night run, every "Adrian decides" and "asks Adrian" of steps 3, 4 and 6 follows the night mode that Adrian adds
   to the rebuild prompt before rebuild stage 5; a ticket that stops waits for the day, and so do the tickets that depend
-  on it. There is no night run before that addition.
+  on it. There is no night run before that addition. A question of category A of D-054 (2) is decided by the night
+  itself, recorded as a night default for Adrian to confirm in the morning, and does not stop the ticket.
 - In a night run subagents run only in the foreground (D-026): `night.mjs` sets `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`,
   and the main session never resumes a subagent with `SendMessage`. Where steps 4 and 6 resume the implementer, a night
   run starts a fresh `rebuild-implementer` by its name with the paths of `ticket.md` and `review.md` (and, in step 4,
@@ -2073,27 +2117,37 @@ nothing to reload. D-051 done: the registry holds the two projects, the agents' 
   "continue the work" is the coordinator's standing instruction.
 - The deployment of `a0.1.1` is complete (0.1–0.3, 0.6, 1.0–1.3). B.3 follows the deployment of `a0.2.0`.
 
-Next: stage 2 by day, the lowest `planned` ticket whose dependencies are `done` (R-016, then R-017, R-018, …;
-protocol step 1). A night run of stage 2 needs Adrian's word in the conversation and the checks of D-024.
+Adrian's answers of 2026-11-20 are D-053 (the weekly-limit push at 98 %, the cheaper review, the rehearsal of the
+night mode tonight, the laptop before he leaves) and D-054 (`ready` tickets for the night, night defaults of category
+A, pair tickets by a variants sheet). The night mode of the rebuild prompt (`input/prompt.md`, which the sessions
+cannot edit) is amended by D-054: a night run takes only `ready` tickets, and it decides category A itself.
+He is away 2026-11-21 to 2026-11-23 with only his phone; the seat steps (2.0–2.4, B.3), edits of
+`.claude/settings.local.json` and `.claude/agents/*`, and a void review that left a file the reviewer created wait for
+his return; a ticket that waits on one of them is `blocked`, and the session takes the next ticket that does not
+depend on it. R-017's contract check is designed to run inside `node --test`, so that it needs no new allow-list line.
+The Pi 1.5.1 sources are in `adrian-rebuild/input/vendor/`; the bridge 5.0.3 sources are fetched by Adrian after
+`R-016:` (the three commands of the day session's reply), into `adrian-rebuild/input/vendor/pi-claude-bridge/`.
 
-Open questions for Adrian (asked 2026-11-20; he is away 2026-11-21 to 2026-11-23 with only his phone, no terminal and
-no seat access, and wants the work to go on by day through Remote Control and push notifications and by night through
-`night.mjs`):
-1. When his weekly limit resets (Claude app → Settings → Usage): R-015 alone used about 4 points of the weekly limit,
-   and stage 2 has 11 tickets left, so the limit, not the mechanism, bounds the three days.
-2. A stop threshold, recommended (a): by day no new ticket at a weekly use of 90 % or more (finish the current one,
-   push, notify), a night run only when the evening reading is below 80 % (a night run cannot read its use); (b) 95/85;
-   (c) no night runs.
-3. A cheaper review (a change of `## Agents` step 6), recommended yes: a PASS whose notes touch only docs or
-   `outcome.md` is fixed by the main session without another review round; a fix of code or tests still gets a round.
-4. A rehearsal on the night of 2026-11-20: Adrian asks for the night mode from his phone, the main session starts
-   `night.mjs` through a permission prompt he approves there (D-024), and he answers in the morning from the phone.
-   Before he leaves, at the laptop: sleep "Never" on mains power, the lid action "Do nothing", Windows Update paused,
-   power and network kept; and whether the WSL start of 2026-11-20 06:14 was his own restart.
-While he is away: the seat steps (2.0–2.4, B.3), edits of `.claude/settings.local.json` and `.claude/agents/*`, and a
-void review that left a file the reviewer created (`rm` is denied) wait for his return; a ticket that waits on one
-of them is `blocked`, and the session takes the next ticket that does not depend on it. R-017's contract check is
-designed to run inside `node --test`, so that it needs no new allow-list line.
+Handover of 2026-11-20 (D-047, at 42 % context, after the commit `D-053, D-054:`): `limen-rebuild-9` starts
+`limen-rebuild-10` with `node adrian-rebuild/tools/handover.mjs start 10` and ends its turn. The next session's
+first acts: a push notification to Adrian that it takes over at stage 2; `node adrian-rebuild/tools/handover.mjs
+close-previous`, whose lines it reports to Adrian; then `Next`. The handover after it is `limen-rebuild-11`.
+
+Next (`limen-rebuild-10`, by day on 2026-11-20, in this order):
+1. D-054 (1) in `adrian-rebuild/tools/check.mjs`: the status `ready` (with its `ticket.md` or decision entry), a pair
+   ticket whose `Run` is `night` once its choices are recorded (D-054 (3)), and every criterion command matched
+   against the allow-list of `.claude/settings.local.json` when the file exists; a spec, a test that fails before,
+   a review by `rebuild-reviewer` and an outcome in `adrian-rebuild/evidence/night-ready/`, one commit `D-054:`, as
+   D-047 was done.
+2. Make the tonight's tickets `ready`: full `ticket.md` for R-017, R-018 and R-020 (their dependencies are `done`),
+   and the decisions R-019 needs (it waits for R-018), each asked of Adrian in a plain message with a push. R-017 is
+   the lowest ID; R-018 → R-019 and R-020 are independent branches of it.
+3. If time and the 5-hour window allow, R-017 by day.
+4. On Adrian's "Tryb nocny do HH:MM": the checks of D-024, then `night.mjs`; this is the rehearsal of D-053 (3).
+Then the plan of the day session's reply of 2026-11-20: Saturday R-021 first (the root of R-022–R-025), R-089, R-022;
+Sunday the rest of stage 2 and its close (tag `a0.2.0`, gate 5.2 by phone); stage 3 after his "go on".
+
+Open questions for Adrian: none (the answers of 2026-11-20 are D-053 and D-054).
 
 Notes for the next session:
 - Start Claude Code in the repository root, so that it loads `.claude/agents/`.
