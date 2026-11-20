@@ -31,7 +31,8 @@ recenzja, status ready dla nocy, domyślne decyzje techniczne nocą, arkusz wari
 do limen-rebuild-10, która zrobiła D-054 w check.mjs (moduł tools/ticket-rules.mjs: status ready, nocny ticket pair
 z zapisanymi wyborami, polecenia kryteriów sprawdzane z allow-listą); R-018 i R-020 gotowe do nocy (ready); R-017
 gotowy po D-055 (kontrakt typów Pi tylko jako test w repo, błędy kształtu zdarzeń jako BAD_DATA), R-089 gotowy;
-R-019 czeka na trzecią odpowiedź (zależność od R-020); przekazanie do limen-rebuild-11. -->
+R-019 czekał na trzecią odpowiedź; przekazanie do limen-rebuild-11, która zapisała D-056 (R-019 zależy też
+od R-020, ograniczone 60 s oczekiwanie na blokadę), więc R-019 jest gotowy do nocy. -->
 
 
 
@@ -647,6 +648,12 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   (`src/boundary.ts`) that names the event and the field, which Pi reports as an extension error; the job's failure
   with kind `engine-error` and the warning in the coordinator's `limen status` (T-32 (4)) are R-029's, which gets T-32
   and D-055 as sources. Check: R-017's and R-029's criteria; `## Deployment` 2.2.
+- 2026-11-20 D-056 (Adrian, R-019's question 3, answered "as recommended" with consent to the technical defaults):
+  (1) R-019 depends on R-020 as well as R-018: the lock's owner identity (pid, process start time, boot id) comes from
+  the platform adapter `src/platform/`, because R-020's AC-4 bans `/proc/` paths outside it; R-019 adds the boot-id
+  reading to the adapter. (2) A lock is waited for at most 60 s; then a typed error names the lock file, its owner and
+  a hint. (3) An old owner file that holds only a pid is abandoned only when that pid is gone. (4) The `TimeoutStartSec`
+  of the systemd units goes to R-032. Check: R-019's criteria; R-020's AC-4 at R-019's HEAD.
 
 ### Gate 2 §2, copied
 
@@ -1011,7 +1018,7 @@ Columns:
 | R-016 | One boundary parsing module with validators; the cast ratchet | 2 | T-27 | R-013 | M | delegated | night | — | — | — | done |
 | R-017 | One Pi API adapter with type guards, checked against Pi's real types | 2 | T-32, D-055 | R-012, R-016 | M | delegated | night | — | pi | 2.2 | ready |
 | R-018 | One atomic-write module | 2 | A-022, T-25 | R-013 | L | delegated | night | — | — | — | ready |
-| R-019 | One lock module with process identity and a bounded wait | 2 | A-017, A-018, A-055, A-058, A-087, T-25, D-029 | R-018 | M | delegated | night | yes | — | — | planned |
+| R-019 | One lock module with process identity and a bounded wait | 2 | A-017, A-018, A-055, A-058, A-087, T-25, D-029, D-056 | R-018, R-020 | M | delegated | night | yes | — | — | ready (D-056) |
 | R-020 | A Linux platform adapter and declared system requirements | 2 | A-083, T-12, T-32 | R-013 | M | delegated | night | — | — | — | ready |
 | R-021 | One `record.json` per job, written only by the transition function | 2 | S1+, A-019, A-053, A-056, T-20, T-25 | R-016, R-018, R-019 | L | delegated | night | yes | — | — | planned |
 | R-022 | Exact job references through one resolver | 2 | T-20 | R-014, R-021 | M | delegated | night | yes | — | — | planned |
@@ -1174,6 +1181,8 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   reap dead jobs; a test that every `read` command, run on a test project, leaves the project's files and `.limen/`
   unchanged (the snapshot function of T-38 (4)).
 - R-032 (D-045 (6.2)): `status` and `show` become `read`, and R-025's test of `read` commands passes for them.
+- R-032 (D-056 (4)): the systemd units it writes set `TimeoutStartSec`, so that a unit that waits on a lock (R-019's
+  60 s bound) is not stopped first.
 - R-025 (R-090 → `outcome.md` → Open points 1): the other scans of `test/structure.test.ts` (`filesIn` for `seat/`,
   `bin/`, `src/`, `hook/`, and `sources`) still walk ignored files; they read only the files git knows, through R-090's
   `knownFiles`, so an ignored file (an editor's swap file) cannot change a scan.
@@ -1662,10 +1671,9 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-19, day session `limen-rebuild-8`, rebuild stage 5 between plan stages 1 and 2: stage 1 is closed
-again after its fix tickets R-090 and R-091 (the commit `Stage 1: close (a0.1.1)`, which the local tag `a0.1.1` names;
-the first deployment, D-046). Gate 5.1 decided to go on to stage 2 (D-045 (1)); B.2 runs first, and stage 2 starts
-by day on 2026-11-20 in a new session (D-048). The night of 2026-11-19 ended at 02:57 with `no-ticket`.
+Updated 2026-11-20, day session `limen-rebuild-11`, rebuild stage 5 in plan stage 2: stage 1 is closed at `a0.1.1`
+(deployed on 2026-11-20, with B.2 closed by D-050); stage 2 has R-015 and R-016 done and R-017–R-020 and R-089
+`ready` for the night. The newest entries are at the end of this section, from "Day session of 2026-11-20".
 
 Handover of 2026-11-19 (D-033, at 37 % context, after the commit `R-014:`): `limen-rebuild-5` started
 `limen-rebuild-6` in `tmux` in remote-control mode (14:10) and ended. WSL booted at 10:34 on 2026-11-19, after the
@@ -2180,22 +2188,24 @@ session limen-rebuild-9` and two `handover: stopped claude …` lines and exited
 - R-089 `ready` from a third read-only inventory (every place that sets `next` or `code`, the old-names entries,
   the tests): D-045 (2), (5) and D-046 (1)–(3), (5) settle it; the main session put the parser check of D-046 (3) into
   the tests' reader of the final line.
-- R-019 waits for Adrian's answer 3 (asked 2026-11-20): whether it depends on R-020 as well, so that the lock's owner
-  identity (pid, start time, boot id) comes from the platform adapter (recommended), and his consent to its technical
-  defaults (a 60 s bounded wait, then an error naming the lock file, the owner and a hint; an old owner file holding
-  only a pid is abandoned only when that pid is gone; the units' `TimeoutStartSec` goes to R-032). His answer becomes
-  a decision entry, and R-019 becomes `ready (D-NNN)`.
+- R-019 waited for Adrian's answer 3 (asked 2026-11-20), given to `limen-rebuild-11` (see below).
 
-Next (by day on 2026-11-20, in this order):
-1. Adrian's answer 3: a decision entry D-056 (with 3a, R-019 also depends on R-020 in `## Tickets`), then R-019
-   `ready (D-056)`; the night writes its `ticket.md` at its HEAD.
-2. On Adrian's "Tryb nocny do HH:MM": the checks of D-024, then `night.mjs`; this is the rehearsal of D-053 (3). The
-   night has four `ready` tickets on four independent branches: R-017, R-018, R-020 and R-089 (and R-019 after R-018,
-   and R-020 with 3a).
+Day session of 2026-11-20, continued (`limen-rebuild-11`; its `close-previous` printed `handover: closed tmux session
+limen-rebuild-10` and one `handover: stopped claude …` line and exited 0; its push notification was skipped as
+redundant):
+- Answer 3 → D-056: R-019 depends on R-018 and R-020 (the owner identity from `src/platform/`, which R-020's AC-4
+  requires), the 60 s bounded wait with a typed error, the pid-only owner file abandoned only when its pid is gone, and
+  `TimeoutStartSec` in R-032 (a note in `## Tickets`). R-019 `ready (D-056)`; the night writes its `ticket.md` at the
+  HEAD it starts from, after R-018 and R-020 are `done`.
+
+Next (by day on 2026-11-20):
+1. On Adrian's "Tryb nocny do HH:MM": the checks of D-024, then `night.mjs`; this is the rehearsal of D-053 (3). The
+   night has four `ready` tickets on four independent branches: R-017, R-018, R-020 and R-089, and R-019 after R-018
+   and R-020.
 Then the plan of the day session's reply of 2026-11-20: Saturday R-021 first (the root of R-022–R-025), R-089, R-022;
 Sunday the rest of stage 2 and its close (tag `a0.2.0`, gate 5.2 by phone); stage 3 after his "go on".
 
-Open questions for Adrian: answer 3 (R-019) above.
+Open questions for Adrian: none.
 
 Handover of 2026-11-20 (D-047, at 42 % context, after the commit that makes R-089 `ready`): `limen-rebuild-10`
 starts `limen-rebuild-11` with `node adrian-rebuild/tools/handover.mjs start 11` and ends its turn. The next session's
