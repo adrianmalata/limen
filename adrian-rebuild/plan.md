@@ -39,7 +39,8 @@ limen-rebuild-12; D-059: sesja główna uruchamia bramkę po raporcie końcowym 
 o zakończeniu zadania; D-060: git 2.56.1 z Linuxbrew na laptopie zamiast 2.34 (bez sudo); D-058 (usunięcie martwego kodu, którego Pi 1.5.1 nie ma) i R-017 zamknięty w dzień (adapter API
 Pi `src/runtime/pi-api.ts` ze strażnikami, kontrakt typów na prawdziwych typach Pi 1.5.1, bramka 377/377); R-020
 zamknięty w dzień (adapter platformy src/platform/ i wymagania systemowe przy limen init, bramka 401/401); R-022 i
-R-023 przygotowane do nocy, cztery pytania czekają na odpowiedź Adriana. -->
+R-023 gotowe do nocy po D-061 (odpowiedzi zgodne z rekomendacjami; nowy ticket R-092 dla T-38), ticket.md R-019 napisany
+w dzień; przekazanie do limen-rebuild-13, która uruchomi noc na hasło Adriana. -->
 
 
 
@@ -722,6 +723,25 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   has `-z`; (3) a copy of a HEAD before R-020 that `fails-before.mjs` builds still plants with `/usr/bin`'s git and no
   shim, so a worktree test at such a HEAD can fail for that reason alone (R-020's run before the upgrade stands).
   Check: `git --version` → 2.56.1; R-020's AC-2 as written.
+- 2026-11-20 D-061 (Adrian, "Pytania zgodnie z twoimi rekomendacjami", after he had the session read
+  `gate-2-decisions.md`, `taste.md`, the harness principles and this plan and ask again; R-022's and R-023's
+  questions): (1) R-022: a well-formed id or token that names no job exits with code 2, class `usage`, code
+  `JOB_NOT_FOUND`, so one resolver gives one class to every reference that does not name exactly one job. (2) R-023
+  is split by rule: R-023 keeps T-26 and the notes of D-044 and D-045 (2), size M; the new R-092 takes T-38 (the
+  `validate`/`apply` shape, the type test, the race test, the shared snapshot), depends on R-021 and R-023, and R-025,
+  R-030 and R-037 depend on it. (3) The shared wrapper prints all of a command's text at its end (T-26 (1)); `spawn`'s
+  early id line goes, the id stays in `ids.job` and in `limen status`; `picture serve` is the one streaming command.
+  (4) Limen starts its own CLI from one launcher module with the client function of the final line (T-25 (1),
+  T-26 (4), T-37 (2)); a scan bans launches elsewhere; the rule timer and `group advance` use it until R-034 and
+  R-077. Settled by the documents, not asked (the session's reading, recorded here): in R-022 a hint's `next` is the
+  command with the one candidate's token, or `limen status --all` for several or none (T-20 (3), D-046 (1), D-045
+  (2)); `status --ticket` belongs to the ticket that first records the job's ticket (T-20 (2), T-24); the token is
+  checked against the records and `.limen/unmigrated/` until R-031 adds the archive. In R-023 and R-092: `ticket
+  done` refuses before any move and `picture build --strict` writes nothing on a refusal (T-38 (1), T-01); a partial
+  group roster is a sequence of recorded steps a rerun continues (T-38 (3)); commands with `movedBy` (including
+  `group wait`) are exempt from the T-26 scans by that field (D-039, R-018's exception-list precedent), while the logic
+  other commands use moves to domain modules; ticket operations stay in `src/project/` until R-061 creates
+  `src/spec/`; a converted refusal carries its own code (T-01, T-28 (1)). Check: R-022's, R-023's and R-092's criteria.
 
 ### Gate 2 §2, copied
 
@@ -1089,22 +1109,23 @@ Columns:
 | R-019 | One lock module with process identity and a bounded wait | 2 | A-017, A-018, A-055, A-058, A-087, T-25, D-029, D-056 | R-018, R-020 | M | delegated | night | yes | — | — | ready (D-056) |
 | R-020 | A Linux platform adapter and declared system requirements | 2 | A-083, T-12, T-32, D-060 | R-013 | M | delegated | night | — | — | — | done |
 | R-021 | One `record.json` per job, written only by the transition function | 2 | S1+, A-019, A-053, A-056, T-20, T-25, D-057 | R-016, R-018, R-019 | L | delegated | night | yes | — | — | ready (D-057) |
-| R-022 | Exact job references through one resolver | 2 | T-20 | R-014, R-021 | M | delegated | night | yes | — | — | planned |
-| R-023 | Commands are thin adapters over domain operations; a refusal leaves no trace | 2 | T-26, T-38, D-045, D-046 | R-014, R-021, R-089 | L | delegated | night | — | — | — | planned |
+| R-022 | Exact job references through one resolver | 2 | T-20, D-061 | R-014, R-021 | M | delegated | night | yes | — | — | ready (D-061) |
+| R-023 | Commands are thin adapters over domain operations | 2 | T-26, D-044, D-045, D-046, D-061 | R-014, R-021, R-089 | M | delegated | night | — | — | — | ready (D-061) |
+| R-092 | A refusal leaves no trace: `validate` then `apply` | 2 | T-38, D-061 | R-021, R-023 | L | delegated | night | — | — | — | planned |
 | R-024 | `limen stats` over records and transcripts | 2 | H-01, H-20, §2, T-33 | R-021, R-023 | M | delegated | night | — | pi | 2.3 | planned |
-| R-025 | Test coverage derived from the command registry | 2 | T-28, T-29, D-045, D-046 | R-014, R-023 | M | delegated | night | — | — | — | planned |
+| R-025 | Test coverage derived from the command registry | 2 | T-28, T-29, D-045, D-046 | R-014, R-023, R-092 | M | delegated | night | — | — | — | planned |
 | R-026 | Every job runs in its own systemd user scope | 3 | A-029, A-052, T-43 | R-020, R-021 | L | delegated | night | — | systemd | 3.2, 3.7, 3.8 | planned |
 | R-027 | The reaper ends a job only after its process group is gone | 3 | A-005, A-056 | R-026 | M | delegated | night | — | — | — | planned |
 | R-028 | SIGTERM reaches the engine; a signal without a stop request is a failure | 3 | A-020, A-052 | R-026 | M | delegated | night | — | — | — | planned |
 | R-029 | One recorded failure cause per job | 3 | A-016, E-9, T-31, T-32, D-055 | R-017, R-021 | M | delegated | night | — | bridge | 3.4 | planned |
-| R-030 | Unlanded work survives: `limen abandon`, a guarded prune, a refusing spawn | 3 | A-001 | R-023 | M | delegated | night | yes | — | — | planned |
+| R-030 | Unlanded work survives: `limen abandon`, a guarded prune, a refusing spawn | 3 | A-001 | R-023, R-092 | M | delegated | night | yes | — | — | planned |
 | R-031 | `landed` and `abandoned` markers; retire moves records to the archive | 3 | A-002, §6 | R-030 | M | delegated | night | yes | — | — | planned |
 | R-032 | `limen seat sweep` runs on a timer; read commands never write or wait | 3 | A-024, T-04, T-18, A-017, §6, D-045 | R-012, R-027, R-031 | L | delegated | night | yes | systemd | 3.1 | planned |
 | R-033 | Alerts from their own account: failures and escalations only | 3 | A-066, A-054, T-18 | R-021 | M | delegated | night | yes | systemd | 3.3 | planned |
 | R-034 | Resume after the quota limit in code; seat rules are cut | 3 | A-016, A-010, A-068, §6 | R-029, R-032, R-033 | L | delegated | night | yes | systemd | 3.4, 3.5 | planned |
 | R-035 | Start-queue thresholds: a diagnosis at 30 min, a failure at 2 h | 3 | A-036 | R-026, R-033 | M | delegated | night | — | systemd | 3.8 | planned |
 | R-036 | Stall is measured over the whole job scope | 3 | A-059 | R-026 | M | delegated | night | — | systemd | 3.8 | planned |
-| R-037 | Land runs as recorded steps with an atomic closing commit | 3 | A-021, A-057, T-18, T-28 | R-023, R-031 | L | delegated | night | yes | herdr | 3.9 | planned |
+| R-037 | Land runs as recorded steps with an atomic closing commit | 3 | A-021, A-057, T-18, T-28 | R-023, R-031, R-092 | L | delegated | night | yes | herdr | 3.9 | planned |
 | R-087 | The job environment is an allow-list; git and gh in a job hold no credential (T1) | 3 | A-004, A-061, E-4, D-017 | R-015, R-021, R-026 | M | delegated | night | — | pi, bridge | 3.10 | planned |
 | R-038 | The fake engine shows the model's view under the bridge | 4 | T-31, A-051 | R-017 | M | delegated | night | — | bridge | 4.1 | planned |
 | R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16 | R-021, R-038 | L | delegated | night | yes | pi, bridge | 4.2 | planned |
@@ -2327,22 +2348,27 @@ redundant):
   After that reading (a fresh subagent read all four in full), seven of the eleven questions were settled by T-20,
   T-24, T-26, T-38, T-01, T-28, D-039, D-046 and R-018's precedent; four were asked again on 2026-11-20 at 23:40
   (R-022: the class of an id that names no job; R-023: the split into R-023 and a new R-092, the early `spawn` line,
-  one launcher module for Limen's own CLI).
+  one launcher module for Limen's own CLI) → D-061 (Adrian: all as recommended). R-022 and R-023 `ready (D-061)`;
+  the new R-092 (T-38) `planned`; the inventories' facts are in `evidence/inventories/R-022-R-023.md`.
+- R-019's `ticket.md` written by day (`check.mjs` requires it once R-020 is `done`, D-054 (1)), from a read-only
+  inventory at R-020's tree; R-020 committed as `90a34ca`.
 
 Active ticket: none.
 
-Next (2026-11-20, late evening):
-0. Adrian's answers to the four questions → `ticket.md` → `## Decisions` (R-022 and R-023 written as `ready (D-NNN)`,
-   their `ticket.md` written by the night at the HEAD it starts from, as for R-019 and R-021); on (2b) the new R-092
-   row, `planned`, with R-025, R-030 and R-037 depending on it.
-1. On Adrian's "Tryb nocny do HH:MM": the checks of D-024, then `night.mjs`; this is the rehearsal of D-053 (3). The
-   night's `ready` tickets: R-089 (independent), R-019 (its dependencies R-018 and R-020 are `done`), R-021 after
-   R-019, and, once answered, R-022 after R-021 and R-023 after R-021 and R-089.
+Next (night of 2026-11-20/21, then by day):
+0. `limen-rebuild-13` starts the night run only when Adrian gives it the night phrase ("Tryb nocny do HH:MM"; D-024,
+   D-053 (3)): it shows the runner's tests, the pushed SHA and a clean tree, checks that a new `claude -p` session
+   lists both subagent definitions, runs `mkdir -p adrian-rebuild/.night` and `nohup node adrian-rebuild/tools/night.mjs
+   --until HH:MM` with stdout and stderr to `adrian-rebuild/.night/launcher.log`, in the background, and then changes
+   nothing in the repository until Adrian writes. The night's `ready` tickets in dependency order: R-019 (`ticket.md`
+   written) and R-089 on independent branches, R-021 after R-019, R-022 after R-021, R-023 after R-021 and R-089; the
+   night writes the `ticket.md` of R-021, R-022 and R-023 at the HEAD it starts each from (D-057, D-061, the
+   inventories in `evidence/`).
+1. Morning: the day session reads `.night/status.json` and `.night/questions.md`, moves answers to `ticket.md` →
+   `## Decisions`, and goes on with stage 2 (R-092, R-024, R-025, then the close: tag `a0.2.0`, gate 5.2 by phone).
 2. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
    D-047 and D-054 were.
-Then the plan of the day session's reply of 2026-11-20: Saturday R-021 first (the root of R-022–R-025), R-089, R-022;
-Sunday the rest of stage 2 and its close (tag `a0.2.0`, gate 5.2 by phone); stage 3 after his "go on".
 
 Open questions for Adrian: none.
 
@@ -2366,3 +2392,9 @@ Handover of 2026-11-20 (D-047, at 31 % context, after the commit `R-018:`): `lim
 acts: a push notification to Adrian that it takes over at stage 2 (R-017 by day, or the night mode on his word); then
 `node adrian-rebuild/tools/handover.mjs close-previous`, whose lines it reports to Adrian; then `Next`. The handover
 after it is `limen-rebuild-13`.
+
+Handover of 2026-11-20 (D-047, at 47 % context, after the commit `D-061:`): `limen-rebuild-12` starts
+`limen-rebuild-13` with `node adrian-rebuild/tools/handover.mjs start 13` and ends its turn. The next session's first
+acts: a push notification to Adrian that it takes over and waits for the night phrase; `node
+adrian-rebuild/tools/handover.mjs close-previous`, whose lines it reports to Adrian; then `Next` 0. The handover after
+it is `limen-rebuild-14`.
