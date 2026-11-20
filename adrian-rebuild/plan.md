@@ -30,7 +30,8 @@ i rzutowań, bramka 310/310); D-053 i D-054: praca pod nieobecność Adriana 21�
 recenzja, status ready dla nocy, domyślne decyzje techniczne nocą, arkusz wariantów dla ticketów pair); przekazanie
 do limen-rebuild-10, która zrobiła D-054 w check.mjs (moduł tools/ticket-rules.mjs: status ready, nocny ticket pair
 z zapisanymi wyborami, polecenia kryteriów sprawdzane z allow-listą); R-018 i R-020 gotowe do nocy (ready); R-017
-czeka na dwie odpowiedzi Adriana, a R-019 na trzecią (zależność od R-020). -->
+gotowy po D-055 (kontrakt typów Pi tylko jako test w repo, błędy kształtu zdarzeń jako BAD_DATA); R-019 czeka na
+trzecią odpowiedź (zależność od R-020). -->
 
 
 
@@ -637,6 +638,15 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   numbered message with a push; his answers ("1a 2b …" or his own text) go to `ticket.md` → `## Decisions`; the
   ticket keeps the mode `pair` and its `Run` becomes `night`, and `rebuild-implementer` implements it, as D-037 did for
   R-014. Check: `check.mjs` once (1) is built; the night defaults in each `ticket.md`.
+- 2026-11-20 D-055 (Adrian, R-017's two questions, answered "1c 2a" as recommended; amends D-008 (6) and T-32 (2)):
+  (1) The Pi type contract of R-017 runs only in the repository, as a test inside `node --test` on the copy of the
+  Pi packages in `adrian-rebuild/input/vendor/` (the same npm tarballs the seat installs, checked by their integrity
+  hashes), and again in every ticket that updates Pi or the bridge; `seat/deploy.ts` does not run it, because the seat
+  has no `tsc` and root would need the network for one. Until R-049 refuses another Pi version, Pi on the seat is not
+  updated without a ticket. (2) A Pi event of the wrong shape: R-017's type guards throw a typed `BAD_DATA` error
+  (`src/boundary.ts`) that names the event and the field, which Pi reports as an extension error; the job's failure
+  with kind `engine-error` and the warning in the coordinator's `limen status` (T-32 (4)) are R-029's, which gets T-32
+  and D-055 as sources. Check: R-017's and R-029's criteria; `## Deployment` 2.2.
 
 ### Gate 2 §2, copied
 
@@ -999,7 +1009,7 @@ Columns:
 | R-089 | The final line's `code` and `next` are a value or `null`; `next` is always a command | 2 | T-37, T-02, D-045, D-046 | R-014 | M | delegated | night | — | — | — | planned |
 | R-015 | One configuration reader; settings come only from owner files | 2 | T-03 | R-014 | M | delegated | night | yes | — | — | done |
 | R-016 | One boundary parsing module with validators; the cast ratchet | 2 | T-27 | R-013 | M | delegated | night | — | — | — | done |
-| R-017 | One Pi API adapter with type guards, checked against Pi's real types | 2 | T-32 | R-012, R-016 | M | delegated | night | — | pi | 2.2 | planned |
+| R-017 | One Pi API adapter with type guards, checked against Pi's real types | 2 | T-32, D-055 | R-012, R-016 | M | delegated | night | — | pi | 2.2 | ready |
 | R-018 | One atomic-write module | 2 | A-022, T-25 | R-013 | L | delegated | night | — | — | — | ready |
 | R-019 | One lock module with process identity and a bounded wait | 2 | A-017, A-018, A-055, A-058, A-087, T-25, D-029 | R-018 | M | delegated | night | yes | — | — | planned |
 | R-020 | A Linux platform adapter and declared system requirements | 2 | A-083, T-12, T-32 | R-013 | M | delegated | night | — | — | — | ready |
@@ -1011,7 +1021,7 @@ Columns:
 | R-026 | Every job runs in its own systemd user scope | 3 | A-029, A-052, T-43 | R-020, R-021 | L | delegated | night | — | systemd | 3.2, 3.7, 3.8 | planned |
 | R-027 | The reaper ends a job only after its process group is gone | 3 | A-005, A-056 | R-026 | M | delegated | night | — | — | — | planned |
 | R-028 | SIGTERM reaches the engine; a signal without a stop request is a failure | 3 | A-020, A-052 | R-026 | M | delegated | night | — | — | — | planned |
-| R-029 | One recorded failure cause per job | 3 | A-016, E-9, T-31 | R-017, R-021 | M | delegated | night | — | bridge | 3.4 | planned |
+| R-029 | One recorded failure cause per job | 3 | A-016, E-9, T-31, T-32, D-055 | R-017, R-021 | M | delegated | night | — | bridge | 3.4 | planned |
 | R-030 | Unlanded work survives: `limen abandon`, a guarded prune, a refusing spawn | 3 | A-001 | R-023 | M | delegated | night | yes | — | — | planned |
 | R-031 | `landed` and `abandoned` markers; retire moves records to the archive | 3 | A-002, §6 | R-030 | M | delegated | night | yes | — | — | planned |
 | R-032 | `limen seat sweep` runs on a timer; read commands never write or wait | 3 | A-024, T-04, T-18, A-017, §6, D-045 | R-012, R-027, R-031 | L | delegated | night | yes | systemd | 3.1 | planned |
@@ -1098,7 +1108,8 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   (`src/integrations/github-review.ts:146`); hosted jobs: 0 in both projects (gate 2 §1).
 - R-012: the script is `seat/deploy.ts` (TypeScript, D-010), which also puts `seat/` under `tsconfig.json` and
   the scan for `.sh` files in `seat/` and `bin/`; it reads job state through the record module once R-021 exists.
-  R-017, R-032 and R-056 add the type contract, the unit verification and the nftables check to it. The D3 test that
+  R-032 and R-056 add the unit verification and the nftables check to it; the Pi type contract runs in the repository
+  (D-055). The D3 test that
   `src/` and `hook/` have no dynamic `import(` on the job-finalize path lives here (none at `rebuild-base`).
 - R-009, R-046: under the bridge Claude Code's subagent tool is always denied (E-5), so the condition of T-33 for a
   subagent in the coordinator's session does not hold; the manual recommends no subagent. A short question is the
@@ -1259,7 +1270,7 @@ full SHA.
 - **0.2** As root: `node /opt/limen/seat/deploy.ts <sha>` with the full SHA. The script refuses, listing the running
   jobs, while any job runs (§7 D3); fetches `origin adrian-rebuild`; refuses a SHA that is not an ancestor of
   `origin/adrian-rebuild`; checks it out detached and tags it locally; compares `git rev-parse HEAD` with the SHA;
-  from a0.2.0 runs the Pi type contract (T-32, R-017), from a0.3.0 verifies the generated systemd units with
+  from a0.3.0 verifies the generated systemd units with
   `systemd-analyze verify` (R-032), and from a0.5.0 the nftables rules with `nft -c -f` (R-056). On any failure after
   the checkout it returns to the previous SHA and exits with code 4 (D-010).
 - **0.3** Reload every coordinator session with `/reload` (from a0.5.0: restart it through the start script, R-050).
@@ -1315,8 +1326,9 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
 - **2.0** Deploy a0.2.0 by 0.1–0.3: `node /opt/limen/seat/deploy.ts <sha>` with the full SHA from gate 5.2.
 - **2.1** The record migration of R-021 with `--dry-run`, then for real, in each project; the report lists every job
   and every id collision (item 10).
-- **2.2** The deployment script ran the type contract of R-017 against the installed Pi 1.5.1 types and exited 0
-  (item 16).
+- **2.2** After `/reload`, the coordinator's session shows no extension error from Limen's hooks, which now take the
+  Pi API from R-017's adapter and check events with its type guards; the type contract itself ran in the repository
+  on the vendor copy of Pi 1.5.1 (D-055; item 16).
 - **2.3** `limen stats` over the migrated history of both projects matches the counts known from gate 2: 142 jobs (84
   worker, 58 reviewer; T-33) and 18 failed (12 limit, 3 timeout, 2 stall, 1 exit; `audit.md` gate 2 §1, Q1) (R-024;
   B.3).
@@ -1620,7 +1632,7 @@ Rules of form (D-016):
   no session starts a night run of its own (D-019).
 
 Adrian writes `.claude/settings.local.json`; the rebuild session never changes its own permissions. He adds the
-command strings of the gate-time tool (R-011) and of the contract script (R-017) after those tickets' `outcome.md`,
+command string of the gate-time tool (R-011) after its `outcome.md` (R-017's contract runs inside `node --test`, D-055),
 and the stage-2 rows at the start of stage 2.
 
 Every stage:
@@ -2153,11 +2165,11 @@ session limen-rebuild-9` and two `handover: stopped claude …` lines and exited
   32 tests, each failing before its change; reviews PASS in rounds 1–3 (eight, two and one notes, all fixed; two
   rounds of fixes, round 3's note was text of the spec, fixed without a fourth round by D-053 (2)); commit `D-054:`. Run as if `active`, the check names R-012's AC-6 (`node seat/deploy.ts`, Q-8) and ten criteria of
   done tickets that predate D-025.
-- R-017 waits for Adrian's answers (asked 2026-11-20, in plain words at his request): (1) where the Pi type contract
-  runs, since the seat has no `tsc` (a: `npm ci` in `seat/deploy.ts`; b: a TypeScript root installs once; c: only
-  as a test on the vendor copy, the seat's version guarded by R-049; recommended c); (2) what a hook does with a Pi
-  event of the wrong shape before R-021 and R-029 (a: a typed `BAD_DATA` error now, the job's `engine-error` and the
-  warning in `limen status` by R-029; b: all of T-32 (4) now, with an interim file; recommended a).
+- D-055 (Adrian, "1c 2a", asked in plain words at his request): R-017's type contract runs only in the repository, as a
+  test on the vendor copy (`seat/deploy.ts` does not run it; `## Deployment` 0.2 and 2.2, the R-012 note and
+  `## Commands` follow, and T-32 has a dated addition); its guards throw `BAD_DATA`, and R-029 (sources T-32, D-055)
+  records the job's `engine-error` and the warning. R-017 `ready` with its `ticket.md` (`skipLibCheck` with
+  compile-time "not `any`" assertions, because Pi's type closure reaches provider SDKs that are not vendored).
 - Inventories for R-018 (every temp-and-rename writer and every direct write to `spec/` and job files) and R-020
   (platform operations, external programs, requirement checks) came from two read-only subagents; their facts are in
   those tickets' `ticket.md`.
@@ -2172,15 +2184,14 @@ session limen-rebuild-9` and two `handover: stopped claude …` lines and exited
   a decision entry, and R-019 becomes `ready (D-NNN)`.
 
 Next (by day on 2026-11-20, in this order):
-1. Adrian's answers 1–3: R-017's `ticket.md` from answers 1 and 2, then `ready`; R-019's decision entry from answer 3,
-   then `ready (D-NNN)`.
+1. Adrian's answer 3: R-019's decision entry, then `ready (D-NNN)`.
 2. R-089's `ticket.md` (its dependency R-014 is `done`), `ready`: a third branch for the night.
 3. On Adrian's "Tryb nocny do HH:MM": the checks of D-024, then `night.mjs`; this is the rehearsal of D-053 (3). R-018
-   and R-020 stay for the night, so that it has two independent branches even without the answers.
+   and R-020 stay for the night; with R-017 the night has three independent branches.
 Then the plan of the day session's reply of 2026-11-20: Saturday R-021 first (the root of R-022–R-025), R-089, R-022;
 Sunday the rest of stage 2 and its close (tag `a0.2.0`, gate 5.2 by phone); stage 3 after his "go on".
 
-Open questions for Adrian: answers 1 and 2 (R-017) and 3 (R-019) above.
+Open questions for Adrian: answer 3 (R-019) above.
 
 Notes for the next session:
 - Start Claude Code in the repository root, so that it loads `.claude/agents/`.

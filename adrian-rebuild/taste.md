@@ -1356,6 +1356,9 @@ the author's choice. Taste decisions taken after this interview are added here w
   and mismatching types; a test that start and spawn refuse another version (exit code 4); a type-guard test on an
   event of the wrong shape.
 - Source: interview round 7, AU-220; departs from the author.
+- Where the contract runs (2026-11-20, Adrian, R-017's questions; `plan.md` D-055): only in the repository, as a test
+  on the vendor copy of the Pi packages, and in every ticket that updates Pi or the bridge, not in the deployment
+  script; (4)'s job failure and `limen status` warning come with R-029, while R-017's guards throw a typed error.
 
 ### T-33 The scout role is cut
 - Rule: The scout role is `rejected`. On the seat there were 0 scout jobs among 142 (84 worker, 58 reviewer; also 0
