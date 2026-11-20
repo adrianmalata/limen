@@ -24,7 +24,8 @@ D-048: B.2 tego samego wieczoru zamiast nocy, etap 2 w dzień 20.11; D-049 i D-0
 (seat check R-011 zaliczony, dwie ważne próby F013 bez kandydata, dwie unieważnione, raport w evidence/);
 D-051: koordynatory używają /opt/limen; a0.1.1 wdrożony 20.11 (1.0–1.3 i próbna trasa 0.6 na ledgerze:
 F009 i F010, land bez „land”); projekty stoją do a0.3.0 (D-012); przekazanie do limen-rebuild-9, które zaczyna
-etap 2 w dzień. -->
+etap 2 w dzień; 20.11 D-052 (wyjątki zmiennych LIMEN_* i miejsca ustawień) i R-015 zamknięty (jeden moduł
+konfiguracji src/config.ts, bramka 277/277); otwarte pytania o pracę pod nieobecność Adriana 21–23.11. -->
 
 
 
@@ -584,6 +585,16 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   wake hook registers the root of every coordinator session, `hook/wake.ts:906` at `rebuild-base`); the six lines are
   removed by hand at 1.0, and the "after" runs give each attempt its own `LIMEN_HOME` (part of D-050's isolation
   proposal). Check: `readlink -f` of the link, and `limen --help` ends with the final line of R-013.
+- 2026-11-20 D-052 (Adrian, R-015's three questions, answered "1. A", "3. A" and with the seat output of 2; amends
+  the R-015 note of `## Tickets`): (1) Besides `LIMEN_WORKER_MODEL` (until R-062; `LIMEN_REVIEWER_MODEL` of the note
+  has no read site), the environment stays readable for `LIMEN_COORDINATOR` (until R-050), the six `LIMEN_GITHUB_*`
+  names of the poller (until R-059) and `LIMEN_PACKAGE` (until R-049); each is an exception with its end ticket in
+  the registry of `src/config.ts`, and `limen status` names it. (2) The seat's agents' account sets no `LIMEN_*` name in
+  `~/.bashrc` or `~/.profile`, and a login shell holds none; the Herdr pane's environment is left to step 2.4.
+  (3) `prepare`, `toolStall` and the new `toolCalls` come from `limits.json` only, the start gate from the seat's
+  `start-gate.json` only; `LIMEN_PREPARE`, `LIMEN_PREFLIGHT`, `LIMEN_VIEW`, `LIMEN_WAKE` and `LIMEN_PI` are no longer
+  read; the three waits with no setter become constants; `LIMEN_HOME` and the six other knobs of the tests are test
+  knobs. Check: R-015's criteria (`R-015-one-config-reader/ticket.md`).
 
 ### Gate 2 §2, copied
 
@@ -822,7 +833,7 @@ What changes in daily work on the seat once the stage's tag is deployed:
 | Stage | Change |
 |---|---|
 | 1 | Cut commands and flags refuse with a pointer (`--tab`, `highlight`, `ticket-author`, `wait`, `ticket series`, `continue --review`, webhooks, Devin, Linear, OMP, scout). Every command ends with a JSON line and exits with a failure-class code; `limen --help` is the grouped help; `limen jobs` is `limen status --all` and `limen show <id>`, `limen queue` is `limen seat queue`. Tags deploy through `seat/deploy.ts`. |
-| 2 | Job records live in `record.json` (migrated once). A job is named by its full id or its final token of 8 hex characters, never by a label (T-20, R-022). `LIMEN_*` settings in the environment no longer apply, except the two route variables. `limen stats` reports from the records. |
+| 2 | Job records live in `record.json` (migrated once). A job is named by its full id or its final token of 8 hex characters, never by a label (T-20, R-022). `LIMEN_*` settings in the environment no longer apply, except the exceptions of D-052, which `limen status` names with the ticket that ends each (R-015). `limen stats` reports from the records. |
 | 3 | Unlanded work is never pruned or retired: `limen abandon <id>` keeps it on a branch, and spawn refuses while such a job is unresolved. Reads never reap; `limen seat sweep` on a timer finalises dead jobs every minute (A-024, R-032). After a 5-hour limit, jobs resume by themselves 5 minutes after the reset, with no seat rule and no manual resume. Job failures and long start-queue waits ring the phone (escalations from stage 7). A `limen land` that stopped half-way continues when it runs again. Jobs see only allow-listed environment variables, and git and gh in a job hold no credential (T1, R-087). |
 | 4 | The models get Limen's instructions for the first time (coordinator manual, role prompts), so their behaviour changes (measured by M-05). The turn cue no longer demands English: its audience line names the language (T-13). Jobs end without the task-note turn; a read-only role that writes fails; a `sleep` of 30 s or more is refused in the coordinator (T-34, R-047); modules are off unless switched on in `limits.json`. |
 | 5 | Coordinators start only through the root start script. Jobs run the bridge isolated and reach only allow-listed domains. The owner channel publishes `main`, so Adrian stops pushing; owner files change only through the owner channel. Wakes carry a header, and the coordinator reads a result with `limen show <id> --result` (A-008, R-051); the handoff note goes through a tool; a hand commit on `main` is refused. |
@@ -939,7 +950,7 @@ Columns:
 | R-091 | The same-task runner refuses an unmarked Pi event and states its touchpoint definition | 1 | D-045, D-046, D-021, H-21 | R-011 | S | delegated | night | — | pi | B.2 | done |
 | R-090 | The deployment script names what it checked; a registry without a project refuses | 1 | D-045, D-046, D-008, §7 | R-012 | S | delegated | night | — | — | 1.0 | done |
 | R-089 | The final line's `code` and `next` are a value or `null`; `next` is always a command | 2 | T-37, T-02, D-045, D-046 | R-014 | M | delegated | night | — | — | — | planned |
-| R-015 | One configuration reader; settings come only from owner files | 2 | T-03 | R-014 | M | delegated | night | yes | — | — | planned |
+| R-015 | One configuration reader; settings come only from owner files | 2 | T-03 | R-014 | M | delegated | night | yes | — | — | done |
 | R-016 | One boundary parsing module with validators; the cast ratchet | 2 | T-27 | R-013 | M | delegated | night | — | — | — | planned |
 | R-017 | One Pi API adapter with type guards, checked against Pi's real types | 2 | T-32 | R-012, R-016 | M | delegated | night | — | pi | 2.2 | planned |
 | R-018 | One atomic-write module | 2 | A-022, T-25 | R-013 | M | delegated | night | — | — | — | planned |
@@ -1257,7 +1268,8 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
   worker, 58 reviewer; T-33) and 18 failed (12 limit, 3 timeout, 2 stall, 1 exit; `audit.md` gate 2 §1, Q1) (R-024;
   B.3).
 - **2.4** `limen status` lists the `LIMEN_*` settings variables it finds in the environment (R-015); remove them from the
-  coordinator's environment, except the two route variables, which stay until 6.1.
+  coordinator's environment. The variables it lists as read until a ticket stay (D-052): `LIMEN_WORKER_MODEL`
+  until 6.1, `LIMEN_COORDINATOR` until R-050, `LIMEN_PACKAGE` until R-049, the poller's `LIMEN_GITHUB_*` until R-059.
 
 ### After stage 3 (a0.3.0)
 
@@ -1979,6 +1991,25 @@ in a scratch folder of the agents' account, outside the projects):
   fixed without a fourth review (Adrian, (a)) (`evidence/handover/`). The project memory note on the handover follows
   D-047.
 
+Day session of 2026-11-20 (`limen-rebuild-9`; its `close-previous` printed `handover: stopped claude 822 (claude -r)`
+and exited 0; after Adrian's `/remote-control` the session id, and so the context file, changed):
+- D-052 (Adrian's answers to R-015's three questions): the exceptions besides `LIMEN_WORKER_MODEL`, the seat fact that
+  no `LIMEN_*` is set in the agents' login shell, and the place of each setting.
+- R-015 `done` (delegated): `src/config.ts` is the only reader of `process.env.LIMEN_*` in `src/`, `hook/`, `bin/` and
+  `seat/`; its registry gives each of the 48 names a kind; `limits.json` alone sets `prepare`, `toolStall` and the new
+  `toolCalls`, `start-gate.json` alone the start gate (also `"off"`); the environments of the wrapper, the engine and the
+  group advance are built from the registry, which closes the leaks of `LIMEN_TIMEOUT_MS` and `LIMEN_CONTINUE` (both
+  shown failing at HEAD); `limen status` names ignored settings and the exceptions with their tickets. Reviews PASS in
+  rounds 1–3 with two rounds of fixes; round 3's three notes were text of `outcome.md` and `review.md`, fixed by the
+  main session without a fourth review. Gate 277/277. The stage-2 row of `### Cost and effect per stage` and step 2.4
+  now follow D-052 (review round 1, finding 6). For R-034: the `rule` timer still starts from the whole environment
+  (`src/commands/rule.ts:136`); for R-054: a job can raise its own tool cap through the project root's `limits.json`,
+  as it can its stall time (G2 accepted risk until then); for R-084: the person-naming comments of
+  `src/runtime/start-queue.ts:16-17`. The implementer's scratch runners lie outside the repository in
+  `/tmp/limen-r015-round2/` (Adrian removes them; `rm` is denied to the sessions).
+- Cost of R-015 (the day session's readings of its context file): the weekly use went from 71 % to 75 %, the 5-hour
+  window from 29 % to 54 %.
+
 Active ticket: none.
 
 Handover of 2026-11-19 (D-047, at 31 % context, after the commit `D-047:`): `limen-rebuild-7` (a `claude -r` in a
@@ -2028,11 +2059,27 @@ nothing to reload. D-051 done: the registry holds the two projects, the agents' 
   "continue the work" is the coordinator's standing instruction.
 - The deployment of `a0.1.1` is complete (0.1–0.3, 0.6, 1.0–1.3). B.3 follows the deployment of `a0.2.0`.
 
-Next: stage 2 by day in `limen-rebuild-9` (D-048), from its first tickets in dependency order (R-089, R-015, R-016,
-R-018, R-020 have only stage-1 dependencies). A night run of stage 2 from the evening of 2026-11-20 needs Adrian's
-word in the conversation and the checks of D-024.
+Next: stage 2 by day, the lowest `planned` ticket whose dependencies are `done` (R-016, then R-017, R-018, …;
+protocol step 1). A night run of stage 2 needs Adrian's word in the conversation and the checks of D-024.
 
-Open questions for Adrian: none.
+Open questions for Adrian (asked 2026-11-20; he is away 2026-11-21 to 2026-11-23 with only his phone, no terminal and
+no seat access, and wants the work to go on by day through Remote Control and push notifications and by night through
+`night.mjs`):
+1. When his weekly limit resets (Claude app → Settings → Usage): R-015 alone used about 4 points of the weekly limit,
+   and stage 2 has 11 tickets left, so the limit, not the mechanism, bounds the three days.
+2. A stop threshold, recommended (a): by day no new ticket at a weekly use of 90 % or more (finish the current one,
+   push, notify), a night run only when the evening reading is below 80 % (a night run cannot read its use); (b) 95/85;
+   (c) no night runs.
+3. A cheaper review (a change of `## Agents` step 6), recommended yes: a PASS whose notes touch only docs or
+   `outcome.md` is fixed by the main session without another review round; a fix of code or tests still gets a round.
+4. A rehearsal on the night of 2026-11-20: Adrian asks for the night mode from his phone, the main session starts
+   `night.mjs` through a permission prompt he approves there (D-024), and he answers in the morning from the phone.
+   Before he leaves, at the laptop: sleep "Never" on mains power, the lid action "Do nothing", Windows Update paused,
+   power and network kept; and whether the WSL start of 2026-11-20 06:14 was his own restart.
+While he is away: the seat steps (2.0–2.4, B.3), edits of `.claude/settings.local.json` and `.claude/agents/*`, and a
+void review that left a file the reviewer created (`rm` is denied) wait for his return; a ticket that waits on one
+of them is `blocked`, and the session takes the next ticket that does not depend on it. R-017's contract check is
+designed to run inside `node --test`, so that it needs no new allow-list line.
 
 Notes for the next session:
 - Start Claude Code in the repository root, so that it loads `.claude/agents/`.

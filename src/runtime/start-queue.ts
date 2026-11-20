@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { cpus } from "node:os";
 import { basename, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { testKnob } from "../config.ts";
 import { groupLock } from "../job/group-cabinet.ts";
 import { formatDuration, parseDuration } from "../job/job.ts";
 import { appendLimenLog, atomicWrite, textFile } from "../job/record.ts";
@@ -39,19 +40,18 @@ const SAMPLE_MS = 2_000;
 const DETAIL_REFRESH_MS = 60_000;
 const queueDir = () => join(seatDir(), "start-queue");
 const entryPath = (id: string) => join(queueDir(), "entries", `${id}.json`);
-const pollMs = (): number =>
-	Number(process.env.LIMEN_START_POLL_MS) > 0 ? Number(process.env.LIMEN_START_POLL_MS) : 5_000;
+const pollMs = (): number => {
+	const knob = Number(testKnob("LIMEN_START_POLL_MS"));
+	return knob > 0 ? knob : 5_000;
+};
 
 /**
- * The gate: `LIMEN_START_GATE` (`off`, or JSON shaped like the file) wins over `<seat>/start-gate.json`, which wins
- * over the defaults. Undefined when the gate is off. `ignored` names each value Limen did not use.
+ * The gate: `<seat>/start-gate.json`, the JSON string `"off"` or an object of the values it changes, else the
+ * defaults; the seat's file is the only source, and no environment variable overrides it (T-03, R-015). Undefined
+ * when the gate is off. `ignored` names each value Limen did not use.
  */
 export function startGate(): { readonly gate: StartGate | undefined; readonly ignored: readonly string[] } {
-	const override = process.env.LIMEN_START_GATE?.trim();
-	if (override === "off") {
-		return { gate: undefined, ignored: [] };
-	}
-	const source = override || readOptional(join(seatDir(), GATE_FILE));
+	const source = readOptional(join(seatDir(), GATE_FILE));
 	if (!source) {
 		return { gate: DEFAULT_GATE, ignored: [] };
 	}
@@ -61,8 +61,11 @@ export function startGate(): { readonly gate: StartGate | undefined; readonly ig
 	} catch {
 		return { gate: DEFAULT_GATE, ignored: ["the gate is not JSON"] };
 	}
+	if (parsed === "off") {
+		return { gate: undefined, ignored: [] };
+	}
 	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-		return { gate: DEFAULT_GATE, ignored: ["the gate is not a JSON object"] };
+		return { gate: DEFAULT_GATE, ignored: ['the gate is neither "off" nor a JSON object'] };
 	}
 	const gate = { ...DEFAULT_GATE };
 	const ignored: string[] = [];
@@ -92,7 +95,7 @@ function settleMs(value: unknown): number | undefined {
 /** CPU idle across all cores over about two seconds, and free memory. `LIMEN_START_READING` names a file that holds
  * both instead; tests and manual checks set the reading there, so the machine's load never decides them. */
 export async function readLoad(signal?: AbortSignal): Promise<Reading> {
-	const fixed = process.env.LIMEN_START_READING?.trim();
+	const fixed = testKnob("LIMEN_START_READING")?.trim();
 	if (fixed) {
 		const recorded: Partial<Record<keyof Reading, unknown>> = await readFile(fixed, "utf8").then(
 			(body) => JSON.parse(body),
@@ -419,7 +422,7 @@ export async function queueReport(): Promise<string> {
 		const state = !gateOpen(reading, gate) ? "closed" : settling > 0 ? `settling ${formatDuration(settling)}` : "open";
 		lines.push(`start gate ${state}: ${readingText(reading, gate)}; settle ${formatDuration(gate.settleMs)}`);
 	} else {
-		lines.push("start gate off (LIMEN_START_GATE=off): detached jobs start at once unless a rule holds them");
+		lines.push(`start gate off (${GATE_FILE} is "off"): detached jobs start at once unless a rule holds them`);
 	}
 	const entries = await liveEntries();
 	if (entries.length === 0) {

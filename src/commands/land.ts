@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
+import { transport } from "../config.ts";
 import { jobFeatures } from "../job/job.ts";
 import { resolveJob } from "../job/lookup.ts";
 import type { Parsed } from "../parser.ts";
@@ -25,7 +26,7 @@ import { deleteLandedBranches } from "./prune.ts";
 
 /** `limen land`: merges a done job onto the checked-out branch and closes its active tickets. */
 export async function landCommand(values: Parsed, cwd: string): Promise<undefined> {
-	if (process.env.LIMEN_GROUP_ID) {
+	if (transport("LIMEN_GROUP_ID")) {
 		throw new Error("group members cannot land; the owner-facing lead owns landing");
 	}
 	const parsed = {

@@ -3,13 +3,14 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { exception } from "../config.ts";
 
 export type Drift =
 	| { readonly path: string; readonly kind: "leftover" | "overlay" }
 	| { readonly path: string; readonly kind: "stale"; readonly matchedAt: string; readonly changedAt: string };
 
 export function packageRoot(): string {
-	return process.env.LIMEN_PACKAGE?.trim() || fileURLToPath(new URL("../..", import.meta.url));
+	return exception("LIMEN_PACKAGE")?.trim() || fileURLToPath(new URL("../..", import.meta.url));
 }
 
 /** Each project copy of a packaged template and its source; the one list, read by drift and by leftovers.ts (T-25). */

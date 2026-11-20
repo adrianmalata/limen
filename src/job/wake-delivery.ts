@@ -10,6 +10,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import { testKnob } from "../config.ts";
 import { isTerminal } from "./job.ts";
 
 // The notify/ record of who heard a job: claims, delivered slots, unconfirmed attempts, subscribers, and the ready marker.
@@ -298,7 +299,7 @@ export function fallbackDueAt(job: string, stamp = join(job, "finished-at")): nu
 	return since + fallbackGraceMs();
 }
 function fallbackGraceMs(): number {
-	const raw = Number(process.env.LIMEN_WAKE_FALLBACK_MS);
+	const raw = Number(testKnob("LIMEN_WAKE_FALLBACK_MS"));
 	return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_FALLBACK_GRACE_MS;
 }
 export function sessionOwnsJobs(jobs: string, session: string): boolean {

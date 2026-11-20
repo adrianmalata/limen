@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { transport } from "../src/config.ts";
 import { noteCheck } from "../src/job/task-note.ts";
 
 type Text = { readonly type: "text"; readonly text: string };
@@ -29,9 +30,9 @@ type PiApi = {
  * (`agent_before_settle`).
  */
 export default function limenFinish(pi: PiApi): void {
-	const root = process.env.LIMEN_CONTEXT_ROOT;
-	const id = process.env.LIMEN_JOB_ID;
-	if (process.env.LIMEN_JOB !== "1" || !root || !id) {
+	const root = transport("LIMEN_CONTEXT_ROOT");
+	const id = transport("LIMEN_JOB_ID");
+	if (transport("LIMEN_JOB") !== "1" || !root || !id) {
 		return;
 	}
 	const jobDir = join(root, ".limen", "jobs", id);

@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { transport } from "../config.ts";
 import { readRun } from "../job/group-cabinet.ts";
 import { resolveJob } from "../job/lookup.ts";
 import type { Success } from "../outcome.ts";
@@ -37,7 +38,7 @@ const DEFAULT_TIMEOUT = "20m";
  * success is the keeper job's start, which `main` reports once.
  */
 export async function keeperCommand(values: Parsed, cwd: string): Promise<Success> {
-	if (process.env.LIMEN_GROUP_ID) {
+	if (transport("LIMEN_GROUP_ID")) {
 		throw new Error(
 			"group members cannot start a keeper; the owner-facing lead starts one after it merges the team branches",
 		);

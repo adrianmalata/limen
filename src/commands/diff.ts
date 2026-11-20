@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { testKnob } from "../config.ts";
 import { herdrAvailable, openDiffTab } from "../integrations/herdr.ts";
 import { resolveJob } from "../job/lookup.ts";
 import type { Parsed } from "../parser.ts";
@@ -52,7 +53,7 @@ export async function diffCommand(values: Parsed, cwd: string): Promise<undefine
 }
 
 export function hunkBinary(): string | undefined {
-	const override = process.env.LIMEN_HUNK?.trim();
+	const override = testKnob("LIMEN_HUNK")?.trim();
 	if (override === "0") {
 		return;
 	}

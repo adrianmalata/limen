@@ -151,14 +151,14 @@ Limen copies the saved session into a new linked job. The new job keeps the work
 
 ### Start queue
 
-Every plant on the seat shares one machine, so detached jobs wait in one queue for the whole seat, under `$LIMEN_HOME/.limen/start-queue/` (`~/.limen/start-queue/` by default). The job's own wrapper waits after its handshake and before prune, `--prepare` and the engine. No daemon runs the queue.
+Every plant on the seat shares one machine, so detached jobs wait in one queue for the whole seat, under `~/.limen/start-queue/` of the agents' account. The job's own wrapper waits after its handshake and before prune, `--prepare` and the engine. No daemon runs the queue.
 
 - **Order.** Priority first (`--priority 1|2|3`, 1 the most urgent, 2 the default), then the time the job entered the queue.
-- **Priority budget.** A [seat rule](commands.md#seat-wide-rules) with `--start-priority N` holds every detached job less urgent than N until the rule ends: `limen rule set claude-week --until <reset> --start-priority 1 "…"` starts only priority 1 jobs. A held job waits with its own reason, `held by rule <name> until <end> (start priority N)`, one per rule that holds it. Spawn prints it after `queued`, `limen show` shows it after the wait, and `limen seat queue` shows it under the job. A held job never reads the load and never blocks a more urgent job. The hold applies also when `LIMEN_START_GATE` is `off`. When the rule ends, at its end time or by `limen rule end`, the held jobs start in queue order as the gate allows, and each coordinator gets the start notice. Group launches are not held.
+- **Priority budget.** A [seat rule](commands.md#seat-wide-rules) with `--start-priority N` holds every detached job less urgent than N until the rule ends: `limen rule set claude-week --until <reset> --start-priority 1 "…"` starts only priority 1 jobs. A held job waits with its own reason, `held by rule <name> until <end> (start priority N)`, one per rule that holds it. Spawn prints it after `queued`, `limen show` shows it after the wait, and `limen seat queue` shows it under the job. A held job never reads the load and never blocks a more urgent job. The hold applies also when the gate is off. When the rule ends, at its end time or by `limen rule end`, the held jobs start in queue order as the gate allows, and each coordinator gets the start notice. Group launches are not held.
 - **Budget reading.** Limen does not read the Claude budget; a person reads it and sets the rule. Today the reading comes from the Claude bridge, which receives Claude's rate-limit events: the Pi bridge warns at 80% without a number, and it does not write the reading to a file. Source: `evidence.md` in the F951 feature folder under `spec/features/`, section "The budget reading".
 - **Gate.** Only the first job in the queue reads the load: CPU idle across all cores over about two seconds, and free memory: MemAvailable over MemTotal in `/proc/meminfo`. The job starts when CPU is at least 25% idle and memory at least 20% free. A value the machine cannot report does not hold a job back.
 - **Settle.** After one start, the next start waits a settle interval of 60 seconds, so the new job's load shows in the next reading.
-- **Values.** `$LIMEN_HOME/.limen/start-gate.json` changes them for the whole seat: `{ "cpuIdle": 25, "memoryFree": 20, "settle": "60s" }`. A waiting job reads the file again on each poll, so an edit reaches jobs already in the queue. `LIMEN_START_GATE` overrides the file for the jobs started under it: `off` turns the gate off, and a JSON object in the same form replaces the file. The job log names each value that Limen ignores. `LIMEN_START_READING` names a file that holds the reading instead of the machine (`{ "cpuIdle": 10, "memoryFree": 80 }`); tests and manual checks use it.
+- **Values.** The seat's file `~/.limen/start-gate.json` of the agents' account changes them for the whole seat: `{ "cpuIdle": 25, "memoryFree": 20, "settle": "60s" }`, and the JSON string `"off"` turns the gate off. The file is the only source: `LIMEN_START_GATE` is no longer read, and `limen status` names it when its environment holds it. A waiting job reads the file again on each poll, so an edit reaches jobs already in the queue. The job log names each value that Limen ignores. `LIMEN_START_READING` names a file that holds the reading instead of the machine (`{ "cpuIdle": 10, "memoryFree": 80 }`); tests and manual checks use it.
 - **What a coordinator sees.** A job that the gate admits at once and that has nobody ahead starts as before; its log says `start gate: open`. A job that must wait makes spawn print `queued`, shows the pulse `queued` in `limen status` and `limen show`, and logs `queued: …`. When it starts, its log says `start queue: started after …`, and its coordinator gets one start notice on the route its finish uses: the Pi wake hook for a subscribed session, or `herdr agent prompt` to the recorded `origin-pane`. The notice says no action is needed. Its receipt is its own (`notify/delivered/_start.<session>`, `notify/herdr-start`) and never counts as the completion wake. The Pi "started" toast waits until the job leaves the queue. A start notice is news only while the job runs: when the job ends before the Pi hook delivers it, no late notice follows, and the session's completion wake carries the notice's line instead. The Herdr route starts its notice as the job leaves the queue, before prune, `--prepare` and the engine; the job does not wait for the pane's answer.
 - **Stop and loss.** `limen stop` ends a queued job `stopped` with the stop reason. A queue entry whose wrapper is gone, or whose job ended, is removed and does not block the queue. A recycled pid can keep a lost entry until the reaper ends its job.
 - **Limits.** The job timeout and a group deadline count from engine start; time in the queue never counts against them. Group launches start at once.
@@ -168,23 +168,24 @@ Every plant on the seat shares one machine, so detached jobs wait in one queue f
 | Limit | Job |
 |---|---|
 | Time | 90 minutes (change it with `--timeout 20m`) |
-| Tool-start events | 900 (`LIMEN_MAX_TOOL_CALLS`) |
-| `--prepare` command | 5 minutes (`LIMEN_PREPARE_MS`, or the plant limits file) |
-| Stalled tool | 3 minutes (`LIMEN_TOOL_STALL_MS`, or the plant limits file) |
+| Tool-start events | 900 (`toolCalls` in the plant limits file) |
+| `--prepare` command | 5 minutes (`prepare` in the plant limits file) |
+| Stalled tool | 3 minutes (`toolStall` in the plant limits file) |
 
 A prepare command that runs out of time is stopped, and the job log records `prepare failed: timed out`. The job still starts.
 
-**Stalled tools.** Every job keeps the three-minute CPU-idle tool containment rule; `LIMEN_TOOL_STALL_MS` or the plant limits file changes that confirmation time.
+**Stalled tools.** Every job keeps the three-minute CPU-idle tool containment rule; `toolStall` in the plant limits file changes that confirmation time.
 
-**Plant limits.** A plant can set the prepare limit and the stalled-tool time in a tracked file, `.agents/limen/limits.json`. Cargo plants use it. Their builds wait for each other: a Mac-wide cargo wrapper that queues builds, or cargo's own lock on a build directory. A prepare command that builds Rust can need more than 5 minutes. A cargo command that waits on cargo's lock uses no CPU, so the stalled-tool rule can stop it. A cargo plant commits this file:
+**Plant limits.** A plant can set the prepare limit, the stalled-tool time and the tool-start cap in a tracked file, `.agents/limen/limits.json`. Cargo plants use it. Their builds wait for each other: a Mac-wide cargo wrapper that queues builds, or cargo's own lock on a build directory. A prepare command that builds Rust can need more than 5 minutes. A cargo command that waits on cargo's lock uses no CPU, so the stalled-tool rule can stop it. A cargo plant commits this file:
 
 ```json
 { "prepare": "20m", "toolStall": "15m" }
 ```
 
-- Values use the `--timeout` form: `90s`, `20m`, `2h`.
-- `LIMEN_PREPARE_MS` or `LIMEN_TOOL_STALL_MS`, when it is set, wins over the file.
-- A plant with no file keeps 5 minutes and 3 minutes.
+- `prepare` and `toolStall` use the `--timeout` form: `90s`, `20m`, `2h`.
+- `toolCalls` is a positive integer: the job ends after that many tool starts.
+- The file is the only source of these limits. `LIMEN_PREPARE_MS`, `LIMEN_TOOL_STALL_MS` and `LIMEN_MAX_TOOL_CALLS` are no longer read, and `limen status` names each one its environment holds.
+- A plant with no file keeps 5 minutes, 3 minutes and 900 tool starts.
 - Limen reads the file in the project root each time it uses a limit, so an edit applies to running jobs too.
 - The job log names each entry that Limen ignores, such as an unknown key or a value without a unit.
 - The file does not change the job time limit.

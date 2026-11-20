@@ -1,6 +1,7 @@
-// `limen continue`: it finds the project from a subdirectory, and it refuses a parent whose engine was removed.
+// `limen continue`: it finds the project from a subdirectory, its engine does not inherit the continue flag, and it
+// refuses a parent whose engine was removed.
 import assert from "node:assert/strict";
-import { readdirSync, rmSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { isTerminal } from "../../src/job/job.ts";
@@ -25,6 +26,21 @@ test("a continuation started from a subdirectory of the project continues its pa
 	const id = startedJob(run);
 	await ended(p, id);
 	assert.deepEqual([jobFile(p, id, "parent"), jobFile(p, id, "state")], [parent, "done"]);
+});
+
+test("a job continued with limen continue starts an engine whose environment holds no LIMEN_CONTINUE", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const parent = spawnJob(p, "say first");
+	await ended(p, parent);
+	const id = startedJob(limen(p, ["continue", parent, "say continued"]));
+	await ended(p, id);
+	// The fake engine records the names of its LIMEN_, HERDR_ and PI_ variables.
+	const names: string[] = JSON.parse(readFileSync(join(jobDir(p, id), "fake-env.json"), "utf8"));
+	assert.deepEqual(
+		[jobFile(p, id, "state"), names.includes("LIMEN_JOB_ID"), names.includes("LIMEN_CONTINUE")],
+		["done", true, false],
+	);
 });
 
 test("limen continue of a finished job recorded with the removed engine devin refuses with its line and starts no job", async (t) => {

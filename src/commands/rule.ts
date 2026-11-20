@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { transport } from "../config.ts";
 import { type LiveCoordinator, liveCoordinators } from "../integrations/coordinator-registration.ts";
 import { promptPane } from "../integrations/coordinator-wake.ts";
 import { herdrBinary } from "../integrations/herdr.ts";
@@ -53,7 +54,7 @@ export async function ruleTimerCommand(values: Parsed): Promise<undefined> {
  * starts a fresh timer for a rule whose end time passed. The end claim keeps its end ping to one per tab.
  */
 export function endDueRules(command: string): void {
-	if (process.env.LIMEN_JOB === "1" || command === "rule timer" || !herdrBinary()) {
+	if (transport("LIMEN_JOB") === "1" || command === "rule timer" || !herdrBinary()) {
 		return;
 	}
 	for (const rule of openRules()) {

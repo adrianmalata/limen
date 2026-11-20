@@ -10,6 +10,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { transport } from "../src/config.ts";
 import { coordinatorRegistration } from "../src/integrations/coordinator-registration.ts";
 import { herdrBinary } from "../src/integrations/herdr.ts";
 import { closedFeatures, closedJobFeatures, derivePulse, isTerminal, type Pulse, SESSION_ID } from "../src/job/job.ts";
@@ -818,7 +819,7 @@ export default function limenWake(pi: PiApi): void {
 		scheduleSweep();
 	};
 	pi.on("session_start", (_event, context) => {
-		if (process.env.LIMEN_JOB === "1" || process.env.LIMEN_WAKE === "0") {
+		if (transport("LIMEN_JOB") === "1") {
 			return;
 		}
 		const root = projectRoot(context.cwd);
@@ -959,7 +960,7 @@ export default function limenWake(pi: PiApi): void {
 		retire(false);
 		releaseHerdr();
 	});
-	if (process.env.LIMEN_JOB === "1") {
+	if (transport("LIMEN_JOB") === "1") {
 		return;
 	}
 	pi.registerCommand?.("limen", {

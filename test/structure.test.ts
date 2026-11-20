@@ -1,23 +1,19 @@
 import assert from "node:assert/strict";
-import { execFile, execFileSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative } from "node:path";
 import test, { type TestContext } from "node:test";
-import { promisify } from "node:util";
 import { templateHistoryText } from "../src/project/inherit.ts";
-
-const execFileAsync = promisify(execFile);
+import { knownFiles, SKIPPED } from "./known-files.ts";
 
 // The fixture's git and the listing of the repository must not depend on the laptop's own git configuration.
 process.env.GIT_CONFIG_GLOBAL = "/dev/null";
 process.env.GIT_CONFIG_NOSYSTEM = "1";
 
 const root = new URL("..", import.meta.url).pathname;
-/** Folders no listing of this file descends into. */
-const SKIPPED: ReadonlySet<string> = new Set(["node_modules", ".git", ".pi"]);
 
 async function filesBelow(dir: string): Promise<string[]> {
 	const entries = await readdir(dir, { withFileTypes: true });
@@ -30,24 +26,6 @@ async function filesBelow(dir: string): Promise<string[]> {
 			}),
 	);
 	return paths.flat();
-}
-
-/**
- * The files of the repository at `repo` that git knows, tracked and untracked but not ignored, outside `SKIPPED`. An
- * ignored local input, such as the Pi sources in `adrian-rebuild/input/vendor/` (D-046), is not part of the tree, and
- * neither is an index entry whose file is gone from the working tree, as a plain `mv` leaves one.
- */
-async function knownFiles(repo: string): Promise<string[]> {
-	const { stdout } = await execFileAsync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], {
-		cwd: repo,
-		encoding: "utf8",
-		maxBuffer: 64 * 1024 * 1024,
-	});
-	return stdout
-		.split("\0")
-		.filter((path) => path !== "" && !path.split("/").some((part) => SKIPPED.has(part)))
-		.map((path) => join(repo, path))
-		.filter((path) => existsSync(path));
 }
 
 /** The basename of every TypeScript file of the repository at `repo`. */

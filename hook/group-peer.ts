@@ -1,4 +1,5 @@
 import { mkdir, rm, utimes, writeFile } from "node:fs/promises";
+import { transport } from "../src/config.ts";
 import type { GroupIdentity } from "../src/job/group-cabinet.ts";
 import { groupIdentity, runs } from "../src/job/group-cabinet.ts";
 import { acceptBatch, acceptTransport, observeBatch, releaseBatch } from "../src/job/group-events.ts";
@@ -64,7 +65,7 @@ export default function groupPeer(pi: PiApi): void {
 			.map((run) => ({ run, recipient: `lead-${leadSession}` }));
 	};
 	pi.on("session_start", async (_event, context) => {
-		if (process.env.LIMEN_JOB === "1" || context.agent?.kind === "sub") {
+		if (transport("LIMEN_JOB") === "1" || context.agent?.kind === "sub") {
 			return;
 		}
 		try {
@@ -121,12 +122,12 @@ export default function groupPeer(pi: PiApi): void {
 		timer.unref();
 	});
 	pi.on("tool_call", (event) =>
-		process.env.LIMEN_GROUP_ID && event.toolName === "task"
+		transport("LIMEN_GROUP_ID") && event.toolName === "task"
 			? { block: true, reason: "group helpers must use the recorded limen worker allowance, not built-in subagents" }
 			: undefined,
 	);
 	pi.on("before_subagent_spawn", () =>
-		process.env.LIMEN_GROUP_ID
+		transport("LIMEN_GROUP_ID")
 			? { block: true, reason: "group members cannot bypass their recorded launch allowance with built-in subagents" }
 			: undefined,
 	);

@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { transport } from "../config.ts";
 import { LimenError, type Success } from "../outcome.ts";
 import type { Parsed } from "../parser.ts";
 import { readPicture } from "../picture/picture-build.ts";
@@ -33,7 +34,7 @@ export async function ticketNewCommand(values: Parsed, cwd: string): Promise<Suc
 		throw new Error("a ticket's title needs a letter or a digit, for the name of its folder");
 	}
 	const root = repoRoot(cwd);
-	const plant = process.env.LIMEN_CONTEXT_ROOT ?? root;
+	const plant = transport("LIMEN_CONTEXT_ROOT") ?? root;
 	if (touches.length) {
 		const local = join(root, ".limen", "picture");
 		const dir = existsSync(local) ? local : join(plant, ".limen", "picture");
@@ -111,7 +112,7 @@ export async function ticketCheckCommand(values: Parsed, cwd: string): Promise<u
 		throw new Error(`a branch name does not start with -: ${named}`);
 	}
 	const repository = repoRoot(cwd);
-	const plant = process.env.LIMEN_CONTEXT_ROOT ?? limenRoot(cwd);
+	const plant = transport("LIMEN_CONTEXT_ROOT") ?? limenRoot(cwd);
 	const target = currentBranch(plant);
 	const branch = named ?? currentBranch(repository);
 	if (branch === target) {

@@ -2,9 +2,10 @@ import * as fs from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { testKnob } from "../config.ts";
 
 const PACKAGE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
-const home = () => process.env.LIMEN_HOME || homedir();
+const home = () => testKnob("LIMEN_HOME") || homedir();
 /** The seat's own folder: one per machine, shared by every plant. */
 export const seatDir = () => join(home(), ".limen");
 export const projectsFile = () => join(seatDir(), "projects");

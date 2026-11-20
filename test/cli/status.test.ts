@@ -1,4 +1,5 @@
-// `limen status` lists the leftover files of cut features in the project it reports on, and names a running job's note.
+// `limen status` lists the leftover files of cut features in the project it reports on, the Limen variables of its
+// environment that it no longer reads or reads only until a ticket, and names a running job's note.
 import assert from "node:assert/strict";
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -131,6 +132,36 @@ test("limen status prints no Leftover files section when the project has no left
 	assert.equal(run.status, 0, run.stderr);
 	assert.deepEqual(
 		run.stdout.split("\n").filter((line) => line.startsWith("Leftover files")),
+		[],
+	);
+});
+
+const UNREAD = "Environment settings Limen no longer reads (1); remove them:";
+const UNTIL = "Environment variables read until a ticket replaces them (1):";
+
+test("limen status names a setting of its environment that it no longer reads and a variable it reads until a ticket", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const run = limen(p, ["status"], { env: { LIMEN_PREPARE: "pnpm install", LIMEN_WORKER_MODEL: "p/m" } });
+	assert.equal(run.status, 0, run.stderr);
+	const lines = run.stdout.split("\n");
+	const at = lines.indexOf(UNREAD);
+	assert.deepEqual(lines.slice(at, at + 5), [
+		UNREAD,
+		"  LIMEN_PREPARE: the spawn flag --prepare",
+		UNTIL,
+		"  LIMEN_WORKER_MODEL: until R-062",
+		"Older: 0 records (limen status --all)",
+	]);
+});
+
+test("limen status prints neither environment section when its environment holds no such variable", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const run = limen(p, ["status"]);
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(
+		run.stdout.split("\n").filter((line) => line.startsWith("Environment ")),
 		[],
 	);
 });

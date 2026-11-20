@@ -36,12 +36,6 @@ export type JobRecord = {
 };
 export type Paint = (style: "dim" | "bold" | "red" | "green" | "yellow", text: string) => string;
 
-export function resolveView(forced: string | undefined, tty: boolean): "human" | "compact" {
-	if (forced === "human" || forced === "compact") {
-		return forced;
-	}
-	return tty ? "human" : "compact";
-}
 export function colorWanted(tty: boolean, noColor: string | undefined, term: string | undefined): boolean {
 	return tty && !noColor && term !== "dumb";
 }

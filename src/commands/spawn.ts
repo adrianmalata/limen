@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { TransportName } from "../config.ts";
 import { herdrBinary, openWatchTab } from "../integrations/herdr.ts";
 import type { GroupMember, GroupRun } from "../job/group-cabinet.ts";
 import { claimMember, groupIdentity, groupLock, groupPath, teamRoute } from "../job/group-cabinet.ts";
@@ -30,7 +31,7 @@ import {
 } from "../project/git.ts";
 import { inheritedPlanning, ticketPointers } from "../project/planning.ts";
 import { signalProcessGroup, waitForProcessGroup } from "../runtime/contain.ts";
-import { type EngineProfile, engineBinary, preflightEngine, resolveSpawnEngine } from "../runtime/engine.ts";
+import { type EngineProfile, preflightEngine, resolveSpawnEngine } from "../runtime/engine.ts";
 import { liveJob } from "../runtime/reap.ts";
 import { DEFAULT_PRIORITY, parsePriority, queuedLine } from "../runtime/start-queue.ts";
 import { normalizeWorkerExtensions } from "../runtime/worker-extensions.ts";
@@ -103,8 +104,8 @@ type WorktreePlan =
 	| { readonly kind: "add-branch"; readonly path: string; readonly branch: string }
 	| { readonly kind: "add-new"; readonly path: string; readonly branch: string };
 const HANDSHAKE_POLL_MS = 20;
-const handshakeMs = (): number =>
-	Number(process.env.LIMEN_HANDSHAKE_MS) > 0 ? Number(process.env.LIMEN_HANDSHAKE_MS) : 10_000;
+/** How long spawn and continue wait for the wrapper's handshake; a constant, as no setting chooses it (R-015). */
+const HANDSHAKE_MS = 10_000;
 /** `limen spawn`: starts one job from the command line. */
 export function spawnCommand(values: Parsed, cwd: string): Promise<Success> {
 	return startSpawn(
@@ -358,7 +359,7 @@ async function recordSpawnedJob(launch: SpawnLaunch): Promise<string> {
 		const worktree = executeWorktree(place.repository, plan);
 		const setup = {
 			LIMEN_SETUP_KEEP: place.currentRoot,
-			LIMEN_SETUP_PREPARE: options.prepare ?? process.env.LIMEN_PREPARE?.trim() ?? "",
+			LIMEN_SETUP_PREPARE: options.prepare ?? "",
 		};
 		const memberDeadline = member?.deadline;
 		await launchSpawnedJob(launch, { jobDir, id, root, worktree, preamble, role, memberDeadline, setup });
@@ -452,7 +453,7 @@ async function startDetachedJob(launch: SpawnLaunch, job: SpawnedJob, versions: 
 	const { options, model, group } = launch;
 	const { jobDir, id, root } = job;
 	await openWatchTab({ jobDir, label: options.label, cwd: root, logPath: `${jobDir}/log`, role: job.role });
-	const environment: Record<string, string> = {
+	const environment: Partial<Record<TransportName, string>> = {
 		LIMEN_JOB_DIR: jobDir,
 		LIMEN_WORKTREE: job.worktree,
 		LIMEN_TASK_FILE: `${jobDir}/task.md`,
@@ -641,7 +642,7 @@ function probeVersion(command: string): Promise<string> {
 export async function capturedVersions(profile: EngineProfile): Promise<string> {
 	const herdr = herdrBinary();
 	const hunk = hunkBinary();
-	const version = (await probeVersion(engineBinary(profile) || profile.binaryDefault)) || "unavailable";
+	const version = (await probeVersion(profile.binary)) || "unavailable";
 	const herdrVersion = herdr && (await probeVersion(herdr));
 	const hunkVersion = hunk && (await probeVersion(hunk));
 	return `${profile.id} ${version}\n${herdrVersion ? `herdr ${herdrVersion}\n` : ""}${hunkVersion ? `hunk ${hunkVersion}\n` : ""}`;
@@ -704,7 +705,7 @@ async function lastLimenDetail(jobDir: string): Promise<string> {
 }
 const text = async (path: string): Promise<string> => (await readFile(path, "utf8").catch(() => "")).trim();
 export async function waitForHandshake(jobDir: string, wrapperPid: number): Promise<void> {
-	const deadline = Date.now() + handshakeMs();
+	const deadline = Date.now() + HANDSHAKE_MS;
 	while (Date.now() < deadline) {
 		if ((await text(`${jobDir}/state`)) !== "running" || (await text(`${jobDir}/pid`))) {
 			return;

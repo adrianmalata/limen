@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
+import { transport } from "../src/config.ts";
 import { noteStart, recordNote } from "../src/job/task-note.ts";
 import { formatDrift, inheritFile, listDrift, packageRoot, readOptional } from "../src/project/inherit.ts";
 import { ticketPointers } from "../src/project/planning.ts";
@@ -71,8 +72,8 @@ export default function limenCommunication(pi: PiApi): void {
 	let noteDir: string | undefined;
 	let noteSeen: string | undefined;
 	pi.on("before_agent_start", (event, context) => {
-		const root = process.env.LIMEN_CONTEXT_ROOT ?? context.cwd;
-		const job = process.env.LIMEN_JOB === "1";
+		const root = transport("LIMEN_CONTEXT_ROOT") ?? context.cwd;
+		const job = transport("LIMEN_JOB") === "1";
 		const touched = lastTouch;
 		const failed = lastFailure;
 		lastTouch = undefined;
@@ -122,12 +123,12 @@ export default function limenCommunication(pi: PiApi): void {
 			return;
 		}
 		noteRead(recall, event);
-		const asks = guidanceAsks(event, process.env.LIMEN_JOB === "1");
+		const asks = guidanceAsks(event, transport("LIMEN_JOB") === "1");
 		if (!asks.length) {
 			return;
 		}
 		lastTouch = touchLine(event, asks);
-		const root = process.env.LIMEN_CONTEXT_ROOT ?? context.cwd;
+		const root = transport("LIMEN_CONTEXT_ROOT") ?? context.cwd;
 		const reminders = asks.map((ask) => recallReminder(recall, ask, root, context.cwd)).filter(Boolean);
 		if (!reminders.length) {
 			return;
@@ -141,8 +142,8 @@ function isWakePrompt(prompt: string | undefined): boolean {
 }
 
 function jobFolder(root: string): string | undefined {
-	const dir = join(root, ".limen", "jobs", process.env.LIMEN_JOB_ID ?? "");
-	return process.env.LIMEN_JOB_ID && existsSync(dir) ? dir : undefined;
+	const dir = join(root, ".limen", "jobs", transport("LIMEN_JOB_ID") ?? "");
+	return transport("LIMEN_JOB_ID") && existsSync(dir) ? dir : undefined;
 }
 
 function guidancePrompt(cwd: string, job: boolean): string {
@@ -331,7 +332,7 @@ function markdownSection(text: string, heading: string): string {
 }
 
 function jobTicket(cwd: string): string {
-	const id = process.env.LIMEN_JOB_ID?.trim();
+	const id = transport("LIMEN_JOB_ID")?.trim();
 	if (!id) {
 		return "";
 	}

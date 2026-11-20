@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { readdir, readFile, rm, writeFile } from "node:fs/promises";
+import type { TransportName } from "../config.ts";
 import { openWatchTab } from "../integrations/herdr.ts";
 import {
 	claimMember,
@@ -425,7 +426,7 @@ async function restoreParentWorktree(
 async function startDetachedContinuation(continuation: Continuation): Promise<void> {
 	const { jobDir, id, label, root, parentId, versions, group } = continuation;
 	await openWatchTab({ jobDir, label, cwd: root, logPath: `${jobDir}/log`, role: continuation.role });
-	const environment: Record<string, string> = {
+	const environment: Partial<Record<TransportName, string>> = {
 		LIMEN_JOB_DIR: jobDir,
 		LIMEN_WORKTREE: continuation.worktree,
 		LIMEN_TASK_FILE: `${jobDir}/task.md`,

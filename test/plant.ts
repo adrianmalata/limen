@@ -94,7 +94,9 @@ export async function plant(): Promise<Plant> {
 	const parent = await realpath(await mkdtemp(join(tmpdir(), "limen-plant-")));
 	const root = join(parent, "repo");
 	const bin = join(parent, "bin");
-	await Promise.all([mkdir(bin), mkdir(join(parent, "home"))]);
+	await Promise.all([mkdir(bin), mkdir(join(parent, "home")), mkdir(join(parent, ".limen"))]);
+	// The seat's start gate settles for 1 ms instead of a minute, so the jobs of one test start one after another at once.
+	await writeFile(join(parent, ".limen", "start-gate.json"), '{"settle":"1ms"}\n');
 	await symlink(FAKE_ENGINE, join(bin, "pi"));
 	await writeFile(join(parent, "sink.mjs"), sinkSource(parent));
 	const env = {
@@ -107,7 +109,6 @@ export async function plant(): Promise<Plant> {
 		GIT_CONFIG_GLOBAL: "/dev/null",
 		GIT_CONFIG_NOSYSTEM: "1",
 		// Without start-reading.json the reading is unknown and the gate is open; a test writes the file to close it.
-		LIMEN_START_GATE: '{"settle":"1ms"}',
 		LIMEN_START_READING: join(parent, "start-reading.json"),
 		LIMEN_START_POLL_MS: "50",
 		NODE_NO_WARNINGS: "1",

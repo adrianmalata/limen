@@ -1,4 +1,5 @@
 import { readdir, readFile } from "node:fs/promises";
+import { transport } from "../config.ts";
 import { resolveJob } from "../job/lookup.ts";
 import { enqueueSteer } from "../job/steer-inbox.ts";
 import type { Parsed } from "../parser.ts";
@@ -10,7 +11,7 @@ const READY_WAIT_MS = 2_000;
 
 /** `limen steer`: sends a correction to one running job, or to every running job this coordinator watches. */
 export async function steerCommand(values: Parsed, cwd: string): Promise<undefined> {
-	if (process.env.LIMEN_GROUP_ID) {
+	if (transport("LIMEN_GROUP_ID")) {
 		throw new Error("group peer messages are informational; use group publish, not owner steering");
 	}
 	const running = values.has("running");

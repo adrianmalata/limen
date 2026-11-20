@@ -4,6 +4,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { initCommand } from "../src/commands/init.ts";
+import { setTestKnob } from "../src/config.ts";
 
 const root = process.argv[2] && resolve(process.argv[2]);
 if (!root || process.argv.length !== 3) {
@@ -25,7 +26,7 @@ git("init", "-b", "main");
 git("config", "user.name", "Limen Group Proof");
 git("config", "user.email", "group-proof@example.test");
 // Keep this disposable fixture's seat registration local; never alter the owner's registry.
-process.env.LIMEN_HOME = root;
+setTestKnob("LIMEN_HOME", root);
 await initCommand([], root);
 const feature = "spec/features/active/F001-clamp";
 const files = {

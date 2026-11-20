@@ -102,7 +102,7 @@ Herdr is the visible layout when it is running. Job files under `.limen/jobs/` a
 - `limen ticket done FNNN` — the same close for work that landed without `limen land`.
 - `limen status` — the plant inbox: running jobs, unlanded candidates to inspect, recent jobs that need a decision, and coordinator tabs.
 - `limen prune` — drop finished worktrees and job directories with no `state`; it never touches a job that is starting, running, or in an open group. `limen prune --retire` deletes finished, failed, or stopped job records whose branch is landed (ancestor or cherry-pick) or deleted; `--dry-run` prints the ids and removes nothing. Spawn and sweep never retire records.
-- `--prepare CMD` or `LIMEN_PREPARE` — run in the worktree after it exists, before the selected engine starts; failure is logged, not fatal. Usual value: `pnpm install --frozen-lockfile --prefer-offline`.
+- `--prepare CMD` — run in the worktree after it exists, before the selected engine starts; failure is logged, not fatal. Usual value: `pnpm install --frozen-lockfile --prefer-offline`.
 
 **This conversation's tab.** When `HERDR_ENV=1`, the coordinator owns this tab title. It is not a `--label`: a worker label names a landing, a conversation tab names a subject. Do not borrow the label shape here. The title is a stable stem plus an optional stage tail — `chat settings`, then `chat settings · 2 running · 1 finished`. The stem is what the human calls this conversation; the tail is the only part that ever moves.
 

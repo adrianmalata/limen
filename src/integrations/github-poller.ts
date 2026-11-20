@@ -3,6 +3,7 @@ import { createHash, createSign, randomBytes } from "node:crypto";
 import { mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { exception } from "../config.ts";
 import { EXIT_CODES, failureOf, LimenError } from "../outcome.ts";
 import {
 	claimId,
@@ -173,8 +174,8 @@ async function privatePath(path: string, allowed: readonly number[]): Promise<vo
 }
 
 async function appJwt(): Promise<string> {
-	const id = process.env.LIMEN_GITHUB_APP_ID;
-	const path = process.env.LIMEN_GITHUB_KEY_FILE;
+	const id = exception("LIMEN_GITHUB_APP_ID");
+	const path = exception("LIMEN_GITHUB_KEY_FILE");
 	if (!id || !/^\d+$/.test(id) || !path || !isAbsolute(path)) {
 		throw configFailure("poller needs LIMEN_GITHUB_APP_ID and absolute LIMEN_GITHUB_KEY_FILE");
 	}
@@ -217,7 +218,7 @@ async function existingReceipt(repo: string, pr: number, marker: string, token: 
 		>(`/repos/${repo}/issues/${pr}/comments?per_page=${PAGE}&page=${page}`, token);
 		const found = comments.find(
 			(comment) =>
-				comment.performed_via_github_app?.id === Number(process.env.LIMEN_GITHUB_APP_ID) &&
+				comment.performed_via_github_app?.id === Number(exception("LIMEN_GITHUB_APP_ID")) &&
 				comment.body?.includes(marker),
 		);
 		if (found) {
@@ -590,7 +591,7 @@ async function handoff(
 	claim.attemptedAt = new Date().toISOString();
 	claim.receipt = "pending: coordinator unavailable";
 	await persist(root, state, claim);
-	const command = process.env.LIMEN_GITHUB_LIMEN_BIN || "/opt/limen/bin/limen";
+	const command = exception("LIMEN_GITHUB_LIMEN_BIN") || "/opt/limen/bin/limen";
 	const ensure = spawnSync("sudo", ["-n", "-u", binding.user, "--", command, "github", "ensure", root], {
 		encoding: "utf8",
 		timeout: 20_000,
@@ -700,7 +701,7 @@ async function project(root: string, stateDir: string, jwt: string): Promise<voi
 		const groups = spawnSync("id", ["-nG", binding.user], { encoding: "utf8" });
 		if (
 			identity.status !== 0 ||
-			Number(identity.stdout.trim()) !== Number(process.env.LIMEN_GITHUB_WORKER_UID) ||
+			Number(identity.stdout.trim()) !== Number(exception("LIMEN_GITHUB_WORKER_UID")) ||
 			groups.status !== 0 ||
 			/\b(?:sudo|wheel|admin)\b/.test(groups.stdout)
 		) {
@@ -757,11 +758,11 @@ async function project(root: string, stateDir: string, jwt: string): Promise<voi
  * then the most severe failure (the highest exit code) fails the poll, with its class, code and next (D-028).
  */
 export async function pollGithub(): Promise<void> {
-	const registry = process.env.LIMEN_GITHUB_PROJECTS_FILE;
+	const registry = exception("LIMEN_GITHUB_PROJECTS_FILE");
 	if (!registry || !isAbsolute(registry) || process.getuid?.() === 0) {
 		throw configFailure("github poll requires an isolated non-root poller and absolute LIMEN_GITHUB_PROJECTS_FILE");
 	}
-	const stateDir = process.env.LIMEN_GITHUB_STATE_DIR;
+	const stateDir = exception("LIMEN_GITHUB_STATE_DIR");
 	if (!stateDir || !isAbsolute(stateDir)) {
 		throw configFailure("github poll requires absolute LIMEN_GITHUB_STATE_DIR");
 	}
@@ -772,7 +773,7 @@ export async function pollGithub(): Promise<void> {
 		throw configFailure("poller state directory must be private and poller-owned");
 	}
 	await privatePath(stateDir, [0, process.getuid?.() ?? -1]);
-	const workerUid = Number(process.env.LIMEN_GITHUB_WORKER_UID);
+	const workerUid = Number(exception("LIMEN_GITHUB_WORKER_UID"));
 	if (!Number.isSafeInteger(workerUid) || workerUid <= 0) {
 		throw configFailure("poller requires LIMEN_GITHUB_WORKER_UID");
 	}

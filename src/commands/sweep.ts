@@ -10,6 +10,8 @@ import { confirmDeadJobs } from "../runtime/reap.ts";
 
 const text = (path: string) => (fs.existsSync(path) ? fs.readFileSync(path, "utf8").trim() : "");
 const modified = (path: string) => (fs.existsSync(path) ? fs.statSync(path).mtimeMs : 0);
+/** How old a job's seat event is before the sweep rings for it; a constant, as no setting chooses it (R-015). */
+const SEAT_RING_MS = 5 * 60_000;
 const metadata = (path: string) => {
 	try {
 		return fs.statSync(path);
@@ -41,13 +43,12 @@ export async function sweepCommand(values: Parsed): Promise<undefined> {
 }
 async function sweepProject(root: string): Promise<void> {
 	const jobs = join(root, ".limen", "jobs");
-	const threshold = positive("LIMEN_SEAT_RING_MS", 5 * 60_000);
 	await confirmDeadJobs(jobs);
 	// Housekeeping every pass, not after the seat ring threshold: dead registrations go, so `.limen/coordinators/` does not grow.
 	await removeDeadCoordinators(root).catch((error: unknown) =>
 		console.error(`coordinator sweep failed for ${root}: ${error instanceof Error ? error.message : String(error)}`),
 	);
-	if (Date.now() - modified(join(root, ".limen", "last-sweep")) < threshold) {
+	if (Date.now() - modified(join(root, ".limen", "last-sweep")) < SEAT_RING_MS) {
 		return;
 	}
 	for (const entry of fs.existsSync(jobs) ? fs.readdirSync(jobs, { withFileTypes: true }) : []) {
@@ -56,7 +57,7 @@ async function sweepProject(root: string): Promise<void> {
 		}
 		const job = join(jobs, entry.name);
 		const due = seatEvent(job);
-		if (!due?.since || Date.now() - due.since < threshold || !claimSeatEvent(job, due)) {
+		if (!due?.since || Date.now() - due.since < SEAT_RING_MS || !claimSeatEvent(job, due)) {
 			continue;
 		}
 		const label = text(join(job, "label")) || entry.name;
@@ -109,5 +110,3 @@ function claimSeatEvent(job: string, { since, event }: SeatEvent): boolean {
 	}
 	return true;
 }
-const positive = (name: string, fallback: number) =>
-	Number.isFinite(Number(process.env[name])) && Number(process.env[name]) > 0 ? Number(process.env[name]) : fallback;

@@ -1,4 +1,5 @@
 import { readdir } from "node:fs/promises";
+import { testKnob } from "../config.ts";
 import { finalizeJob, textFile } from "../job/record.ts";
 import { type ProcessQueryOutcome, processAlive, processGroupAlive, processInfo } from "./contain.ts";
 import { claimRecovery } from "./recovery.ts";
@@ -124,7 +125,7 @@ export async function confirmDeadJobs(jobsRoot: string): Promise<void> {
 	await reapDeadJobs(jobsRoot, seen);
 }
 function reapConfirmMs(): number {
-	const raw = Number(process.env.LIMEN_REAP_CONFIRM_MS);
+	const raw = Number(testKnob("LIMEN_REAP_CONFIRM_MS"));
 	return Number.isFinite(raw) && raw > 0 ? raw : 10_000;
 }
 const delay = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));

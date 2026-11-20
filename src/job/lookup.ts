@@ -1,4 +1,5 @@
 import { readdir, readFile } from "node:fs/promises";
+import { transport } from "../config.ts";
 import { limenRoot } from "../project/git.ts";
 import { resolveJobId } from "./job.ts";
 /** "control" refuses a group member another team's job; "read" resolves any job. */
@@ -20,9 +21,9 @@ export async function resolveJob(
 		labels[id] = await text(`${jobsRoot}/${id}/label`);
 	}
 	const id = resolveJobId(query, ids, labels);
-	if (access === "control" && process.env.LIMEN_GROUP_ID) {
+	if (access === "control" && transport("LIMEN_GROUP_ID")) {
 		const [group, team] = await Promise.all([text(`${jobsRoot}/${id}/group`), text(`${jobsRoot}/${id}/team`)]);
-		if (group !== process.env.LIMEN_GROUP_ID || team !== process.env.LIMEN_TEAM_ID) {
+		if (group !== transport("LIMEN_GROUP_ID") || team !== transport("LIMEN_TEAM_ID")) {
 			throw new Error("group members cannot stop, steer, continue, watch, or land another team's job");
 		}
 	}

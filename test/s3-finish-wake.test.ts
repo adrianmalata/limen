@@ -5,7 +5,7 @@
 // the delivered record exists every wake the job will cause for that session is already recorded.
 import assert from "node:assert/strict";
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { open, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
@@ -114,27 +114,44 @@ test("a job that ends done, failed or on a provider error wakes its session once
 	assert.match(done, /\n- Cap: not proven\. Limen: no proof that `npm test` ran \(no shell call names it .+\n\n/);
 });
 
-test("stop, timeout, the tool cap and a stalled tool each end a job once and wake its session once; 80% of a timeout steers once; the plant's limits file yields to an env var", async () => {
+test("stop, timeout and a stalled tool each end a job once and wake its session once; 80% of a timeout steers once", async () => {
 	writeFileSync(join(p.root, ".agents/limen/limits.json"), '{"prepare":"1s","toolStall":"2s","timeout":"2h"}\n');
 	const ids = {
 		stopped: job("block", "b stopped"),
 		timeout: job("block", "b timeout", ["--timeout", "3s"]),
-		cap: job("tool ls\nblock", "b tool cap", [], { PI_SESSION_ID: "coord", LIMEN_MAX_TOOL_CALLS: "1" }),
 		stall: job("idle", "b stall", ["--prepare", "sleep 30"]),
-		kept: job("say kept", "b kept", ["--prepare", "sleep 2"], { PI_SESSION_ID: "coord", LIMEN_PREPARE_MS: "60000" }),
 	};
 	await until(jobDir(p, ids.stopped), () => existsSync(join(jobDir(p, ids.stopped), "fake-blocked-1")));
 	assert.equal(limen(p, ["stop", ids.stopped, "test stop"]).status, 0);
 	const states = Object.fromEntries(Object.entries(ids).map(([name, id]) => [name, waitJob(p, id)]));
-	assert.deepEqual(states, { stopped: "stopped", timeout: "failed", cap: "failed", stall: "failed", kept: "done" });
+	assert.deepEqual(states, { stopped: "stopped", timeout: "failed", stall: "failed" });
 	assert.equal(jobFile(p, ids.timeout, "log").match(/steered: 1 min left before the timeout: /g)?.length, 1);
 	assert.match(jobFile(p, ids.stall, "log"), /timeout is not a limit.*timed out after 1 s.*CPU-idle child for 2s/s);
-	assert.doesNotMatch(jobFile(p, ids.kept, "log"), /prepare failed/);
 	// One terminal line each; a stop logs two until F928 lands (stop.ts's 25 ms grace races the finalize).
-	for (const id of [ids.timeout, ids.cap, ids.stall]) {
+	for (const id of [ids.timeout, ids.stall]) {
 		assert.equal(jobFile(p, id, "log").match(/\] (?:done|failed|stopped):/g)?.length, 1, id);
 	}
 	await delivered(Object.values(ids));
+	wokeOnce(ids, [coord]);
+});
+
+test("the tool cap of the project's limits file ends a job once and wakes its session once", async (t) => {
+	// The later tests of this file run with the earlier limits, so a cap of one tool start ends with this test.
+	const limits = join(p.root, ".agents/limen/limits.json");
+	const earlier = readFileSync(limits, "utf8");
+	t.after(() => writeFileSync(limits, earlier));
+	writeFileSync(limits, '{"toolCalls":1}\n');
+	// The wrapper counts the tool start before the engine's exit, so the cap decides even when the engine ends first.
+	const ids = { cap: job("tool ls\nsay capped", "b tool cap") };
+	const state = waitJob(p, ids.cap);
+	// Every wake is in before the first assertion, so a failure here leaves the coord session idle for the next test.
+	await delivered(Object.values(ids));
+	const log = jobFile(p, ids.cap, "log");
+	assert.deepEqual(
+		[state, log.match(/\] failed: (tool-call cap reached after \d+ calls)/)?.[1]],
+		["failed", "tool-call cap reached after 1 calls"],
+	);
+	assert.equal(log.match(/\] (?:done|failed|stopped):/g)?.length, 1);
 	wokeOnce(ids, [coord]);
 });
 

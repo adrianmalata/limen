@@ -1,11 +1,12 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { transport } from "../config.ts";
 
 /** Inside a job's own worktree, return the canonical root and the workspace repository from its job record. */
 export function inheritedPlanning(worktree: string): { root: string; repo?: string } | undefined {
-	const root = process.env.LIMEN_CONTEXT_ROOT;
-	const id = process.env.LIMEN_JOB_ID;
-	if (process.env.LIMEN_JOB !== "1" || !root || !id || !/^[A-Za-z0-9._-]+$/.test(id)) {
+	const root = transport("LIMEN_CONTEXT_ROOT");
+	const id = transport("LIMEN_JOB_ID");
+	if (transport("LIMEN_JOB") !== "1" || !root || !id || !/^[A-Za-z0-9._-]+$/.test(id)) {
 		return;
 	}
 	const jobDir = `${root}/.limen/jobs/${id}`;

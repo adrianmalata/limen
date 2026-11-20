@@ -1,7 +1,7 @@
 <!-- PL: Dziennik zmian przebudowy Limena: jeden wpis na zamknięty ticket R-NNN, tylko dopisywany, najnowszy na dole.
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
-R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090. -->
+R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015. -->
 
 # Changes
 
@@ -156,3 +156,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-05)
 - Commit: R-091
 - Rollback: git revert $(git log --format=%H --grep='^R-091:' adrian-rebuild --)
+
+## 2026-11-20 R-015 One configuration reader; settings come only from owner files
+- What: new `src/config.ts` (`ENVIRONMENT`, the 48 `LIMEN_*` names with their kinds `transport`, `test`, `exception`, `removed`; the readers `transport`, `testKnob`, `exception`, `setTestKnob`; the builders `wrapperEnvironment`, `engineEnvironment`, `groupAdvanceEnvironment`; `ignoredSettings`); every `process.env.LIMEN_*` read of `src/`, `hook/` and `bin/` goes through it (27 files and `bin/limen-group-fixture.mjs`); `src/project/limits.ts` (the file only, the new `toolCalls`); `src/runtime/start-queue.ts` (`start-gate.json` only, `"off"`); `src/runtime/wrapper.ts`, `src/commands/spawn.ts`, `src/commands/continue.ts`, `src/job/group-cabinet.ts` (environments from the registry, which closes the leaks of `LIMEN_TIMEOUT_MS` and `LIMEN_CONTINUE`); `src/commands/status.ts` (the two environment sections); `docs/jobs.md`, `docs/commands.md`, `docs/setup.md`, `templates/agents.md`; tests `test/config.test.ts`, `test/project/limits.test.ts`, `test/runtime/start-queue.test.ts`, `test/cli/spawn.test.ts` and the helpers `test/known-files.ts`, `test/environment.ts` (new), `test/cli/continue.test.ts`, `test/cli/status.test.ts`, `test/plant.ts`, `test/s3-finish-wake.test.ts`, `test/structure.test.ts`; `plan.md` (D-052, the stage-2 row and step 2.4)
+- Why: T-03, D-052
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (277/277); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (eight test files fail at HEAD); `node --test test/config.test.ts` → exit 0 (11/11)
+- Measurement: measured
+- Commit: R-015
+- Rollback: git revert $(git log --format=%H --grep='^R-015:' adrian-rebuild --)

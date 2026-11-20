@@ -1,8 +1,10 @@
 import { spawn } from "node:child_process";
 import { appendFile, readFile, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { engineEnvironment, type TransportName, transport, wrapperEnvironment } from "../config.ts";
 import { promptStartNotice } from "../integrations/coordinator-wake.ts";
 import { jobMembership } from "../job/group-cabinet.ts";
+import { formatDuration } from "../job/job.ts";
 import {
 	appendLimenLog,
 	atomicWrite,
@@ -13,6 +15,7 @@ import {
 	writeHandshake,
 } from "../job/record.ts";
 import { enqueueSteer } from "../job/steer-inbox.ts";
+import { limitCount } from "../project/limits.ts";
 import {
 	containEscapedDescendants,
 	discoverEscapedDescendants,
@@ -20,7 +23,7 @@ import {
 	processInfo,
 	signalProcessGroup,
 } from "./contain.ts";
-import { argvFor, engineBinary, jobProfile } from "./engine.ts";
+import { argvFor, jobProfile } from "./engine.ts";
 import { setUpJob, worktreeMissing } from "./job-setup.ts";
 import { observeToolStall, ownedToolDescendants, type ToolStallWatch, toolStallMs } from "./stalled-tool.ts";
 import { enterStartQueue, waitForStart } from "./start-queue.ts";
@@ -35,16 +38,15 @@ const HOOK = fileURLToPath(new URL("../../hook", import.meta.url));
 // A job is one short turn. These bounds stop a silent runaway from burning a session; they are not a review gate.
 const DEFAULT_TIMEOUT_MS = 90 * 60_000;
 const MAX_TOOL_CALLS = 900;
-const toolCallCap = (): number => Number(process.env.LIMEN_MAX_TOOL_CALLS) || MAX_TOOL_CALLS;
-export async function launchWrapper(environment: Readonly<Record<string, string>>): Promise<number> {
-	return launchDetached({ ...environment, LIMEN_INTERNAL_RUN: "1" });
-}
-async function launchDetached(environment: Readonly<Record<string, string>>): Promise<number> {
+/** The tool-start cap: `toolCalls` of the project's limits file, read at each tool start, else 900 (R-015). */
+const toolCallCap = (): number => limitCount("toolCalls", MAX_TOOL_CALLS);
+/** Starts a job's wrapper with what the spawner passes; it inherits no transport or removed name (R-015). */
+export async function launchWrapper(environment: Readonly<Partial<Record<TransportName, string>>>): Promise<number> {
 	const executable = fileURLToPath(new URL("../../bin/limen", import.meta.url));
 	const child = spawn(process.execPath, [executable], {
 		detached: true,
 		stdio: "ignore",
-		env: { ...process.env, ...environment },
+		env: wrapperEnvironment({ ...environment, LIMEN_INTERNAL_RUN: "1" }),
 	});
 	await new Promise<void>((resolve, reject) => {
 		child.once("spawn", resolve);
@@ -64,7 +66,7 @@ export async function runInternalJob(): Promise<void> {
 	const taskFile = requiredEnvironment("LIMEN_TASK_FILE");
 	const preambleFile = requiredEnvironment("LIMEN_PREAMBLE");
 	const jobId = requiredEnvironment("LIMEN_JOB_ID");
-	const label = process.env.LIMEN_LABEL || jobId;
+	const label = transport("LIMEN_LABEL") || jobId;
 	const membership = await jobMembership(jobDir);
 	if (
 		membership &&
@@ -94,7 +96,7 @@ export async function runInternalJob(): Promise<void> {
 	const gate = !membership && (await enterStartQueue(jobDir));
 	// Spawn waits for this handshake, not for the queue or setup, so it returns before prune and --prepare run.
 	// One handshake per run: a second one races the first one's `born` write and can crash the wrapper.
-	const early = Boolean(process.env.LIMEN_SETUP_KEEP || gate);
+	const early = Boolean(transport("LIMEN_SETUP_KEEP") || gate);
 	if (early) {
 		await writeHandshake(jobDir);
 	}
@@ -108,7 +110,7 @@ export async function runInternalJob(): Promise<void> {
 	if (notice) {
 		void promptStartNotice(jobDir, notice).catch(() => {});
 	}
-	if (process.env.LIMEN_SETUP_KEEP) {
+	if (transport("LIMEN_SETUP_KEEP")) {
 		await setUpJob(jobDir, worktree);
 		if (stopRequested || (await textFile(`${jobDir}/stop-requested`))) {
 			await finalizeJob(jobDir, "stopped", "stopped during setup", shutdownDeadline);
@@ -121,7 +123,9 @@ export async function runInternalJob(): Promise<void> {
 		return;
 	}
 	// The timeout and a group deadline count from engine start, so time in the start queue never counts against them.
-	const configuredTimeout = process.env.LIMEN_TIMEOUT_MS ? Number(process.env.LIMEN_TIMEOUT_MS) : DEFAULT_TIMEOUT_MS;
+	// Only spawn and continue set it, for --timeout or a group deadline: a spawner's own variable never reaches here.
+	const configured = transport("LIMEN_TIMEOUT_MS");
+	const configuredTimeout = configured ? Number(configured) : DEFAULT_TIMEOUT_MS;
 	const timeoutMs = membership
 		? Math.max(1, Math.min(configuredTimeout, (membership.member?.deadline ?? membership.run.deadline) - Date.now()))
 		: configuredTimeout;
@@ -151,6 +155,9 @@ export async function runInternalJob(): Promise<void> {
 			await finalizeJob(jobDir, "failed", reason, shutdownDeadline);
 		})();
 	};
+	const provider = transport("LIMEN_PROVIDER");
+	const model = transport("LIMEN_MODEL");
+	const thinking = transport("LIMEN_THINKING");
 	const args = argvFor(profile, {
 		jobDir,
 		label,
@@ -162,30 +169,14 @@ export async function runInternalJob(): Promise<void> {
 			...((await jobMembership(jobDir)) ? [`${HOOK}/group-peer.ts`] : []),
 			...(await readWorkerExtensions(jobDir)),
 		],
-		...(process.env.LIMEN_PROVIDER ? { provider: process.env.LIMEN_PROVIDER } : {}),
-		...(process.env.LIMEN_MODEL ? { model: process.env.LIMEN_MODEL } : {}),
-		...(process.env.LIMEN_THINKING ? { thinking: process.env.LIMEN_THINKING } : {}),
-		...(process.env.LIMEN_CONTINUE === "1"
+		...(provider ? { provider } : {}),
+		...(model ? { model } : {}),
+		...(thinking ? { thinking } : {}),
+		...(transport("LIMEN_CONTINUE") === "1"
 			? { continueValue: (await readFile(taskFile, "utf8")).trim() }
 			: { taskFile }),
 	});
-	const childEnvironment: NodeJS.ProcessEnv = {
-		...process.env,
-		LIMEN_JOB: "1",
-		LIMEN_JOB_ID: jobId,
-		LIMEN_JOB_LABEL: label,
-	};
-	const privateEnvironment =
-		"LIMEN_INTERNAL_RUN LIMEN_JOB_DIR LIMEN_WORKTREE LIMEN_TASK_FILE LIMEN_PREAMBLE LIMEN_TIMEOUT_MS LIMEN_MODEL LIMEN_PROVIDER LIMEN_THINKING LIMEN_LABEL LIMEN_SETUP_KEEP LIMEN_SETUP_PREPARE PI_SESSION_ID PI_SESSION_FILE PI_PROVIDER PI_MODEL PI_REASONING_LEVEL";
-	for (const name of privateEnvironment.split(" ")) {
-		delete childEnvironment[name];
-	}
-	// A detached job must not inherit the coordinator's Herdr pane.
-	for (const name of Object.keys(childEnvironment)) {
-		if (name.startsWith("HERDR_")) {
-			delete childEnvironment[name];
-		}
-	}
+	const childEnvironment = engineEnvironment(process.env, { LIMEN_JOB: "1", LIMEN_JOB_ID: jobId });
 	const parser = createStreamParser();
 	const seen = { activity: "", activityAt: 0, assistant: "", stop: "", tool: "", progress: 0 };
 	const failLog = (error: unknown) =>
@@ -210,7 +201,7 @@ export async function runInternalJob(): Promise<void> {
 			)
 			.catch(failLog);
 	};
-	const child = spawn(engineBinary(profile), args, {
+	const child = spawn(profile.binary, args, {
 		cwd: worktree,
 		stdio: ["ignore", "pipe", "pipe"],
 		env: childEnvironment,
@@ -234,7 +225,7 @@ export async function runInternalJob(): Promise<void> {
 		await writeHandshake(jobDir);
 	}
 	await atomicWrite(`${jobDir}/state`, "running\n");
-	await appendLimenLog(jobDir, "worker started");
+	await appendLimenLog(jobDir, `worker started, time limit ${formatDuration(timeoutMs)}`);
 	const enginePid = child.pid;
 	const stallWatch: ToolStallWatch = { tool: "", born: "", started: 0 };
 	let observing = false;
@@ -364,7 +355,7 @@ export async function runInternalJob(): Promise<void> {
 	}
 }
 export async function failInternalJob(error: unknown): Promise<void> {
-	const jobDir = process.env.LIMEN_JOB_DIR;
+	const jobDir = transport("LIMEN_JOB_DIR");
 	if (!jobDir) {
 		return;
 	}
@@ -407,8 +398,8 @@ async function recordEvents(
 		}
 	}
 }
-function requiredEnvironment(name: string): string {
-	const value = process.env[name];
+function requiredEnvironment(name: TransportName): string {
+	const value = transport(name);
 	if (!value) {
 		throw new Error(`internal job wrapper is missing ${name}`);
 	}

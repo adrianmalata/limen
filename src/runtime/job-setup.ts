@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { pruneForJob } from "../commands/prune.ts";
+import { transport } from "../config.ts";
 import { appendLimenLog } from "../job/record.ts";
 import { limitMs, PLANT_LIMITS, plantLimits } from "../project/limits.ts";
 
@@ -20,8 +21,8 @@ export function worktreeMissing(worktree: string): string | undefined {
  * The log also names each entry of the plant's limits file that Limen ignores.
  */
 export async function setUpJob(jobDir: string, worktree: string): Promise<void> {
-	const keep = process.env.LIMEN_SETUP_KEEP;
-	const root = process.env.LIMEN_CONTEXT_ROOT;
+	const keep = transport("LIMEN_SETUP_KEEP");
+	const root = transport("LIMEN_CONTEXT_ROOT");
 	if (!(keep && root)) {
 		return;
 	}
@@ -34,7 +35,7 @@ export async function setUpJob(jobDir: string, worktree: string): Promise<void> 
 	if (ignored.length > 0) {
 		await appendLimenLog(jobDir, `limits: ignored in ${PLANT_LIMITS}: ${ignored.join("; ")}`);
 	}
-	const command = process.env.LIMEN_SETUP_PREPARE?.trim();
+	const command = transport("LIMEN_SETUP_PREPARE")?.trim();
 	if (command) {
 		await runPrepare(jobDir, worktree, command, limitMs("prepare", DEFAULT_PREPARE_MS, root));
 	}

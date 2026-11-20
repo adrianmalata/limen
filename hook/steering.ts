@@ -12,6 +12,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { transport } from "../src/config.ts";
 import { noteSteer } from "../src/job/task-note.ts";
 
 type PiApi = {
@@ -64,12 +65,12 @@ export default function limenSteering(pi: PiApi): void {
 		changeTimer.unref();
 	};
 	pi.on("session_start", () => {
-		if (process.env.LIMEN_JOB !== "1") {
+		if (transport("LIMEN_JOB") !== "1") {
 			return;
 		}
 		stop();
-		const root = process.env.LIMEN_CONTEXT_ROOT;
-		const id = process.env.LIMEN_JOB_ID;
+		const root = transport("LIMEN_CONTEXT_ROOT");
+		const id = transport("LIMEN_JOB_ID");
 		if (!root || !id) {
 			return;
 		}

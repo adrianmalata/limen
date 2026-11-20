@@ -1,4 +1,5 @@
 import { endDueRules } from "./commands/rule.ts";
+import { transport } from "./config.ts";
 import { commandHelp, generalHelp, groupEntries, groupHelp } from "./help.ts";
 import { removedWords } from "./old-names.ts";
 import { EXIT_CODES, failureOf, finalLine, LimenError, type Success } from "./outcome.ts";
@@ -17,7 +18,7 @@ export async function main(
 	cwd = process.cwd(),
 	registry: readonly Entry[] = REGISTRY,
 ): Promise<void> {
-	if (process.env.LIMEN_INTERNAL_RUN === "1") {
+	if (transport("LIMEN_INTERNAL_RUN") === "1") {
 		await internalRun();
 		return;
 	}

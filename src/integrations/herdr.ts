@@ -3,6 +3,7 @@ import { existsSync, realpathSync } from "node:fs";
 import { appendFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { testKnob } from "../config.ts";
 import { closedFeatures, closedJobFeatures } from "../job/job.ts";
 
 export type HerdrPlace = {
@@ -98,10 +99,10 @@ export async function showSeatNotification(title: string, body: string): Promise
 	}
 	return notify(herdr, ["notification", "show", title, "--body", body, "--sound", "request"]);
 }
+/** How long a seat notice waits for Herdr; a constant, as no setting chooses it (R-015). */
+const NOTIFY_TIMEOUT_MS = 2_000;
 function notify(command: string, args: readonly string[]): Promise<boolean> {
-	const requested = Number(process.env.LIMEN_SEAT_NOTIFY_TIMEOUT_MS);
-	const timeout = Number.isFinite(requested) && requested > 0 ? requested : 2_000;
-	return new Promise((done) => execFile(command, args, { timeout }, (error) => done(!error)));
+	return new Promise((done) => execFile(command, args, { timeout: NOTIFY_TIMEOUT_MS }, (error) => done(!error)));
 }
 
 export async function openDiffTab(input: {
@@ -277,7 +278,7 @@ async function createTab(input: {
 
 /** The one rule for the Herdr binary: `LIMEN_HERDR=0` turns Herdr off; another value must exist; otherwise `herdr` on PATH. */
 export function herdrBinary(): string | undefined {
-	const override = process.env.LIMEN_HERDR?.trim();
+	const override = testKnob("LIMEN_HERDR")?.trim();
 	if (override === "0") {
 		return;
 	}

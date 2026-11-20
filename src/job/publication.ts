@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { copyFile, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { userInfo } from "node:os";
 import { basename, dirname } from "node:path";
+import { exception, transport } from "../config.ts";
 import type { EngineId } from "../runtime/engine.ts";
 import { groupLock } from "./group-cabinet.ts";
 import { SESSION_ID } from "./job.ts";
@@ -20,11 +21,11 @@ export function worktreeLock<T>(jobsRoot: string, operation: () => Promise<T>): 
  * out.
  */
 export function spawnerLine(): string {
-	const job = process.env.LIMEN_JOB_ID?.trim();
+	const job = transport("LIMEN_JOB_ID")?.trim();
 	if (job && SESSION_ID.test(job)) {
 		return `job ${job}`;
 	}
-	const parts: string[] = process.env.LIMEN_COORDINATOR === "1" ? ["coordinator"] : [];
+	const parts: string[] = exception("LIMEN_COORDINATOR") === "1" ? ["coordinator"] : [];
 	const session = process.env.PI_SESSION_ID?.trim();
 	if (session && SESSION_ID.test(session)) {
 		parts.push(`pi session ${session}`);
@@ -131,7 +132,7 @@ export async function publishJob(jobDir: string, job: NewJob): Promise<void> {
 		}
 		// A job exports its id to the agent, so a spawn or continue run by a job's agent names it.
 		// The picture nests a coordinator's workers under it by this link.
-		const spawner = process.env.LIMEN_JOB_ID?.trim();
+		const spawner = transport("LIMEN_JOB_ID")?.trim();
 		if (spawner && SESSION_ID.test(spawner)) {
 			files["spawned-by"] = `${spawner}\n`;
 		}

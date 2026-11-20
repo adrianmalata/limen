@@ -5,6 +5,7 @@ import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/p
 import { dirname, isAbsolute } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { groupAdvanceEnvironment, transport } from "../config.ts";
 import { limenRoot } from "../project/git.ts";
 import { processAlive, processInfo } from "../runtime/contain.ts";
 import { SESSION_ID } from "./job.ts";
@@ -175,15 +176,16 @@ export async function runs(root: string): Promise<GroupRun[]> {
 	return result.sort((left, right) => left.startedAt - right.startedAt);
 }
 export async function groupIdentity(cwd: string, explicitId?: string): Promise<GroupIdentity | undefined> {
-	const memberId = process.env.LIMEN_JOB_ID;
-	if (process.env.LIMEN_GROUP_ID) {
-		const root = process.env.LIMEN_CONTEXT_ROOT;
+	const memberId = transport("LIMEN_JOB_ID");
+	const groupId = transport("LIMEN_GROUP_ID");
+	if (groupId) {
+		const root = transport("LIMEN_CONTEXT_ROOT");
 		if (!root || !memberId) {
 			throw new Error("this job has incomplete group membership; run limen status --all to inspect its job record");
 		}
-		const run = await readRun(root, process.env.LIMEN_GROUP_ID);
+		const run = await readRun(root, groupId);
 		const member = run.members.find((entry) => entry.id === memberId);
-		if (!member || member.team !== process.env.LIMEN_TEAM_ID || (explicitId && explicitId !== run.id)) {
+		if (!member || member.team !== transport("LIMEN_TEAM_ID") || (explicitId && explicitId !== run.id)) {
 			throw new Error(`this job does not match group ${run.feature} (${run.id})'s roster; run limen show ${memberId}`);
 		}
 		return { run, member, recipient: member.id };
@@ -297,37 +299,17 @@ export async function claimMember(
 		"wait",
 	);
 }
-// A child that inherits these would act as the finished job: claim its membership, run it again, or wake its pane.
-const JOB_ENVIRONMENT = [
-	"LIMEN_INTERNAL_RUN",
-	"LIMEN_JOB",
-	"LIMEN_JOB_ID",
-	"LIMEN_JOB_DIR",
-	"LIMEN_GROUP_ID",
-	"LIMEN_TEAM_ID",
-	"LIMEN_CONTEXT_ROOT",
-	"LIMEN_ROLE",
-	"LIMEN_LABEL",
-	"LIMEN_MODEL",
-	"LIMEN_PROVIDER",
-	"LIMEN_THINKING",
-	"LIMEN_TIMEOUT_MS",
-	"PI_SESSION_ID",
-	"HERDR_PANE_ID",
-	"HERDR_TAB_ID",
-];
-/** Runs `limen group advance` in its own process: a team job that ended may start the next round or finish the group. */
+/**
+ * Runs `limen group advance` in its own process: a team job that ended may start the next round or finish the group.
+ * Its environment holds no transport name of the finished job (`groupAdvanceEnvironment`).
+ */
 export function startGroupAdvance(run: GroupRun): void {
-	const environment = { ...process.env };
-	for (const name of JOB_ENVIRONMENT) {
-		delete environment[name];
-	}
 	const limen = fileURLToPath(new URL("../../bin/limen", import.meta.url));
 	const child = spawn(process.execPath, [limen, "group", "advance", run.id], {
 		cwd: run.root,
 		detached: true,
 		stdio: "ignore",
-		env: environment,
+		env: groupAdvanceEnvironment(),
 	});
 	// An advance that cannot start leaves the round for the next finish or `limen group status`.
 	child.once("error", () => {});

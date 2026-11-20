@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { transport } from "../config.ts";
 import type { GroupIdentity, GroupMember, GroupRun, TeamRoute } from "../job/group-cabinet.ts";
 import {
 	groupIdentity,
@@ -100,7 +101,7 @@ type GroupActivation = {
 	readonly options: GroupStartOptions;
 };
 async function startGroup(request: GroupStartRequest, cwd: string): Promise<GroupRun> {
-	if (process.env.LIMEN_GROUP_ID || process.env.LIMEN_JOB === "1") {
+	if (transport("LIMEN_GROUP_ID") || transport("LIMEN_JOB") === "1") {
 		throw new Error(
 			"only the owner-facing lead may start a group: run limen group start from the plant's interactive Herdr coordinator pane (LIMEN_COORDINATOR=1) with hook/group-peer.ts loaded — a limen job (LIMEN_JOB=1) cannot register as lead or start groups",
 		);
@@ -387,7 +388,7 @@ export async function groupAdvanceCommand(values: Parsed, cwd: string): Promise<
  */
 async function selectedGroup(values: Parsed, cwd: string): Promise<{ identity: GroupIdentity; word?: string }> {
 	const given = values.get("group");
-	const explicit = process.env.LIMEN_GROUP_ID ? undefined : given;
+	const explicit = transport("LIMEN_GROUP_ID") ? undefined : given;
 	const identity = await groupIdentity(cwd, explicit);
 	if (!identity) {
 		throw new Error("no group selected; run limen group status GROUP-ID from the lead pane");
@@ -429,7 +430,7 @@ async function leadGroup(values: Parsed, cwd: string, command: string): Promise<
  * file system operation stalls.
  */
 export async function groupWaitCommand(values: Parsed, cwd: string): Promise<undefined> {
-	if (!process.env.LIMEN_GROUP_ID) {
+	if (!transport("LIMEN_GROUP_ID")) {
 		throw new LimenError({
 			class: "refused",
 			code: "GROUP_WAIT_MEMBERS_ONLY",

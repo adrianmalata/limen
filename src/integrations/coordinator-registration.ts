@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { exception, transport } from "../config.ts";
 import { SESSION_ID } from "../job/job.ts";
 import { textFile } from "../job/record.ts";
 import { processInfo } from "../runtime/contain.ts";
@@ -43,11 +44,11 @@ export function coordinatorRegistration() {
 	};
 	return {
 		start(project: string, context: CoordinatorSession): void {
-			if (process.env.LIMEN_JOB === "1" || context.agent?.kind === "sub") {
+			if (transport("LIMEN_JOB") === "1" || context.agent?.kind === "sub") {
 				return;
 			}
 			const pane = process.env.HERDR_ENV === "1" ? (process.env.HERDR_PANE_ID?.trim() ?? "") : "";
-			if (process.env.LIMEN_COORDINATOR !== "1" && !pane) {
+			if (exception("LIMEN_COORDINATOR") !== "1" && !pane) {
 				return;
 			}
 			const id = context.sessionManager.getSessionId();

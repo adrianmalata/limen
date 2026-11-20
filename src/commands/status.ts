@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { relative, resolve } from "node:path";
+import { ignoredSettings } from "../config.ts";
 import { herdrBinary } from "../integrations/herdr.ts";
 import { type GroupIdentity, jobMembership } from "../job/group-cabinet.ts";
 import { isTerminal } from "../job/job.ts";
@@ -122,6 +123,7 @@ export async function statusCommand(values: Parsed, cwd: string): Promise<undefi
 			...(decide.length ? decide : ["  none"]),
 			...(scan.uncertain.length ? ["Unconfirmed jobs:", ...scan.uncertain] : []),
 			...leftoverLines(root),
+			...environmentLines(),
 			...(all ? [] : [`Older: ${scan.older} record${scan.older === 1 ? "" : "s"} (limen status --all)`]),
 			"Coordinator tabs:",
 			...coordinators,
@@ -148,6 +150,28 @@ function leftoverLines(root: string): string[] {
 	return [
 		`Leftover files (${found.length}); check them, then run limen init --drop-leftovers:`,
 		...found.map((entry) => `  ${entry.path} (${entry.feature})`),
+	];
+}
+
+/**
+ * The `LIMEN_*` variables of this command's environment that Limen no longer reads, with what replaces each, and the
+ * ones it reads until a ticket replaces them (R-015, `plan.md` step 2.4); empty when there are none.
+ */
+function environmentLines(): string[] {
+	const { ignored, exceptions } = ignoredSettings();
+	return [
+		...(ignored.length
+			? [
+					`Environment settings Limen no longer reads (${ignored.length}); remove them:`,
+					...ignored.map((entry) => `  ${entry.name}: ${entry.replacement}`),
+				]
+			: []),
+		...(exceptions.length
+			? [
+					`Environment variables read until a ticket replaces them (${exceptions.length}):`,
+					...exceptions.map((entry) => `  ${entry.name}: until ${entry.until}`),
+				]
+			: []),
 	];
 }
 

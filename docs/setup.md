@@ -83,17 +83,17 @@ Put project skills in `.agents/skills/<name>/SKILL.md`. Pi also finds skills in 
 
 Use this reference when you need to set model choices or run commands yourself.
 
-Project choices are in `spec/build.md`. The board records the engine, provider, model, and reasoning level for each role, and who reviews. The coordinator reads those choices and passes them to the CLI as command flags. The CLI selects settings from flags, environment variables, and package defaults. A newer explicit instruction from the owner has priority over the board. Replace the placeholders in the commands with the project choices.
+Project choices are in `spec/build.md`. The board records the engine, provider, model, and reasoning level for each role, and who reviews. The coordinator reads those choices and passes them to the CLI as command flags. The CLI selects settings from flags and package defaults; an environment variable selects none of them, except `LIMEN_WORKER_MODEL` for a continuation (below). A newer explicit instruction from the owner has priority over the board. Replace the placeholders in the commands with the project choices.
 
 ### Package fallbacks
 
-The coordinator must pass the board choices explicitly. Package fallbacks apply when command flags and environment variables do not select a setting.
+The coordinator must pass the board choices explicitly. Package fallbacks apply when command flags do not select a setting.
 
 **Engine.** Every job runs Pi, the `pi` binary on the seat. `limen spawn` requires `--engine pi`, with `--provider`, `--model` and `--thinking`, and refuses a spawn without one of them, or with another engine, before a job exists. Old job records without an engine stay on Pi. A continuation keeps its parent's engine, and refuses a parent recorded with a removed engine.
 
 **Model.** `limen spawn` requires `--model` and has no fallback. Only `limen continue` without `--model` falls back, until routes come from an owner file: first to `LIMEN_WORKER_MODEL`, then to the built-in `openai-codex/gpt-6-astra:high`.
 
-**The `pi-claude` bridge.** A `pi-claude` model runs on the Claude Code bridge, which Limen names with `--extension`, because jobs otherwise start with `--no-extensions`. Pi loads the `pi-claude-bridge` package that `pi install` put under `~/.pi/agent/npm/node_modules` (scoped or not), and takes `--provider pi-claude --model claude-opus-5-5` or `--model pi-claude/claude-opus-5-5` as given. `spawn`, `continue` and `group start` refuse a missing bridge before any job exists. With `LIMEN_PREFLIGHT=auth`, a bridged route skips `pi auth check`, because the bridge signs in through Claude Code.
+**The `pi-claude` bridge.** A `pi-claude` model runs on the Claude Code bridge, which Limen names with `--extension`, because jobs otherwise start with `--no-extensions`. Pi loads the `pi-claude-bridge` package that `pi install` put under `~/.pi/agent/npm/node_modules` (scoped or not), and takes `--provider pi-claude --model claude-opus-5-5` or `--model pi-claude/claude-opus-5-5` as given. `spawn`, `continue` and `group start` refuse a missing bridge before any job exists. Spawn and continue run no `pi auth check`; `LIMEN_PREFLIGHT` is no longer read.
 
 **Auth.** Pi keeps its auth store in `~/.pi`; authenticate Pi before the first job. Limen does not change Pi's settings or credentials.
 
@@ -110,7 +110,7 @@ limen spawn --engine pi --provider <provider> --model <model> --thinking <level>
 
 `--extension` accepts local files and package directories. Limen does not install or import them; Pi loads them. A directory can expose several extensions and other package resources, so prefer the exact entry file when that is the intended selection. Ambient extensions stay disabled. See [command details](commands.md#start-and-continue-jobs) for path rules and continuation replacement.
 
-Extensions run with the worker process's permissions and can read files, credentials and session data. Path validation does not prove API compatibility, provider availability, instruction forwarding or successful inference. Keep installation, native model-catalog registration and a successful worker check as separate claims. The optional `LIMEN_PREFLIGHT=auth` check does not load session extensions and can reject an extension-only provider; Limen does not bypass it. For native Pi groups, the owner selects common or team-only extensions at `group start`; members inherit the fixed team lists. See [group selection](groups.md#prepare-and-start). Ordinary selections do not automatically propagate to GitHub launches or native subagents.
+Extensions run with the worker process's permissions and can read files, credentials and session data. Path validation does not prove API compatibility, provider availability, instruction forwarding or successful inference. Keep installation, native model-catalog registration and a successful worker check as separate claims. Limen runs no `pi auth check` before a job (`LIMEN_PREFLIGHT` is no longer read), so an extension-only provider is first checked by the job itself. For native Pi groups, the owner selects common or team-only extensions at `group start`; members inherit the fixed team lists. See [group selection](groups.md#prepare-and-start). Ordinary selections do not automatically propagate to GitHub launches or native subagents.
 
 ### Start a coordinator in a Herdr pane
 
