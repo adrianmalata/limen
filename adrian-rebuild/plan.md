@@ -29,7 +29,8 @@ konfiguracji src/config.ts, bramka 277/277); R-016 zamknięty (moduł granicy sr
 i rzutowań, bramka 310/310); D-053 i D-054: praca pod nieobecność Adriana 21–23.11 (push przy 98 % limitu, tańsza
 recenzja, status ready dla nocy, domyślne decyzje techniczne nocą, arkusz wariantów dla ticketów pair); przekazanie
 do limen-rebuild-10, która zrobiła D-054 w check.mjs (moduł tools/ticket-rules.mjs: status ready, nocny ticket pair
-z zapisanymi wyborami, polecenia kryteriów sprawdzane z allow-listą); R-017 czeka na dwie odpowiedzi Adriana. -->
+z zapisanymi wyborami, polecenia kryteriów sprawdzane z allow-listą); R-018 i R-020 gotowe do nocy (ready); R-017
+czeka na dwie odpowiedzi Adriana, a R-019 na trzecią (zależność od R-020). -->
 
 
 
@@ -999,9 +1000,9 @@ Columns:
 | R-015 | One configuration reader; settings come only from owner files | 2 | T-03 | R-014 | M | delegated | night | yes | — | — | done |
 | R-016 | One boundary parsing module with validators; the cast ratchet | 2 | T-27 | R-013 | M | delegated | night | — | — | — | done |
 | R-017 | One Pi API adapter with type guards, checked against Pi's real types | 2 | T-32 | R-012, R-016 | M | delegated | night | — | pi | 2.2 | planned |
-| R-018 | One atomic-write module | 2 | A-022, T-25 | R-013 | M | delegated | night | — | — | — | planned |
+| R-018 | One atomic-write module | 2 | A-022, T-25 | R-013 | L | delegated | night | — | — | — | ready |
 | R-019 | One lock module with process identity and a bounded wait | 2 | A-017, A-018, A-055, A-058, A-087, T-25, D-029 | R-018 | M | delegated | night | yes | — | — | planned |
-| R-020 | A Linux platform adapter and declared system requirements | 2 | A-083, T-12, T-32 | R-013 | M | delegated | night | — | — | — | planned |
+| R-020 | A Linux platform adapter and declared system requirements | 2 | A-083, T-12, T-32 | R-013 | M | delegated | night | — | — | — | ready |
 | R-021 | One `record.json` per job, written only by the transition function | 2 | S1+, A-019, A-053, A-056, T-20, T-25 | R-016, R-018, R-019 | L | delegated | night | yes | — | — | planned |
 | R-022 | Exact job references through one resolver | 2 | T-20 | R-014, R-021 | M | delegated | night | yes | — | — | planned |
 | R-023 | Commands are thin adapters over domain operations; a refusal leaves no trace | 2 | T-26, T-38, D-045, D-046 | R-014, R-021, R-089 | L | delegated | night | — | — | — | planned |
@@ -1123,6 +1124,8 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   registrations with a dead lock owner.
 - R-020: git is declared by the feature Limen needs (`git worktree list --porcelain -z`), not by a version number, so
   the gate's shim (D-001) satisfies it on the laptop's git 2.34.
+- R-050: its coordinator start script runs R-020's requirements check (T-12 (2): "checked at `limen init` and at
+  coordinator start"), since no start path exists before it.
 - R-021 (R-016 review round 3, notes 1-3; R-021 moves the records onto `src/boundary.ts`): the comment above
   `RAW` in `src/boundary.ts` says what `JSON.stringify` escapes (C0 included; DEL, C1, U+2028 and U+2029 are left to
   `escaped`); the 40-character cut of a shown value never splits an escape or a surrogate pair; format characters
@@ -2156,18 +2159,28 @@ session limen-rebuild-9` and two `handover: stopped claude …` lines and exited
   event of the wrong shape before R-021 and R-029 (a: a typed `BAD_DATA` error now, the job's `engine-error` and the
   warning in `limen status` by R-029; b: all of T-32 (4) now, with an interim file; recommended a).
 - Inventories for R-018 (every temp-and-rename writer and every direct write to `spec/` and job files) and R-020
-  (platform operations, external programs, requirement checks) came from two read-only subagents; their facts go into
+  (platform operations, external programs, requirement checks) came from two read-only subagents; their facts are in
   those tickets' `ticket.md`.
+- R-018 `ready` (size L, was M: about 60 call sites; the scan bans the write primitives outside `src/atomic-write.ts`,
+  with exceptions for the locks until R-019 and the LaunchAgent until R-032) and R-020 `ready` (`src/platform/`; the
+  requirements check at `limen init`; the check at coordinator start goes to R-050, a note in `## Tickets`): two
+  independent branches for the night (D-054 (1)); `check.mjs` passes their criteria against the allow-list.
+- R-019 waits for Adrian's answer 3 (asked 2026-11-20): whether it depends on R-020 as well, so that the lock's owner
+  identity (pid, start time, boot id) comes from the platform adapter (recommended), and his consent to its technical
+  defaults (a 60 s bounded wait, then an error naming the lock file, the owner and a hint; an old owner file holding
+  only a pid is abandoned only when that pid is gone; the units' `TimeoutStartSec` goes to R-032). His answer becomes
+  a decision entry, and R-019 becomes `ready (D-NNN)`.
 
 Next (by day on 2026-11-20, in this order):
-1. `ticket.md` for R-018 and R-020 from the inventories, each `ready`; the decisions R-019 needs as an entry of
-   `## Decisions` and the status `ready (D-NNN)`; R-017 `ready` once Adrian has answered.
-2. If time and the 5-hour window allow, the lowest `ready` ticket by day.
-3. On Adrian's "Tryb nocny do HH:MM": the checks of D-024, then `night.mjs`; this is the rehearsal of D-053 (3).
+1. Adrian's answers 1–3: R-017's `ticket.md` from answers 1 and 2, then `ready`; R-019's decision entry from answer 3,
+   then `ready (D-NNN)`.
+2. R-089's `ticket.md` (its dependency R-014 is `done`), `ready`: a third branch for the night.
+3. On Adrian's "Tryb nocny do HH:MM": the checks of D-024, then `night.mjs`; this is the rehearsal of D-053 (3). R-018
+   and R-020 stay for the night, so that it has two independent branches even without the answers.
 Then the plan of the day session's reply of 2026-11-20: Saturday R-021 first (the root of R-022–R-025), R-089, R-022;
 Sunday the rest of stage 2 and its close (tag `a0.2.0`, gate 5.2 by phone); stage 3 after his "go on".
 
-Open questions for Adrian: R-017's two questions above.
+Open questions for Adrian: answers 1 and 2 (R-017) and 3 (R-019) above.
 
 Notes for the next session:
 - Start Claude Code in the repository root, so that it loads `.claude/agents/`.
