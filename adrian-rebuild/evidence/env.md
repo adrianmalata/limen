@@ -1,6 +1,7 @@
 <!-- PL: Środowisko, w którym prowadzona jest przebudowa (etap 0, krok 1–3): stan repo, końce linii i wersje narzędzi
 na laptopie (WSL2), wraz z różnicami względem seata, które wpływają na testy. Ścieżki domowe i tożsamości są
-pominięte, bo repo jest publiczne. Stan: zebrane 2026-11-16, aktualne dla obecnego klonu. -->
+pominięte, bo repo jest publiczne. Stan: zebrane 2026-11-16; 20.11 git 2.56.1 z Linuxbrew na PATH (D-060), a
+/usr/bin/git nadal 2.34.1. -->
 
 # Environment (stage 0)
 
@@ -40,3 +41,7 @@ No CRLF anywhere, so no re-clone is needed.
 | `/tmp` | `root:root 1777`, `TMPDIR` unset | not known | breaks S10, see `baseline.md` |
 | CPU / RAM | 12 / 15 GiB | 6 vCPU / 11 GiB | — |
 | GitHub credentials | HTTPS via the `gh` credential helper (global git config) | — | used only for `git push origin adrian-rebuild` |
+
+Update of 2026-11-20 (D-060): git 2.56.1 from Linuxbrew is the first `git` on PATH, so `git worktree list -z` works
+in the session's shell; `/usr/bin/git` is still 2.34.1, which a test plant's fixed PATH reaches unless the plant links
+the runner's git (R-020).

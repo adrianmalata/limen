@@ -36,7 +36,7 @@ od R-020, ograniczone 60 s oczekiwanie na blokadę), więc R-019 jest gotowy do 
 R-021: `limen migrate`, foldery nieprzenoszalne do `.limen/unmigrated/`, zmigrowane rekordy tylko jako historia),
 więc R-021 też jest gotowy; R-018 zamknięty w dzień (moduł zapisu atomowego, bramka 340/340); przekazanie do
 limen-rebuild-12; D-059: sesja główna uruchamia bramkę po raporcie końcowym subagenta, bez czekania na powiadomienie
-o zakończeniu zadania; D-058 (usunięcie martwego kodu, którego Pi 1.5.1 nie ma) i R-017 zamknięty w dzień (adapter API
+o zakończeniu zadania; D-060: git 2.56.1 z Linuxbrew na laptopie zamiast 2.34 (bez sudo); D-058 (usunięcie martwego kodu, którego Pi 1.5.1 nie ma) i R-017 zamknięty w dzień (adapter API
 Pi `src/runtime/pi-api.ts` ze strażnikami, kontrakt typów na prawdziwych typach Pi 1.5.1, bramka 377/377). -->
 
 
@@ -709,6 +709,17 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   arrived and `compare --git` exits 0; it no longer waits for the task's completion notification, which it found
   unreliable. The final report ends the subagent's run, so the rule's purpose, no two gates at once, still holds.
   Check: none (protocol).
+- 2026-11-20 D-060 (Adrian, R-020's question on single test runs, answered "A": "masz teraz sam podnieść wersję gita
+  na tym WSL, ponieważ ja fizycznie nie mogę"; an exception to the prompt's hard constraint of no install outside the
+  repository, for git alone): the session upgrades the laptop's git itself. `sudo` is on the deny list, so it uses
+  Linuxbrew, which is user-owned and already on PATH before `/usr/bin`: `brew install git` → git 2.56.1, with 36
+  kegs of its dependencies installed or upgraded (among them gcc 16.2.0, glibc 2.39, curl and openssl@4); Maven, zsh
+  and tldr are unchanged; `/usr/bin/git` stays 2.34.1. Consequences: (1) a test plant's PATH is fixed and reaches only
+  `/usr/bin`'s git, so R-020 makes a plant link the runner's `git` (the first on its PATH) unless that git sits beside
+  the node that runs the tests, as the gate's shim does; (2) the gate's shim (D-001) stays unused while the PATH's git
+  has `-z`; (3) a copy of a HEAD before R-020 that `fails-before.mjs` builds still plants with `/usr/bin`'s git and no
+  shim, so a worktree test at such a HEAD can fail for that reason alone (R-020's run before the upgrade stands).
+  Check: `git --version` → 2.56.1; R-020's AC-2 as written.
 
 ### Gate 2 §2, copied
 
