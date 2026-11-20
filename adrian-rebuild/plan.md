@@ -654,6 +654,42 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   reading to the adapter. (2) A lock is waited for at most 60 s; then a typed error names the lock file, its owner and
   a hint. (3) An old owner file that holds only a pid is abandoned only when that pid is gone. (4) The `TimeoutStartSec`
   of the systemd units goes to R-032. Check: R-019's criteria; R-020's AC-4 at R-019's HEAD.
+- 2026-11-20 D-057 (Adrian, R-021's seven questions, answered "all as recommended, and consent to 7"; refines S1+ and
+  T-20 (6) for R-021): (1) The migration is a registry command, `limen migrate [--dry-run]` (T-19), of kind `change`
+  and marked irreversible (T-28 (3)), run from the project's root on the agents' account (never from
+  `seat/deploy.ts`, which runs as root, D-008); a second run has nothing to do and exits 0 (T-02). (2) A folder with no
+  valid `state` (ORPHAN, or a value `parseJob` does not know) is moved unchanged to `.limen/unmigrated/<id>/` and
+  listed in the report with its reason (z. 29); a folder with a state but no `task.md` or `log` migrates, and the
+  report notes the missing content; old `engine` values stay as they are. (3) The migration removes the one-value files
+  it moved into `record.json` and the files of removed features that nothing reads, listing them in the report; the
+  content files (`task.md`, `log`, `result`, `note.md`, `note.first.md`, `start-notice`, `session/`) and the
+  directories `notify/`, `steer/` and `recovery/` stay; the rollback is the snapshot of `## Deployment` 0.1;
+  `docs/jobs.md` names `limen show` instead of a hand edit. (4) The migration fills in only the failure kind, in A-016's
+  vocabulary, from today's patterns (`stop-reason`, the last `failed:` log line), with the original text as the detail
+  and the reset time `null`; everything else it cannot establish is `null`, never guessed (z. 10); transitions come
+  only from `started-at` and `finished-at`. A migrated record carries a `migrated` marker with its date and is history
+  only: `status`, `show` and `stats` read it, and resume (R-034), owed wakes and the bell skip it. `landed` and the
+  archiving of old records are R-031's, in its own migration (A-002: never from the git graph). (5) No mirror `state`
+  file: R-021 moves every reader to `record.json` through the record module (T-25): `docs/seat/bell.sh`, the GitHub
+  poller, `seat/deploy.ts`, the group mirrors, `templates/agents.md:205` (to `limen show <id>`) and `docs/jobs.md`; a
+  scan finds no read of `state` or another old job file. (6) On a project that is not migrated, every command that
+  reads jobs refuses with exit code 4 and `next` `limen migrate --dry-run`; the hooks do nothing there and report the
+  reason once. (7) Technical defaults: (7.1) `activity`, `last-tool` and `tool-calls` go into a separate
+  `progress.json`, outside the transition function, which the coordinator's watcher ignores; (7.2) the delivery
+  receipts of `notify/`, `steer/` and `recovery/` stay directories with their `wx` protocols (A-058), and the owed-wake
+  list of S1+ and A-016 (2) is a field R-034 adds; (7.3) one writer: the per-job lock of R-019 (D-056),
+  compare-and-swap (A-019), `wx` at the terminal transition (S1+), and side failures in `sideFailures` written with
+  the terminal state (T-01); `stop`, `watch`, the group's reserved slot, the finish hook and the reaper move onto it;
+  (7.4) the facts written once at publication (`label`, `branch`, `worktree`, `base`, `role`, `repo`, the origin
+  fields, `group`, `team`, `parent`, `spawner`, `candidate`, `priority`) and a new job's route (the four flags of
+  D-043) are record fields; the unread `deadline` and `tip` go; (7.5) a missing process identity means "unknown",
+  never "alive" (A-056), with the boot id from the platform adapter (D-056); (7.6) the migration refuses while any job
+  runs or is starting, like the gate of `seat/deploy.ts`; (7.7) the finish time is a field (`finished-at`, else the
+  modification time of `state`), which the sweep's event key and the fallbacks read, so the migration does not ring
+  the bell again; (7.8) schema version 1; a field unknown at write time is `null`, a missing field means "added after
+  this record's version" (`## Stages` conventions); writes through R-018's `atomicWrite`; file modes as today;
+  (7.9) the migration checks the uniqueness of the tokens (T-20 (6)) and lists collisions in its report
+  (`## Deployment` 2.1); the resolver that relies on it is R-022. Check: R-021's criteria; `## Deployment` 2.1 and 2.3.
 
 ### Gate 2 §2, copied
 
@@ -1017,10 +1053,10 @@ Columns:
 | R-015 | One configuration reader; settings come only from owner files | 2 | T-03 | R-014 | M | delegated | night | yes | — | — | done |
 | R-016 | One boundary parsing module with validators; the cast ratchet | 2 | T-27 | R-013 | M | delegated | night | — | — | — | done |
 | R-017 | One Pi API adapter with type guards, checked against Pi's real types | 2 | T-32, D-055 | R-012, R-016 | M | delegated | night | — | pi | 2.2 | ready |
-| R-018 | One atomic-write module | 2 | A-022, T-25 | R-013 | L | delegated | night | — | — | — | ready |
+| R-018 | One atomic-write module | 2 | A-022, T-25 | R-013 | L | delegated | night | — | — | — | active |
 | R-019 | One lock module with process identity and a bounded wait | 2 | A-017, A-018, A-055, A-058, A-087, T-25, D-029, D-056 | R-018, R-020 | M | delegated | night | yes | — | — | ready (D-056) |
 | R-020 | A Linux platform adapter and declared system requirements | 2 | A-083, T-12, T-32 | R-013 | M | delegated | night | — | — | — | ready |
-| R-021 | One `record.json` per job, written only by the transition function | 2 | S1+, A-019, A-053, A-056, T-20, T-25 | R-016, R-018, R-019 | L | delegated | night | yes | — | — | planned |
+| R-021 | One `record.json` per job, written only by the transition function | 2 | S1+, A-019, A-053, A-056, T-20, T-25, D-057 | R-016, R-018, R-019 | L | delegated | night | yes | — | — | ready (D-057) |
 | R-022 | Exact job references through one resolver | 2 | T-20 | R-014, R-021 | M | delegated | night | yes | — | — | planned |
 | R-023 | Commands are thin adapters over domain operations; a refusal leaves no trace | 2 | T-26, T-38, D-045, D-046 | R-014, R-021, R-089 | L | delegated | night | — | — | — | planned |
 | R-024 | `limen stats` over records and transcripts | 2 | H-01, H-20, §2, T-33 | R-021, R-023 | M | delegated | night | — | pi | 2.3 | planned |
@@ -1333,8 +1369,9 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
 ### After stage 2 (a0.2.0)
 
 - **2.0** Deploy a0.2.0 by 0.1–0.3: `node /opt/limen/seat/deploy.ts <sha>` with the full SHA from gate 5.2.
-- **2.1** The record migration of R-021 with `--dry-run`, then for real, in each project; the report lists every job
-  and every id collision (item 10).
+- **2.1** The record migration of R-021, from each project's root on the agents' account: `limen migrate --dry-run`,
+  then `limen migrate` (D-057 (1)), with no job running or starting; the report lists every job, every id collision
+  (item 10), every folder moved to `.limen/unmigrated/` and every file removed.
 - **2.2** After `/reload`, the coordinator's session shows no extension error from Limen's hooks, which now take the
   Pi API from R-017's adapter and check events with its type guards; the type contract itself ran in the repository
   on the vendor copy of Pi 1.5.1 (D-055; item 16).
@@ -2197,8 +2234,22 @@ redundant):
   requires), the 60 s bounded wait with a typed error, the pid-only owner file abandoned only when its pid is gone, and
   `TimeoutStartSec` in R-032 (a note in `## Tickets`). R-019 `ready (D-056)`; the night writes its `ticket.md` at the
   HEAD it starts from, after R-018 and R-020 are `done`.
+- Adrian (2026-11-20, 16:30): no idle afternoon; the day session takes R-018 by day (the root of the critical path
+  R-018 → R-019 → R-021 → R-023), and the night keeps R-017, R-020, R-089 and R-019. R-018 `active` from step 3
+  (`rebuild-implementer`); AC-3 at HEAD finds its four lines.
+- R-021's inventory (a read-only subagent at `3df0494`; its facts feed D-057 and the night's `ticket.md`): about 45
+  one-value files per job; `state` is written in six places, `src/runtime/wrapper.ts:227` without a check;
+  `finalizeJob` checks and writes with no lock; `prune` deletes a folder with no `state`; no job archive exists; no
+  boot id is recorded. Adrian's answers → D-057 (all seven as recommended); `## Deployment` 2.1 names `limen
+  migrate`. R-021 `ready (D-057)`: the night writes its `ticket.md` once R-019 is `done`.
+- R-018: the implementer's `DONE` (333/333 in its run); the main session's `compare --git` exit 0, gate 333/333,
+  `fails-before.mjs` exit 0; review round 1 PASS with seven notes, six to fix and one rejected (`review.md`); the
+  resumed implementer makes the fixes of `ticket.md` → `## Decisions`.
+
+Active ticket: R-018, protocol step 6 (round 1's fixes, then review round 2).
 
 Next (by day on 2026-11-20):
+0. R-018 through steps 3–7.
 1. On Adrian's "Tryb nocny do HH:MM": the checks of D-024, then `night.mjs`; this is the rehearsal of D-053 (3). The
    night has four `ready` tickets on four independent branches: R-017, R-018, R-020 and R-089, and R-019 after R-018
    and R-020.
