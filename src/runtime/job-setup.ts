@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { pruneForJob } from "../commands/prune.ts";
 import { transport } from "../config.ts";
 import { appendLimenLog } from "../job/record.ts";
-import { limitMs, PLANT_LIMITS, plantLimits } from "../project/limits.ts";
+import { limitMs, plantLimits } from "../project/limits.ts";
 
 const DEFAULT_PREPARE_MS = 5 * 60_000;
 
@@ -31,9 +31,10 @@ export async function setUpJob(jobDir: string, worktree: string): Promise<void> 
 		(removed) => appendLimenLog(jobDir, `prune: removed ${removed} in ${seconds(pruneStart)}`),
 		(error: unknown) => appendLimenLog(jobDir, `prune failed after ${seconds(pruneStart)}: ${String(error)}`),
 	);
+	// Each message names the file, the entry and what Limen expected there.
 	const { ignored } = plantLimits(root);
 	if (ignored.length > 0) {
-		await appendLimenLog(jobDir, `limits: ignored in ${PLANT_LIMITS}: ${ignored.join("; ")}`);
+		await appendLimenLog(jobDir, `limits: ignored ${ignored.map(({ message }) => message).join("; ")}`);
 	}
 	const command = transport("LIMEN_SETUP_PREPARE")?.trim();
 	if (command) {

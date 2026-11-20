@@ -101,10 +101,22 @@ test("readOutcome returns the final line of stderr after the message when the pr
 });
 
 const REFUSED: ReadonlyArray<readonly [string, Output, RegExp]> = [
-	["a missing final line", { status: 0, stdout: "started demo\n", stderr: "" }, /no final line on stdout/],
+	[
+		"a missing final line",
+		{ status: 0, stdout: "started demo\n", stderr: "" },
+		/^the final line on stdout: expected JSON, got "started demo"$/,
+	],
 	["an empty stream", { status: 1, stdout: OK, stderr: "\n" }, /no final line on stderr/],
-	["a line that is not JSON", { status: 0, stdout: '{"class":"ok",\n', stderr: "" }, /not JSON/],
-	["a line that is not an object", { status: 0, stdout: "[0]\n", stderr: "" }, /not an object/],
+	[
+		"a line that is not JSON",
+		{ status: 0, stdout: '{"class":"ok",\n', stderr: "" },
+		/^the final line on stdout: expected JSON, got /,
+	],
+	[
+		"a line that is not an object",
+		{ status: 0, stdout: "[0]\n", stderr: "" },
+		/^the final line on stdout: expected an object, got \[0\]$/,
+	],
 	["an unknown class", { status: 1, stdout: "", stderr: '{"class":"failed","code":"X","next":""}\n' }, /class/],
 	[
 		"code 0 with a failure class",
@@ -158,6 +170,19 @@ for (const [what, output, names] of REFUSED) {
 		);
 	});
 }
+
+// The 40-character cut serves the values of data files; a broken final line is one line a command wrote, shown whole.
+test("readOutcome shows a final line that is not JSON whole in its message", () => {
+	const line = '{"class":"ok","code":0,"next":"End your turn; Limen wakes you when the job ends."';
+	assert.throws(
+		() => readOutcome({ status: 0, stdout: `${line}\n`, stderr: "" }),
+		(error: unknown) => {
+			assert.ok(error instanceof LimenError, String(error));
+			assert.equal(error.message, `the final line on stdout: expected JSON, got ${JSON.stringify(line)}`);
+			return true;
+		},
+	);
+});
 
 test("outputText gives the text for people on the stream of the final line, without that line", () => {
 	assert.equal(outputText({ status: 0, stdout: `one\ntwo\n${OK}\n`, stderr: "" }), "one\ntwo\n");

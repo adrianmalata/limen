@@ -42,13 +42,32 @@ test("a project with no limits file, or a file without toolCalls, keeps the cap 
 
 test("a toolCalls that is not a positive integer is ignored with its reason, and an unknown key names toolCalls", async (t) => {
 	const root = await project(t, '{ "toolCalls": 0, "timeout": "2h" }\n');
-	assert.deepEqual(plantLimits(root), {
-		limits: {},
-		ignored: ["toolCalls 0 is not a positive integer", "timeout is not a limit; use prepare, toolStall or toolCalls"],
-	});
+	const { limits, ignored } = plantLimits(root);
+	assert.deepEqual(
+		{ limits, ignored: ignored.map(({ message }) => message) },
+		{
+			limits: {},
+			ignored: [
+				".agents/limen/limits.json: toolCalls: expected an integer of at least 1, got 0",
+				'.agents/limen/limits.json: timeout: expected one of the fields prepare, toolStall or toolCalls, got "2h"',
+			],
+		},
+	);
 	assert.equal(limitCount("toolCalls", 900, root), 900);
 	for (const value of ['"40"', "1.5", "-3"]) {
 		await writeFile(join(root, PLANT_LIMITS), `{ "toolCalls": ${value} }\n`);
-		assert.deepEqual(plantLimits(root).ignored, [`toolCalls ${value} is not a positive integer`]);
+		assert.deepEqual(
+			plantLimits(root).ignored.map(({ message }) => message),
+			[`.agents/limen/limits.json: toolCalls: expected an integer of at least 1, got ${value}`],
+		);
 	}
+});
+
+test("a limits file that is not a JSON object is ignored as a whole and named", async (t) => {
+	const root = await project(t, '["prepare", "20m"]\n');
+	const { limits, ignored } = plantLimits(root);
+	assert.deepEqual(
+		{ limits, ignored: ignored.map(({ message }) => message) },
+		{ limits: {}, ignored: ['.agents/limen/limits.json: expected an object, got ["prepare","20m"]'] },
+	);
 });

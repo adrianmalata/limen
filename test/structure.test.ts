@@ -6,6 +6,7 @@ import { mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, writeFile } fr
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative } from "node:path";
 import test, { type TestContext } from "node:test";
+import ts from "typescript";
 import { templateHistoryText } from "../src/project/inherit.ts";
 import { knownFiles, SKIPPED } from "./known-files.ts";
 
@@ -160,6 +161,151 @@ const UNTYPED_THROWS = 275 - 14;
 test("T-01: the untyped throw new Error( sites in src/ and hook/ stay at most their baseline count, less the typed ones", async () => {
 	const [all] = await occurrences(["src", "hook"], "throw new Error(", "src/outcome.ts");
 	assert.ok(all <= UNTYPED_THROWS, `${all} sites of throw new Error(, at most ${UNTYPED_THROWS}`);
+});
+
+/** The folders whose code runs as Limen. */
+const RUNTIME = ["src", "hook", "bin", "seat"] as const;
+
+/** The text of each file below `folders` that git knows and the working tree holds, by its path from the root. */
+async function knownSources(folders: readonly string[]): Promise<ReadonlyArray<{ path: string; text: string }>> {
+	const paths = (await knownFiles(root))
+		.map((path) => relative(root, path))
+		.filter((path) => folders.some((folder) => path.startsWith(`${folder}/`)));
+	return Promise.all(paths.map(async (path) => ({ path, text: await readFile(join(root, path), "utf8") })));
+}
+
+// T-27 (2): data from outside becomes a typed value only in src/boundary.ts. A ratchet until R-082 brings the count to
+// zero: the 41 sites at R-015's commit, the parent of R-016, less the 3 that R-016 moved into src/boundary.ts (the
+// readers of src/outcome.ts, src/project/limits.ts and `startGate` in src/runtime/start-queue.ts).
+const JSON_PARSE = 41 - 3;
+test("T-27: JSON.parse appears in src/, hook/, bin/ and seat/ outside src/boundary.ts at most its baseline count", async () => {
+	let all = 0;
+	for (const { path, text } of await knownSources(RUNTIME)) {
+		all += path === "src/boundary.ts" ? 0 : text.split("JSON.parse").length - 1;
+	}
+	assert.ok(all <= JSON_PARSE, `${all} sites of JSON.parse outside src/boundary.ts, at most ${JSON_PARSE}`);
+});
+
+/** A type assertion in a file: where it is, its text, and whether it is `as unknown as`. */
+type Cast = { readonly path: string; readonly line: number; readonly text: string; readonly unknownAs: boolean };
+
+/** `value as unknown as T`: an `as` whose operand, inside any parentheses, is an `as unknown`. */
+function isUnknownAs(cast: ts.AsExpression | ts.TypeAssertion): boolean {
+	let operand = cast.expression;
+	while (ts.isParenthesizedExpression(operand)) {
+		operand = operand.expression;
+	}
+	return ts.isAsExpression(cast) && ts.isAsExpression(operand) && operand.type.kind === ts.SyntaxKind.UnknownKeyword;
+}
+
+/** Every cast of the TypeScript `text` at `path`: each `as` whose type is not `const`, and each `<T>value`. */
+function castsIn(path: string, text: string): Cast[] {
+	const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+	const casts: Cast[] = [];
+	const visit = (node: ts.Node): void => {
+		if ((ts.isAsExpression(node) && !ts.isConstTypeReference(node.type)) || ts.isTypeAssertionExpression(node)) {
+			const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
+			casts.push({ path, line, text: node.getText(source), unknownAs: isUnknownAs(node) });
+		}
+		ts.forEachChild(node, visit);
+	};
+	visit(source);
+	return casts;
+}
+
+/**
+ * Casts the scan does not count (T-27 (2)): each entry names its file, the cast's text as written and the reason no
+ * validator or type guard serves there. Empty: every cast in the code is debt under the ratchet below.
+ */
+const CAST_EXCEPTIONS: ReadonlyArray<{ readonly path: string; readonly cast: string; readonly reason: string }> = [];
+
+/** The casts in the TypeScript files below `folders`. */
+async function castsBelow(folders: readonly string[]): Promise<Cast[]> {
+	return (await knownSources(folders))
+		.filter(({ path }) => path.endsWith(".ts"))
+		.flatMap(({ path, text }) => castsIn(path, text));
+}
+
+/** The casts a ratchet counts: those outside `CAST_EXCEPTIONS`. */
+function counted(casts: readonly Cast[]): Cast[] {
+	return casts.filter((cast) => !CAST_EXCEPTIONS.some((entry) => entry.path === cast.path && entry.cast === cast.text));
+}
+
+test("the cast scan finds as T, an angle-bracket assertion and as unknown as, and skips as const, import aliases and the word as in text", () => {
+	const fixture = [
+		'import { readFileSync as read } from "node:fs";',
+		"// a comment that reads the value as a number",
+		'const said = "the word as in a string";',
+		'const fixed = ["a"] as const;',
+		"const typed = JSON.parse(said) as number;",
+		"const angled = <string>JSON.parse(said);",
+		"const forced = said as unknown as number[];",
+		"export { read as reader, fixed, typed, angled, forced };",
+	].join("\n");
+	assert.deepEqual(
+		castsIn("fixture.ts", fixture).map(({ line, text, unknownAs }) => [line, text, unknownAs]),
+		[
+			[5, "JSON.parse(said) as number", false],
+			[6, "<string>JSON.parse(said)", false],
+			[7, "said as unknown as number[]", true],
+			[7, "said as unknown", false],
+		],
+	);
+});
+
+// T-27 (2): only `as const` is free. A ratchet until R-082 brings both counts to zero: the casts this scan finds at
+// R-015's commit, the parent of R-016, less the casts R-016 removed: 75 - 0 in src/, hook/, bin/ and seat/ and 7 - 0
+// in test/ (R-016 moved no reader that held a cast). Test fixtures use `satisfies`.
+const CASTS = { runtime: 75, test: 7 } as const;
+test("T-27: the casts in src/, hook/, bin/ and seat/ other than as const stay at most their baseline count", async () => {
+	const casts = counted(await castsBelow(RUNTIME));
+	assert.ok(casts.length <= CASTS.runtime, `${casts.length} casts, at most ${CASTS.runtime}`);
+});
+
+test("T-27: the casts in test/ other than as const stay at most their own baseline count", async () => {
+	const casts = counted(await castsBelow(["test"]));
+	assert.ok(casts.length <= CASTS.test, `${casts.length} casts, at most ${CASTS.test}`);
+});
+
+// `as unknown as` is never allowed, so the exception list does not apply to it.
+test("T-27: no file in src/, hook/, bin/, seat/ or test/ casts a value as unknown as another type", async () => {
+	const forced = (await castsBelow([...RUNTIME, "test"])).filter(({ unknownAs }) => unknownAs);
+	assert.deepEqual(
+		forced.map(({ path, line, text }) => `${path}:${line}: ${text}`),
+		[],
+	);
+});
+
+/** The name of each function declaration in the TypeScript `text` at `path`, at any depth. */
+function functionNames(path: string, text: string): string[] {
+	const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+	const names: string[] = [];
+	const visit = (node: ts.Node): void => {
+		if (ts.isFunctionDeclaration(node) && node.name) {
+			names.push(node.name.text);
+		}
+		ts.forEachChild(node, visit);
+	};
+	visit(source);
+	return names;
+}
+
+// T-25: one name, one function, so that a search finds the one it means; the scan covers the two modules R-016 wrote.
+test("T-25: the functions of src/boundary.ts and src/outcome.ts have names no other file of src/, hook/, bin/ or seat/ declares", async () => {
+	const files = (await knownSources(RUNTIME)).filter(({ path }) => path.endsWith(".ts"));
+	const owned = ["src/boundary.ts", "src/outcome.ts"];
+	const ours = new Set(
+		files.filter(({ path }) => owned.includes(path)).flatMap((file) => functionNames(file.path, file.text)),
+	);
+	const shared = files
+		.filter(({ path }) => !owned.includes(path))
+		.flatMap(({ path, text }) =>
+			functionNames(path, text)
+				.filter((name) => ours.has(name))
+				.map((name) => `${path}: ${name}`),
+		);
+	assert.ok(ours.size > 10, `${ours.size} function names in the two modules`);
+	assert.deepEqual(shared, []);
 });
 
 // Each shipped templates/.history/<name> starts with the hash of the current templates/<name>.

@@ -1,7 +1,7 @@
 <!-- PL: Dziennik zmian przebudowy Limena: jeden wpis na zamknięty ticket R-NNN, tylko dopisywany, najnowszy na dole.
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
-R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015. -->
+R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016. -->
 
 # Changes
 
@@ -164,3 +164,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: measured
 - Commit: R-015
 - Rollback: git revert $(git log --format=%H --grep='^R-015:' adrian-rebuild --)
+
+## 2026-11-20 R-016 One boundary parsing module with validators; the cast ratchet
+- What: new `src/boundary.ts` (hand-written validators, `parseJson`, `checkValue`, `eachField`, the typed `BAD_DATA` error with `file`, `field` and `expected`, escaping of control characters and line terminators); `src/outcome.ts` (`readOutcome` and `finalLine` through the module); `src/project/limits.ts` and `src/runtime/start-queue.ts` (`plantLimits` and `startGate` through the module, `ignored` as typed errors); `src/runtime/job-setup.ts` (the log line); tests `test/boundary.test.ts` (new), `test/structure.test.ts` (the `JSON.parse` and cast ratchets, the `as unknown as` ban, the T-25 name scan), `test/outcome.test.ts`, `test/project/limits.test.ts`, `test/runtime/start-queue.test.ts`, `test/s3-finish-wake.test.ts`; `plan.md` (the R-021 note)
+- Why: T-27
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (310/310); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (six test files fail at HEAD); `node --test test/boundary.test.ts` → exit 0 (24/24)
+- Measurement: measured
+- Commit: R-016
+- Rollback: git revert $(git log --format=%H --grep='^R-016:' adrian-rebuild --)

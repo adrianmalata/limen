@@ -3,10 +3,12 @@ import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { cpus } from "node:os";
 import { basename, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { type BadData, duration, eachField, either, numberIn, object, oneOf, parseJson } from "../boundary.ts";
 import { testKnob } from "../config.ts";
 import { groupLock } from "../job/group-cabinet.ts";
-import { formatDuration, parseDuration } from "../job/job.ts";
+import { formatDuration } from "../job/job.ts";
 import { appendLimenLog, atomicWrite, textFile } from "../job/record.ts";
+import { LimenError } from "../outcome.ts";
 import { readOptional } from "../project/inherit.ts";
 import { seatDir } from "../project/seat.ts";
 import { activeRules, localTime, type SeatRule } from "../project/seat-rules.ts";
@@ -45,51 +47,42 @@ const pollMs = (): number => {
 	return knob > 0 ? knob : 5_000;
 };
 
+/** The values `start-gate.json` may change, each with its validator: percentages and the settle time. */
+const GATE_FIELDS = {
+	cpuIdle: numberIn({ min: 0, max: 100 }),
+	memoryFree: numberIn({ min: 0, max: 100 }),
+	settle: duration,
+};
+
 /**
  * The gate: `<seat>/start-gate.json`, the JSON string `"off"` or an object of the values it changes, else the
  * defaults; the seat's file is the only source, and no environment variable overrides it (T-03, R-015). Undefined
- * when the gate is off. `ignored` names each value Limen did not use.
+ * when the gate is off. `ignored` holds the typed error of each value Limen did not use (T-27 (2)): an invalid or
+ * unknown value on its own, and a file of another shape as a whole.
  */
-export function startGate(): { readonly gate: StartGate | undefined; readonly ignored: readonly string[] } {
+export function startGate(): { readonly gate: StartGate | undefined; readonly ignored: readonly BadData[] } {
 	const source = readOptional(join(seatDir(), GATE_FILE));
 	if (!source) {
 		return { gate: DEFAULT_GATE, ignored: [] };
 	}
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(source);
-	} catch {
-		return { gate: DEFAULT_GATE, ignored: ["the gate is not JSON"] };
+	const read = parseJson(GATE_FILE, source, either(oneOf(["off"]), object()));
+	if (read instanceof LimenError) {
+		return { gate: DEFAULT_GATE, ignored: [read] };
 	}
-	if (parsed === "off") {
+	if (read === "off") {
 		return { gate: undefined, ignored: [] };
 	}
-	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-		return { gate: DEFAULT_GATE, ignored: ['the gate is neither "off" nor a JSON object'] };
-	}
-	const gate = { ...DEFAULT_GATE };
-	const ignored: string[] = [];
-	for (const [key, value] of Object.entries(parsed)) {
-		const settle = key === "settle" ? settleMs(value) : undefined;
-		if ((key === "cpuIdle" || key === "memoryFree") && typeof value === "number" && value >= 0 && value <= 100) {
-			gate[key] = value;
-		} else if (settle !== undefined) {
-			gate.settleMs = settle;
-		} else {
-			ignored.push(`${key} ${JSON.stringify(value)}`);
-		}
-	}
-	if (ignored.length > 0) {
-		ignored.push("use cpuIdle and memoryFree from 0 to 100, and settle such as 60s");
-	}
+	const { values, ignored } = eachField(GATE_FILE, read, GATE_FIELDS);
+	const gate = {
+		cpuIdle: values.cpuIdle ?? DEFAULT_GATE.cpuIdle,
+		memoryFree: values.memoryFree ?? DEFAULT_GATE.memoryFree,
+		settleMs: values.settle ?? DEFAULT_GATE.settleMs,
+	};
 	return { gate, ignored };
 }
-function settleMs(value: unknown): number | undefined {
-	try {
-		return parseDuration(String(value));
-	} catch {
-		return undefined;
-	}
+/** The messages of the gate values Limen ignored, for the job log and `limen seat queue`; each names the file. */
+function ignoredText(ignored: readonly BadData[]): string {
+	return ignored.map(({ message }) => message).join("; ");
 }
 
 /** CPU idle across all cores over about two seconds, and free memory. `LIMEN_START_READING` names a file that holds
@@ -163,7 +156,7 @@ const heldDecision = (rules: readonly SeatRule[], ahead: number): Decision => ({
 export async function enterStartQueue(jobDir: string): Promise<boolean> {
 	const { gate, ignored } = startGate();
 	if (ignored.length > 0) {
-		await appendLimenLog(jobDir, `start gate: ignored ${ignored.join("; ")}`);
+		await appendLimenLog(jobDir, `start gate: ignored ${ignoredText(ignored)}`);
 	}
 	const queued = gate !== undefined || holdingRules(await jobPriority(jobDir)).length > 0;
 	if (queued) {
@@ -414,7 +407,7 @@ export async function queueReport(): Promise<string> {
 	const { gate, ignored } = startGate();
 	const lines: string[] = [];
 	if (ignored.length > 0) {
-		lines.push(`start gate: ignored ${ignored.join("; ")}`);
+		lines.push(`start gate: ignored ${ignoredText(ignored)}`);
 	}
 	if (gate) {
 		const reading = await readLoad();

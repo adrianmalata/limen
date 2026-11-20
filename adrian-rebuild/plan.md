@@ -25,7 +25,8 @@ D-048: B.2 tego samego wieczoru zamiast nocy, etap 2 w dzień 20.11; D-049 i D-0
 D-051: koordynatory używają /opt/limen; a0.1.1 wdrożony 20.11 (1.0–1.3 i próbna trasa 0.6 na ledgerze:
 F009 i F010, land bez „land”); projekty stoją do a0.3.0 (D-012); przekazanie do limen-rebuild-9, które zaczyna
 etap 2 w dzień; 20.11 D-052 (wyjątki zmiennych LIMEN_* i miejsca ustawień) i R-015 zamknięty (jeden moduł
-konfiguracji src/config.ts, bramka 277/277); otwarte pytania o pracę pod nieobecność Adriana 21–23.11. -->
+konfiguracji src/config.ts, bramka 277/277); R-016 zamknięty (moduł granicy src/boundary.ts, zapadki JSON.parse
+i rzutowań, bramka 310/310); otwarte pytania o pracę pod nieobecność Adriana 21–23.11. -->
 
 
 
@@ -951,7 +952,7 @@ Columns:
 | R-090 | The deployment script names what it checked; a registry without a project refuses | 1 | D-045, D-046, D-008, §7 | R-012 | S | delegated | night | — | — | 1.0 | done |
 | R-089 | The final line's `code` and `next` are a value or `null`; `next` is always a command | 2 | T-37, T-02, D-045, D-046 | R-014 | M | delegated | night | — | — | — | planned |
 | R-015 | One configuration reader; settings come only from owner files | 2 | T-03 | R-014 | M | delegated | night | yes | — | — | done |
-| R-016 | One boundary parsing module with validators; the cast ratchet | 2 | T-27 | R-013 | M | delegated | night | — | — | — | planned |
+| R-016 | One boundary parsing module with validators; the cast ratchet | 2 | T-27 | R-013 | M | delegated | night | — | — | — | done |
 | R-017 | One Pi API adapter with type guards, checked against Pi's real types | 2 | T-32 | R-012, R-016 | M | delegated | night | — | pi | 2.2 | planned |
 | R-018 | One atomic-write module | 2 | A-022, T-25 | R-013 | M | delegated | night | — | — | — | planned |
 | R-019 | One lock module with process identity and a bounded wait | 2 | A-017, A-018, A-055, A-058, A-087, T-25, D-029 | R-018 | M | delegated | night | yes | — | — | planned |
@@ -1077,6 +1078,10 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   registrations with a dead lock owner.
 - R-020: git is declared by the feature Limen needs (`git worktree list --porcelain -z`), not by a version number, so
   the gate's shim (D-001) satisfies it on the laptop's git 2.34.
+- R-021 (R-016 review round 3, notes 1-3; R-021 moves the records onto `src/boundary.ts`): the comment above
+  `RAW` in `src/boundary.ts` says what `JSON.stringify` escapes (C0 included; DEL, C1, U+2028 and U+2029 are left to
+  `escaped`); the 40-character cut of a shown value never splits an escape or a surrogate pair; format characters
+  (category Cf, such as U+202E) are escaped too, so a record value cannot change how a terminal shows a log line.
 - R-024: `limen stats` of a0.2.0 over a migrated copy of the whole history of both projects is the "before" of M-03,
   M-04 and M-06–M-11 (`## Deployment` B.3).
 - R-030: from R-068 on, a job in `needs-decision` does not block worker spawns for other tickets (T-05 (5)).
@@ -2009,6 +2014,15 @@ and exited 0; after Adrian's `/remote-control` the session id, and so the contex
   `/tmp/limen-r015-round2/` (Adrian removes them; `rm` is denied to the sessions).
 - Cost of R-015 (the day session's readings of its context file): the weekly use went from 71 % to 75 %, the 5-hour
   window from 29 % to 54 %.
+- R-016 `done` (delegated): `src/boundary.ts` parses data from outside with hand-written validators and returns the
+  value or a typed `BAD_DATA` error (`LimenError`, class `environment`) that names the file, the field and the
+  expectation, every control character and line terminator escaped; `limits.json`, `start-gate.json` and the client's
+  final line go through it; ratchets in `test/structure.test.ts`: `JSON.parse` outside the module at most 41 − 3, casts
+  at most 75 (runtime) and 7 (`test/`) by an AST count, `as unknown as` none, and a T-25 scan of the module's function
+  names. Review round 1 FAIL on one blocking finding that was the main session's own omission (its `fails-before.mjs`
+  output was not in `outcome.md` before the review; fixed), rounds 2 and 3 PASS; two rounds of fixes; round 3's three
+  code notes go to R-021 (`## Tickets` → notes), as R-014's round 4 did by D-044. Gate 310/310. The implementer's
+  scratch files lie in `/tmp/r016/` outside the repository. Cost: weekly 75 % → 77 %.
 
 Active ticket: none.
 

@@ -39,8 +39,21 @@ test("a seat with no start-gate.json gets the default gate, and a gate file obje
 	const home = await seat(t);
 	assert.deepEqual(startGate(), { gate: DEFAULTS, ignored: [] });
 	await writeFile(join(home, ".limen", GATE_FILE), '{ "settle": "1ms", "fast": true }\n');
-	assert.deepEqual(startGate(), {
-		gate: { ...DEFAULTS, settleMs: 1 },
-		ignored: ["fast true", "use cpuIdle and memoryFree from 0 to 100, and settle such as 60s"],
-	});
+	const { gate, ignored } = startGate();
+	assert.deepEqual(
+		{ gate, ignored: ignored.map(({ message }) => message) },
+		{
+			gate: { ...DEFAULTS, settleMs: 1 },
+			ignored: ["start-gate.json: fast: expected one of the fields cpuIdle, memoryFree or settle, got true"],
+		},
+	);
+});
+
+test('a start-gate.json that is neither "off" nor an object keeps the default gate and names the file', async (t) => {
+	await seat(t, '"on"\n');
+	const { gate, ignored } = startGate();
+	assert.deepEqual(
+		{ gate, ignored: ignored.map(({ message }) => message) },
+		{ gate: DEFAULTS, ignored: ['start-gate.json: expected "off" or an object, got "on"'] },
+	);
 });

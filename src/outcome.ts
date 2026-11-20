@@ -1,5 +1,8 @@
 // The one error type of Limen and the final JSON line of every command (T-01, T-02, D-022, D-028). This module alone
-// writes the line (`finalLine`, for `main`) and alone reads it (`readOutcome`, for every caller of the CLI, T-26 (4)).
+// writes the line (`finalLine`, for `main`) and alone reads it (`readOutcome`, for every caller of the CLI, T-26 (4)),
+// through the validators of src/boundary.ts (T-27 (2)). That module takes `LimenError` from here, so this one uses its
+// exports only inside functions, never while it loads: either module can then load first.
+import { at, checkValue, matching, object, oneOf, optional, parseJson, string } from "./boundary.ts";
 
 /** The exit code of each class (T-02): the exit code is the class, and the final line carries the detail. */
 export const EXIT_CODES = { ok: 0, refused: 1, usage: 2, transient: 3, environment: 4, internal: 5 } as const;
@@ -46,6 +49,8 @@ export const FINAL_LINE_KEYS: ReadonlyArray<{ readonly key: string; readonly opt
 	{ key: "ids", optional: true },
 ];
 const KEYS: readonly string[] = FINAL_LINE_KEYS.map(({ key }) => key);
+const OUTCOME_CLASSES: readonly OutcomeClass[] = Object.keys(EXIT_CODES).filter(isOutcomeClass);
+const ID_KEYS: readonly IdKey[] = ["job", "ticket", "question"];
 
 type FailureFields = {
 	readonly class: FailureClass;
@@ -99,7 +104,10 @@ export function failureOf(error: unknown): LimenError {
 
 /** The final line for `outcome`: `class`, `code`, `next`, then `ids` when given; an invalid outcome throws. */
 export function finalLine(outcome: Outcome): string {
-	const valid = checkedOutcome(outcome, "the final line");
+	const valid = checkValue("the final line", outcome, finalLineOf, { uncut: true });
+	if (valid instanceof LimenError) {
+		throw broken(valid.message, valid);
+	}
 	const ids = valid.ids === undefined ? {} : { ids: valid.ids };
 	return JSON.stringify({ class: valid.class, code: valid.code, next: valid.next, ...ids });
 }
@@ -117,13 +125,12 @@ export function readOutcome(output: Output): Outcome {
 	if (line === undefined) {
 		throw broken(`no final line on ${stream}: it is empty`);
 	}
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(line);
-	} catch (cause) {
-		throw broken(`no final line on ${stream}: its last line is not JSON: ${line}`, cause);
+	// A broken line is the writer's internal error, not bad data of an owner file, so it keeps class internal; it is one
+	// line, so its message shows it uncut.
+	const outcome = parseJson(`the final line on ${stream}`, line, finalLineOf, { uncut: true });
+	if (outcome instanceof LimenError) {
+		throw broken(outcome.message, outcome);
 	}
-	const outcome = checkedOutcome(parsed, `the final line on ${stream}`);
 	const code = EXIT_CODES[outcome.class];
 	if (code !== output.status) {
 		throw broken(
@@ -149,55 +156,26 @@ function isOutcomeClass(name: unknown): name is OutcomeClass {
 	return typeof name === "string" && Object.hasOwn(EXIT_CODES, name);
 }
 
-/** `value` as an outcome when it has the shape of a final line; otherwise a thrown error that names the field. */
-function checkedOutcome(value: unknown, what: string): Outcome {
-	if (typeof value !== "object" || value === null || Array.isArray(value)) {
-		throw broken(`${what} is not an object`);
-	}
-	const fields = new Map(Object.entries(value));
-	const unknown = [...fields.keys()].filter((key) => !KEYS.includes(key));
-	if (unknown.length > 0) {
-		throw broken(`${what} has the unknown key ${unknown.join(", ")}`);
-	}
-	const name = fields.get("class");
-	if (!isOutcomeClass(name)) {
-		throw broken(`${what} has the class ${JSON.stringify(name)}, not one of ${Object.keys(EXIT_CODES).join(", ")}`);
-	}
-	const code = checkedCode(fields.get("code"), name, what);
-	const next = fields.get("next");
-	if (typeof next !== "string") {
-		throw broken(`${what} has a next that is not a string: ${JSON.stringify(next)}`);
-	}
-	const ids = fields.get("ids");
-	return ids === undefined ? { class: name, code, next } : { class: name, code, next, ids: checkedIds(ids, what) };
+/** The validator of the final line (src/boundary.ts): `code` is `0` for class `ok`, otherwise an identifier. */
+function finalLineOf(value: unknown, field: string): Outcome {
+	const fields = object(KEYS)(value, field);
+	const name = oneOf(OUTCOME_CLASSES)(fields.get("class"), at(field, "class"));
+	const codeOf = name === "ok" ? oneOf([0]) : matching(CODE, "an upper-case identifier");
+	const code = codeOf(fields.get("code"), at(field, "code"));
+	const next = string(fields.get("next"), at(field, "next"));
+	const ids = optional(idsOf)(fields.get("ids"), at(field, "ids"));
+	return ids === undefined ? { class: name, code, next } : { class: name, code, next, ids };
 }
 
-function checkedCode(code: unknown, name: OutcomeClass, what: string): 0 | string {
-	if (name === "ok") {
-		if (code !== 0) {
-			throw broken(`${what} has the code ${JSON.stringify(code)} for class ok, not 0`);
+/** The validator of the line's `ids`: each key known, each value in the format of its kind. */
+function idsOf(value: unknown, field: string): Ids {
+	const fields = object(ID_KEYS)(value, field);
+	const ids: { job?: string; ticket?: string; question?: string } = {};
+	for (const [key, id] of fields) {
+		const name = ID_KEYS.find((known) => known === key);
+		if (name !== undefined) {
+			ids[name] = matching(ID_FORMATS[name], `the format ${ID_FORMATS[name]}`)(id, at(field, name));
 		}
-		return 0;
 	}
-	if (typeof code !== "string" || !CODE.test(code)) {
-		throw broken(`${what} has the code ${JSON.stringify(code)} for class ${name}, not an upper-case identifier`);
-	}
-	return code;
-}
-
-function checkedIds(ids: unknown, what: string): Ids {
-	if (typeof ids !== "object" || ids === null || Array.isArray(ids)) {
-		throw broken(`${what} has ids that are not an object`);
-	}
-	const checked: { job?: string; ticket?: string; question?: string } = {};
-	for (const [key, value] of Object.entries(ids)) {
-		if (key !== "job" && key !== "ticket" && key !== "question") {
-			throw broken(`${what} has the unknown ids key ${key}, not one of ${Object.keys(ID_FORMATS).join(", ")}`);
-		}
-		if (typeof value !== "string" || !ID_FORMATS[key].test(value)) {
-			throw broken(`${what} has ids.${key} ${JSON.stringify(value)}, not in the format ${ID_FORMATS[key]}`);
-		}
-		checked[key] = value;
-	}
-	return checked;
+	return ids;
 }

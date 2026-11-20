@@ -126,7 +126,10 @@ test("stop, timeout and a stalled tool each end a job once and wake its session 
 	const states = Object.fromEntries(Object.entries(ids).map(([name, id]) => [name, waitJob(p, id)]));
 	assert.deepEqual(states, { stopped: "stopped", timeout: "failed", stall: "failed" });
 	assert.equal(jobFile(p, ids.timeout, "log").match(/steered: 1 min left before the timeout: /g)?.length, 1);
-	assert.match(jobFile(p, ids.stall, "log"), /timeout is not a limit.*timed out after 1 s.*CPU-idle child for 2s/s);
+	assert.match(
+		jobFile(p, ids.stall, "log"),
+		/limits: ignored \.agents\/limen\/limits\.json: timeout: expected one of the fields prepare, toolStall or toolCalls, got "2h"\n.*timed out after 1 s.*CPU-idle child for 2s/s,
+	);
 	// One terminal line each; a stop logs two until F928 lands (stop.ts's 25 ms grace races the finalize).
 	for (const id of [ids.timeout, ids.stall]) {
 		assert.equal(jobFile(p, id, "log").match(/\] (?:done|failed|stopped):/g)?.length, 1, id);
