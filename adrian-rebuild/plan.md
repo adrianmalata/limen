@@ -32,7 +32,10 @@ do limen-rebuild-10, która zrobiła D-054 w check.mjs (moduł tools/ticket-rule
 z zapisanymi wyborami, polecenia kryteriów sprawdzane z allow-listą); R-018 i R-020 gotowe do nocy (ready); R-017
 gotowy po D-055 (kontrakt typów Pi tylko jako test w repo, błędy kształtu zdarzeń jako BAD_DATA), R-089 gotowy;
 R-019 czekał na trzecią odpowiedź; przekazanie do limen-rebuild-11, która zapisała D-056 (R-019 zależy też
-od R-020, ograniczone 60 s oczekiwanie na blokadę), więc R-019 jest gotowy do nocy. -->
+od R-020, ograniczone 60 s oczekiwanie na blokadę), więc R-019 jest gotowy do nocy; D-057 (rekord i migracja
+R-021: `limen migrate`, foldery nieprzenoszalne do `.limen/unmigrated/`, zmigrowane rekordy tylko jako historia),
+więc R-021 też jest gotowy; R-018 zamknięty w dzień (moduł zapisu atomowego, bramka 340/340); przekazanie do
+limen-rebuild-12. -->
 
 
 
@@ -2264,9 +2267,15 @@ redundant):
 Active ticket: none.
 
 Next (by day on 2026-11-20):
+0. Until Adrian's night mode, the next day ticket by protocol step 1: R-017 (the lowest `ready` ID whose dependencies
+   are `done`; its `ticket.md` is written), delegated. Taking it by day leaves the night R-020, R-089, R-019 and R-021,
+   still on two independent branches (D-054 (1)).
 1. On Adrian's "Tryb nocny do HH:MM": the checks of D-024, then `night.mjs`; this is the rehearsal of D-053 (3). The
    night has five `ready` tickets: R-017, R-020 and R-089 on independent branches, R-019 after R-020 (R-018 is
    `done`), and R-021 after R-019.
+2. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
+   temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
+   D-047 and D-054 were.
 Then the plan of the day session's reply of 2026-11-20: Saturday R-021 first (the root of R-022–R-025), R-089, R-022;
 Sunday the rest of stage 2 and its close (tag `a0.2.0`, gate 5.2 by phone); stage 3 after his "go on".
 
@@ -2286,3 +2295,9 @@ Notes for the next session:
   and `npx biome check --error-on-warnings adrian-rebuild`.
 - Tracked files must not carry home or scratchpad paths; experiments live in the session scratchpad only.
 - Adrian's gate-2 file lives only in `input/` (not tracked); everything in it is now copied into tracked files.
+
+Handover of 2026-11-20 (D-047, at 31 % context, after the commit `R-018:`): `limen-rebuild-11` starts
+`limen-rebuild-12` with `node adrian-rebuild/tools/handover.mjs start 12` and ends its turn. The next session's first
+acts: a push notification to Adrian that it takes over at stage 2 (R-017 by day, or the night mode on his word); then
+`node adrian-rebuild/tools/handover.mjs close-previous`, whose lines it reports to Adrian; then `Next`. The handover
+after it is `limen-rebuild-13`.
