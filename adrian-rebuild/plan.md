@@ -22,7 +22,9 @@ tools/handover.mjs (start nowej sesji w tmux i zamykanie poprzednich sesji przeb
 limen-rebuild-8 zamknęła etap 1 ponownie (bramka 253/253, M-10 82,2 s, lokalny tag a0.1.1, pierwsze wdrożenie);
 D-048: B.2 tego samego wieczoru zamiast nocy, etap 2 w dzień 20.11; D-049 i D-050: B.2 zamknięte z K = 2
 (seat check R-011 zaliczony, dwie ważne próby F013 bez kandydata, dwie unieważnione, raport w evidence/);
-następne jest wdrożenie a0.1.1 z Adrianem, potem etap 2. -->
+D-051: koordynatory używają /opt/limen; a0.1.1 wdrożony 20.11 (1.0–1.3 i próbna trasa 0.6 na ledgerze:
+F009 i F010, land bez „land”); projekty stoją do a0.3.0 (D-012); przekazanie do limen-rebuild-9, które zaczyna
+etap 2 w dzień. -->
 
 
 
@@ -1015,6 +1017,12 @@ Taste rules with no ticket of their own:
 - T-17: binds the rebuild files, not Limen; its check runs in `adrian-rebuild/tools/check.mjs` since rebuild stage 3.
 
 Notes for the tickets (facts a ticket needs that its row cannot hold):
+- R-062 (seat, 2026-11-20, trial route of `a0.1.1`): a `limen continue` started with the model `claude-opus-5-5` and
+  no provider failed in 3 s with no tool call: the route counts as bridged only by its provider (`engineRoute`), so
+  the job's Pi ran without the bridge and refused the model as ambiguous across providers. A continuation inherits no
+  route from its parent; the same holds at `rebuild-base` (`LIMEN_PROVIDER: continuation.provider ?? ""` in both), so
+  it is no regression of stage 1. Part of A-030: the routes of R-062 cover `continue`, which takes the parent's
+  recorded route unless its flags name another.
 - R-067, R-081: the job label carries the round from the counter of R-069 (T-24), so R-067 depends on R-069; the docs
   are written from the final code (A-084), so R-081 depends on R-082–R-086.
 - R-014: it registers the commands that remain after the cuts, so it depends on the cut tickets of stage 1, and it gives
@@ -1978,9 +1986,13 @@ WSL window since 17:46, no `tmux`) started `limen-rebuild-8` with `node adrian-r
 (19:04:15, in `tmux`, with `--remote-control`) and ended its turn. `limen-rebuild-8`'s push notification was skipped
 as redundant (the terminal was active); its `close-previous`, the tool's first real run, printed `handover: stopped
 claude 613783 (claude -r)` and exited 0, and the process was gone afterwards (`evidence/handover/outcome.md` →
-Measurement). The next day session is `limen-rebuild-9`, with `start 9`; its first acts are the same: a push
-notification, `close-previous`, then `Next`. A night run started from `limen-rebuild-8` (D-024) leaves this session
-alive in `tmux` and idle; it changes nothing in the repository until Adrian writes (D-024).
+Measurement).
+
+Handover of 2026-11-20 (D-047, at 38 % context, after B.2, the deployment of `a0.1.1` and the commit that records
+them): `limen-rebuild-8` starts `limen-rebuild-9` with `node adrian-rebuild/tools/handover.mjs start 9` and ends its
+turn. The next session's first acts: a push notification to Adrian that it takes over at stage 2; then `node
+adrian-rebuild/tools/handover.mjs close-previous`, which should stop `limen-rebuild-8` (in `tmux`), and the session
+reports its lines to Adrian; then `Next`. The handover after it is `limen-rebuild-10`, with `start 10`.
 
 - B.2 closed on 2026-11-20 by D-050 (K = 2): `evidence/b2-same-task.md`. R-090 (`2be4b80`) and R-091 (`049097d`)
   are ancestors of `a0.1.1` (`91cc2e4`); the commits after it change only `plan.md` and `evidence/`.
@@ -2003,9 +2015,22 @@ nothing to reload. D-051 done: the registry holds the two projects, the agents' 
   worker's `~/.bashrc`, and `moshi-hook` is not on the agents' `PATH` (R-004); no `highlight` or `series` under the
   seat folder (R-006).
 
-Next: the trial route of 0.6 (with 1.2's log tab), by Adrian in a coordinator pane; then the handover to
-`limen-rebuild-9`, which starts stage 2 by day (D-048). A night run of stage 2 needs Adrian's word (D-024) and the
-checks D-024 lists; it should not overlap the trial route of step 0.6, which uses the same Max window.
+- 0.6, the trial route (ledger, 2026-11-20 09:46–11:12 UTC): Adrian's usual "we continue the work" started F009,
+  and the coordinator went on to F010 until he stopped it; both went through a worker, a review and repairs and were
+  landed by the coordinator without his "land" (the rule is prose in the project, A-012, A-013; R-071 replaces it).
+  Every one of the eight jobs recorded its Herdr tab (`herdr/mode` `watch`), so 1.2 holds; seven wakes reached the
+  coordinator on their own, and it still slept six times and read `status` thirteen times (T-34, R-047). Final lines:
+  19 `ok`; one `usage BAD_ARGUMENT` for `limen continue … --task-file`, a flag `continue` never had (refused at
+  `rebuild-base` too); two `refused UNTYPED`, both right (`land` of a failed job, `land` with no commits; typed in
+  stage 2). One repair failed in 3 s for want of a provider (`## Tickets` → notes → R-062), and one was stopped by the
+  stall rule on a `sleep 360`. Times: F009 46 min from the first spawn to the last job, F010 31 min.
+- D-012 holds (Adrian, 2026-11-20): both projects stay paused until `a0.3.0`; the trial ran two tickets because
+  "continue the work" is the coordinator's standing instruction.
+- The deployment of `a0.1.1` is complete (0.1–0.3, 0.6, 1.0–1.3). B.3 follows the deployment of `a0.2.0`.
+
+Next: stage 2 by day in `limen-rebuild-9` (D-048), from its first tickets in dependency order (R-089, R-015, R-016,
+R-018, R-020 have only stage-1 dependencies). A night run of stage 2 from the evening of 2026-11-20 needs Adrian's
+word in the conversation and the checks of D-024.
 
 Open questions for Adrian: none.
 
