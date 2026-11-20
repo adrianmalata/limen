@@ -35,7 +35,8 @@ R-019 czekał na trzecią odpowiedź; przekazanie do limen-rebuild-11, która za
 od R-020, ograniczone 60 s oczekiwanie na blokadę), więc R-019 jest gotowy do nocy; D-057 (rekord i migracja
 R-021: `limen migrate`, foldery nieprzenoszalne do `.limen/unmigrated/`, zmigrowane rekordy tylko jako historia),
 więc R-021 też jest gotowy; R-018 zamknięty w dzień (moduł zapisu atomowego, bramka 340/340); przekazanie do
-limen-rebuild-12. -->
+limen-rebuild-12; D-059: sesja główna uruchamia bramkę po raporcie końcowym subagenta, bez czekania na powiadomienie
+o zakończeniu zadania. -->
 
 
 
@@ -693,6 +694,11 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   this record's version" (`## Stages` conventions); writes through R-018's `atomicWrite`; file modes as today;
   (7.9) the migration checks the uniqueness of the tokens (T-20 (6)) and lists collisions in its report
   (`## Deployment` 2.1); the resolver that relies on it is R-022. Check: R-021's criteria; `## Deployment` 2.1 and 2.3.
+- 2026-11-20 D-059 (Adrian, "zrezygnuj z czekania na to powiadomienie, bo ten mechanizm coś nie działa"; amends
+  protocol step 4): by day the main session starts the gate once the subagent's final report (its hand-back) has
+  arrived and `compare --git` exits 0; it no longer waits for the task's completion notification, which it found
+  unreliable. The final report ends the subagent's run, so the rule's purpose, no two gates at once, still holds.
+  Check: none (protocol).
 
 ### Gate 2 §2, copied
 
@@ -1626,8 +1632,9 @@ Protocol per ticket (rebuild stage 5):
    change of mechanism it also runs `node adrian-rebuild/tools/fails-before.mjs`, which must exit 0 (the new and
    changed tests fail at HEAD), and puts its output into the draft `outcome.md` under `## Fails before`. When either
    fails after `DONE`, the main session resumes the implementer with the output; a second failure of the same step goes
-   to Adrian (z. 1). The main session starts the gate only after the subagent's completion notification, not on its
-   reply alone, so that no two gates run at once. A test that failed even once without a change of the code it runs
+   to Adrian (z. 1). The main session starts the gate once the subagent's final report (its hand-back) has arrived
+   and `compare --git` exits 0, without waiting for the task's completion notification (D-059). A test that failed
+   even once without a change of the code it runs
    is a finding: nobody runs it again to get a green gate (z. 17); by day the main session asks Adrian, at night it
    writes a question in `.night/questions.md` and the ticket waits (D-029). Until R-019, a gate that fails only on
    A-087's test (`test/s9-housekeeping.test.ts:135`) is recorded in `outcome.md` as an occurrence of A-087 and run
