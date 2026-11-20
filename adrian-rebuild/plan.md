@@ -553,6 +553,16 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   by step by the main session, instead of a night run of stage 2, because the deployment of `a0.1.1` waits for B.2
   (D-046) and B.2 must not share the Max window with a rebuild run (a void attempt at a limit runs again, D-021 (3)).
   Stage 2 starts by day on 2026-11-20 in `limen-rebuild-9`. Check: `## State` → B.2.
+- 2026-11-19 D-049 (Adrian, B.2's count; keeps D-021): an attempt with no job has no candidate, and an attempt with no
+  candidate does not pass. In the rebuilt Limen a coordinator's own commit of code is not covered by the publication
+  rule (A-006) and skips the Checks and the review (A-012, A-013, A-070), so inline work is no delivery. (1) The
+  coordinator's own branch is evaluated as a diagnostic beside pass^k, not in it: `evaluate` takes its candidate only
+  from `result.json` and its `evaluation.json` would enter the report, so the main session's procedure repeats its
+  steps by hand in a separate clone (the hidden tests over the tip, `npm ci --silent`, `npm run verify`). (2) B.2's
+  report states that at `rebuild-base` the coordinator does not delegate under the fixed input (A-086) and gives the
+  number of void attempts. (3) The owner message stays as D-021 has it; C (a message that asks for delegation) is
+  rejected, because it would move a rule of Limen into the test's input and hide the gap the rebuild closes. (4) The
+  void attempt runs again, then B.2 closes and the deployment follows the plan. Check: `## State` → B.2.
 
 ### Gate 2 §2, copied
 
@@ -1892,6 +1902,16 @@ in a scratch folder of the agents' account, outside the projects):
   whose absolute paths are written in committed notes of the project. The report: `passed 0 of 2; pass^2: no; void:
   1`. The loop's own log lines carry false exit codes (the main session's error: `$(date -Is)` resets `$?`); the
   report reads `result.json` and `evaluation.json`.
+- By D-049 (2026-11-20): the diagnostic of the coordinators' own branches of attempts 2 and 3 (two and three commits
+  on a branch of their own, nothing on `main`): each passes the project gate without the hidden tests (9 checks) and
+  fails it with them from `tsc` on, because the hidden unit test imports two functions of the reference's API that
+  neither branch has (`isNonce`, `parseProofAnswer`). Attempt 4, the rerun of attempt 1, started a worker job, so it
+  had a candidate, which failed the gate with the hidden tests; it is `void-contaminated` too. The report over the four:
+  `passed 0 of 2; pass^2: no; void: 2`. pass^3 is "no" whatever a third valid attempt gives, since two have failed.
+- Open for the "after" runs (4.8, 9.1), not for B.2: the hidden unit test binds the evaluation to the reference's
+  internal names, so a correct implementation under other names fails; B.2 is not affected, because neither valid
+  attempt has a candidate. Whether the hidden tests become the integration test alone is decided before 4.8, after a
+  control run of that variant.
 
 - R-090 `done` (delegated, by day): `seat/deploy.ts` prints every registry and registry line it checked before any
   other line, and registries that hold no project refuse with exit 4 before the fetch. One `BLOCKED`: the gate failed
@@ -1940,15 +1960,15 @@ Measurement). The next day session is `limen-rebuild-9`, with `start 9`; its fir
 notification, `close-previous`, then `Next`. A night run started from `limen-rebuild-8` (D-024) leaves this session
 alive in `tmux` and idle; it changes nothing in the repository until Adrian writes (D-024).
 
-Next: Adrian's decision on how B.2's attempts count (`Open questions`); then the rerun of the void attempt and B.2's
-close; then `## Deployment` 1.0–1.3 with `a0.1.1`; stage 2 by day on 2026-11-20 in `limen-rebuild-9` (D-048).
+Next: Adrian's decision on B.2's shortfall (`Open questions`); then B.2's report and `## Deployment` 1.0–1.3 with
+`a0.1.1`; stage 2 by day on 2026-11-20 in `limen-rebuild-9` (D-048).
 
 Open questions for Adrian:
-- How B.2 counts an attempt whose coordinator implemented the ticket in its own session, with no worker job: (A) as
-  D-021 defines it, no candidate and not passed, with the coordinator's own branch evaluated by hand as a side record
-  outside pass^k (recommended); (B) the runner takes the coordinator's newest commit as the candidate (a runner
-  ticket, and the three attempts are evaluated again); (C) the owner message changes to the words Adrian uses on the
-  seat to start a ticket, and all three attempts run again. A full answer: A, B or C, and for C the message.
+- B.2 has two valid attempts of the planned three, and two void ones, both because an agent read the production
+  checkout, whose path is written in the project's committed notes (the same action failed twice, z. 1, so no fifth
+  attempt runs without his word): (A) close B.2 with K = 2 and record the shortfall, since pass^3 is "no" already
+  (recommended); (B) run more attempts until three are valid, at most two more; (C) first keep the production
+  checkout out of the attempts' reach (a runner or seat change, a ticket), then run again. A full answer: A, B or C.
 
 Notes for the next session:
 - Start Claude Code in the repository root, so that it loads `.claude/agents/`.
