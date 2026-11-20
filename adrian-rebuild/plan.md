@@ -573,6 +573,15 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   the project's notes, needs its own justification. At the start of the deployment the main session confirms the full
   snapshot of `.limen/` (gate 2 §9 item 15, step 0.1), that no job runs (§7 D3) and that the deployed commit holds
   R-090. Check: `evidence/b2-same-task.md`.
+- 2026-11-20 D-051 (Adrian, at step 1.0; brings part of 5.6 forward): the coordinators use the deployed Limen from
+  `a0.1.1` on. The agents' account's `limen` on `PATH` is a link of that account, which pointed at the extra checkout
+  in its home (gate 2 §9 item 6), so `/opt/limen` reached no coordinator; the project stub, with `LIMEN_PACKAGE`
+  unset, loads the hooks of the package that `limen` resolves to. The link now points at `/opt/limen/bin/limen`; the
+  extra checkout stays untouched as the rollback (the link back to it) until 5.5 removes it, and 5.6 still makes the
+  link and `node` root-owned. B.2's attempts had also registered their clones in the seat's project registry (the
+  wake hook registers the root of every coordinator session, `hook/wake.ts:906` at `rebuild-base`); the six lines are
+  removed by hand at 1.0, and the "after" runs give each attempt its own `LIMEN_HOME` (part of D-050's isolation
+  proposal). Check: `readlink -f` of the link, and `limen --help` ends with the final line of R-013.
 
 ### Gate 2 §2, copied
 
@@ -1309,7 +1318,8 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
 - **5.5** Remove the old seat extensions from the Pi extensions directory, and establish whether anything loads the
   extra Limen checkout in the agents' home (item 6; R-049, R-059).
 - **5.6** In the coordinator pane, `limen` and `node` resolve to root-owned paths and `LIMEN_PACKAGE` is unset (item 7;
-  R-049).
+  R-049). Since 1.0 the agents' `limen` link already points at `/opt/limen/bin/limen` (D-051); what remains is that
+  the link and `node` are root-owned.
 - **5.7** The agents' account is not in `adm` or `systemd-journal` (item 8).
 - **5.8** A job in isolated mode quotes the first rule of the "Real data" section of `CLAUDE.md`, and the per-query log
   shows the file loaded; a job quotes the project's `AGENTS.md` if one exists (item 12; E-7, E-15, D-005; R-048).
@@ -1975,13 +1985,29 @@ alive in `tmux` and idle; it changes nothing in the repository until Adrian writ
 - B.2 closed on 2026-11-20 by D-050 (K = 2): `evidence/b2-same-task.md`. R-090 (`2be4b80`) and R-091 (`049097d`)
   are ancestors of `a0.1.1` (`91cc2e4`); the commits after it change only `plan.md` and `evidence/`.
 
-Next: `## Deployment` 1.0–1.3 with `a0.1.1`, guided step by step at the hour Adrian names, starting with D-050's
-three confirmations (the snapshot of 0.1, no running job, R-090 in the deployed commit); then the handover to
+Deployment of `a0.1.1` (2026-11-20, Adrian as root, guided step by step): D-050's three confirmations held (no
+running job in either project; the snapshot of 0.1 holds as many entries as the source, 16397; R-090 and `a0.1.1` on
+`origin/adrian-rebuild`); 1.0's bootstrap checkout and `seat/deploy.ts` exited 0 and tagged `deployed-2026-11-20-093125`,
+listing one registry with eight projects, six of them B.2's clones (D-051). No coordinator was running, so 0.3 had
+nothing to reload. D-051 done: the registry holds the two projects, the agents' `limen` resolves to
+`/opt/limen/bin/limen`, and `limen --help` ends with R-013's final line.
+- 1.1: the leftover list held `.limen/coordinator-events` (R-002) in synchronizer and `.omp/extensions/limen.ts`
+  (R-004) in both projects; Adrian dropped all three. The OMP stub was tracked in both projects, so Adrian committed
+  its removal on each `main` and pushed it (with `--no-verify`, past the projects' own `pre-push` hook: the agents'
+  account holds the write credential and the hook is no barrier, A-006).
+- 1.2, first half: `limen spawn --tab …` exits 2 with `REMOVED` and names its replacement (R-005, R-014); no job count
+  was taken before it, so "no job made" rests on the test of R-005. The log tab half is checked by the trial route.
+- 1.3: skipped, since the seat has no `limen-*` timer at all (no GitHub poller, no `limen-prune`, no retired
+  `limen-picture.timer`).
+- Tickets' seat notes: no `DEVIN_*` or `LIMEN_DEVIN*` variable and no `devin` (R-003); no `LIMEN_ENGINE` in the
+  worker's `~/.bashrc`, and `moshi-hook` is not on the agents' `PATH` (R-004); no `highlight` or `series` under the
+  seat folder (R-006).
+
+Next: the trial route of 0.6 (with 1.2's log tab), by Adrian in a coordinator pane; then the handover to
 `limen-rebuild-9`, which starts stage 2 by day (D-048). A night run of stage 2 needs Adrian's word (D-024) and the
 checks D-024 lists; it should not overlap the trial route of step 0.6, which uses the same Max window.
 
-Open questions for Adrian:
-- The hour of the deployment: now or in the morning at HH:MM (his reply of 2026-11-20 left the choice open).
+Open questions for Adrian: none.
 
 Notes for the next session:
 - Start Claude Code in the repository root, so that it loads `.claude/agents/`.
