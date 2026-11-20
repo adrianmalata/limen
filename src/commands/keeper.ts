@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { atomicWrite } from "../atomic-write.ts";
 import { transport } from "../config.ts";
 import { readRun } from "../job/group-cabinet.ts";
 import { resolveJob } from "../job/lookup.ts";
@@ -97,7 +98,7 @@ export async function keeperCommand(values: Parsed, cwd: string): Promise<Succes
 	const scratch = await mkdtemp(join(tmpdir(), "limen-keeper-"));
 	try {
 		const packetFile = `${scratch}/task.md`;
-		await writeFile(packetFile, packet);
+		await atomicWrite(packetFile, packet);
 		return await startSpawn(
 			{
 				task: [],

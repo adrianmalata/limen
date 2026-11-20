@@ -5,13 +5,12 @@ import {
 	mkdirSync,
 	readdirSync,
 	readFileSync,
-	renameSync,
 	rmSync,
 	statSync,
 	watch,
-	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { atomicRenameSync, atomicWriteSync } from "../src/atomic-write.ts";
 import { transport } from "../src/config.ts";
 import { noteSteer } from "../src/job/task-note.ts";
 
@@ -81,7 +80,7 @@ export default function limenSteering(pi: PiApi): void {
 		try {
 			mkdirSync(join(job, "steer", "inbox"), { recursive: true });
 			mkdirSync(join(job, "steer", "delivered"), { recursive: true });
-			writeFileSync(join(job, "steer", "ready"), "1\n", { flag: "wx" });
+			atomicWriteSync(join(job, "steer", "ready"), "1\n", { exclusive: true });
 		} catch {
 			if (!existsSync(join(job, "steer", "ready"))) {
 				return;
@@ -122,15 +121,15 @@ function deliver(pi: PiApi, job: string, name: string): boolean {
 	}
 	try {
 		mkdirSync(claim);
-		writeFileSync(join(claim, "owner"), `${process.pid}\n${new Date().toISOString()}\n`);
-		writeFileSync(join(claim, "text"), `${text}\n`);
+		atomicWriteSync(join(claim, "owner"), `${process.pid}\n${new Date().toISOString()}\n`);
+		atomicWriteSync(join(claim, "text"), `${text}\n`);
 	} catch {
 		return false;
 	}
 	try {
 		pi.sendUserMessage(`${text}\n\n${noteSteer(job)}`, { deliverAs: "steer" });
-		writeFileSync(join(claim, "accepted"), "1\n");
-		renameSync(claim, delivered);
+		atomicWriteSync(join(claim, "accepted"), "1\n");
+		atomicRenameSync(claim, delivered);
 		rmSync(inbox, { force: true });
 		appendFileSync(join(job, "log"), `[limen ${new Date().toISOString()}] steered: ${preview(text)}\n`);
 		return true;
@@ -161,7 +160,7 @@ function recoverClaim(claim: string, delivered: string): void {
 		}
 		if (existsSync(join(claim, "accepted"))) {
 			if (!existsSync(delivered)) {
-				renameSync(claim, delivered);
+				atomicRenameSync(claim, delivered);
 			} else {
 				rmSync(claim, { recursive: true, force: true });
 			}

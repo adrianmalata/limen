@@ -5,6 +5,7 @@ import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/p
 import { dirname, isAbsolute } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { atomicWrite, TEMPORARY_NAME } from "../atomic-write.ts";
 import { groupAdvanceEnvironment, transport } from "../config.ts";
 import { limenRoot } from "../project/git.ts";
 import { processAlive, processInfo } from "../runtime/contain.ts";
@@ -96,9 +97,7 @@ export async function readRun(root: string, id: string): Promise<GroupRun> {
 	return run;
 }
 export async function saveJson(path: string, value: unknown): Promise<void> {
-	const temporary = `${path}.${randomUUID()}.tmp`;
-	await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { flag: "wx", flush: true });
-	await rename(temporary, path);
+	await atomicWrite(path, `${JSON.stringify(value, null, 2)}\n`);
 }
 // Dead owners may be recovered; a live owner (including PID reuse) is never evicted.
 export function groupLock<T>(directory: string, operation: () => Promise<T>, mode: "skip"): Promise<T | undefined>;
@@ -211,7 +210,7 @@ export async function leadSession(root: string): Promise<string | undefined> {
 	const listeners = new Map<number, string>();
 	for (const session of await readdir(`${root}/.limen/group-leads`).catch(() => [])) {
 		const pid = Number(await readFile(`${root}/.limen/group-leads/${session}`, "utf8").catch(() => ""));
-		if (SESSION_ID.test(session) && Number.isSafeInteger(pid) && pid > 1) {
+		if (SESSION_ID.test(session) && !TEMPORARY_NAME.test(session) && Number.isSafeInteger(pid) && pid > 1) {
 			listeners.set(pid, session);
 		}
 	}

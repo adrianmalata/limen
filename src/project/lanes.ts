@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
+import { atomicRename, atomicWrite } from "../atomic-write.ts";
 import { readTickets, type TicketRecord } from "../picture/tickets.ts";
 import { commitPaths, dirtyPaths, isGitRepository } from "./git.ts";
 import { ARCHIVE, type ArchiveRow, archiveRows } from "./series.ts";
@@ -89,7 +90,7 @@ export async function writeBoard(root: string): Promise<boolean> {
 	if (next === text) {
 		return false;
 	}
-	await writeFile(path, next);
+	await atomicWrite(path, next);
 	return true;
 }
 
@@ -126,9 +127,9 @@ export async function closeTickets(
 	for (const from of folders) {
 		const to = `spec/features/done/${today.slice(0, 7)}/${basename(from)}`;
 		await mkdir(join(root, dirname(to)), { recursive: true });
-		await rename(join(root, from), join(root, to));
+		await atomicRename(join(root, from), join(root, to));
 		const file = join(root, to, "ticket.md");
-		await writeFile(file, withLanded(await readFile(file, "utf8"), today));
+		await atomicWrite(file, withLanded(await readFile(file, "utf8"), today));
 		moved.push(to);
 	}
 	const board = (await writeBoard(root)) ? [BOARD] : [];

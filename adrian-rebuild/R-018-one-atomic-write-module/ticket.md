@@ -108,3 +108,27 @@ pattern, so `finalizeJob` still sweeps them.
   code builds under `spec/` or a job folder, because a scan cannot tell paths apart and T-25 (1) bans the primitive
   outside its module; the module sits at `src/atomic-write.ts`, beside `src/boundary.ts` and `src/config.ts`; size L
   (was M: about 60 call sites).
+- 2026-11-20 (main session, review round 1, PASS with seven notes; `review.md` → Round 1). The first round of fixes,
+  for the resumed implementer, each with a test that fails before it where it changes behaviour:
+  1. Finding 1: `github resolve` writes `outcomes/<id>.json` with a plain `atomicWrite` (temp and `rename`, one name at
+     every moment), because the `mkdir` of the claim's `inflight/<id>` gate before it already makes the decision
+     exclusive (`src/commands/github.ts:187`); a test asserts that the written file has one link and that a second
+     resolve of the same claim still refuses at the gate. No other caller of `exclusive` writes a file that
+     `readJobFile` reads; the implementer confirms it in `outcome.md`.
+  2. Finding 3: the transcript copy of publication keeps the source file's permission bits (its `stat` mode passed as
+     `mode`); a test with a 0o600 source asserts a 0o600 copy.
+  3. Finding 4: the comment above `TEMPORARY_NAME` (`src/atomic-write.ts:18`) says only what is true: which temps the
+     pattern covers (the module's and those of the old `atomicWrite`, seat and rules writers) and that the old temps of
+     `saveJson`, Picture and the poller are not swept (`outcome.md` → Open points 2).
+  4. Finding 5: the two EACCES tests also assert that the target holds the new content, so they fail if the folder is
+     opened before the rename.
+  5. Finding 6: a test each for the temp filter of `seatEvent`'s delivered listing (`src/commands/sweep.ts:77`) and of
+     `finalizeJob`'s count of undelivered steers (`src/job/record.ts:39`); `outcome.md` names the tested readers
+     correctly.
+  6. Finding 7: tests of `atomicWriteSync` with `exclusive` creating a missing file and with `mode`, and of
+     `atomicRenameSync` syncing the source folder (the EACCES pattern of the async test).
+  Finding 2 is rejected (`review.md`).
+- 2026-11-20 (main session, review round 2, PASS with five notes; `review.md` → Round 2): no second round of fixes.
+  Note 2 (a test count in `outcome.md`) is fixed by the main session (D-053 (2)); note 4 by committing D-057 on its own
+  before R-018; notes 1 and 3 (two comments) go to R-021 and note 5 (two test headers) to R-025, as `## Tickets` →
+  notes in `plan.md`.

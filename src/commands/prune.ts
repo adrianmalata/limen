@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { readdir, readFile, realpath, rename, rm } from "node:fs/promises";
+import { readdir, readFile, realpath, rm } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
+import { atomicRename } from "../atomic-write.ts";
 import { retainedGroupJob } from "../job/group-cabinet.ts";
 import { isTerminal } from "../job/job.ts";
 import { worktreeLock } from "../job/publication.ts";
@@ -354,7 +355,7 @@ async function worktreeClaims(
 }
 /** Moves a worktree out of every job's reach in one rename beside it; false when it is gone already. */
 function detach(path: string): Promise<boolean> {
-	return rename(path, `${dirname(path)}/.pruned-${randomUUID()}`).then(
+	return atomicRename(path, `${dirname(path)}/.pruned-${randomUUID()}`).then(
 		() => true,
 		() => false,
 	);

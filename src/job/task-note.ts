@@ -1,6 +1,7 @@
-import { appendFileSync, existsSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
+import { atomicWriteSync } from "../atomic-write.ts";
 import { readOptional } from "../project/inherit.ts";
 import { type Gap, NOT_NAMED, type Run, sessionRuns, unproven } from "./session-commands.ts";
 
@@ -111,7 +112,7 @@ export function recordNote(jobDir: string, seen: string | undefined): string | u
 		return seen;
 	}
 	if (!existsSync(join(jobDir, FIRST))) {
-		writeFileSync(join(jobDir, FIRST), now);
+		atomicWriteSync(join(jobDir, FIRST), now);
 	}
 	appendFileSync(join(jobDir, "log"), `[limen ${new Date().toISOString()}] note changed\n`);
 	return now;

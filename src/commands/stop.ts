@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
+import { atomicWrite } from "../atomic-write.ts";
 import { SESSION_ID } from "../job/job.ts";
 import { resolveJob } from "../job/lookup.ts";
 import { appendLimenLog, finalizeJob, requestedTerminal } from "../job/record.ts";
@@ -31,7 +32,7 @@ export async function stopJob(query: string, given: string, cwd: string): Promis
 	// A wrapper in the start queue ends its own job with this reason at once; then this command finalizes nothing.
 	const queued = existsSync(`${jobDir}/queued`);
 	if (queued) {
-		await writeFile(`${jobDir}/stop-requested`, `${reason}\n`);
+		await atomicWrite(`${jobDir}/stop-requested`, `${reason}\n`);
 	}
 	// Complete the bounded ownership snapshot while the parent chain is intact, then signal. A queued wrapper runs no
 	// engine child, so it has no process tree to search and an empty one is no attribution loss.

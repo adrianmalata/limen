@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { atomicWrite } from "../atomic-write.ts";
 import { transport } from "../config.ts";
 import { type LiveCoordinator, liveCoordinators } from "../integrations/coordinator-registration.ts";
 import { promptPane } from "../integrations/coordinator-wake.ts";
@@ -158,7 +159,7 @@ async function broadcast(rule: SeatRule, kind: Kind, text: string): Promise<read
 async function pingTab(herdr: string, receipt: string, tab: Tab, text: string): Promise<string> {
 	try {
 		const claim = `attempting ${tab.pane}, ${tab.root} session ${tab.session} ${new Date().toISOString()}\n`;
-		await writeFile(receipt, claim, { flag: "wx", flush: true });
+		await atomicWrite(receipt, claim, { exclusive: true });
 	} catch {
 		return `${tab.pane}: pinged already`;
 	}

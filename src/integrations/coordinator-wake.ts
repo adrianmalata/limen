@@ -1,8 +1,9 @@
 import { execFile } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { connect } from "node:net";
+import { atomicWrite } from "../atomic-write.ts";
 import { jobMembership } from "../job/group-cabinet.ts";
-import { appendLimenLog, atomicWrite, textFile } from "../job/record.ts";
+import { appendLimenLog, textFile } from "../job/record.ts";
 import { completionWake, keeperHint } from "../job/wake-text.ts";
 import { herdrBinary } from "./herdr.ts";
 
@@ -51,7 +52,7 @@ async function promptOriginPane(
 	await mkdir(`${jobDir}/notify`, { recursive: true });
 	const receipt = `${jobDir}/notify/${route.receipt}`;
 	try {
-		await writeFile(receipt, `attempting ${pane} ${new Date().toISOString()}\n`, { flag: "wx", flush: true });
+		await atomicWrite(receipt, `attempting ${pane} ${new Date().toISOString()}\n`, { exclusive: true });
 	} catch {
 		return; // Another finalizer already owns this wake.
 	}
@@ -60,9 +61,8 @@ async function promptOriginPane(
 	);
 	if (ok) {
 		await mkdir(`${jobDir}/notify/delivered`, { recursive: true });
-		await writeFile(`${jobDir}/notify/delivered/${route.delivered}`, `${new Date().toISOString()}\n`, {
-			flag: "wx",
-			flush: true,
+		await atomicWrite(`${jobDir}/notify/delivered/${route.delivered}`, `${new Date().toISOString()}\n`, {
+			exclusive: true,
 		}).catch(() => {});
 	}
 }

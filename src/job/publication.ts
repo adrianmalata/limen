@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { copyFile, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat } from "node:fs/promises";
 import { userInfo } from "node:os";
 import { basename, dirname } from "node:path";
+import { atomicRename, atomicWrite } from "../atomic-write.ts";
 import { exception, transport } from "../config.ts";
 import type { EngineId } from "../runtime/engine.ts";
 import { groupLock } from "./group-cabinet.ts";
@@ -146,14 +147,19 @@ export async function publishJob(jobDir: string, job: NewJob): Promise<void> {
 		await mkdir(`${publishing}/notify/subscribers`, { recursive: true });
 		// Sequential writes settle before cleanup on failure; no write can outlive the hidden directory.
 		for (const [name, body] of Object.entries(files)) {
-			await writeFile(`${publishing}/${name}`, body, { flag: "wx", flush: true });
+			await atomicWrite(`${publishing}/${name}`, body, { exclusive: true });
 		}
 		if (job.session) {
 			await mkdir(`${publishing}/session`);
-			await copyFile(job.session.source, `${publishing}/session/${job.session.name}`);
+			// A copy keeps the transcript's permission bits, as `copyFile` did.
+			const { mode } = await stat(job.session.source);
+			await atomicWrite(`${publishing}/session/${job.session.name}`, await readFile(job.session.source), {
+				exclusive: true,
+				mode: mode & 0o777,
+			});
 		}
-		await writeFile(`${publishing}/notify/ready`, "1\n", { flag: "wx", flush: true });
-		await worktreeLock(jobsRoot, () => rename(publishing, jobDir));
+		await atomicWrite(`${publishing}/notify/ready`, "1\n", { exclusive: true });
+		await worktreeLock(jobsRoot, () => atomicRename(publishing, jobDir));
 	} catch (error) {
 		await rm(publishing, { recursive: true, force: true });
 		throw error;

@@ -1,5 +1,6 @@
-import { appendFileSync, existsSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { atomicWriteSync } from "../src/atomic-write.ts";
 import { transport } from "../src/config.ts";
 import { noteCheck } from "../src/job/task-note.ts";
 
@@ -65,7 +66,7 @@ export default function limenFinish(pi: PiApi): void {
 			const handoff = typeof params?.handoff === "string" ? params.handoff.trim() : "";
 			try {
 				if (handoff) {
-					writeFileSync(join(jobDir, "result"), `${handoff}\n`);
+					atomicWriteSync(join(jobDir, "result"), `${handoff}\n`);
 				}
 			} catch {
 				// The engine's exit still ends the job; only the handoff text is lost.

@@ -83,8 +83,8 @@ test("D-010: no file in seat/ or bin/ is a shell script ending in .sh", async ()
 });
 
 // Gate 2 §7 D3 (audit.md): with static imports only, a process loads all of its code when it starts, so one process
-// runs one version of the code. A job's finalize path can start a new `bin/limen` (`src/job/record.ts:66`,
-// `src/job/group-cabinet.ts:325-326`), which loads what `/opt/limen` holds then, so the guard against a job that runs
+// runs one version of the code. A job's finalize path can start a new `bin/limen` (`src/job/record.ts:53`,
+// `src/job/group-cabinet.ts:306-307`), which loads what `/opt/limen` holds then, so the guard against a job that runs
 // across a deployment is the running-job refusal of `seat/deploy.ts`, not this scan. `bin/limen` imports `src/main.ts`
 // dynamically before any job code runs, and is outside the scan.
 test("no TypeScript file in src/ or hook/ loads a module with a dynamic import", async () => {
@@ -306,6 +306,288 @@ test("T-25: the functions of src/boundary.ts and src/outcome.ts have names no ot
 		);
 	assert.ok(ours.size > 10, `${ours.size} function names in the two modules`);
 	assert.deepEqual(shared, []);
+});
+
+/** The folders whose code must write and rename files only through src/atomic-write.ts (T-25 (1), A-022). */
+const WRITERS = ["src", "hook", "seat"] as const;
+/** The file system functions that write, rename or link a file, or open one to write it. */
+const WRITE_PRIMITIVES: ReadonlySet<string> = new Set([
+	"writeFile",
+	"writeFileSync",
+	"rename",
+	"renameSync",
+	"copyFile",
+	"copyFileSync",
+	"link",
+	"linkSync",
+	"createWriteStream",
+]);
+/** The file system functions that open a file; for writing when their flags say so. */
+const OPENS: ReadonlySet<string> = new Set(["open", "openSync"]);
+/** Flags that open a file for writing: a string with `w`, `a` or `+`, or an `O_` constant that writes or creates. */
+const WRITE_FLAGS = /^["'`][^"'`]*[wa+]|O_(?:WRONLY|RDWR|CREAT|APPEND|TRUNC)\b/;
+
+/** A write the scan sees: where it is, its primitive, the named function it is in, and whether it is an import. */
+type WriteSite = {
+	readonly line: number;
+	readonly primitive: string;
+	readonly inside: string;
+	readonly imported: boolean;
+};
+
+/**
+ * Kept uses of primitives: the file, the named function they are in, the primitives it keeps (once per kept call), and
+ * the ticket that removes them.
+ */
+type WriteException = {
+	readonly path: string;
+	readonly inside: string;
+	readonly primitives: readonly string[];
+	readonly ticket: string;
+	readonly what: string;
+};
+
+/** The write sites the scan does not count: the lock primitives until R-019, the LaunchAgent installer until R-032. */
+const WRITE_EXCEPTIONS: readonly WriteException[] = [
+	{
+		path: "src/job/group-cabinet.ts",
+		inside: "groupLock",
+		primitives: ["writeFile", "writeFile", "rename"],
+		ticket: "R-019",
+		what: "the group lock's owner file, its reclaim claim and the takeover rename",
+	},
+	{
+		path: "src/integrations/github-poller.ts",
+		inside: "project",
+		primitives: ["writeFile"],
+		ticket: "R-019",
+		what: "the poll lock",
+	},
+	{
+		path: "src/project/seat.ts",
+		inside: "withSeatLock",
+		primitives: ["writeFileSync"],
+		ticket: "R-019",
+		what: "the seat lock's owner file",
+	},
+	{
+		path: "src/project/seat.ts",
+		inside: "releaseSeatLock",
+		primitives: ["renameSync"],
+		ticket: "R-019",
+		what: "the seat lock's release rename",
+	},
+	{
+		path: "src/project/seat.ts",
+		inside: "removeAbandonedLock",
+		primitives: ["writeFileSync", "renameSync"],
+		ticket: "R-019",
+		what: "the seat lock's reclaim claim and takeover rename",
+	},
+	{
+		path: "src/project/seat.ts",
+		inside: "installSeatSweep",
+		primitives: ["writeFileSync"],
+		ticket: "R-032",
+		what: "the LaunchAgent installer",
+	},
+];
+
+/** The name of the innermost named function around `node`: a declaration, a method, or a function a `const` holds. */
+function enclosingFunction(node: ts.Node): string {
+	for (let current = node.parent; current; current = current.parent) {
+		if ((ts.isFunctionDeclaration(current) || ts.isMethodDeclaration(current)) && current.name) {
+			return current.name.getText();
+		}
+		const held = ts.isFunctionExpression(current) || ts.isArrowFunction(current);
+		if (held && ts.isVariableDeclaration(current.parent) && ts.isIdentifier(current.parent.name)) {
+			return current.parent.name.text;
+		}
+	}
+	return "(top level)";
+}
+
+/** Whether the flags argument of an open call opens for writing; a name is read through its `const` in the file. */
+function opensForWriting(flags: ts.Expression | undefined, constants: ReadonlyMap<string, string>): boolean {
+	if (!flags) {
+		return false;
+	}
+	const text = ts.isIdentifier(flags) ? constants.get(flags.text) : flags.getText();
+	return text === undefined || WRITE_FLAGS.test(text);
+}
+
+/** The name a call calls: `name(…)` or `object.name(…)`. */
+function calledName(call: ts.CallExpression): string | undefined {
+	const callee = call.expression;
+	if (ts.isIdentifier(callee)) {
+		return callee.text;
+	}
+	return ts.isPropertyAccessExpression(callee) ? callee.name.text : undefined;
+}
+
+/** The write primitives an import declaration takes by name from `fs` or `fs/promises`, aliases by their own name. */
+function importedPrimitives(node: ts.Node): ts.ImportSpecifier[] {
+	const fromFs =
+		ts.isImportDeclaration(node) && /^["'](?:node:)?fs(?:\/promises)?["']$/.test(node.moduleSpecifier.getText());
+	const named = fromFs ? node.importClause?.namedBindings : undefined;
+	if (!(named && ts.isNamedImports(named))) {
+		return [];
+	}
+	return named.elements.filter((element) => WRITE_PRIMITIVES.has((element.propertyName ?? element.name).getText()));
+}
+
+/** Every import of a write primitive from `fs`, every call of one, and every open for writing, in the code `text`. */
+function writeSites(path: string, text: string): WriteSite[] {
+	const kind = path.endsWith(".ts") ? ts.ScriptKind.TS : ts.ScriptKind.JS;
+	const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, kind);
+	const constants = new Map<string, string>();
+	const sites: WriteSite[] = [];
+	const at = (node: ts.Node) => source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
+	const visit = (node: ts.Node): void => {
+		if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+			constants.set(node.name.text, node.initializer.getText(source));
+		}
+		for (const element of importedPrimitives(node)) {
+			const primitive = (element.propertyName ?? element.name).getText(source);
+			sites.push({ line: at(element), primitive, inside: "(import)", imported: true });
+		}
+		const name = ts.isCallExpression(node) ? calledName(node) : undefined;
+		if (ts.isCallExpression(node) && name) {
+			const writes = WRITE_PRIMITIVES.has(name) || (OPENS.has(name) && opensForWriting(node.arguments[1], constants));
+			if (writes) {
+				sites.push({ line: at(node), primitive: name, inside: enclosingFunction(node), imported: false });
+			}
+		}
+		ts.forEachChild(node, visit);
+	};
+	visit(source);
+	return sites;
+}
+
+/**
+ * The sites of the file `path` that `exceptions` do not keep: an import is kept when an entry of the file keeps its
+ * primitive; a call, while its function has calls of that primitive left in the entries, in the order of the file.
+ */
+function unkept(path: string, sites: readonly WriteSite[], exceptions: readonly WriteException[]): WriteSite[] {
+	const entries = exceptions.filter((entry) => entry.path === path);
+	const left = new Map<string, number>();
+	for (const entry of entries) {
+		for (const primitive of entry.primitives) {
+			left.set(`${entry.inside} ${primitive}`, (left.get(`${entry.inside} ${primitive}`) ?? 0) + 1);
+		}
+	}
+	return sites.filter((site) => {
+		if (site.imported) {
+			return !entries.some((entry) => entry.primitives.includes(site.primitive));
+		}
+		const key = `${site.inside} ${site.primitive}`;
+		const count = left.get(key) ?? 0;
+		left.set(key, count - 1);
+		return count <= 0;
+	});
+}
+
+/**
+ * Each write site outside src/atomic-write.ts and outside `exceptions`, in the files git knows below `WRITERS` of the
+ * repository at `repo`, as `<file>:<line>: <primitive>`, with `import ` before the primitive of an import.
+ */
+async function writeScan(repo: string, exceptions: readonly WriteException[]): Promise<string[]> {
+	const findings: string[] = [];
+	for (const path of await knownFiles(repo)) {
+		const file = relative(repo, path);
+		const code = /\.(?:ts|mts|js|mjs)$/.test(file) && WRITERS.some((folder) => file.startsWith(`${folder}/`));
+		if (!code || file === "src/atomic-write.ts") {
+			continue;
+		}
+		for (const site of unkept(file, writeSites(file, await readFile(path, "utf8")), exceptions)) {
+			findings.push(`${file}:${site.line}: ${site.imported ? "import " : ""}${site.primitive}`);
+		}
+	}
+	return findings;
+}
+
+// A-022: a file written in place is left truncated when the disk fills; the copies of the temp-and-rename policy drifted
+// apart (eight writers, three with fsync, none of the folder). One module holds the policy, so the scan bans the rest.
+test("T-25: outside src/atomic-write.ts no file of src/, hook/ or seat/ imports or calls a write primitive or opens a file for writing, except the listed lock and installer sites", async () => {
+	assert.deepEqual(await writeScan(root, WRITE_EXCEPTIONS), []);
+});
+
+test("the write scan finds named, aliased, namespace and method writes and opens for writing, and skips the module, a kept call, reads, text, an ignored file and other folders", async (t) => {
+	const repo = await realpath(await mkdtemp(join(tmpdir(), "limen-write-scan-")));
+	t.after(() => rm(repo, { recursive: true, force: true }));
+	execFileSync("git", ["init", "-q"], { cwd: repo });
+	const files = {
+		".gitignore": "src/ignored.ts\n",
+		"src/atomic-write.ts":
+			'import { rename, writeFile } from "node:fs/promises";\nawait writeFile(a, b);\nawait rename(a, b);\n',
+		"src/named.ts":
+			'import { writeFile as put } from "node:fs/promises";\nawait put(path, "x");\nawait handle.writeFile("x");\n',
+		"hook/namespace.ts": 'import * as fs from "node:fs";\n\nfs.renameSync(from, to);\nfs.copyFileSync(a, b);\n',
+		"seat/opened.ts": [
+			'import { constants, open, openSync } from "node:fs";',
+			"const flags = constants.O_RDONLY | constants.O_NOFOLLOW;",
+			'open(path, "r");',
+			"open(path, flags);",
+			"open(path);",
+			'open(path, "wx");',
+			"openSync(path, constants.O_WRONLY | constants.O_CREAT);",
+		].join("\n"),
+		"src/locked.ts": [
+			'import { writeFileSync } from "node:fs";',
+			"function lock() {",
+			"\twriteFileSync(owner, pid);",
+			"\twriteFileSync(cursor, next);",
+			"}",
+			"const other = () => {",
+			'\twriteFileSync(state, "done");',
+			"};",
+		].join("\n"),
+		"src/stream.ts": 'import { createWriteStream } from "node:fs";\n',
+		"src/text.ts": 'const said = "writeFile(path)";\n// rename(a, b)\n',
+		"src/ignored.ts": 'import { writeFile } from "node:fs/promises";\nawait writeFile(a, b);\n',
+		"bin/outside.mjs": 'import { writeFile } from "node:fs/promises";\nawait writeFile(a, b);\n',
+		"test/outside.ts": 'import { writeFile } from "node:fs/promises";\nawait writeFile(a, b);\n',
+	};
+	for (const [path, text] of Object.entries(files)) {
+		await mkdir(dirname(join(repo, path)), { recursive: true });
+		await writeFile(join(repo, path), text);
+	}
+	const lock: WriteException = {
+		path: "src/locked.ts",
+		inside: "lock",
+		primitives: ["writeFileSync"],
+		ticket: "R-0",
+		what: "",
+	};
+	assert.deepEqual((await writeScan(repo, [lock])).sort(), [
+		"hook/namespace.ts:3: renameSync",
+		"hook/namespace.ts:4: copyFileSync",
+		"seat/opened.ts:6: open",
+		"seat/opened.ts:7: openSync",
+		"src/locked.ts:4: writeFileSync",
+		"src/locked.ts:7: writeFileSync",
+		"src/named.ts:1: import writeFile",
+		"src/named.ts:3: writeFile",
+		"src/stream.ts:1: import createWriteStream",
+	]);
+});
+
+// A kept call that is gone would let a new write in its function pass unseen once its ticket removed the old one.
+test("T-25: every primitive of the write exception list keeps a call in its file and function", async () => {
+	const unused: string[] = [];
+	for (const entry of WRITE_EXCEPTIONS) {
+		const calls = writeSites(entry.path, await readFile(join(root, entry.path), "utf8")).filter(
+			(site) => !site.imported && site.inside === entry.inside,
+		);
+		for (const primitive of new Set(entry.primitives)) {
+			const listed = entry.primitives.filter((name) => name === primitive).length;
+			const found = calls.filter((site) => site.primitive === primitive).length;
+			if (found < listed) {
+				unused.push(`${entry.path} ${entry.inside}: ${listed} ${primitive} kept, ${found} found (${entry.ticket})`);
+			}
+		}
+	}
+	assert.deepEqual(unused, []);
 });
 
 // Each shipped templates/.history/<name> starts with the hash of the current templates/<name>.

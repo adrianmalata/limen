@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { TEMPORARY_NAME } from "../atomic-write.ts";
 import { ticketPointers } from "../project/planning.ts";
 import { producedNothing } from "./job.ts";
 import { openChecks } from "./task-note.ts";
@@ -37,7 +38,7 @@ export function jobEnding(job: string): string {
 		sections.push(`Final message:\n${result}`);
 	}
 	try {
-		const unseen = readdirSync(join(job, "steer", "inbox")).length;
+		const unseen = readdirSync(join(job, "steer", "inbox")).filter((name) => !TEMPORARY_NAME.test(name)).length;
 		if (unseen) {
 			sections.push(`${unseen} steer(s) never delivered`);
 		}

@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { atomicWriteSync } from "../atomic-write.ts";
 import { exception, transport } from "../config.ts";
 import { SESSION_ID } from "../job/job.ts";
 import { textFile } from "../job/record.ts";
@@ -24,7 +25,7 @@ export function coordinatorRegistration() {
 			return;
 		}
 		try {
-			writeFileSync(join(dir, name), `${value}\n`);
+			atomicWriteSync(join(dir, name), `${value}\n`);
 		} catch {
 			// The registration is advisory; a missing file only makes `limen rule` skip or misjudge this pane.
 		}

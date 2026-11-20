@@ -1,15 +1,6 @@
-import {
-	appendFileSync,
-	existsSync,
-	mkdirSync,
-	readdirSync,
-	readFileSync,
-	renameSync,
-	rmSync,
-	statSync,
-	writeFileSync,
-} from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { atomicRenameSync, atomicWriteSync, TEMPORARY_NAME } from "../atomic-write.ts";
 import { testKnob } from "../config.ts";
 import { isTerminal } from "./job.ts";
 
@@ -81,7 +72,7 @@ export function claimDelivery(
 	}
 	try {
 		mkdirSync(claim);
-		writeFileSync(join(claim, "owner"), `${process.pid}\n${new Date().toISOString()}\n`);
+		atomicWriteSync(join(claim, "owner"), `${process.pid}\n${new Date().toISOString()}\n`);
 	} catch {
 		return false;
 	}
@@ -119,7 +110,7 @@ export function claimDelivery(
 				callbacks.released(claim);
 				return;
 			}
-			writeFileSync(join(claim, "accepted"), "1\n");
+			atomicWriteSync(join(claim, "accepted"), "1\n");
 			callbacks.accepted(claim);
 		};
 		if (injected instanceof Promise) {
@@ -160,7 +151,7 @@ function recoverClaim(claim: string): "released" | "blocked" | undefined {
 }
 export function refreshClaim(claim: string): void {
 	try {
-		writeFileSync(join(claim, "live"), `${new Date().toISOString()}\n`);
+		atomicWriteSync(join(claim, "live"), `${new Date().toISOString()}\n`);
 	} catch {
 		// A missing claim was confirmed or recovered between the sweep and this heartbeat.
 	}
@@ -184,7 +175,7 @@ export function recordUnconfirmed(
 		if (!existsSync(claim) || existsSync(join(claim, "blocked"))) {
 			return false;
 		}
-		writeFileSync(join(claim, "unsuccessful"), "1\n", { flag: "wx" });
+		atomicWriteSync(join(claim, "unsuccessful"), "1\n", { exclusive: true });
 		const attemptsFile = attemptsPath(claim);
 		mkdirSync(dirname(attemptsFile), { recursive: true });
 		// Append atomically: competing subscribers must not overwrite each other's failure.
@@ -193,10 +184,10 @@ export function recordUnconfirmed(
 		if (attempts < WAKE_ATTEMPTS) {
 			rmSync(claim, { recursive: true, force: true });
 		} else {
-			writeFileSync(
+			atomicWriteSync(
 				join(claim, "blocked"),
 				`automatic retries stopped after ${WAKE_ATTEMPTS} unsuccessful attempts\n`,
-				{ flag: "wx" },
+				{ exclusive: true },
 			);
 		}
 		try {
@@ -223,7 +214,7 @@ export function confirmClaim(claim: string, delivered: string): void {
 			return;
 		}
 		if (!existsSync(delivered)) {
-			renameSync(claim, delivered);
+			atomicRenameSync(claim, delivered);
 		} else {
 			rmSync(claim, { recursive: true, force: true });
 		}
@@ -231,9 +222,10 @@ export function confirmClaim(claim: string, delivered: string): void {
 		// Another coordinator confirmed or recovered it first.
 	}
 }
+/** The slots delivered so far; the temp of a delivery write in progress, or left by a crash, is none. */
 export function deliveredSlots(job: string): string[] {
 	try {
-		return readdirSync(join(job, "notify", "delivered"));
+		return readdirSync(join(job, "notify", "delivered")).filter((name) => !TEMPORARY_NAME.test(name));
 	} catch {
 		return [];
 	}
@@ -259,7 +251,7 @@ export function claimMarker(job: string, kind: string, slot: string): boolean {
 	const root = join(job, "notify", kind);
 	mkdirSync(root, { recursive: true });
 	try {
-		writeFileSync(join(root, slot), "1\n", { flag: "wx" });
+		atomicWriteSync(join(root, slot), "1\n", { exclusive: true });
 		return true;
 	} catch {
 		return false;
@@ -277,7 +269,7 @@ export function routable(job: string): boolean {
 export function enrollLegacyRunning(job: string): void {
 	mkdirSync(join(job, "notify", "subscribers"), { recursive: true });
 	try {
-		writeFileSync(join(job, "notify", "ready"), "1\n", { flag: "wx" });
+		atomicWriteSync(join(job, "notify", "ready"), "1\n", { exclusive: true });
 	} catch {
 		// Another coordinator enrolled it first.
 	}
@@ -285,7 +277,7 @@ export function enrollLegacyRunning(job: string): void {
 export function subscribeSession(job: string, session: string): void {
 	mkdirSync(join(job, "notify", "subscribers"), { recursive: true });
 	try {
-		writeFileSync(join(job, "notify", "subscribers", session), `${new Date().toISOString()}\n`, { flag: "wx" });
+		atomicWriteSync(join(job, "notify", "subscribers", session), `${new Date().toISOString()}\n`, { exclusive: true });
 	} catch {
 		// Already subscribed.
 	}

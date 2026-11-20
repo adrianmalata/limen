@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { appendLimenLog, atomicWrite } from "../job/record.ts";
+import { atomicWrite } from "../atomic-write.ts";
+import { appendLimenLog } from "../job/record.ts";
 
 const ESCAPED_TERM_GRACE_MS = 2_000;
 const ESCAPED_KILL_GRACE_MS = 1_000;

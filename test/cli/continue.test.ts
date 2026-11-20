@@ -1,7 +1,7 @@
 // `limen continue`: it finds the project from a subdirectory, its engine does not inherit the continue flag, and it
 // refuses a parent whose engine was removed.
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { isTerminal } from "../../src/job/job.ts";
@@ -26,6 +26,21 @@ test("a continuation started from a subdirectory of the project continues its pa
 	const id = startedJob(run);
 	await ended(p, id);
 	assert.deepEqual([jobFile(p, id, "parent"), jobFile(p, id, "state")], [parent, "done"]);
+});
+
+test("limen continue copies the parent's session transcript with the transcript's permission bits", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const parent = spawnJob(p, "say first");
+	await ended(p, parent);
+	const [name = "", ...more] = readdirSync(join(jobDir(p, parent), "session")).filter((file) =>
+		file.endsWith(".jsonl"),
+	);
+	assert.deepEqual(more, [], "the parent holds one transcript");
+	chmodSync(join(jobDir(p, parent), "session", name), 0o600);
+	const id = startedJob(limen(p, ["continue", parent, "say continued"]));
+	await ended(p, id);
+	assert.equal(statSync(join(jobDir(p, id), "session", name)).mode & 0o777, 0o600);
 });
 
 test("a job continued with limen continue starts an engine whose environment holds no LIMEN_CONTINUE", async (t) => {

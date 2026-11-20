@@ -1,9 +1,10 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { chmod, chown, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, chown, mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { userInfo } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { atomicWrite } from "../atomic-write.ts";
 import { exception } from "../config.ts";
 import { pollGithub } from "../integrations/github-poller.ts";
 import {
@@ -181,15 +182,17 @@ async function recordNoJobAnswer(registered: string, claimWord: string, nonce: s
 	) {
 		throw new Error("GitHub claim has a job or does not match binding");
 	}
-	// A no-job decision and a job are mutually exclusive for this claim.
+	// A no-job decision and a job are mutually exclusive for this claim: the gate's `mkdir` decides, once.
 	const gate = join(githubDir(root), "inflight", String(claim.id));
 	await mkdir(join(githubDir(root), "inflight"), { recursive: true });
 	await mkdir(gate);
 	await mkdir(join(githubDir(root), "outcomes"), { recursive: true });
-	await writeFile(
+	// Not `exclusive`: its link gives the file a second name for a moment, and the poller's `readJobFile` reads only a
+	// file with one name, so a crash in that moment would hide the answer for ever. The gate above is the exclusion.
+	await atomicWrite(
 		join(githubDir(root), "outcomes", `${claim.id}.json`),
 		`${JSON.stringify({ repo: binding.repo, id: claim.id, coordinator: binding.coordinator, nonce, answer: answer.trim() })}\n`,
-		{ flag: "wx", mode: 0o660 },
+		{ mode: 0o660 },
 	);
 	console.log("coordinator no-job answer recorded; awaiting poller receipt");
 }
@@ -351,7 +354,7 @@ async function connectDoorbell(root: string): Promise<void> {
 		await chown(path, process.getuid?.() ?? -1, gid);
 		await chmod(path, path.endsWith("/.limen") ? 0o2750 : 0o2770);
 	}
-	await writeFile(
+	await atomicWrite(
 		bindingPath(root),
 		`${JSON.stringify({ repo, coordinator: process.env.HERDR_PANE_ID, user: userInfo().username, connectedAt: new Date().toISOString() })}\n`,
 		{

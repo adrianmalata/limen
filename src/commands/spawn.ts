@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { atomicWrite } from "../atomic-write.ts";
 import type { TransportName } from "../config.ts";
 import { herdrBinary, openWatchTab } from "../integrations/herdr.ts";
 import type { GroupMember, GroupRun } from "../job/group-cabinet.ts";
@@ -11,7 +12,7 @@ import { syncLifecycle } from "../job/group-events.ts";
 import { memberPacket, routeFlags } from "../job/group-packet.ts";
 import { makeJobId, parseDuration, SESSION_ID } from "../job/job.ts";
 import { publishJob } from "../job/publication.ts";
-import { atomicWrite, finalizeJob } from "../job/record.ts";
+import { finalizeJob } from "../job/record.ts";
 import { type NameSource, refuseRemovedRole } from "../old-names.ts";
 import { JOB_STARTED, type Success } from "../outcome.ts";
 import type { Parsed } from "../parser.ts";
@@ -441,7 +442,7 @@ async function publishSpawnedJob(launch: SpawnLaunch, record: SpawnRecord): Prom
 /** Marks the job running, then starts it as a detached wrapper. */
 async function launchSpawnedJob(launch: SpawnLaunch, job: SpawnedJob): Promise<void> {
 	const versions = capturedVersions(launch.profile).then((text) =>
-		writeFile(`${job.jobDir}/versions`, text, { flag: "wx", flush: true }),
+		atomicWrite(`${job.jobDir}/versions`, text, { exclusive: true }),
 	);
 	await atomicWrite(`${job.jobDir}/state`, "running\n");
 	if (launch.group) {

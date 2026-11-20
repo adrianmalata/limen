@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { atomicWriteSync } from "../atomic-write.ts";
 import { testKnob } from "../config.ts";
 
 const PACKAGE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
@@ -23,14 +24,7 @@ export function updateRegisteredProjects(
 		if (before.length === after.length && before.every((project, index) => project === after[index])) {
 			return before;
 		}
-		const path = projectsFile(),
-			temporary = `${path}.${process.pid}.${Date.now()}.tmp`;
-		try {
-			fs.writeFileSync(temporary, after.length ? `${after.join("\n")}\n` : "", { flag: "wx" });
-			fs.renameSync(temporary, path);
-		} finally {
-			fs.rmSync(temporary, { force: true });
-		}
+		atomicWriteSync(projectsFile(), after.length ? `${after.join("\n")}\n` : "");
 		return after;
 	});
 }

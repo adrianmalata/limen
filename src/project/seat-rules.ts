@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { atomicWriteSync } from "../atomic-write.ts";
 import { seatDir } from "./seat.ts";
 
 /**
@@ -35,14 +36,7 @@ export function readRule(folder: string): SeatRule | undefined {
 
 export function writeRule(rule: SeatRule): void {
 	mkdirSync(ruleFolder(rule.name), { recursive: true });
-	const path = join(ruleFolder(rule.name), "rule.json");
-	const temporary = `${path}.${process.pid}.${Date.now()}.tmp`;
-	writeFileSync(temporary, `${JSON.stringify(rule, null, "\t")}\n`, { flag: "wx" });
-	try {
-		renameSync(temporary, path);
-	} finally {
-		rmSync(temporary, { force: true });
-	}
+	atomicWriteSync(join(ruleFolder(rule.name), "rule.json"), `${JSON.stringify(rule, null, "\t")}\n`);
 }
 
 export const ruleEnded = (rule: SeatRule) => existsSync(join(ruleFolder(rule.name), `ended.${rule.version}`));
@@ -50,8 +44,8 @@ export const ruleEnded = (rule: SeatRule) => existsSync(join(ruleFolder(rule.nam
 /** Claims the end of this version of the rule. False when another process ended it first. */
 export function claimRuleEnd(rule: SeatRule, why: string): boolean {
 	try {
-		writeFileSync(join(ruleFolder(rule.name), `ended.${rule.version}`), `${new Date().toISOString()} ${why}\n`, {
-			flag: "wx",
+		atomicWriteSync(join(ruleFolder(rule.name), `ended.${rule.version}`), `${new Date().toISOString()} ${why}\n`, {
+			exclusive: true,
 		});
 		return true;
 	} catch (error) {

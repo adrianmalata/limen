@@ -1,13 +1,13 @@
 import { spawn } from "node:child_process";
 import { appendFile, readFile, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { atomicWrite } from "../atomic-write.ts";
 import { engineEnvironment, type TransportName, transport, wrapperEnvironment } from "../config.ts";
 import { promptStartNotice } from "../integrations/coordinator-wake.ts";
 import { jobMembership } from "../job/group-cabinet.ts";
 import { formatDuration } from "../job/job.ts";
 import {
 	appendLimenLog,
-	atomicWrite,
 	finalizeJob,
 	isFailedStopReason,
 	requestedTerminal,

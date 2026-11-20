@@ -1,7 +1,8 @@
 // `limen github poll`: a failure exits with the class of its cause; GitHub is the plant's fetch sink, with no network.
+// `limen github resolve`: the coordinator's no-job answer, as the poller reads it.
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
 import { outputText, readOutcome } from "../../src/outcome.ts";
@@ -91,4 +92,39 @@ test("GITHUB_CONFIG: github poll exits 4 and names the setting when its projects
 	assert.equal(run.status, 4, run.stderr);
 	assert.deepEqual(readOutcome(run), { class: "environment", code: "GITHUB_CONFIG", next: "limen github doctor" });
 	assert.match(outputText(run), /LIMEN_GITHUB_PROJECTS_FILE/);
+});
+
+/** A plant bound to `REPO` whose registered coordinator `coord:p1` is an idle Herdr agent, with claim 104; its env. */
+async function coordinatorWithClaim(p: Plant): Promise<Record<string, string>> {
+	git(p.root, "remote", "add", "origin", `https://github.com/${REPO}.git`);
+	await mkdir(join(p.root, ".limen/github/claims"), { recursive: true });
+	const binding = { repo: REPO, coordinator: "coord:p1", user: "worker", connectedAt: "2026-11-19T00:00:00Z" };
+	await writeFile(join(p.root, ".limen/github/binding.json"), JSON.stringify(binding));
+	await writeFile(join(p.root, ".limen/github/claims/104.json"), JSON.stringify({ repo: REPO, id: 104 }));
+	const agent = JSON.stringify({ result: { agent: { pane_id: "coord:p1", agent_status: "idle" } } });
+	const tools = {
+		herdr: `#!/bin/sh\n[ "$1 $2 $3" = "agent get coord:p1" ] && echo '${agent}' && exit 0\nexit 1\n`,
+		id: "#!/bin/sh\necho staff\n",
+		sudo: "#!/bin/sh\nexit 1\n",
+	};
+	for (const [name, text] of Object.entries(tools)) {
+		await writeFile(join(p.bin, name), text, { mode: 0o755 });
+	}
+	return { LIMEN_HERDR: join(p.bin, "herdr"), HERDR_ENV: "1", LIMEN_COORDINATOR: "1", HERDR_PANE_ID: "coord:p1" };
+}
+
+// The poller reads the answer only from a file with one name (`readJobFile`), so the answer never has a second one.
+test("github resolve records the no-job answer under one name, and a second resolve of the claim refuses at its gate", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const env = await coordinatorWithClaim(p);
+	const nonce = "0".repeat(48);
+	const first = limen(p, ["github", "resolve", p.root, "104", nonce, "Already fixed on main"], { env });
+	assert.equal(first.status, 0, first.stderr);
+	const outcome = join(p.root, ".limen/github/outcomes/104.json");
+	assert.equal((await stat(outcome)).nlink, 1);
+	const second = limen(p, ["github", "resolve", p.root, "104", nonce, "Another answer"], { env });
+	assert.notEqual(second.status, 0, second.stdout);
+	assert.match(outputText(second), /inflight\/104/);
+	assert.equal(JSON.parse(await readFile(outcome, "utf8")).answer, "Already fixed on main");
 });

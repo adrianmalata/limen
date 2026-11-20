@@ -1,8 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { createHash, createSign, randomBytes } from "node:crypto";
-import { mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { atomicWrite } from "../atomic-write.ts";
 import { exception } from "../config.ts";
 import { EXIT_CODES, failureOf, LimenError } from "../outcome.ts";
 import {
@@ -197,17 +198,13 @@ async function appJwt(): Promise<string> {
 }
 
 async function mirror(root: string, claim: GithubClaim): Promise<void> {
-	const target = claimPath(root, claim.id);
-	const temp = `${target}.${process.pid}.tmp`;
-	await writeFile(temp, `${JSON.stringify({ ...claim, outcomeNonce: undefined })}\n`, { mode: 0o660, flag: "wx" });
-	await rename(temp, target);
+	await atomicWrite(claimPath(root, claim.id), `${JSON.stringify({ ...claim, outcomeNonce: undefined })}\n`, {
+		mode: 0o660,
+	});
 }
 
 async function persist(root: string, state: string, claim: GithubClaim): Promise<void> {
-	const target = join(state, "claims", `${claim.id}.json`);
-	const temp = `${target}.${process.pid}.tmp`;
-	await writeFile(temp, `${JSON.stringify(claim)}\n`, { mode: 0o600, flag: "wx", flush: true });
-	await rename(temp, target);
+	await atomicWrite(join(state, "claims", `${claim.id}.json`), `${JSON.stringify(claim)}\n`, { mode: 0o600 });
 	await mirror(root, claim); // worker-readable handoff, never an input to App posting
 }
 
@@ -570,7 +567,7 @@ async function request(
 				? {}
 				: { command: boundedContext(trigger.command, 4000, "Triggering comment", trigger.url) }),
 		};
-		await writeFile(path, `${JSON.stringify(claim)}\n`, { flag: "wx", mode: 0o600, flush: true }); // authoritative claim before handoff
+		await atomicWrite(path, `${JSON.stringify(claim)}\n`, { exclusive: true, mode: 0o600 }); // authoritative claim before handoff
 		await mirror(root, claim);
 	}
 	if (claim.receipt || claim.job) {
@@ -668,9 +665,7 @@ export async function pollGithubIssues(
 			await acceptIssue(root, state, binding, issue, token);
 			cursor.number = issue.number;
 			cursor.createdAt = issue.created_at;
-			const temp = `${cursorPath}.${process.pid}.tmp`;
-			await writeFile(temp, `${JSON.stringify(cursor)}\n`, { flag: "wx", mode: 0o600 });
-			await rename(temp, cursorPath);
+			await atomicWrite(cursorPath, `${JSON.stringify(cursor)}\n`, { mode: 0o600 });
 		}
 		if (issues.length < PAGE) {
 			break;
@@ -739,9 +734,7 @@ async function project(root: string, stateDir: string, jwt: string): Promise<voi
 				await accept(root, state, binding, comment, token);
 				cursor.id = comment.id;
 				cursor.createdAt = comment.created_at;
-				const temp = `${cursorPath}.${process.pid}.tmp`;
-				await writeFile(temp, `${JSON.stringify(cursor)}\n`, { flag: "wx", mode: 0o600 });
-				await rename(temp, cursorPath);
+				await atomicWrite(cursorPath, `${JSON.stringify(cursor)}\n`, { mode: 0o600 });
 			}
 			if (comments.length < PAGE) {
 				break;

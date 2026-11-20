@@ -1,7 +1,7 @@
 <!-- PL: Dziennik zmian przebudowy Limena: jeden wpis na zamknięty ticket R-NNN, tylko dopisywany, najnowszy na dole.
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
-R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016. -->
+R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018. -->
 
 # Changes
 
@@ -172,3 +172,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: measured
 - Commit: R-016
 - Rollback: git revert $(git log --format=%H --grep='^R-016:' adrian-rebuild --)
+
+## 2026-11-20 R-018 One atomic-write module
+- What: new `src/atomic-write.ts` (`atomicWrite` and `atomicWriteSync` with `mode` and `exclusive`, `atomicRename` and `atomicRenameSync`, the temp-name pattern `TEMPORARY_NAME`, `temporaryWriter`, `temporaryPath`); every write and rename of `src/`, `hook/` and `seat/` through it (the eight copies of the temp-and-rename policy and about 60 direct writes; `writeAtomic` of Picture removed; `github resolve` writes its outcome with a plain `atomicWrite` behind its gate; the transcript copy keeps the source's mode); the five folder readers skip the module's temps (`deliveredSlots`, `seatEvent`, `leadSession`, `jobEnding`, `finalizeJob`); tests `test/atomic-write.test.ts` (new), `test/structure.test.ts` (the write scan with its exception list, fixture self-test and staleness test), `test/job/{wake-delivery,group-cabinet,wake-text,record}.test.ts` (new), `test/cli/sweep.test.ts` (new), `test/cli/continue.test.ts`, `test/cli/github.test.ts`; `plan.md` (notes for R-021 and R-025)
+- Why: A-022, T-25
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (340/340); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (nine test files fail at HEAD); `node --test test/atomic-write.test.ts` → exit 0 (20/20)
+- Measurement: unmeasured (plan.md → Measurement: M-10)
+- Commit: R-018
+- Rollback: git revert $(git log --format=%H --grep='^R-018:' adrian-rebuild --)

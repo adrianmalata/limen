@@ -1,4 +1,5 @@
-import { appendFile, open, readdir, readFile, rename, rm } from "node:fs/promises";
+import { appendFile, readdir, readFile, rm } from "node:fs/promises";
+import { atomicWrite, TEMPORARY_NAME, temporaryWriter } from "../atomic-write.ts";
 import { promptCoordinator } from "../integrations/coordinator-wake.ts";
 import { settleJobTab } from "../integrations/herdr.ts";
 import { commitList, headCommit } from "../project/git.ts";
@@ -8,22 +9,8 @@ import { syncLifecycle } from "./group-events.ts";
 import { isTerminal, type TerminalState } from "./job.ts";
 import { noteCheckOpen } from "./task-note.ts";
 
-// The job record is a directory of plain files. `state` is the commit point observers key on;
-// everything a reader needs must be durable before it flips to a terminal value.
-export async function atomicWrite(path: string, content: string): Promise<void> {
-	const temporary = `${path}.${process.pid}.${Date.now().toString(16)}.tmp`;
-	const handle = await open(temporary, "wx");
-	try {
-		await handle.writeFile(content);
-		await handle.sync();
-	} catch (error) {
-		await handle.close();
-		await rm(temporary, { force: true });
-		throw error;
-	}
-	await handle.close();
-	await rename(temporary, path);
-}
+// The job record is a directory of plain files, each written by `atomicWrite`. `state` is the commit point observers
+// key on; everything a reader needs must be durable before it flips to a terminal value.
 export async function appendLimenLog(jobDir: string, message: string): Promise<void> {
 	await appendFile(`${jobDir}/log`, `[limen ${new Date().toISOString()}] ${message}\n`);
 }
@@ -49,7 +36,7 @@ export async function finalizeJob(
 	}
 	await atomicWrite(`${jobDir}/finished-at`, `${new Date().toISOString()}\n`);
 	// The terminal log line lands before the state flip; state is the commit point observers key on, and the story must already be durable when they see it.
-	const inbox = await readdir(`${jobDir}/steer/inbox`).catch(() => []);
+	const inbox = (await readdir(`${jobDir}/steer/inbox`).catch(() => [])).filter((name) => !TEMPORARY_NAME.test(name));
 	await appendLimenLog(
 		jobDir,
 		inbox.length ? `${state}: ${detail}; ${inbox.length} steer(s) never delivered` : `${state}: ${detail}`,
@@ -70,8 +57,8 @@ export async function finalizeJob(
 	await rm(`${jobDir}/born`, { force: true });
 	// A tmp whose writer still runs is an in-flight rename by a racing finalizer, not a leftover; deleting it makes that rename ENOENT and crashes the other process.
 	for (const name of await readdir(jobDir).catch(() => [])) {
-		const writer = /\.(\d+)\.[0-9a-f]+\.tmp$/.exec(name);
-		if (writer && !processAlive(Number(writer[1]))) {
+		const writer = temporaryWriter(name);
+		if (writer !== undefined && !processAlive(writer)) {
 			await rm(`${jobDir}/${name}`, { force: true });
 		}
 	}

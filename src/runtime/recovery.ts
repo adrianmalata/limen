@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readdir, rename, rm, rmdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rm, rmdir } from "node:fs/promises";
+import { atomicRename, atomicWrite } from "../atomic-write.ts";
 import { textFile } from "../job/record.ts";
 import { processAlive, processInfo } from "./contain.ts";
 
@@ -12,11 +13,11 @@ export async function claimRecovery(jobDir: string): Promise<(() => Promise<void
 	const prepared = `${claim}.${entry}`;
 	await mkdir(prepared);
 	const identity = await processInfo(process.pid);
-	await writeFile(`${prepared}/${entry}`, identity.kind === "present" ? identity.process.born : "");
+	await atomicWrite(`${prepared}/${entry}`, identity.kind === "present" ? identity.process.born : "");
 	try {
 		for (let attempt = 0; attempt < 2; attempt++) {
 			try {
-				await rename(prepared, claim);
+				await atomicRename(prepared, claim);
 				return async () => {
 					await rm(`${claim}/${entry}`, { force: true });
 					await rmdir(claim).catch(() => {});

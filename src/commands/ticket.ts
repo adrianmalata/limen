@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { atomicWriteSync } from "../atomic-write.ts";
 import { transport } from "../config.ts";
 import { LimenError, type Success } from "../outcome.ts";
 import type { Parsed } from "../parser.ts";
@@ -77,7 +78,7 @@ export async function ticketNewCommand(values: Parsed, cwd: string): Promise<Suc
 		const text = `---\n${touches.length ? `touches:\n${touches.map((id) => `  - ${id}\n`).join("")}` : ""}opened: ${opened}\n---\n\n# ${code} · ${normalizedTitle}\n\n${template.slice(start).replace("## Outcome\n", `## Outcome\n\n${outcome}\n`)}`;
 		mkdirSync(join(base, lane), { recursive: true });
 		mkdirSync(join(root, dirname(path)));
-		writeFileSync(join(root, path), text, { flag: "wx" });
+		atomicWriteSync(join(root, path), text, { exclusive: true });
 		return { path, code };
 	});
 	console.log(written.path);

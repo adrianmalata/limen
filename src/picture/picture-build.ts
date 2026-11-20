@@ -1,7 +1,7 @@
-import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { atomicWrite } from "../atomic-write.ts";
 import { readBoard } from "./board.ts";
 import { readDataset } from "./dataset.ts";
 import { buildModel, type PictureModel } from "./picture-model.ts";
@@ -27,19 +27,8 @@ export async function readPicture(dir: string, root?: string): Promise<PictureMo
 export async function buildPicture(dir: string, json: string | undefined, root: string): Promise<PictureModel> {
 	const model = await readPicture(dir, root);
 	if (json !== undefined) {
-		await writeAtomic(json, `${JSON.stringify(model, null, 2)}\n`);
+		await mkdir(dirname(json), { recursive: true });
+		await atomicWrite(json, `${JSON.stringify(model, null, 2)}\n`);
 	}
 	return model;
-}
-
-async function writeAtomic(file: string, text: string): Promise<void> {
-	await mkdir(dirname(file), { recursive: true });
-	const tmp = `${file}.tmp-${process.pid}-${randomUUID()}`;
-	try {
-		await writeFile(tmp, text, { flag: "wx" });
-		await rename(tmp, file);
-	} catch (error) {
-		await rm(tmp, { force: true });
-		throw error;
-	}
 }

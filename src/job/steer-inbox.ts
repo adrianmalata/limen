@@ -1,4 +1,5 @@
-import { mkdir, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir } from "node:fs/promises";
+import { atomicWrite } from "../atomic-write.ts";
 
 /** Queue one steer for the worker's steering hook; numbers continue past every inbox, claim and delivered name. */
 export async function enqueueSteer(jobDir: string, message: string): Promise<string> {
@@ -7,7 +8,7 @@ export async function enqueueSteer(jobDir: string, message: string): Promise<str
 	for (let next = (await highest(jobDir)) + 1; next <= 9_999; next += 1) {
 		const seq = String(next).padStart(4, "0");
 		try {
-			await writeFile(`${inbox}/${seq}`, `${message}\n`, { flag: "wx", flush: true });
+			await atomicWrite(`${inbox}/${seq}`, `${message}\n`, { exclusive: true });
 			return seq;
 		} catch (error: unknown) {
 			if (!isExist(error)) {

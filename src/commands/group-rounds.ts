@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
+import { atomicWrite } from "../atomic-write.ts";
 import { herdrPrompt } from "../integrations/coordinator-wake.ts";
 import { herdrBinary } from "../integrations/herdr.ts";
 import {
@@ -133,7 +134,7 @@ async function saveRoundResults(run: GroupRun, teams: readonly string[]): Promis
 		const result = await jobText(run, job, "result");
 		const state = await jobText(run, job, "state");
 		const reason = state === "done" ? "" : await endReason(run, job);
-		await writeFile(
+		await atomicWrite(
 			`${roundFolder(run, run.round)}/${team}.md`,
 			`${result || `(no final message; the job ended ${state || "without a state"}${reason ? `: ${reason}` : ""})`}\n`,
 		);
@@ -163,7 +164,7 @@ async function startRound(run: GroupRun, team: string, round: number): Promise<v
 			round,
 		);
 	} catch (error) {
-		await writeFile(
+		await atomicWrite(
 			`${roundFolder(run, round)}/${team}.md`,
 			`(round not started: ${error instanceof Error ? error.message : String(error)})\n`,
 		);
@@ -198,10 +199,10 @@ async function finishGroup(run: GroupRun): Promise<void> {
 		current.finishedAt = Date.now();
 		await saveJson(`${groupPath(run)}/run.json`, current);
 	});
-	await writeFile(`${groupPath(run)}/result.md`, `${text}\n`);
+	await atomicWrite(`${groupPath(run)}/result.md`, `${text}\n`);
 	if (await leadHookLive(run.root, run.lead)) {
 		await publishResult(run, text);
-		await writeFile(`${groupPath(run)}/result-delivery`, `group event for lead session ${run.lead}\n`);
+		await atomicWrite(`${groupPath(run)}/result-delivery`, `group event for lead session ${run.lead}\n`);
 		return;
 	}
 	await promptLeadPane(run, text);
@@ -244,7 +245,7 @@ async function promptLeadPane(run: GroupRun, text: string): Promise<void> {
 	const herdr = herdrBinary();
 	const receipt = `${groupPath(run)}/result-delivery`;
 	if (!herdr || !run.leadPane) {
-		await writeFile(receipt, "not delivered: the lead hook is not running and no lead pane is recorded\n");
+		await atomicWrite(receipt, "not delivered: the lead hook is not running and no lead pane is recorded\n");
 		return;
 	}
 	const lines: string[] = [];
@@ -258,5 +259,5 @@ async function promptLeadPane(run: GroupRun, text: string): Promise<void> {
 			break;
 		}
 	}
-	await writeFile(receipt, `${lines.join("\n")}\n`);
+	await atomicWrite(receipt, `${lines.join("\n")}\n`);
 }

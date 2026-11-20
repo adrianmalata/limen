@@ -1,6 +1,6 @@
-import { access, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, rm } from "node:fs/promises";
+import { atomicWrite } from "../atomic-write.ts";
 import { resolveJob } from "../job/lookup.ts";
-import { atomicWrite } from "../job/record.ts";
 import type { Parsed } from "../parser.ts";
 import { limenRoot } from "../project/git.ts";
 import { currentNotificationSession, herdrWakePane } from "./spawn.ts";
@@ -96,7 +96,7 @@ async function setSubscription(job: string, route: WakeRoute, watching: boolean)
 	await exclusiveWrite(`${job}/notify/ready`, "1\n");
 }
 async function exclusiveWrite(path: string, content: string): Promise<void> {
-	await writeFile(path, content, { flag: "wx", flush: true }).catch((error: unknown) => {
+	await atomicWrite(path, content, { exclusive: true }).catch((error: unknown) => {
 		if (!(typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST")) {
 			throw error;
 		}

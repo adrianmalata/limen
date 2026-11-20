@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { atomicWrite } from "../atomic-write.ts";
 import { transport } from "../config.ts";
 import type { GroupIdentity, GroupMember, GroupRun, TeamRoute } from "../job/group-cabinet.ts";
 import {
@@ -531,10 +532,10 @@ async function stopReservedSlot(run: GroupRun, member: GroupMember): Promise<voi
 	}
 	// The launch lock has drained: a reserved slot without a published state cannot launch later.
 	await mkdir(dir, { recursive: true });
-	await writeFile(`${dir}/group`, `${run.id}\n`);
-	await writeFile(`${dir}/team`, `${member.team}\n`);
-	await writeFile(`${dir}/state`, "stopped\n");
-	await writeFile(`${dir}/finished-at`, `${new Date().toISOString()}\n`);
+	await atomicWrite(`${dir}/group`, `${run.id}\n`);
+	await atomicWrite(`${dir}/team`, `${member.team}\n`);
+	await atomicWrite(`${dir}/state`, "stopped\n");
+	await atomicWrite(`${dir}/finished-at`, `${new Date().toISOString()}\n`);
 }
 /** Stops a live member job and waits up to 6 s for it to end. Returns why it is not confirmed stopped. */
 async function stopMemberJob(run: GroupRun, member: GroupMember): Promise<string | undefined> {

@@ -1,7 +1,7 @@
-import { constants } from "node:fs";
-import { access, appendFile, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, appendFile, mkdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { atomicWrite } from "../atomic-write.ts";
 import type { Parsed } from "../parser.ts";
 import { hasCommit, isGitRepository, NO_COMMIT, repoRoot, workspaceRoot } from "../project/git.ts";
 import { formatDrift, listDrift, removeHookCopies } from "../project/inherit.ts";
@@ -73,7 +73,7 @@ async function initialize(root: string, repository: boolean): Promise<void> {
 		await mkdir(dirname(target), { recursive: true });
 		const exists = await pathExists(target);
 		if (!exists) {
-			await copyFile(source, target, constants.COPYFILE_EXCL);
+			await atomicWrite(target, await readFile(source), { exclusive: true });
 		}
 		console.log(`${exists ? "kept" : "created"} ${target.slice(root.length + 1)}`);
 	}
@@ -105,7 +105,7 @@ async function ensureIgnored(path: string): Promise<void> {
 	if (exists) {
 		await appendFile(path, addition);
 	} else {
-		await writeFile(path, addition);
+		await atomicWrite(path, addition);
 	}
 }
 async function pathExists(path: string): Promise<boolean> {

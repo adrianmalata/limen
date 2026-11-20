@@ -1053,7 +1053,7 @@ Columns:
 | R-015 | One configuration reader; settings come only from owner files | 2 | T-03 | R-014 | M | delegated | night | yes | — | — | done |
 | R-016 | One boundary parsing module with validators; the cast ratchet | 2 | T-27 | R-013 | M | delegated | night | — | — | — | done |
 | R-017 | One Pi API adapter with type guards, checked against Pi's real types | 2 | T-32, D-055 | R-012, R-016 | M | delegated | night | — | pi | 2.2 | ready |
-| R-018 | One atomic-write module | 2 | A-022, T-25 | R-013 | L | delegated | night | — | — | — | active |
+| R-018 | One atomic-write module | 2 | A-022, T-25 | R-013 | L | delegated | night | — | — | — | done |
 | R-019 | One lock module with process identity and a bounded wait | 2 | A-017, A-018, A-055, A-058, A-087, T-25, D-029, D-056 | R-018, R-020 | M | delegated | night | yes | — | — | ready (D-056) |
 | R-020 | A Linux platform adapter and declared system requirements | 2 | A-083, T-12, T-32 | R-013 | M | delegated | night | — | — | — | ready |
 | R-021 | One `record.json` per job, written only by the transition function | 2 | S1+, A-019, A-053, A-056, T-20, T-25, D-057 | R-016, R-018, R-019 | L | delegated | night | yes | — | — | ready (D-057) |
@@ -1184,6 +1184,10 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   `RAW` in `src/boundary.ts` says what `JSON.stringify` escapes (C0 included; DEL, C1, U+2028 and U+2029 are left to
   `escaped`); the 40-character cut of a shown value never splits an escape or a surrogate pair; format characters
   (category Cf, such as U+202E) are escaped too, so a record value cannot change how a terminal shows a log line.
+- R-021 (R-018 review round 2, notes 1 and 3; R-021 rewrites both places): the comment at `src/job/record.ts:12`
+  says every file of the job record is written by `atomicWrite`, while `log` is appended to (T-30); the comment at
+  `src/job/publication.ts:154` says the transcript copy keeps the source's mode "as `copyFile` did", which holds only
+  when the umask does not narrow it (the copy is never wider).
 - R-024: `limen stats` of a0.2.0 over a migrated copy of the whole history of both projects is the "before" of M-03,
   M-04 and M-06–M-11 (`## Deployment` B.3).
 - R-030: from R-068 on, a job in `needs-decision` does not block worker spawns for other tickets (T-05 (5)).
@@ -1222,6 +1226,8 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
 - R-025 (R-090 → `outcome.md` → Open points 1): the other scans of `test/structure.test.ts` (`filesIn` for `seat/`,
   `bin/`, `src/`, `hook/`, and `sources`) still walk ignored files; they read only the files git knows, through R-090's
   `knownFiles`, so an ignored file (an editor's swap file) cannot change a scan.
+- R-025 (R-018 review round 2, note 5; T-29 (5)): `test/cli/github.test.ts` opens with two header lines, and the
+  header of `test/cli/continue.test.ts` does not name its transcript-mode test.
 - R-059: no shell scripts (D-010): `docs/seat/bell.sh` and `docs/seat/github-setup.sh` become TypeScript in `seat/`,
   and every unit calls `node /opt/limen/seat/<tool>.ts`.
 
@@ -2242,17 +2248,25 @@ redundant):
   `finalizeJob` checks and writes with no lock; `prune` deletes a folder with no `state`; no job archive exists; no
   boot id is recorded. Adrian's answers → D-057 (all seven as recommended); `## Deployment` 2.1 names `limen
   migrate`. R-021 `ready (D-057)`: the night writes its `ticket.md` once R-019 is `done`.
-- R-018: the implementer's `DONE` (333/333 in its run); the main session's `compare --git` exit 0, gate 333/333,
-  `fails-before.mjs` exit 0; review round 1 PASS with seven notes, six to fix and one rejected (`review.md`); the
-  resumed implementer makes the fixes of `ticket.md` → `## Decisions`.
+- R-018 `done` (delegated, by day): `src/atomic-write.ts` is the only module that writes or renames a file (temp,
+  `fsync`, `rename` or, with `exclusive`, `link`, `fsync` of the folder), with sync forms and one temp-name pattern;
+  the eight copies of the policy and about 60 direct writes go through it, and five folder readers skip its temps
+  (the implementer's deviation 1, each with a test failing at HEAD); a scan bans the primitives outside it, with an
+  exception list (locks until R-019, the LaunchAgent until R-032). Review round 1 PASS with seven notes (six fixed by
+  the resumed implementer: `github resolve` writes its outcome by `rename` behind its gate, the transcript copy keeps
+  its mode, a true comment, stronger EACCES tests, tests of two filters and of the sync form; one rejected), round 2
+  PASS with five notes (two fixed by the main session, D-057 committed on its own as `d27a2c7`; three go to R-021 and
+  R-025). Gate 340/340. Cost: weekly 79 % → 81 %. For a change of `adrian-rebuild/tools/` outside the ticket list
+  (the implementer's open point 3): `fails-before.mjs` puts its copy of HEAD under `/tmp`, where the poller refuses its
+  own module path, so the `github poll` tests of `test/cli/github.test.ts` fail at HEAD whenever that file is among
+  the changed tests, for a reason unrelated to the ticket.
 
-Active ticket: R-018, protocol step 6 (round 1's fixes, then review round 2).
+Active ticket: none.
 
 Next (by day on 2026-11-20):
-0. R-018 through steps 3–7.
 1. On Adrian's "Tryb nocny do HH:MM": the checks of D-024, then `night.mjs`; this is the rehearsal of D-053 (3). The
-   night has four `ready` tickets on four independent branches: R-017, R-018, R-020 and R-089, and R-019 after R-018
-   and R-020.
+   night has five `ready` tickets: R-017, R-020 and R-089 on independent branches, R-019 after R-020 (R-018 is
+   `done`), and R-021 after R-019.
 Then the plan of the day session's reply of 2026-11-20: Saturday R-021 first (the root of R-022–R-025), R-089, R-022;
 Sunday the rest of stage 2 and its close (tag `a0.2.0`, gate 5.2 by phone); stage 3 after his "go on".
 

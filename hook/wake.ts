@@ -1,15 +1,7 @@
 import { execFile, spawnSync } from "node:child_process";
-import {
-	appendFileSync,
-	existsSync,
-	type FSWatcher,
-	mkdirSync,
-	readdirSync,
-	readFileSync,
-	watch,
-	writeFileSync,
-} from "node:fs";
+import { appendFileSync, existsSync, type FSWatcher, mkdirSync, readdirSync, readFileSync, watch } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { atomicWriteSync, TEMPORARY_NAME } from "../src/atomic-write.ts";
 import { transport } from "../src/config.ts";
 import { coordinatorRegistration } from "../src/integrations/coordinator-registration.ts";
 import { herdrBinary } from "../src/integrations/herdr.ts";
@@ -711,7 +703,7 @@ export default function limenWake(pi: PiApi): void {
 		}
 		lastSweepAt = Date.now();
 		try {
-			writeFileSync(join(limenDir, "last-sweep"), `${new Date(lastSweepAt).toISOString()}\n${sessionId}\n`);
+			atomicWriteSync(join(limenDir, "last-sweep"), `${new Date(lastSweepAt).toISOString()}\n${sessionId}\n`);
 		} catch {
 			// F043 treats an absent or stale stamp as no listener; never claim liveness we could not write.
 		}
@@ -950,7 +942,7 @@ export default function limenWake(pi: PiApi): void {
 		watcher = undefined;
 		for (const pending of pendingDeliveries.values()) {
 			try {
-				writeFileSync(join(pending.claim, "live"), "closed\n");
+				atomicWriteSync(join(pending.claim, "live"), "closed\n");
 			} catch {
 				// The claim may already have been confirmed or recovered.
 			}
@@ -1019,7 +1011,7 @@ export function progressFilename(filename: string | null): boolean {
 		return false;
 	}
 	// atomicWrite renames a temp sibling into place; the temp name is the same progress write.
-	return /^[^/]+\/(activity|last-tool)(?:\.\d+\.[0-9a-f]+\.tmp)?$/.test(filename.replaceAll("\\", "/"));
+	return /^[^/]+\/(activity|last-tool)$/.test(filename.replaceAll("\\", "/").replace(TEMPORARY_NAME, ""));
 }
 /** The job line: each running job with its pulse, then each finished job with its state, until it lands or closes. */
 async function jobDisplay(

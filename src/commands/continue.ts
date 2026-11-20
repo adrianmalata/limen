@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
-import { readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { readdir, readFile, rm } from "node:fs/promises";
+import { atomicWrite } from "../atomic-write.ts";
 import type { TransportName } from "../config.ts";
 import { openWatchTab } from "../integrations/herdr.ts";
 import {
@@ -17,7 +18,7 @@ import { syncLifecycle } from "../job/group-events.ts";
 import { isTerminal, makeJobId, parseDuration } from "../job/job.ts";
 import { resolveJob } from "../job/lookup.ts";
 import { publishJob } from "../job/publication.ts";
-import { atomicWrite, finalizeJob } from "../job/record.ts";
+import { finalizeJob } from "../job/record.ts";
 import { JOB_STARTED, type Success } from "../outcome.ts";
 import type { Parsed } from "../parser.ts";
 import {
@@ -245,7 +246,7 @@ async function launchContinuation(
 ): Promise<void> {
 	const { jobDir } = continuation;
 	const versions = capturedVersions(profile).then((text) =>
-		writeFile(`${jobDir}/versions`, text, { flag: "wx", flush: true }),
+		atomicWrite(`${jobDir}/versions`, text, { exclusive: true }),
 	);
 	await atomicWrite(`${jobDir}/state`, "running\n");
 	if (run) {

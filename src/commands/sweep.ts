@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import { isAbsolute, join } from "node:path";
+import { atomicWriteSync, TEMPORARY_NAME } from "../atomic-write.ts";
 import { removeDeadCoordinators } from "../integrations/coordinator-registration.ts";
 import { showSeatNotification } from "../integrations/herdr.ts";
 import { isTerminal } from "../job/job.ts";
@@ -73,7 +74,7 @@ function seatEvent(job: string): SeatEvent | undefined {
 	const statePath = join(job, "state");
 	const state = text(statePath);
 	const delivered = fs.existsSync(join(job, "notify", "delivered"))
-		? fs.readdirSync(join(job, "notify", "delivered"))
+		? fs.readdirSync(join(job, "notify", "delivered")).filter((name) => !TEMPORARY_NAME.test(name))
 		: [];
 	const heard = new Set(delivered.map(receiptFamily));
 	if (state === "running") {
@@ -101,7 +102,7 @@ function claimSeatEvent(job: string, { since, event }: SeatEvent): boolean {
 	}
 	fs.mkdirSync(seat, { recursive: true });
 	try {
-		fs.writeFileSync(join(seat, event), `${new Date().toISOString()}\n`, { flag: "wx" });
+		atomicWriteSync(join(seat, event), `${new Date().toISOString()}\n`, { exclusive: true });
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code === "EEXIST") {
 			return false;

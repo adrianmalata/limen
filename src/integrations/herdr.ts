@@ -1,8 +1,9 @@
 import { execFile, spawn, spawnSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
-import { appendFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readdir, readFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { atomicWrite } from "../atomic-write.ts";
 import { testKnob } from "../config.ts";
 import { closedFeatures, closedJobFeatures } from "../job/job.ts";
 
@@ -393,7 +394,7 @@ async function recordPlace(jobDir: string, place: HerdrPlace, record?: "diff"): 
 	await mkdir(directory, { recursive: true });
 	await Promise.all(
 		(["workspace", "tab", "pane", "mode"] as const).map((name) =>
-			writeFile(`${directory}/${name}`, `${place[name]}\n`),
+			atomicWrite(`${directory}/${name}`, `${place[name]}\n`),
 		),
 	);
 }

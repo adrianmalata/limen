@@ -1,4 +1,5 @@
-import { mkdir, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdir, rm, utimes } from "node:fs/promises";
+import { atomicWrite } from "../src/atomic-write.ts";
 import { transport } from "../src/config.ts";
 import type { GroupIdentity } from "../src/job/group-cabinet.ts";
 import { groupIdentity, runs } from "../src/job/group-cabinet.ts";
@@ -79,7 +80,7 @@ export default function groupPeer(pi: PiApi): void {
 		}
 		const registration = `${leadRoot}/.limen/group-leads/${leadSession}`;
 		await mkdir(`${leadRoot}/.limen/group-leads`, { recursive: true });
-		await writeFile(registration, `${process.pid}\n`, { flush: true });
+		await atomicWrite(registration, `${process.pid}\n`);
 		const deliver = async () => {
 			for (const identity of await identities(context)) {
 				if ([...leased.values()].some((entry) => entry.identity.run.id === identity.run.id)) {
