@@ -68,7 +68,9 @@ przebieg) i R-096 zamknięty (jeden agent_settled na przebieg w test/fake-engine
 bramka 599/599); Q-19 → D-070 (R-092 przestawia dziewięć poleceń zapisujących przed odmową, reszta na zapadce do
 R-082), ticket.md R-092 napisany i przekazanie do limen-rebuild-17; limen-rebuild-17: R-092 zamknięty (wspólny kształt
 validate/apply w src/operation.ts, dziewięć poleceń przez runner, odmowy z własnymi kodami, UNTYPED 218 → 106,
-wspólna migawka stanu w testach; bramka 676/676 po trzech rundach recenzji; cztery uwagi rundy 3 czekają na Q-26). -->
+wspólna migawka stanu w testach; bramka 676/676 po trzech rundach recenzji; cztery uwagi rundy 3 czekają na Q-26);
+D-071–D-076 (R-097: limit subskrypcji jako `quota`; zakres i wygląd `limen stats`, R-098 po R-031; deklaracje odmów
+w rejestrze i testy sukcesu `limen <polecenie>:`; noc tylko w etapie 2 do 9:00), R-097, R-024 i R-025 gotowe na noc. -->
 
 
 
@@ -880,6 +882,55 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   over the other 18 change commands without `movedBy` starts as a ratchet, a list that may only shrink, which R-082
   brings to zero (`## Stages` → conventions), and a ticket that rewrites such a command converts it (the reviewer
   question of T-38). Check: R-092's criteria; R-082's note in `## Tickets`.
+- 2026-11-21 D-071 (Adrian: "zgoda na rekomendacje z pytań oprócz Q20"; Q-21, found by the main session in R-024's
+  inventory `evidence/inventories/R-024.md`): a new ticket R-097 (S, stage 2, delegated, night, depending on R-021): an
+  engine error that says the subscription limit was hit ("hit your … limit") is the failure kind `quota` in
+  `failureKind` (`src/job/record.ts`), the one function the migration and `finalize` share; `resetAt` stays `null`,
+  because the text gives an hour without a date (D-057 (4)); a fixture with the text of `audit.md` gate 2 §1 Q1; a
+  test that fails before the change. The cause: `failureKind` calls an engine error `quota` only with `429` and "rate
+  limit", so the 12 limit failures of the M1 history would migrate as `engine-error`, once, at the deployment of
+  a0.2.0, and `## Deployment` 2.3 would not match. Check: R-097's criteria.
+- 2026-11-21 D-072 (Adrian, the same message; Q-22, option 1): R-024 reads the job records and the job transcripts:
+  counts of jobs by role, state, failure kind and route; run time from the transitions; tokens by class (input, cache
+  write, cache read, output) from every transcript entry that carries usage, compaction included (E-13). Per landed
+  ticket (M-03, M-06, M-07) and coordinator turns (M-03, M-04) go to a new ticket R-098 after R-031 in stage 3, because
+  `landed` exists only from R-031 (D-057 (4): never from the git graph); `## Deployment` B.3 for those metrics follows
+  a0.3.0, and a seat step copies the coordinators' Pi session directories before a0.4.0 changes what the coordinator
+  reads (the "before" of M-03 and M-04); 2.3 stays with a0.2.0. Settled by the documents: `stats` counts one project
+  (T-18 (3)), so 2.3 is two runs; it reads only records and transcripts, never the prose of `log` or `result` (T-37
+  (1), z. 2); fields the record does not hold yet come with the tickets that record them (queue R-026 and R-035,
+  verdict R-064, owner touchpoints R-076); no time filter (B.3 runs on the snapshot copy, the window of 9.1 is stage
+  9's; YAGNI); the folders of `.limen/unmigrated/` get one line with their count, a null role its own row (z. 10).
+  Check: R-024's and R-098's criteria; `## Deployment` B.3.
+- 2026-11-21 D-073 (Adrian, the same message; Q-23, variant b; its last line corrected at his word "Napraw błędny
+  zakres Q23", after the main session named the pointer "(limen migrate)" wrong, since a second `limen migrate` has
+  nothing to do): `limen stats` prints a table by route and role (jobs, done, failed, run time, input, cache write,
+  cache read, output), then `Failed by kind: …`, then `Not read: …` with the folders of `.limen/unmigrated/` and no
+  pointer, and a record that does not parse named with `limen status --all`. Check: R-024's golden test.
+- 2026-11-21 D-074 (Adrian: "Q20 opcja 2, noc zacznij jak tylko będzie taka możliwość, do 9:00"; Q-20): a night run
+  stays within its stage, as the rebuild prompt says; this night takes the `ready` tickets of stage 2 (R-097, R-024,
+  R-025) until 09:00, gate 5.2 follows in the morning by phone, and the day after it makes the tickets of stage 3
+  `ready` for the next night. The main session starts the runner by D-024 as soon as the preflight passes. The option
+  not taken: the night closes the stage without its tag and goes on into stage 3. Check: `.night/status.json`; the
+  night's entries in `## State`.
+- 2026-11-21 D-075 (Adrian: "Zgodnie z rekomendacjami"; Q-24, from R-025's inventory `evidence/inventories/R-025.md`):
+  refusals are declared in the registry (T-28 (1)). Each entry gets `refuses`, the codes of class `refused` and
+  `usage` its own path throws; the runner's shared codes (`STATE_CHANGED`, `LOCK_TIMEOUT`, `STEP_FAILED`,
+  `REFUSED_AFTER_VALIDATE`, `BAD_ARGUMENT`) are declared once in `src/operation.ts`; a command that runs another's
+  operation (`github work` through spawn's) declares only its own. Two scans: every `refused` and `usage` code in
+  `src/` is declared, and every declared code has a test named `CODE: …`; the codes without such a test start as a
+  ratchet list that may only shrink, which R-082 brings to zero. Settled by the documents, not asked (the session's
+  reading): a refusal test is recognised by its `CODE:` prefix (T-29 (2)); a refusal test of a `change` command
+  compares the shared snapshot, which a scan checks (T-38's Check); the scans are a test file `npm run check` runs;
+  `status` and `show` are `change` until R-032 (D-045 (6.2)); `rule` stays `read`, since `rule set` and `rule end`
+  are their own `change` entries and the reason of D-045 (6.1) no longer holds; the `irreversible` marks of `ticket
+  done` and land's closing commit come with R-065 and R-037; the read test runs every `read` command on a plant with
+  a finished job, `picture serve` and `open` named exceptions with their reason; the scans of both test files go
+  through `knownFiles`; the two headers have one line each. Check: R-025's criteria.
+- 2026-11-21 D-076 (Adrian, the same message; Q-25, option 1): a success test of a registry command is recognised by
+  its name, which starts with the command: `limen <command words>: …`; a scan requires one for every registry command,
+  and for a `read` command it is its golden test of the whole output; the commands without one start as a ratchet list
+  that may only shrink, which R-083 brings to zero. Check: R-025's criteria.
 
 ### Gate 2 §2, copied
 
@@ -1254,8 +1305,9 @@ Columns:
 | R-094 | A queued wrapper ends when its job folder is gone; tests stop their wrappers | 2 | T-01, T-29, D-063 | R-093 | S | delegated | night | — | — | — | done |
 | R-095 | The round-3 notes of R-022 and R-094: the shared-token report, `keeper`'s de-duplication, the record check | 2 | T-01, T-29, T-30, D-065 | R-022, R-094 | S | delegated | night | — | — | — | done |
 | R-096 | One wake per event: the extra wake of the held-gate queue test, found and removed | 2 | T-29, D-067 | R-023, R-095 | S | delegated | night | — | — | — | done |
-| R-024 | `limen stats` over records and transcripts | 2 | H-01, H-20, §2, T-33 | R-021, R-023 | M | delegated | night | — | pi | 2.3 | planned |
-| R-025 | Test coverage derived from the command registry | 2 | T-28, T-29, D-045, D-046 | R-014, R-023, R-092 | M | delegated | night | — | — | — | planned |
+| R-097 | A failure on the subscription limit is `quota`, in the migration and at finalize | 2 | A-016, D-057, D-071 | R-021 | S | delegated | night | — | — | 2.3 | ready |
+| R-024 | `limen stats` over records and transcripts | 2 | H-01, H-20, §2, T-33, D-072, D-073 | R-021, R-023 | M | delegated | night | — | pi | 2.3 | ready |
+| R-025 | Test coverage derived from the command registry | 2 | T-28, T-29, D-045, D-046, D-075, D-076 | R-014, R-023, R-092 | M | delegated | night | — | — | — | ready |
 | R-026 | Every job runs in its own systemd user scope | 3 | A-029, A-052, T-43 | R-020, R-021 | L | delegated | night | — | systemd | 3.2, 3.7, 3.8 | planned |
 | R-027 | The reaper ends a job only after its process group is gone | 3 | A-005, A-056 | R-026 | M | delegated | night | — | — | — | planned |
 | R-028 | SIGTERM reaches the engine; a signal without a stop request is a failure | 3 | A-020, A-052 | R-026 | M | delegated | night | — | — | — | planned |
@@ -1269,6 +1321,7 @@ Columns:
 | R-036 | Stall is measured over the whole job scope | 3 | A-059 | R-026 | M | delegated | night | — | systemd | 3.8 | planned |
 | R-037 | Land runs as recorded steps with an atomic closing commit | 3 | A-021, A-057, T-18, T-28 | R-023, R-031, R-092 | L | delegated | night | yes | herdr | 3.9 | planned |
 | R-087 | The job environment is an allow-list; git and gh in a job hold no credential (T1) | 3 | A-004, A-061, E-4, D-017 | R-015, R-021, R-026 | M | delegated | night | — | pi, bridge | 3.10 | planned |
+| R-098 | `limen stats` per landed ticket and per coordinator turn | 3 | §2, A-078, A-037, D-072 | R-024, R-031 | M | delegated | night | — | pi | B.3, B.4 | planned |
 | R-038 | The fake engine shows the model's view under the bridge | 4 | T-31, A-051 | R-017 | M | delegated | night | — | bridge | 4.1 | planned |
 | R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16 | R-021, R-038 | L | delegated | night | yes | pi, bridge | 4.2 | planned |
 | R-040 | Role texts come from the package, in three registers | 4 | A-038, A-039, A-042, D-005 | R-001, R-039 | M | delegated | night | yes | — | — | planned |
@@ -1391,8 +1444,9 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   reads every folder's record for its label) and plain `limen status` fail with exit 4; only `status --all` shows such
   a record as INVALID. The one resolver decides how a record it cannot read takes part in a reference (for example:
   an exact id still resolves, a label match skips it and names it), with a test.
-- R-024: `limen stats` of a0.2.0 over a migrated copy of the whole history of both projects is the "before" of M-03,
-  M-04 and M-06–M-11 (`## Deployment` B.3).
+- R-024: `limen stats` of a0.2.0 over a migrated copy of the whole history of both projects is the "before" of the
+  job counts, M-07's tokens by class per job and M-11's failure kinds; M-03, M-04, M-06 and M-07 per landed ticket and
+  per coordinator turn are R-098's, after R-031 (D-072; `## Deployment` B.3, B.4).
 - R-030: from R-068 on, a job in `needs-decision` does not block worker spawns for other tickets (T-05 (5)).
 - R-039: `context-size.mjs` learns to measure the context message in this ticket (M-01).
 - R-040, R-048: the project's `AGENTS.md` goes into the context message exactly when the job runs the bridge isolated
@@ -1562,7 +1616,12 @@ commit, outside `/opt/limen`, and points it at the `rebuild-base` checkout in `/
   receives a wake; Adrian gives the candidate ticket's real time from the M1 records, which sets the time limit.
   After every attempt, the runner's stderr names no job left running (R-088, D-027).
 - **B.3** After a0.2.0 is deployed: `limen stats` of a0.2.0 over a migrated copy of each project's `.limen/` from the
-  snapshot taken before the first deployment (R-024; M-03, M-04, M-06–M-11).
+  snapshot taken before the first deployment (R-024: the jobs by route and role, M-07's tokens per job and M-11's
+  failure kinds; D-072). After a0.3.0, the same copy, migrated by R-031, gives M-03, M-04, M-06 and M-07 per landed
+  ticket and per coordinator turn (R-098), with the copy of B.4.
+- **B.4** Before a0.4.0 is deployed (it changes what the coordinator reads): copy each project's coordinator sessions
+  from Pi's sessions directory beside the snapshot of 0.1; R-098 reads that copy as the "before" of M-03 and M-04
+  (D-072).
 
 ### After stage 1 (a0.1.0)
 
@@ -1589,7 +1648,7 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
   Pi API from R-017's adapter and check events with its type guards; the type contract itself ran in the repository
   on the vendor copy of Pi 1.5.1 (D-055; item 16).
 - **2.3** `limen stats` over the migrated history of both projects matches the counts known from gate 2: 142 jobs (84
-  worker, 58 reviewer; T-33) and 18 failed (12 limit, 3 timeout, 2 stall, 1 exit; `audit.md` gate 2 §1, Q1) (R-024;
+  worker, 58 reviewer; T-33) and 18 failed (12 limit, 3 timeout, 2 stall, 1 exit; `audit.md` gate 2 §1, Q1) (R-024, R-097: the limits as `quota`;
   B.3).
 - **2.4** `limen status` lists the `LIMEN_*` settings variables it finds in the environment (R-015); remove them from the
   coordinator's environment. The variables it lists as read until a ticket stay (D-052): `LIMEN_WORKER_MODEL`
@@ -2783,6 +2842,11 @@ redundant, the terminal being active; context 7 % at the start):
   T-38 ratchet of 18 commands for R-082. The main session's gate 676/676 after the last round; `fails-before.mjs` exit 0
   (18 files). Open point (`outcome.md`): a test plant under the gate's cache that a stopped run left, which the
   sessions may not remove.
+- R-092 committed and pushed as `6556e38` (00:20). D-071–D-076 into `## Decisions`; R-097 (new, S), R-024 and R-025
+  `ready`, their `ticket.md` written at `6556e38` from the read-only inventories `evidence/inventories/R-024.md`
+  (at `972c782`) and `R-025.md` (on R-092's finished tree), with no grep criteria (D-025); R-098 `planned` in stage 3;
+  `## Deployment` B.3 narrowed and B.4 added (D-072). R-097 and R-024 depend on nothing open, R-025 on R-092 (done):
+  two independent branches and a third ticket (D-054 (1)).
 
 Active ticket: none.
 
@@ -2799,8 +2863,8 @@ documents:
   (recommended); 2. also only spawn, continue and stop; 3. every change command without `movedBy` now.
 
 Next (by day):
-1. The night's tickets: D-071–D-076 into `## Decisions`, the `ticket.md` of R-097, R-024 and R-025 (`ready`), R-098
-   in stage 3, `## Deployment` B.3 and B.4; then the night preflight (D-024) and `night.mjs --until 09:00` (D-074).
+1. The night (D-074): the preflight (D-024), then `night.mjs --until 09:00`; it takes R-097, R-024 and R-025, all
+   `ready` with their `ticket.md`, in dependency order.
 2. In the morning: Q-26; the night's tickets; the close: tag `a0.2.0`, gate 5.2 by phone, with the night defaults
    above; then the tickets of stage 3 `ready` by day (D-074).
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
