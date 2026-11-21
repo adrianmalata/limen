@@ -45,7 +45,8 @@ w dzień; przekazanie do limen-rebuild-13, która uruchomiła noc na hasło Adri
 R-021 przerwał limit 5 h, przebieg 3 dokończył go świeżym implementerem i R-021 zamknięty (jeden record.json na job,
 `limen migrate`, bramka 484/484, cztery uwagi rundy 3 czekają na pytanie nocne Q-10; limit tygodniowy 98 %); limit
 tygodniowy zatrzymał noc o 06:15 w R-022 po rundzie 1 recenzji; rano 21.11 Adrian zresetował limit i zapisał D-062
-(jeden ticket poprawek R-093 dla uwag Q-9 i Q-10, przed tagiem a0.2.0), a sesja dzienna wznawia R-022. -->
+(jeden ticket poprawek R-093 dla uwag Q-9 i Q-10, przed tagiem a0.2.0), a sesja dzienna wznawia R-022; D-063: punkt (8) R-093 (atomowy zapis rekordu w test/plant.ts), nowy R-094 (wrapper
+w kolejce kończy się, gdy znika folder joba) i autopilot do 13:00. -->
 
 
 
@@ -770,6 +771,27 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   (7) The coordinator manual's pulse `starting` loses "or no pid yet", since a running record without a pid shows
   `unknown` (`templates/agents.md`, line 142, with its history hash).
   Check: R-093's criteria.
+- 2026-11-21 D-063 (Adrian, "rekomendacja" and "zgoda na rekomendacje", by phone; after R-022's review round 2 and the
+  `BLOCKED` of its round-2 implementer under D-029):
+  (1) R-093 gets item (8): the test plant's `writeRecord` and `editRecord` (`test/plant.ts`) write `record.json`
+  through the atomic-write module, with a test that a read during the plant's write never sees a partial file. The
+  race test of `test/cli/stop.test.ts` (R-021's; two of six runs failed in R-022's review round 2, on `BAD_DATA` from
+  `finalizeJob`'s read) passes then. R-093 runs right after R-022, before R-089 and R-023.
+  (2) The one failure of "a held gate queues jobs by priority …" (`test/s3-finish-wake.test.ts`, the job `timed` ended
+  `failed`) in the gate of R-022's round 2 was measured, not rerun for a green result: 10 of 10 runs passed alone on
+  R-022's tree and 10 of 10 at `HEAD` (through `fails-before.mjs`), so the trees do not differ. Five orphaned
+  wrappers from the night's gate runs (started at 03:55, queued, their plants deleted, polling every 50 ms, about 7 %
+  CPU each; labels `late`, `old`, `say half`, `orphan`, `f owned`) were stopped by the session with his consent. R-022's
+  gate runs once more; a failure of it is again a D-029 finding.
+  (3) A new ticket R-094, stage 2, size S, `delegated`, `night`, after R-093 (both change `test/plant.ts`): a queued
+  wrapper's `waitForStart` (`src/runtime/start-queue.ts`) ends when its job folder is gone, with a fixture test; the
+  tests stop the wrappers they start even when they fail midway; the 2 s budget of the queue test does not depend on
+  the machine's load.
+  (4) Autopilot by day until 13:00 on 2026-11-21 (he is driving): the session works by the night mode's rules (D-011,
+  D-054): only `ready` tickets of stage 2 in dependency order, no new ticket after 13:00, a question goes to
+  `.night/questions.md` and its ticket becomes `blocked`, category A defaults by D-054 (2). No decision push while he
+  drives, except D-053's at 98 %. A handover by D-047 carries the mode in `## State`.
+  Check: R-093's and R-094's criteria; R-022's gate run in its `outcome.md`.
 
 ### Gate 2 §2, copied
 
@@ -1140,7 +1162,8 @@ Columns:
 | R-022 | Exact job references through one resolver | 2 | T-20, D-061 | R-014, R-021 | M | delegated | night | yes | — | — | active |
 | R-023 | Commands are thin adapters over domain operations | 2 | T-26, D-044, D-045, D-046, D-061 | R-014, R-021, R-089 | M | delegated | night | — | — | — | ready (D-061) |
 | R-092 | A refusal leaves no trace: `validate` then `apply` | 2 | T-38, D-061 | R-021, R-023 | L | delegated | night | — | — | — | planned |
-| R-093 | The round-3 notes of R-019 and R-021: the migration keeps `born`, guarded hook reads | 2 | T-25, T-02, T-30, D-062 | R-019, R-021, R-022 | S | delegated | night | — | — | — | ready (D-062) |
+| R-093 | The round-3 notes of R-019 and R-021: the migration keeps `born`, guarded hook reads | 2 | T-25, T-02, T-30, D-062, D-063 | R-019, R-021, R-022 | S | delegated | night | — | — | — | ready (D-062, D-063) |
+| R-094 | A queued wrapper ends when its job folder is gone; tests stop their wrappers | 2 | T-01, T-29, D-063 | R-093 | S | delegated | night | — | — | — | ready (D-063) |
 | R-024 | `limen stats` over records and transcripts | 2 | H-01, H-20, §2, T-33 | R-021, R-023 | M | delegated | night | — | pi | 2.3 | planned |
 | R-025 | Test coverage derived from the command registry | 2 | T-28, T-29, D-045, D-046 | R-014, R-023, R-092 | M | delegated | night | — | — | — | planned |
 | R-026 | Every job runs in its own systemd user scope | 3 | A-029, A-052, T-43 | R-020, R-021 | L | delegated | night | — | systemd | 3.2, 3.7, 3.8 | planned |
@@ -2449,12 +2472,19 @@ Morning of 2026-11-21 (`limen-rebuild-13`, after Adrian's "sprawdź" at 06:24):
   whose tree lacks it and R-022's own commit holds the deletion. Rule for every commit outside a ticket while a
   ticket's work is in the tree: `git diff --cached --name-status` shows only the intended paths before `git commit`.
 
-Active ticket: R-022 (step 4, the round-1 fixes 1–4 by a fresh implementer).
+- R-022 round 1 fixes (a fresh implementer): DONE; the main session's gate 502/502, `fails-before.mjs` exit 0 (seven
+  files). Review round 2 PASS with three notes: 2 and 3 (two comments that claim more than the code) fixed in the
+  second and last round of fixes; 1 (the race test of `stop`) is R-021's and goes to R-093 (8) by D-063 (1). The
+  round-2 implementer's gate failed once on the unchanged queue test of `s3-finish-wake`, so it replied `BLOCKED`
+  (D-029); D-063 (2) settled it (measurement, five orphaned wrappers stopped, one more gate run) and added R-094.
+- From about 09:10: autopilot until 13:00 (D-063 (4)); Adrian is driving.
 
-Next (by day on 2026-11-21):
-0. R-022: a new `snapshot --git` after the commit `D-062:`, a fresh `rebuild-implementer` for fixes 1–4 (`ticket.md` →
-   `## Decisions`), the main session's gate, review round 2, the commit `R-022:`.
-1. R-089, then R-023 (both `ready`), delegated by day; then R-093's `ticket.md` at the HEAD after R-022, and R-093.
+Active ticket: R-022 (step 4: the main session's gate after the round-2 fixes, then review round 3).
+
+Next (autopilot until 13:00 on 2026-11-21, D-063 (4); then by day):
+0. R-022: the main session's gate once (D-063 (2)); `fails-before.mjs`; review round 3; the commit `R-022:`. A failed
+   gate or a FAIL of round 3 makes R-022 `blocked` with a question in `.night/questions.md`.
+1. R-093 (its `ticket.md` at the HEAD after R-022, from D-062 and D-063 (1)), then R-094, then R-089 and R-023.
 2. Then R-092, R-024 and R-025, and the close: tag `a0.2.0`, gate 5.2 by phone, with the night defaults above.
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
