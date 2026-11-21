@@ -55,7 +55,8 @@ sprzątanie testów zatrzymuje wszystkie procesy plant, test kolejki odporny na 
 rundy 3 czekają na pytanie Q-12, zatrzymany proces 1509615 na Q-13); D-065: odpowiedzi Q-11–Q-13 zgodnie
 z rekomendacjami (nowy ticket poprawek R-095, proces zakończony); R-089 zamknięty (w linii końcowej `code` i `next`
 są wartością albo null, `next` zawsze poleceniem, czytnik testów i skan importów przez drzewo składni, bramka
-572/572; dwie uwagi o skanie czekają na pytanie Q-14). -->
+572/572; dwie uwagi o skanie czekają na pytanie Q-14); ticket.md R-023 napisany i przekazanie do
+limen-rebuild-15, która zaczyna R-023 w dzień. -->
 
 
 
@@ -2586,7 +2587,15 @@ Next (autopilot until 13:00 on 2026-11-21, D-063 (4); then by day):
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
    D-047 and D-054 were.
 
-Open questions for Adrian: none.
+Open questions for Adrian (asked in the conversation on 2026-11-21 at about 14:25, with a push):
+- Q-14 (R-089's round-3 notes 1 and A, `R-089-final-line-null/review.md` → Round 3): the import scan's `fileOf`
+  (`test/final-line.test.ts`) resolves paths unlike Node in two forms: `../src//outcome.ts` (an empty segment kept)
+  and a `file:` URL with no `//` (resolved against the test file, while Node resolves it from the root; its comment
+  says otherwise), so an import of the reader in either form passes the scan; no file uses either form. Options: 1.
+  item (f) of R-095: `fileOf` resolves as Node's own resolver does (normalized, `file:` URLs by the URL rules), with a
+  fixture case for each form, and its comment fixed (recommended: a few lines in a test helper R-095 does not touch
+  otherwise, but the guarantee of AC-10 is code, z. 14); 2. a separate S ticket; 3. no ticket (both forms are
+  deliberate). A full answer: the option number.
 
 Handover of 2026-11-20 (D-047, at 42 % context, after the commit that makes R-089 `ready`): `limen-rebuild-10`
 starts `limen-rebuild-11` with `node adrian-rebuild/tools/handover.mjs start 11` and ends its turn. The next session's
@@ -2621,3 +2630,11 @@ The autopilot of D-063 (4) goes on until 13:00 on 2026-11-21 (Adrian is driving)
 not even the takeover one; its first act is `node adrian-rebuild/tools/handover.mjs close-previous`, whose lines go
 into this section; then `Next` 1 (R-093 is `ready` with its `ticket.md`), by the night mode's rules, with no new
 ticket after 13:00. The handover after it is `limen-rebuild-15`.
+
+Handover of 2026-11-21 (D-047, at 32 % context, after the commit `R-089:` (`c526f51`) and the commit of R-023's
+`ticket.md`): `limen-rebuild-14` starts `limen-rebuild-15` with `node adrian-rebuild/tools/handover.mjs start 15` and
+ends its turn. By day (the autopilot ended at 13:00; Adrian is away with his phone, D-053): the next session's first
+acts are a push notification to Adrian that it takes over at R-023 and waits for Q-14, then `node
+adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into this section, then `Next` 1 (R-023 `ready` with
+its `ticket.md`, written at R-089's tree; it runs AC-5 and AC-6 at HEAD first, D-025). Q-14's answer goes into
+D-066 and, for option 1, into R-095's `ticket.md` when it is written. The handover after it is `limen-rebuild-16`.
