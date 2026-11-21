@@ -46,6 +46,29 @@ test("GITHUB_NETWORK: github poll exits 3 when GitHub answers HTTP 503, after th
 	assert.ok(lines.includes(`${p.root}: GitHub GET /repos/${REPO}/installation returned HTTP 503`), run.stderr);
 });
 
+// A-018: a poll killed by a reboot or SIGKILL leaves its lock; in an older Limen every later poll failed on it with
+// EEXIST. The lock here is the pid file such a poll leaves, with a pid no process has.
+test("A-018: github poll takes over a poll lock whose poller is gone and goes on to GitHub", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const env = await poller(p);
+	await writeFile(join(p.root, ".limen/github/poll.lock"), "999999999\n");
+	await respond(p, [{ match: `/repos/${REPO}/installation`, status: 503, body: {} }]);
+	const run = limen(p, ["github", "poll"], { env });
+	assert.equal(run.status, 3, run.stderr);
+	assert.deepEqual(readOutcome(run), { class: "transient", code: "GITHUB_NETWORK", next: "limen github doctor" });
+});
+
+test("A-018: github disconnect takes over a poll lock whose poller is gone and exits 0", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	await mkdir(join(p.root, ".limen/github"), { recursive: true });
+	await writeFile(join(p.root, ".limen/github/poll.lock"), "999999999\n");
+	const run = limen(p, ["github", "disconnect"]);
+	assert.equal(run.status, 0, run.stderr);
+	assert.match(run.stdout, /GitHub doorbell disconnected/);
+});
+
 /** `github poll` on a plant whose first GitHub request is answered HTTP 403 with `headers`. */
 async function forbidden(t: TestContext, headers: Record<string, string>): Promise<Run> {
 	const p = await plant();

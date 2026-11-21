@@ -65,6 +65,7 @@ export const ENVIRONMENT = {
 	LIMEN_START_POLL_MS: { kind: "test", carries: "the start queue's poll interval, in place of 5 s" },
 	LIMEN_START_READING: { kind: "test", carries: "a file with the CPU and memory reading, in place of the machine's" },
 	LIMEN_WAKE_FALLBACK_MS: { kind: "test", carries: "the grace before a fallback wake, in place of 5 min" },
+	LIMEN_LOCK_WAIT_MS: { kind: "test", carries: "the lock's wait bound, in place of 60 s" },
 	LIMEN_WORKER_MODEL: { kind: "exception", carries: "the model of a continue without --model", until: "R-062" },
 	LIMEN_COORDINATOR: { kind: "exception", carries: "1 in the owner-facing coordinator's session", until: "R-050" },
 	LIMEN_GITHUB_APP_ID: { kind: "exception", carries: "the GitHub App of the poller", until: "R-059" },

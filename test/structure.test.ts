@@ -347,43 +347,8 @@ type WriteException = {
 	readonly what: string;
 };
 
-/** The write sites the scan does not count: the lock primitives until R-019, the LaunchAgent installer until R-032. */
+/** The write sites the scan does not count: the LaunchAgent installer until R-032. */
 const WRITE_EXCEPTIONS: readonly WriteException[] = [
-	{
-		path: "src/job/group-cabinet.ts",
-		inside: "groupLock",
-		primitives: ["writeFile", "writeFile", "rename"],
-		ticket: "R-019",
-		what: "the group lock's owner file, its reclaim claim and the takeover rename",
-	},
-	{
-		path: "src/integrations/github-poller.ts",
-		inside: "project",
-		primitives: ["writeFile"],
-		ticket: "R-019",
-		what: "the poll lock",
-	},
-	{
-		path: "src/project/seat.ts",
-		inside: "withSeatLock",
-		primitives: ["writeFileSync"],
-		ticket: "R-019",
-		what: "the seat lock's owner file",
-	},
-	{
-		path: "src/project/seat.ts",
-		inside: "releaseSeatLock",
-		primitives: ["renameSync"],
-		ticket: "R-019",
-		what: "the seat lock's release rename",
-	},
-	{
-		path: "src/project/seat.ts",
-		inside: "removeAbandonedLock",
-		primitives: ["writeFileSync", "renameSync"],
-		ticket: "R-019",
-		what: "the seat lock's reclaim claim and takeover rename",
-	},
 	{
 		path: "src/project/seat.ts",
 		inside: "installSeatSweep",
@@ -508,7 +473,7 @@ async function writeScan(repo: string, exceptions: readonly WriteException[]): P
 
 // A-022: a file written in place is left truncated when the disk fills; the copies of the temp-and-rename policy drifted
 // apart (eight writers, three with fsync, none of the folder). One module holds the policy, so the scan bans the rest.
-test("T-25: outside src/atomic-write.ts no file of src/, hook/ or seat/ imports or calls a write primitive or opens a file for writing, except the listed lock and installer sites", async () => {
+test("T-25: outside src/atomic-write.ts no file of src/, hook/ or seat/ imports or calls a write primitive or opens a file for writing, except the listed installer site", async () => {
 	assert.deepEqual(await writeScan(root, WRITE_EXCEPTIONS), []);
 });
 
@@ -588,6 +553,78 @@ test("T-25: every primitive of the write exception list keeps a call in its file
 		}
 	}
 	assert.deepEqual(unused, []);
+});
+
+/** The one lock module (T-25 (1), A-018): the only file whose code names a lock file. */
+const LOCK_MODULE = "src/lock.ts";
+/** Lock file names outside the module that stay: the lock a cut feature left, which only the leftover list names. */
+const LOCK_NAME_EXCEPTIONS: ReadonlyArray<{ readonly path: string; readonly text: string }> = [
+	{ path: "src/project/leftovers.ts", text: ".limen/picture/tick.lock" },
+];
+
+/** Each string or template literal of the code `text` at `path` whose text ends in `.lock`, as `<path>:<line>: <code>`. */
+function lockNames(path: string, text: string): string[] {
+	const kind = path.endsWith(".ts") ? ts.ScriptKind.TS : ts.ScriptKind.JS;
+	const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, kind);
+	const found: string[] = [];
+	const visit = (node: ts.Node): void => {
+		const plain = ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node);
+		const literal = plain ? node.text : ts.isTemplateExpression(node) ? node.templateSpans.at(-1)?.literal.text : "";
+		const kept = LOCK_NAME_EXCEPTIONS.some((entry) => entry.path === path && entry.text === literal);
+		if (literal?.endsWith(".lock") && !kept) {
+			const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
+			found.push(`${path}:${line}: ${node.getText(source)}`);
+		}
+		ts.forEachChild(node, visit);
+	};
+	visit(source);
+	return found;
+}
+
+/** Each lock file name outside the lock module, in the files git knows below `WRITERS` of the repository at `repo`. */
+async function lockNameScan(repo: string): Promise<string[]> {
+	const findings: string[] = [];
+	for (const path of await knownFiles(repo)) {
+		const file = relative(repo, path);
+		const code = /\.(?:ts|mts|js|mjs)$/.test(file) && WRITERS.some((folder) => file.startsWith(`${folder}/`));
+		if (code && file !== LOCK_MODULE) {
+			findings.push(...lockNames(file, await readFile(path, "utf8")));
+		}
+	}
+	return findings;
+}
+
+// A-018, A-087: the copies of the lock policy drifted apart (a bare pid with no stale check, folder locks that a reused
+// pid held for ever, a takeover keyed by an inode). One module names every lock file, so the scan bans the name elsewhere.
+test("T-25: outside src/lock.ts no file of src/, hook/ or seat/ names a lock file, except the leftover of the map jobs", async () => {
+	assert.deepEqual(await lockNameScan(root), []);
+});
+
+test("the lock-name scan finds a string and template literals ending in .lock, and skips the module, the leftover, other text, an ignored file and other folders", async (t) => {
+	const repo = await realpath(await mkdtemp(join(tmpdir(), "limen-lock-scan-")));
+	t.after(() => rm(repo, { recursive: true, force: true }));
+	execFileSync("git", ["init", "-q"], { cwd: repo });
+	const files = {
+		".gitignore": "src/ignored.ts\n",
+		"src/lock.ts": `export const lock = (file: string) => \`\${file}.lock\`;\nconst poll = "poll.lock";\n`,
+		"src/named.ts": 'const lock = join(dir, "poll.lock");\n',
+		"hook/folder.ts": `\nconst lock = \`\${dir}/.lock\`;\n`,
+		"seat/file.mjs": `const lock = \`\${file}.lock\`;\n`,
+		"src/project/leftovers.ts": 'const left = [{ path: ".limen/picture/tick.lock" }];\n',
+		"src/text.ts": 'const said = "a .lock folder";\n// poll.lock in a comment\nconst word = `lock`;\n',
+		"src/ignored.ts": 'const lock = "x.lock";\n',
+		"bin/outside.mjs": 'const lock = "x.lock";\n',
+		"test/outside.ts": 'const lock = "x.lock";\n',
+	};
+	for (const [path, text] of Object.entries(files)) {
+		await mkdir(dirname(join(repo, path)), { recursive: true });
+		await writeFile(join(repo, path), text);
+	}
+	assert.deepEqual((await lockNameScan(repo)).sort(), [
+		`hook/folder.ts:2: \`\${dir}/.lock\``,
+		`seat/file.mjs:1: \`\${file}.lock\``,
+		'src/named.ts:1: "poll.lock"',
+	]);
 });
 
 /** The adapter of T-32 (1): the one file that declares the Pi API Limen uses. */

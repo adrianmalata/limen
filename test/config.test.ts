@@ -95,7 +95,10 @@ test("the configuration scan finds each read form and an unregistered name, but 
 	]);
 });
 
-/** The inventory of R-015's ticket (`## Decisions`): every name Limen's code held at 9f247a5, by kind. */
+/**
+ * The inventory of R-015's ticket (`## Decisions`): every name Limen's code held at 9f247a5, by kind, and the names added
+ * since: LIMEN_LOCK_WAIT_MS, the lock module's wait bound (R-019).
+ */
 const INVENTORY = {
 	"transport wrapper": [
 		"LIMEN_INTERNAL_RUN",
@@ -121,6 +124,7 @@ const INVENTORY = {
 		"LIMEN_START_POLL_MS",
 		"LIMEN_START_READING",
 		"LIMEN_WAKE_FALLBACK_MS",
+		"LIMEN_LOCK_WAIT_MS",
 	],
 	exception: [
 		"LIMEN_WORKER_MODEL",

@@ -1,6 +1,7 @@
-// The Linux implementation of the platform adapter (src/platform/platform.ts): /proc for a process's identity and the
-// memory reading, ps for the process table and a program's name, kill(2) for liveness and signals, and Node's per-core
-// times for the CPU reading. The parsers are exported so that tests read fixture text instead of the machine.
+// The Linux implementation of the platform adapter (src/platform/platform.ts): /proc for a process's identity, the
+// memory reading and the boot id, ps for the process table and a program's name, kill(2) for liveness and signals, and
+// Node's per-core times for the CPU reading. The parsers are exported so that tests read fixture text instead of the
+// machine.
 import { execFileSync, spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { cpus } from "node:os";
@@ -71,6 +72,15 @@ export function parseMeminfo(text: string): MemoryReading | undefined {
 	const availableKib = kib("MemAvailable");
 	const totalKib = kib("MemTotal");
 	return Number.isFinite(availableKib) && Number.isFinite(totalKib) ? { availableKib, totalKib } : undefined;
+}
+
+/** The shape of a boot id: a UUID in lower-case hexadecimal, as the kernel writes it. */
+export const BOOT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/** The boot id of `/proc/sys/kernel/random/boot_id`: its one line, a UUID; undefined for an empty or any other text. */
+export function parseBootId(text: string): string | undefined {
+	const id = text.trim();
+	return BOOT_ID.test(id) ? id : undefined;
 }
 
 async function processInfo(pid: number): Promise<ProcessQueryOutcome> {
@@ -195,4 +205,5 @@ export const linux: Platform = {
 	processGroupAlive: (pgid) => signalTarget(-pgid, 0) !== "missing",
 	coreTimes,
 	memory: () => parseMeminfo(readOptional("/proc/meminfo") ?? ""),
+	bootId: () => parseBootId(readOptional("/proc/sys/kernel/random/boot_id") ?? ""),
 };

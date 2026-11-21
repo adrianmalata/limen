@@ -3,10 +3,9 @@ import { existsSync } from "node:fs";
 import { chmod, chown, mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { userInfo } from "node:os";
 import { join } from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import { atomicWrite } from "../atomic-write.ts";
 import { exception } from "../config.ts";
-import { pollGithub } from "../integrations/github-poller.ts";
+import { pollGithub, withPollLock } from "../integrations/github-poller.ts";
 import {
 	bindingPath,
 	claimId,
@@ -315,18 +314,13 @@ async function printDoorbellStatus(root: string): Promise<void> {
 	);
 }
 
-/** `github disconnect`: removes the binding, then waits up to a minute for an active poll to release its lock. */
+/**
+ * `github disconnect`: removes the binding, then takes and releases the poll's lock, so a poll in flight ends first. The
+ * lock of a poller that died is taken over; a poll that holds it past the lock's 60 s ends this in LOCK_TIMEOUT (A-018).
+ */
 async function disconnectDoorbell(root: string): Promise<void> {
 	await rm(bindingPath(root), { force: true });
-	const deadline = Date.now() + 60_000;
-	while (existsSync(join(githubDir(root), "poll.lock"))) {
-		if (Date.now() > deadline) {
-			throw new Error(
-				"GitHub binding removed, but a poll is still active or its lock is stale; inspect .limen/github/poll.lock before connecting another seat",
-			);
-		}
-		await delay(100);
-	}
+	await withPollLock(root, async () => undefined);
 	console.log("GitHub doorbell disconnected; prior claims retained for inspection");
 }
 

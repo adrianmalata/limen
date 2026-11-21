@@ -2,9 +2,9 @@ import * as fs from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { atomicWriteSync } from "../atomic-write.ts";
+import { atomicWrite } from "../atomic-write.ts";
 import { testKnob } from "../config.ts";
-import { platform } from "../platform/platform.ts";
+import { withLock } from "../lock.ts";
 
 const PACKAGE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const home = () => testKnob("LIMEN_HOME") || homedir();
@@ -16,22 +16,26 @@ export const registeredProjects = () => [
 		(fs.existsSync(projectsFile()) ? fs.readFileSync(projectsFile(), "utf8") : "").split(/\r?\n/).filter(Boolean),
 	),
 ];
-export function updateRegisteredProjects(
+/**
+ * Reads, changes and writes the registry while this process holds its lock (A-087, A-022): one writer at a time, and
+ * the new list replaces the old one whole. Returns the list as it is after the change.
+ */
+export async function updateRegisteredProjects(
 	update: (projects: readonly string[]) => readonly string[],
-): readonly string[] {
-	return withSeatLock(projectsFile(), () => {
+): Promise<readonly string[]> {
+	return withLock({ file: projectsFile() }, async () => {
 		const before = registeredProjects(),
 			after = [...new Set(update(before))];
 		if (before.length === after.length && before.every((project, index) => project === after[index])) {
 			return before;
 		}
-		atomicWriteSync(projectsFile(), after.length ? `${after.join("\n")}\n` : "");
+		await atomicWrite(projectsFile(), after.length ? `${after.join("\n")}\n` : "");
 		return after;
 	});
 }
 export async function registerProject(root: string): Promise<void> {
 	const project = resolve(root);
-	updateRegisteredProjects((projects) => (projects.includes(project) ? projects : [...projects, project]));
+	await updateRegisteredProjects((projects) => (projects.includes(project) ? projects : [...projects, project]));
 }
 export async function installSeatSweep(): Promise<void> {
 	const path = join(home(), "Library", "LaunchAgents", "limen-sweep.plist");
@@ -49,100 +53,5 @@ export async function uninstallSeatSweep(): Promise<void> {
 	const path = join(home(), "Library", "LaunchAgents", "limen-sweep.plist");
 	fs.rmSync(path, { force: true });
 	console.log(`removed ${path}`);
-}
-/** Runs `action` while this process holds `<path>.lock`; a lock whose owner is gone is reclaimed. */
-export function withSeatLock<T>(path: string, action: () => T): T {
-	const lock = `${path}.lock`;
-	const reclaimer = `${process.pid}.${Date.now()}`;
-	const deadline = Date.now() + 10_000;
-	fs.mkdirSync(dirname(path), { recursive: true });
-	while (true) {
-		try {
-			fs.mkdirSync(lock);
-			fs.writeFileSync(join(lock, "owner"), `${process.pid}\n`);
-			break;
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-				throw error;
-			}
-			if (removeAbandonedLock(lock, reclaimer)) {
-				continue;
-			}
-			if (Date.now() >= deadline) {
-				throw new Error(`timed out locking ${path}`);
-			}
-			Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
-		}
-	}
-	let value: T;
-	try {
-		value = action();
-	} catch (error) {
-		// The action's error is the one the caller needs. A failed release must not replace it; the lock owner is
-		// this process, so the next caller reclaims the lock once this process exits.
-		try {
-			releaseSeatLock(lock, reclaimer);
-		} catch {
-			// The action's error follows.
-		}
-		throw error;
-	}
-	// A lock that stays in place blocks every later caller, so a failed release fails this call.
-	releaseSeatLock(lock, reclaimer);
-	return value;
-}
-function releaseSeatLock(lock: string, reclaimer: string): void {
-	const released = `${lock}.released.${reclaimer}`;
-	try {
-		fs.renameSync(lock, released);
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-			throw error;
-		}
-	}
-	fs.rmSync(released, { recursive: true, force: true, maxRetries: 10, retryDelay: 10 });
-}
-function removeAbandonedLock(lock: string, reclaimer: string): boolean {
-	let claim = "";
-	try {
-		const identity = fs.statSync(lock),
-			ownerText = fs.existsSync(join(lock, "owner")) ? fs.readFileSync(join(lock, "owner"), "utf8").trim() : "",
-			owner = Number(ownerText);
-		if (owner > 0) {
-			if (platform.processAlive(owner)) {
-				return false;
-			}
-		} else if (Date.now() - identity.mtimeMs < 5_000) {
-			return false;
-		}
-		const claimPath = `${lock}.reclaimer.${identity.dev}.${identity.ino}`;
-		try {
-			fs.writeFileSync(claimPath, reclaimer, { flag: "wx" });
-			claim = claimPath;
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-				throw error;
-			}
-			return false;
-		}
-		const claimedIdentity = fs.statSync(lock),
-			claimedOwner = fs.existsSync(join(lock, "owner")) ? fs.readFileSync(join(lock, "owner"), "utf8").trim() : "";
-		if (claimedIdentity.dev !== identity.dev || claimedIdentity.ino !== identity.ino || claimedOwner !== ownerText) {
-			return false;
-		}
-		const abandoned = `${lock}.abandoned.${reclaimer}`;
-		fs.renameSync(lock, abandoned);
-		fs.rmSync(abandoned, { recursive: true, force: true, maxRetries: 10, retryDelay: 10 });
-		return true;
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-			return true;
-		}
-		throw error;
-	} finally {
-		if (claim) {
-			fs.rmSync(claim, { force: true });
-		}
-	}
 }
 const xml = (value: string) => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");

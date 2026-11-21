@@ -1,7 +1,7 @@
-// The parsers of the Linux platform adapter (src/platform/linux.ts) on fixture text: /proc/<pid>/stat, ps, /proc/meminfo.
+// The parsers of src/platform/linux.ts on fixture text: /proc/<pid>/stat, ps, /proc/meminfo and the boot id.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseMeminfo, parseProcessTable, parseStat } from "../../src/platform/linux.ts";
+import { parseBootId, parseMeminfo, parseProcessTable, parseStat } from "../../src/platform/linux.ts";
 
 /** A stat line: the fields after the command are state, parent, group, session, then fields 7-21, start ticks last. */
 const stat = (pid: number, command: string, state: string, startTicks: string) =>
@@ -49,6 +49,13 @@ test("the process table skips a header line and empty lines", () => {
 	assert.deepEqual(
 		parseProcessTable(output, undefined).map((row) => row.pid),
 		[200],
+	);
+});
+
+test("the boot id is the one UUID line of boot_id, and nothing for an empty or other text", () => {
+	assert.deepEqual(
+		[parseBootId("6f1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d\n"), parseBootId(""), parseBootId("not a boot id\n")],
+		["6f1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", undefined, undefined],
 	);
 });
 

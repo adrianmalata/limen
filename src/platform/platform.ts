@@ -1,9 +1,10 @@
 // The operating-system primitives Limen uses, as one interface (A-083): a process's identity, the process table,
-// liveness and signals of a process and of a process group, and the CPU and memory readings of the start gate. The
-// policies built on them (the escaped-descendant walk, birth checks, the stall rule, the start gate's thresholds) stay
-// with their callers. Linux is the one implementation; another operating system is another implementation with its own
-// tests. A member exists only with an implementation: the scheduler install comes with R-032, and notifications stay
-// Herdr's (src/integrations/herdr.ts).
+// liveness and signals of a process and of a process group, the CPU and memory readings of the start gate, and the
+// boot id that a lock's owner record carries (D-056 (1)). The policies built on them (the escaped-descendant walk,
+// birth checks, the stall rule, the start gate's thresholds, the lock's owner check) stay with their callers. Linux is
+// the one implementation; another operating system is another implementation with its own tests. A member exists only
+// with an implementation: the scheduler install comes with R-032, and notifications stay Herdr's
+// (src/integrations/herdr.ts).
 import { linux } from "./linux.ts";
 
 /** A process as the system reports it; `born` is its start time in clock ticks since boot, which a reused pid lacks. */
@@ -53,7 +54,15 @@ export interface Platform {
 	coreTimes(): readonly CoreTimes[];
 	/** The memory reading, or undefined when the system does not give it. */
 	memory(): MemoryReading | undefined;
+	/** The id of the current boot, which a reboot changes; undefined when the system does not give it. */
+	bootId(): string | undefined;
 }
 
 /** The implementation in use. */
 export const platform: Platform = linux;
+
+/**
+ * The shape of the id that `bootId()` gives, for a reader of a stored boot id (the lock's owner record). It comes from
+ * the implementation in use, which parses the id with it.
+ */
+export { BOOT_ID } from "./linux.ts";

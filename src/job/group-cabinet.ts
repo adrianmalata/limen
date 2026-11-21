@@ -1,12 +1,11 @@
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { atomicWrite, TEMPORARY_NAME } from "../atomic-write.ts";
 import { groupAdvanceEnvironment, transport } from "../config.ts";
+import { withLock } from "../lock.ts";
 import { platform } from "../platform/platform.ts";
 import { limenRoot } from "../project/git.ts";
 import { SESSION_ID } from "./job.ts";
@@ -99,70 +98,21 @@ export async function readRun(root: string, id: string): Promise<GroupRun> {
 export async function saveJson(path: string, value: unknown): Promise<void> {
 	await atomicWrite(path, `${JSON.stringify(value, null, 2)}\n`);
 }
-// Dead owners may be recovered; a live owner (including PID reuse) is never evicted.
+/**
+ * The group registry's lock on `directory`, for the cabinet, a launch, prune and the start queue: one call of the lock
+ * module (src/lock.ts, A-018), which takes over the lock of a gone owner and never evicts a live one. `wait`, the
+ * default, waits at most 60 s; `skip` makes one attempt and returns undefined while a live owner holds the lock.
+ */
 export function groupLock<T>(directory: string, operation: () => Promise<T>, mode: "skip"): Promise<T | undefined>;
 export function groupLock<T>(directory: string, operation: () => Promise<T>, mode?: "wait"): Promise<T>;
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: split pending: group cabinet lock
-export async function groupLock<T>(
+export function groupLock<T>(
 	directory: string,
 	operation: () => Promise<T>,
 	mode?: "skip" | "wait",
 ): Promise<T | undefined> {
-	await mkdir(directory, { recursive: true });
-	const path = `${directory}/.lock`;
-	const deadline = mode === "wait" ? Infinity : Date.now() + (mode === "skip" ? 0 : 10_000);
-	while (true) {
-		try {
-			await mkdir(path);
-			break;
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-				throw error;
-			}
-			const pid = Number(await readFile(`${path}/owner`, "utf8").catch(() => ""));
-			const identity = await stat(path).catch(() => undefined);
-			if (!identity) {
-				continue;
-			}
-			const age = Date.now() - identity.mtimeMs;
-			if (age > 5_000 && (!pid || !platform.processAlive(pid))) {
-				const claim = `${path}.reclaimer.${identity.dev}.${identity.ino}`;
-				let claimed = false;
-				try {
-					await writeFile(claim, `${process.pid}\n`, { flag: "wx" });
-					claimed = true;
-					const current = await stat(path).catch(() => undefined);
-					const owner = Number(await readFile(`${path}/owner`, "utf8").catch(() => ""));
-					if (current?.ino === identity.ino && current.dev === identity.dev && owner === pid) {
-						const abandoned = `${path}.abandoned.${randomUUID()}`;
-						await rename(path, abandoned);
-						await rm(abandoned, { recursive: true, force: true });
-					}
-				} catch (claimError) {
-					if (!["EEXIST", "ENOENT"].includes((claimError as NodeJS.ErrnoException).code ?? "")) {
-						throw claimError;
-					}
-				} finally {
-					if (claimed) {
-						await rm(claim, { force: true });
-					}
-				}
-			}
-			if (Date.now() >= deadline) {
-				if (mode === "skip") {
-					return;
-				}
-				throw new Error(`group lock busy or uncertain: ${path}; inspect its owner before recovery`);
-			}
-			await delay(25);
-		}
-	}
-	try {
-		await writeFile(`${path}/owner`, `${process.pid}\n`, { flag: "wx", flush: true });
-		return await operation();
-	} finally {
-		await rm(path, { recursive: true, force: true });
-	}
+	return mode === "skip"
+		? withLock({ folder: directory }, operation, { mode: "skip" })
+		: withLock({ folder: directory }, operation);
 }
 export async function runs(root: string): Promise<GroupRun[]> {
 	const result: GroupRun[] = [];

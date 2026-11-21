@@ -1,7 +1,8 @@
 <!-- PL: Dziennik zmian przebudowy Limena: jeden wpis na zamknięty ticket R-NNN, tylko dopisywany, najnowszy na dole.
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
-R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020. -->
+R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
+R-019. -->
 
 # Changes
 
@@ -196,3 +197,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-10)
 - Commit: R-020
 - Rollback: git revert $(git log --format=%H --grep='^R-020:' adrian-rebuild --)
+
+## 2026-11-21 R-019 One lock module with process identity and a bounded wait
+- What: new `src/lock.ts` (the one lock module: a lock is one file holding its owner's record, pid, start time, boot id, token and time, created through `atomicWrite` with `exclusive`; the owner is gone on another boot id, another start time or no process; the takeover of a dead lock runs under a claim on the dead record and re-reads it before the rename, A-087; a 60 s bounded wait ending in `LOCK_TIMEOUT`, class `transient`; `LOCK_LOST` on a release that finds its lock replaced; the old pid-only forms read as D-056 (3) says); `src/platform/platform.ts` and `src/platform/linux.ts` (`bootId()`, `parseBootId`, `BOOT_ID`); every lock through the module: `src/job/group-cabinet.ts` (`groupLock`, with the launch, prune and start-queue locks), `src/project/seat.ts` (the seat registry, async, under the module's lock through `atomicWrite`), `src/integrations/github-poller.ts` (`withPollLock`, also used by `src/commands/github.ts` for `disconnect`), `src/project/series.ts` (ticket numbers under a lock, A-055), `src/commands/sweep.ts`, `src/commands/ticket.ts`; `src/config.ts` (the test knob `LIMEN_LOCK_WAIT_MS`); `docs/groups.md`, `docs/remote.md`, `docs/commands.md`; tests `test/lock.test.ts` and `test/project/seat.test.ts` (new), `test/platform/linux.test.ts`, `test/cli/ticket.test.ts`, `test/cli/github.test.ts`, `test/config.test.ts`, `test/structure.test.ts` (the R-019 write exceptions gone, the T-25 lock-name scan and its self-test), `test/s9-housekeeping.test.ts` (the barrier follows the new first touch); `plan.md` → `## Agents` step 4 (D-031's exception gone)
+- Why: A-017, A-018, A-055, A-058, A-087, T-25, D-029, D-056
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (429/429); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (eight test files fail at HEAD); `node --test test/lock.test.ts` → exit 0 (21/21)
+- Measurement: unmeasured (plan.md → Measurement: M-10)
+- Commit: R-019
+- Rollback: git revert $(git log --format=%H --grep='^R-019:' adrian-rebuild --)

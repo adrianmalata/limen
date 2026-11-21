@@ -15,8 +15,8 @@ Every command ends with one line of JSON, its final line, after the text for peo
 | 0 | `ok` | success, also "nothing to do" |
 | 1 | `refused` | a condition that Limen checks is not met; a removed engine or role that a job record names (`REMOVED`) |
 | 2 | `usage` | an unknown command (`UNKNOWN_COMMAND`); words that the shared parser refuses (`BAD_ARGUMENT`): an unknown flag, a flag without its value or given twice, a missing required flag, a missing or an extra argument; a removed command, flag, engine or role on the command line (`REMOVED`) |
-| 3 | `transient` | safe to retry: `github poll` after a failed request, HTTP 429, a 5xx, or a 403 that is a rate limit (`x-ratelimit-remaining: 0` or a `retry-after` header); `group wait` at its time limit |
-| 4 | `environment` | `github poll` with a missing or invalid setting, projects file or credential, HTTP 401 or any other 403; a Node.js older than 24 |
+| 3 | `transient` | safe to retry: `github poll` after a failed request, HTTP 429, a 5xx, or a 403 that is a rate limit (`x-ratelimit-remaining: 0` or a `retry-after` header); `group wait` at its time limit; a lock still held after its 60-second wait (`LOCK_TIMEOUT`), whose message names the lock file and its owner |
+| 4 | `environment` | `github poll` with a missing or invalid setting, projects file or credential, HTTP 401 or any other 403; a Node.js older than 24; a lock that something outside Limen removed or replaced while a command held it (`LOCK_LOST`) |
 | 5 | `internal` | an unexpected exception, whose stack comes before the final line; a command that returns an `ids` key its registry entry does not declare (`UNDECLARED_IDS`) |
 
 A failure that has no class of its own, a missing tool such as git among them, exits 1 with the code `UNTYPED`.

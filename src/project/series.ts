@@ -3,6 +3,7 @@
 import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync, realpathSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
+import { withLock } from "../lock.ts";
 import { readOptional } from "./inherit.ts";
 
 /** One row of the register of tickets a plant moved out of its lanes. */
@@ -25,9 +26,18 @@ const COLUMNS = ["path", "number", "title", "close_month", "archive_date", "last
 
 const ticketCode = (number: number) => `F${String(number).padStart(3, "0")}`;
 
-/** Calls `create` with the next code, above every number the checkout and the plant have taken; returns its result. */
-export function withNextTicketCode<T>(root: string, plant: string, create: (code: string) => T): T {
-	return create(ticketCode(highestTaken([root, plant]) + 1));
+/**
+ * Calls `create` with the next code, above every number the checkout and the plant have taken, and returns its result.
+ * Both run under the plant's ticket-number lock (A-055), so two runs at once never take one number.
+ */
+export async function withNextTicketCode<T>(
+	root: string,
+	plant: string,
+	create: (code: string) => Promise<T>,
+): Promise<T> {
+	return withLock({ file: join(real(plant), ".limen", "ticket-number") }, () =>
+		create(ticketCode(highestTaken([root, plant]) + 1)),
+	);
 }
 
 /** Codes a ticket outside the plant's own lanes holds: its archive rows. */

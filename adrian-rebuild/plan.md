@@ -40,7 +40,8 @@ o zakończeniu zadania; D-060: git 2.56.1 z Linuxbrew na laptopie zamiast 2.34 (
 Pi `src/runtime/pi-api.ts` ze strażnikami, kontrakt typów na prawdziwych typach Pi 1.5.1, bramka 377/377); R-020
 zamknięty w dzień (adapter platformy src/platform/ i wymagania systemowe przy limen init, bramka 401/401); R-022 i
 R-023 gotowe do nocy po D-061 (odpowiedzi zgodne z rekomendacjami; nowy ticket R-092 dla T-38), ticket.md R-019 napisany
-w dzień; przekazanie do limen-rebuild-13, która uruchomi noc na hasło Adriana. -->
+w dzień; przekazanie do limen-rebuild-13, która uruchomiła noc na hasło Adriana; nocą 20/21.11 R-019 zamknięty
+(jeden moduł blokad src/lock.ts, bramka 429/429, trzy uwagi rundy 3 czekają na pytanie nocne Q-9). -->
 
 
 
@@ -1106,7 +1107,7 @@ Columns:
 | R-016 | One boundary parsing module with validators; the cast ratchet | 2 | T-27 | R-013 | M | delegated | night | — | — | — | done |
 | R-017 | One Pi API adapter with type guards, checked against Pi's real types | 2 | T-32, D-055, D-058 | R-012, R-016 | M | delegated | night | — | pi | 2.2 | done |
 | R-018 | One atomic-write module | 2 | A-022, T-25 | R-013 | L | delegated | night | — | — | — | done |
-| R-019 | One lock module with process identity and a bounded wait | 2 | A-017, A-018, A-055, A-058, A-087, T-25, D-029, D-056 | R-018, R-020 | M | delegated | night | yes | — | — | ready (D-056) |
+| R-019 | One lock module with process identity and a bounded wait | 2 | A-017, A-018, A-055, A-058, A-087, T-25, D-029, D-056 | R-018, R-020 | M | delegated | night | yes | — | — | done |
 | R-020 | A Linux platform adapter and declared system requirements | 2 | A-083, T-12, T-32, D-060 | R-013 | M | delegated | night | — | — | — | done |
 | R-021 | One `record.json` per job, written only by the transition function | 2 | S1+, A-019, A-053, A-056, T-20, T-25, D-057 | R-016, R-018, R-019 | L | delegated | night | yes | — | — | ready (D-057) |
 | R-022 | Exact job references through one resolver | 2 | T-20, D-061 | R-014, R-021 | M | delegated | night | yes | — | — | ready (D-061) |
@@ -1684,9 +1685,7 @@ Protocol per ticket (rebuild stage 5):
    and `compare --git` exits 0, without waiting for the task's completion notification (D-059). A test that failed
    even once without a change of the code it runs
    is a finding: nobody runs it again to get a green gate (z. 17); by day the main session asks Adrian, at night it
-   writes a question in `.night/questions.md` and the ticket waits (D-029). Until R-019, a gate that fails only on
-   A-087's test (`test/s9-housekeeping.test.ts:135`) is recorded in `outcome.md` as an occurrence of A-087 and run
-   once more; a second such failure in the same ticket follows D-029 (D-031).
+   writes a question in `.night/questions.md` and the ticket waits (D-029).
 5. Review: `node adrian-rebuild/tools/review-guard.mjs snapshot --out node_modules/.rebuild-review/R-NNN.before` and
    `node adrian-rebuild/tools/review-guard.mjs diff --out node_modules/.rebuild-review/R-NNN.diff` (an ignored
    directory, like the gate's helper, so the guard does not see the files; `--out` creates it and writes atomically,
@@ -2365,13 +2364,24 @@ redundant):
 - Adrian (2026-11-20, 23:26): "Uruchom tryb nocny do 7:00 rano". `limen-rebuild-13` starts `night.mjs --until 07:00`
   right after the commit of this entry and then changes nothing in the repository until Adrian writes (D-024).
 
+Night run of 2026-11-20/21 (until 07:00; `night.mjs` run 1 started at 23:26:54):
+- R-019 `done` (delegated): `src/lock.ts` is the one lock module (a lock file holding its owner's record, created
+  whole; the takeover under a claim on the dead record with a re-read, A-087; a 60 s wait ending in `LOCK_TIMEOUT`);
+  the cabinet, launch, prune, start-queue, seat-registry, poll and ticket-number locks go through it; D-031's exception
+  left `## Agents`. Review PASS in rounds 1–3 (six, four and four notes; two rounds of fixes by fresh implementers:
+  the boot id and `born` bounded in the record, one poll-lock definition, comments and test headers). Gate 429/429;
+  no test failed in any run. For Adrian in the morning: the 17 night defaults of `outcome.md` → `## Night defaults`
+  (summarised in `ticket.md` → `## Decisions`), above all `LOCK_TIMEOUT`'s empty `next` with the hint in the message
+  (T-37) and the new code `LOCK_LOST`; and Q-9 (no ticket blocked): whether round 3's three notes on code and tests get
+  a fix ticket (recommended: yes, S, `night`).
+
 Active ticket: none.
 
 Next (night of 2026-11-20/21, then by day):
-0. The night run until 07:00 (started by `limen-rebuild-13` on Adrian's word; D-024, D-053 (3)). The night's
-   `ready` tickets in dependency order: R-019 (`ticket.md` written) and R-089 on independent branches, R-021 after
-   R-019, R-022 after R-021, R-023 after R-021 and R-089; the night writes the `ticket.md` of R-021, R-022 and R-023 at the HEAD it starts each from (D-057, D-061, the
-   inventories in `evidence/`).
+0. The night run until 07:00 (started by `limen-rebuild-13` on Adrian's word; D-024, D-053 (3)). R-019 is `done`;
+   the night's `ready` tickets in dependency order: R-021 (after R-019) and R-089 on independent branches, R-022 after
+   R-021, R-023 after R-021 and R-089; the night writes the `ticket.md` of R-021, R-022 and R-023 at the HEAD it
+   starts each from (D-057, D-061, the inventories in `evidence/`).
 1. Morning: the day session reads `.night/status.json` and `.night/questions.md`, moves answers to `ticket.md` →
    `## Decisions`, and goes on with stage 2 (R-092, R-024, R-025, then the close: tag `a0.2.0`, gate 5.2 by phone).
 2. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private

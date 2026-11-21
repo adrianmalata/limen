@@ -5,7 +5,8 @@ porzuconą blokadę, którą przejmuje dokładnie jeden proces: pod roszczeniem 
 nazwę na unikalną, potem tworzy nową z `wx` (A-087, D-029). Czekanie trwa najwyżej 60 s i kończy się typowanym błędem
 z kodem 3, który nazywa plik blokady, właściciela i wskazówkę, a stary plik właściciela z samym pid jest porzucony
 tylko, gdy tego pid już nie ma (D-056); commit usuwa wyjątki blokad ze skanu zapisu R-018 i wyjątek D-031 z
-`## Agents`. Stan: gotowy do nocy (ready). -->
+`## Agents`. Stan: zamknięty nocą 20/21.11 (done); domyślne decyzje nocy i poprawki z recenzji są w `## Decisions`,
+a trzy uwagi rundy 3 czekają na pytanie nocne Q-9. -->
 
 # R-019 One lock module with process identity and a bounded wait
 
@@ -332,3 +333,27 @@ removed by hand once its poller is gone.
   exist there, which `fails-before.mjs` shows. That it checks the mechanism is AC-15's judgment.
 - 2026-11-20 (main session, technical default): the T-25 scan bans a `.lock` file name outside `src/lock.ts`, because
   `exclusive` writes are also used for receipts and cannot be told apart from locks by the primitive.
+- 2026-11-21 (night run, the implementer's choices inside `## Change`; night defaults, for Adrian to confirm in the
+  morning, D-054 (2)): the thirteen choices of `outcome.md` → `## Night defaults`, among them: (1) the API
+  `withLock({ folder } | { file }, operation, options)`, `lockPath` and a pure `ownerGone`; (2) the injection point is
+  the test-only option `pause(step, lock)` at `found-dead` and also at `busy`, before each wait on a live owner, so the
+  multi-process tests wait on no timer; (3) `LOCK_TIMEOUT`'s `next` is empty and the hint ends the message, because
+  T-37 (D-045, D-046) makes `next` a command or nothing, never prose, and the module does not know the command to
+  repeat (this replaces Change 1's "its `next` is a hint"); (4) a release that finds its lock gone or replaced fails the
+  call with the new code `LOCK_LOST`, class `environment` (Change 1's "a failed release fails the call"); (7) a lock
+  file that is neither a record nor a pid is `BAD_DATA`; (8) a pid that answers no signal 0 is gone even when
+  `processInfo` says `unavailable`. `docs/groups.md:83` ("no timeout") changed with Change 7.
+- 2026-11-21 (main session, review round 1, `review.md`): fix findings 1 and 6. (1) The lock record's `bootId` is
+  read with the same UUID shape `parseBootId` accepts (a record with another `bootId` is `BAD_DATA`), so a lock file
+  cannot put text of any length into the `LOCK_TIMEOUT` and `LOCK_LOST` messages; a test in `test/lock.test.ts` shows
+  the refusal. (6) `test/cli/ticket.test.ts` opens with one header comment line (T-29 (5)).
+- 2026-11-21 (main session, review round 2, `review.md`): fix findings 1–4. (1) The record's `born` is read as at
+  most 20 digits (a longer one is `BAD_DATA`), so with `bootId` no field of a lock file puts text of any length into
+  the `LOCK_TIMEOUT` and `LOCK_LOST` messages; a test shows the refusal. (2) The comments at `test/cli/github.test.ts:49`
+  and `test/lock.test.ts:343` say "an older Limen" instead of "HEAD" (T-30). (3) `test/platform/linux.test.ts` opens
+  with one header comment line (T-29 (5)). (4) The poll lock has one definition, a function of the GitHub poller module
+  that `github disconnect` calls (T-25).
+- 2026-11-21 (main session, review round 3 PASS, `review.md`): the two rounds of fixes are used; notes 1–3 (`hasCode`
+  copies the adapter's `isCode`, the `LOCK_LOST` test does not assert the class, a comment names "the ticket's
+  Migration" without R-019) are not fixed here and wait for Adrian's answer to `.night/questions.md` → Q-9, with no
+  ticket blocked; note 4 (Change 8's sentence) was fixed by the main session.

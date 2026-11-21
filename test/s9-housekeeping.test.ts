@@ -148,23 +148,29 @@ test("seat registrations survive a dead-owner registry lock under contention", a
 	await writeFile(join(lock, "reclaimer"), "999999998.0");
 	await utimes(lock, new Date(0), new Date(0));
 	execFileSync("mkfifo", [gate]);
-	// Each process pauses at its first registry touch, so every one meets the dead lock together; one write releases all.
+	// Each process pauses at its first touch of the registry or its lock, so every one meets the dead lock together; one
+	// write releases all. The lock module (src/lock.ts) touches the lock first, through node:fs/promises.
 	await writeFile(
 		barrier,
 		`import fs from "node:fs"; import { syncBuiltinESMExports } from "node:module";
 let waited = false;
-for (const name of ["existsSync", "mkdirSync"]) {
-	const original = fs[name];
-	fs[name] = (path, ...rest) => {
-		if (!waited && String(path).startsWith(${JSON.stringify(registry)})) {
-			waited = true;
-			fs.writeFileSync(${JSON.stringify(ready)} + "/" + process.pid, "");
-			const fd = fs.openSync(${JSON.stringify(gate)}, "r");
-			fs.readSync(fd, Buffer.alloc(1));
-			fs.closeSync(fd);
-		}
-		return original(path, ...rest);
-	};
+const pause = (path) => {
+	if (!waited && String(path).startsWith(${JSON.stringify(registry)})) {
+		waited = true;
+		fs.writeFileSync(${JSON.stringify(ready)} + "/" + process.pid, "");
+		const fd = fs.openSync(${JSON.stringify(gate)}, "r");
+		fs.readSync(fd, Buffer.alloc(1));
+		fs.closeSync(fd);
+	}
+};
+for (const [module, names] of [[fs, ["existsSync", "mkdirSync"]], [fs.promises, ["open", "mkdir", "readFile", "stat", "link"]]]) {
+	for (const name of names) {
+		const original = module[name];
+		module[name] = (path, ...rest) => {
+			pause(path);
+			return original(path, ...rest);
+		};
+	}
 }
 syncBuiltinESMExports();
 `,

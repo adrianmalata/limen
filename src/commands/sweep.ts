@@ -37,7 +37,7 @@ export async function sweepCommand(values: Parsed): Promise<undefined> {
 		await uninstallSeatSweep();
 		return;
 	}
-	const living = updateRegisteredProjects((projects) =>
+	const living = await updateRegisteredProjects((projects) =>
 		projects.filter((project) => isAbsolute(project) && fs.existsSync(project) && fs.statSync(project).isDirectory()),
 	);
 	await Promise.all(living.map(sweepProject));

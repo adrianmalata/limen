@@ -73,7 +73,7 @@ export async function ticketNewCommand(values: Parsed, cwd: string): Promise<Suc
 	if (start < 0) {
 		throw new Error("ticket template needs an ## Outcome section");
 	}
-	const written = withNextTicketCode(root, plant, (code) => {
+	const written = await withNextTicketCode(root, plant, async (code) => {
 		const path = join("spec", "features", lane, `${code}-${slug}`, "ticket.md");
 		const text = `---\n${touches.length ? `touches:\n${touches.map((id) => `  - ${id}\n`).join("")}` : ""}opened: ${opened}\n---\n\n# ${code} · ${normalizedTitle}\n\n${template.slice(start).replace("## Outcome\n", `## Outcome\n\n${outcome}\n`)}`;
 		mkdirSync(join(base, lane), { recursive: true });

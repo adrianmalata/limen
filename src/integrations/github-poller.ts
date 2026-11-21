@@ -1,10 +1,11 @@
 import { spawnSync } from "node:child_process";
 import { createHash, createSign, randomBytes } from "node:crypto";
-import { mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, realpath, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { atomicWrite } from "../atomic-write.ts";
 import { exception } from "../config.ts";
+import { withLock } from "../lock.ts";
 import { EXIT_CODES, failureOf, LimenError } from "../outcome.ts";
 import {
 	claimId,
@@ -686,64 +687,73 @@ async function project(root: string, stateDir: string, jwt: string): Promise<voi
 			throw new Error(`unsafe poller claim directory ${dir}`);
 		}
 	}
-	const lock = join(githubDir(root), "poll.lock");
-	await writeFile(lock, `${process.pid}\n`, { flag: "wx", mode: 0o660 });
-	try {
-		if ((await readBinding(root))?.connectedAt !== binding.connectedAt) {
-			return; // disconnect won the race
+	await withPollLock(root, () => pollProject(root, state, binding, jwt));
+}
+
+/**
+ * Runs `operation` under the poll lock of the project at `root`, the one definition of that lock (T-25) for the poll
+ * and `github disconnect`: one poll of a project at a time, and a disconnect waits for it (A-018). The lock of a poller
+ * that died is taken over, a live one is waited for at most 60 s. Group-readable and -writable, as before: the
+ * poller's account and the coordinator's share `.limen/github/`.
+ */
+export function withPollLock<T>(root: string, operation: () => Promise<T>): Promise<T> {
+	return withLock({ file: join(githubDir(root), "poll") }, operation, { fileMode: 0o660 });
+}
+
+/** One project's poll under its lock: the claims it holds, then new comments and issues since its cursor. */
+async function pollProject(root: string, state: string, binding: GithubBinding, jwt: string): Promise<void> {
+	if ((await readBinding(root))?.connectedAt !== binding.connectedAt) {
+		return; // disconnect won the race
+	}
+	const identity = spawnSync("id", ["-u", binding.user], { encoding: "utf8" });
+	const groups = spawnSync("id", ["-nG", binding.user], { encoding: "utf8" });
+	if (
+		identity.status !== 0 ||
+		Number(identity.stdout.trim()) !== Number(exception("LIMEN_GITHUB_WORKER_UID")) ||
+		groups.status !== 0 ||
+		/\b(?:sudo|wheel|admin)\b/.test(groups.stdout)
+	) {
+		throw new Error("registered coordinator has unsafe Unix privileges; disconnect until its sudo access is removed");
+	}
+	const token = await installationToken(binding.repo, jwt); // a token scoped to this installed repository only
+	const claimsDir = join(state, "claims");
+	for (const entry of await readdir(claimsDir)) {
+		if (!entry.endsWith(".json") || claimId(entry.slice(0, -5)) === undefined) {
+			continue;
 		}
-		const identity = spawnSync("id", ["-u", binding.user], { encoding: "utf8" });
-		const groups = spawnSync("id", ["-nG", binding.user], { encoding: "utf8" });
-		if (
-			identity.status !== 0 ||
-			Number(identity.stdout.trim()) !== Number(exception("LIMEN_GITHUB_WORKER_UID")) ||
-			groups.status !== 0 ||
-			/\b(?:sudo|wheel|admin)\b/.test(groups.stdout)
-		) {
-			throw new Error("registered coordinator has unsafe Unix privileges; disconnect until its sudo access is removed");
+		const claim = JSON.parse(await readFile(join(claimsDir, entry), "utf8")) as GithubClaim;
+		if (sameRepo(claim.repo, binding.repo)) {
+			await reconcile(root, state, claim, token);
 		}
-		const token = await installationToken(binding.repo, jwt); // a token scoped to this installed repository only
-		const claimsDir = join(state, "claims");
-		for (const entry of await readdir(claimsDir)) {
-			if (!entry.endsWith(".json") || claimId(entry.slice(0, -5)) === undefined) {
+	}
+	// Keep a durable cursor, with one second overlap for comments sharing a GitHub timestamp.
+	const cursorPath = join(state, "cursor.json");
+	const cursor = await readFile(cursorPath, "utf8").then(
+		(text) => JSON.parse(text) as { id: number; createdAt: string },
+		() => ({ id: 0, createdAt: binding.connectedAt }),
+	);
+	const since = new Date(Math.max(Date.parse(binding.connectedAt), Date.parse(cursor.createdAt) - 1000))
+		.toISOString()
+		.replace(/\.\d{3}Z$/, "Z");
+	for (let page = 1; ; page++) {
+		const comments = await api<Comment[]>(
+			`/repos/${binding.repo}/issues/comments?sort=created&direction=asc&since=${encodeURIComponent(since)}&per_page=${PAGE}&page=${page}`,
+			token,
+		);
+		for (const comment of comments) {
+			if (comment.id <= cursor.id) {
 				continue;
 			}
-			const claim = JSON.parse(await readFile(join(claimsDir, entry), "utf8")) as GithubClaim;
-			if (sameRepo(claim.repo, binding.repo)) {
-				await reconcile(root, state, claim, token);
-			}
+			await accept(root, state, binding, comment, token);
+			cursor.id = comment.id;
+			cursor.createdAt = comment.created_at;
+			await atomicWrite(cursorPath, `${JSON.stringify(cursor)}\n`, { mode: 0o600 });
 		}
-		// Keep a durable cursor, with one second overlap for comments sharing a GitHub timestamp.
-		const cursorPath = join(state, "cursor.json");
-		const cursor = await readFile(cursorPath, "utf8").then(
-			(text) => JSON.parse(text) as { id: number; createdAt: string },
-			() => ({ id: 0, createdAt: binding.connectedAt }),
-		);
-		const since = new Date(Math.max(Date.parse(binding.connectedAt), Date.parse(cursor.createdAt) - 1000))
-			.toISOString()
-			.replace(/\.\d{3}Z$/, "Z");
-		for (let page = 1; ; page++) {
-			const comments = await api<Comment[]>(
-				`/repos/${binding.repo}/issues/comments?sort=created&direction=asc&since=${encodeURIComponent(since)}&per_page=${PAGE}&page=${page}`,
-				token,
-			);
-			for (const comment of comments) {
-				if (comment.id <= cursor.id) {
-					continue;
-				}
-				await accept(root, state, binding, comment, token);
-				cursor.id = comment.id;
-				cursor.createdAt = comment.created_at;
-				await atomicWrite(cursorPath, `${JSON.stringify(cursor)}\n`, { mode: 0o600 });
-			}
-			if (comments.length < PAGE) {
-				break;
-			}
+		if (comments.length < PAGE) {
+			break;
 		}
-		await pollGithubIssues(root, state, binding, token);
-	} finally {
-		await rm(lock, { force: true });
 	}
+	await pollGithubIssues(root, state, binding, token);
 }
 
 /**
