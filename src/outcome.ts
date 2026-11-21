@@ -3,6 +3,7 @@
 // through the validators of src/boundary.ts (T-27 (2)). That module takes `LimenError` from here, so this one uses its
 // exports only inside functions, never while it loads: either module can then load first.
 import { at, checkValue, matching, object, oneOf, optional, parseJson, string } from "./boundary.ts";
+import { JOB_ID } from "./job/id.ts";
 
 /** The exit code of each class (T-02): the exit code is the class, and the final line carries the detail. */
 export const EXIT_CODES = { ok: 0, refused: 1, usage: 2, transient: 3, environment: 4, internal: 5 } as const;
@@ -32,12 +33,11 @@ export const JOB_STARTED = "End your turn; Limen wakes you when the job ends.";
 const FAILURE_CLASSES: readonly string[] = ["refused", "usage", "transient", "environment", "internal"];
 const CODE = /^[A-Z][A-Z0-9_]*$/;
 /**
- * The format of each `ids` value: a job id, a ticket number, a question number. `github review` and `github work` can
- * name a job an earlier `makeJobId` (`src/job/job.ts`) made, so the job id takes every form it has written: a 4- or
- * 8-hex suffix, and a slug of at most 32 characters that may hold a run of dashes or end in one.
+ * The format of each `ids` value: a job id of any form Limen has written (src/job/id.ts), a ticket number, a question
+ * number.
  */
 const ID_FORMATS = {
-	job: /^\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]{0,31}-(?:[0-9a-f]{4}|[0-9a-f]{8})$/,
+	job: JOB_ID,
 	ticket: /^F\d{3,}$/,
 	question: /^Q-\d{3}$/,
 } as const;

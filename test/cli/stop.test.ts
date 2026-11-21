@@ -1,17 +1,19 @@
-// src/commands/stop.ts: `limen stop` on a job whose wrapper moves it from starting to running while the stop runs.
+// src/commands/stop.ts: `limen stop` on a job named approximately, and on a job whose wrapper moves it from starting to
+// running while the stop runs.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { stopJob } from "../../src/commands/stop.ts";
 import { readRecord } from "../../src/job/record.ts";
 import { withLock } from "../../src/lock.ts";
+import { readOutcome } from "../../src/outcome.ts";
 import { platform } from "../../src/platform/platform.ts";
-import { repository, until, writeRecord } from "../plant.ts";
+import { jobDir, limen, plant, repository, until, writeRecord } from "../plant.ts";
 
 const ID = "2026-11-21-stop-1a2b3c4d";
 
@@ -66,4 +68,20 @@ test("a stop that read a starting job, whose wrapper then won the race to runnin
 	]);
 	clearTimeout(timer);
 	assert.deepEqual([signal, (await readRecord(job))?.state], ["SIGTERM", "stopped"]);
+});
+
+test("JOB_NOT_EXACT: stop with a job's label exits 2, names the command with the token in next and leaves the record byte-identical", async (t) => {
+	const p = await plant();
+	t.after(p.cleanup);
+	const record = join(jobDir(p, ID), "record.json");
+	await writeRecord(jobDir(p, ID), { state: "starting", label: "demo", spawnerPid: process.pid });
+	const before = await readFile(record);
+	const run = limen(p, ["stop", "demo", "not needed"]);
+	assert.equal(run.status, 2, run.stderr);
+	assert.deepEqual(readOutcome(run), {
+		class: "usage",
+		code: "JOB_NOT_EXACT",
+		next: "limen stop 1a2b3c4d 'not needed'",
+	});
+	assert.deepEqual(await readFile(record), before);
 });

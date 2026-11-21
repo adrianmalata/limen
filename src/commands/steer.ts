@@ -1,6 +1,6 @@
 import { transport } from "../config.ts";
-import { resolveJob } from "../job/lookup.ts";
 import { jobFolders, readRecord, textFile } from "../job/record.ts";
+import { jobArgument, resolveJob } from "../job/reference.ts";
 import { enqueueSteer } from "../job/steer-inbox.ts";
 import type { Parsed } from "../parser.ts";
 import { platform } from "../platform/platform.ts";
@@ -19,7 +19,7 @@ export async function steerCommand(values: Parsed, cwd: string): Promise<undefin
 	if (!message) {
 		throw new Error("steer requires a message");
 	}
-	const targets = running ? await watchedRunning(cwd) : [await resolveJob(cwd, values.get("job") ?? "", "control")];
+	const targets = running ? await watchedRunning(cwd) : [await resolveJob(cwd, jobArgument(values), "control")];
 	if (!targets.length) {
 		console.log("nothing was reached");
 		return;

@@ -10,9 +10,10 @@ import type { GroupMember, GroupRun } from "../job/group-cabinet.ts";
 import { claimMember, groupIdentity, groupLock, groupPath, teamRoute } from "../job/group-cabinet.ts";
 import { syncLifecycle } from "../job/group-events.ts";
 import { memberPacket, routeFlags } from "../job/group-packet.ts";
-import { makeJobId, parseDuration, SESSION_ID } from "../job/job.ts";
+import { parseDuration, SESSION_ID } from "../job/job.ts";
 import { publishJob } from "../job/publication.ts";
 import { jobFolders, readRecord, transition } from "../job/record.ts";
+import { withNewJobId } from "../job/reference.ts";
 import { type NameSource, refuseRemovedRole } from "../old-names.ts";
 import { JOB_STARTED, type Success } from "../outcome.ts";
 import type { Parsed } from "../parser.ts";
@@ -320,19 +321,52 @@ function spawnTaskText(loaded: SpawnTask, repoFlag: string | undefined, place: S
 	}
 	return loaded.text;
 }
-/** Plans the worktree, claims the member slot, writes the job record and prints its ID, then creates the worktree and starts the job; returns the ID. */
+/** Names the job and publishes its record, prints its ID, then creates the worktree and starts the job; returns the ID. */
 async function recordSpawnedJob(launch: SpawnLaunch): Promise<string> {
-	const { options, group, place, task } = launch;
+	const { options, group, place } = launch;
 	const { root, repository } = place;
 	const role = options.review ? "reviewer" : (group?.role ?? options.role ?? "worker");
 	const pinnedBase = options.base ? resolveCommit(repository, options.base, "--base") : undefined;
 	const pinnedHead = options.head ? resolveCommit(repository, options.head, "--head") : undefined;
 	const preamble = resolvePreamble(root, role, "argument");
-	const id = makeJobId(options.label);
 	const jobsRoot = `${root}/.limen/jobs`;
 	// A project an older Limen recorded is refused before the first write: no worktree root, no member slot (T-38).
 	await jobFolders(jobsRoot);
 	await mkdir(jobsRoot, { recursive: true });
+	// The new token stays unique while its lock is held, until publication has made the job's folder (T-20 (1)).
+	const { id, jobDir, plan, member } = await withNewJobId(root, options.label, (id) =>
+		publishNewJob(launch, { id, jobsRoot, role, pinnedBase, pinnedHead }),
+	);
+	// The ID prints once the record exists, so a caller killed during the rest still names its job.
+	console.log(id);
+	try {
+		const worktree = executeWorktree(place.repository, plan);
+		const setup = {
+			LIMEN_SETUP_KEEP: place.currentRoot,
+			LIMEN_SETUP_PREPARE: options.prepare ?? "",
+		};
+		const memberDeadline = member?.deadline;
+		await launchSpawnedJob(launch, { jobDir, id, root, worktree, preamble, role, memberDeadline, setup });
+	} catch (error) {
+		await finalizeJob(jobDir, "failed", `${group ? "group launch" : "spawn"} failed: ${String(error)}`);
+		throw error;
+	}
+	return id;
+}
+/** Plans the worktree, claims the member slot and publishes the job's record under the id `id`. */
+async function publishNewJob(
+	launch: SpawnLaunch,
+	named: {
+		readonly id: string;
+		readonly jobsRoot: string;
+		readonly role: string;
+		readonly pinnedBase: string | undefined;
+		readonly pinnedHead: string | undefined;
+	},
+) {
+	const { options, group, place, task } = launch;
+	const { repository } = place;
+	const { id, jobsRoot, role, pinnedBase, pinnedHead } = named;
 	const branch = options.branch ?? `limen/${id}`;
 	const worktreeRoot = `${dirname(repository)}/.${basename(repository)}-limen-worktrees`;
 	const requestedPath = `${worktreeRoot}/${id}`;
@@ -358,21 +392,7 @@ async function recordSpawnedJob(launch: SpawnLaunch): Promise<string> {
 	const base = pinnedBase ?? baseCommit;
 	const taskBody = await jobTaskBody(launch, candidate, member);
 	await publishSpawnedJob(launch, { jobDir, id, taskBody, branch, worktree: plan.path, base, role, member, candidate });
-	// The ID prints once the record exists, so a caller killed during the rest still names its job.
-	console.log(id);
-	try {
-		const worktree = executeWorktree(place.repository, plan);
-		const setup = {
-			LIMEN_SETUP_KEEP: place.currentRoot,
-			LIMEN_SETUP_PREPARE: options.prepare ?? "",
-		};
-		const memberDeadline = member?.deadline;
-		await launchSpawnedJob(launch, { jobDir, id, root, worktree, preamble, role, memberDeadline, setup });
-	} catch (error) {
-		await finalizeJob(jobDir, "failed", `${group ? "group launch" : "spawn"} failed: ${String(error)}`);
-		throw error;
-	}
-	return id;
+	return { id, jobDir, plan, member };
 }
 function assertTicketsAtBase(repository: string, baseCommit: string, task: string): void {
 	for (const { path } of ticketPointers(task)) {

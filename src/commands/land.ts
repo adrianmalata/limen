@@ -6,8 +6,8 @@ import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { transport } from "../config.ts";
 import { jobFeatures } from "../job/job.ts";
-import { resolveJob } from "../job/lookup.ts";
 import { readRecord } from "../job/record.ts";
+import { type JobArgument, jobArgument, resolveJob } from "../job/reference.ts";
 import type { Parsed } from "../parser.ts";
 import { readPicture } from "../picture/picture-build.ts";
 import { checkTickets, readTickets } from "../picture/tickets.ts";
@@ -31,7 +31,7 @@ export async function landCommand(values: Parsed, cwd: string): Promise<undefine
 		throw new Error("group members cannot land; the owner-facing lead owns landing");
 	}
 	const parsed = {
-		query: values.get("job") ?? "",
+		query: jobArgument(values),
 		yes: values.has("yes"),
 		keepOpen: values.has("keep-open"),
 		onto: values.get("onto"),
@@ -88,7 +88,7 @@ async function closeLandedTickets(root: string, id: string, features: readonly s
 /** The job's recorded branch, base, repo, label and task; only a done job with a branch and a base lands. */
 async function readDoneJob(
 	cwd: string,
-	query: string,
+	query: JobArgument,
 ): Promise<{ id: string; branch: string; base: string; repo: string; label: string; task: string }> {
 	const { id, jobDir } = await resolveJob(cwd, query, "control");
 	const record = await readRecord(jobDir);

@@ -74,7 +74,7 @@ limen spawn --engine <engine> --provider <provider> --model <model> --thinking <
 # Inspect
 limen status
 limen status --all
-limen show <id|suffix|label>
+limen show <id|token>
 git diff HEAD...<branch>
 
 # Review
@@ -90,7 +90,7 @@ limen spawn --engine <engine> --provider <provider> --model <model> --thinking <
 limen continue <id> 'Follow-up instruction'
 
 # Follow and land
-limen watch <id|label>
+limen watch <id|token>
 # When the work changed a ticket, fix its links on a keeper branch first, then land the keeper job
 limen keeper spec/features/active/F001-auth/ticket.md --job <id> \
   --engine <engine> --provider <provider> --model <model> --thinking <level>

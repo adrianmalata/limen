@@ -46,9 +46,39 @@ type Value = string | true | readonly string[];
 export class Parsed {
 	private readonly values: ReadonlyMap<string, Value>;
 	private readonly declared: ReadonlySet<string>;
-	constructor(values: ReadonlyMap<string, Value>, declared: ReadonlySet<string>) {
+	private readonly command: Command;
+	constructor(values: ReadonlyMap<string, Value>, declared: ReadonlySet<string>, command: Command) {
 		this.values = values;
 		this.declared = declared;
+		this.command = command;
+	}
+	/**
+	 * The command line that gives these values with `to` in the place of the value `from` of `name`, built from the
+	 * schema, so that it parses to the same values but that one: a refusal's `next` for a job given approximately
+	 * (T-20 (3), D-045 (2)).
+	 */
+	commandWith(name: string, from: string, to: string): string {
+		const positionals: string[] = [];
+		const flags: string[] = [];
+		for (const part of this.command.schema) {
+			const key = isPositional(part) ? part.positional : isFlag(part) ? part.flag : undefined;
+			const value = key === undefined ? undefined : this.values.get(key);
+			if (key === undefined || value === undefined) {
+				continue;
+			}
+			const words = (typeof value === "string" ? [value] : value === true ? [] : value).map((word) =>
+				key === name && word === from ? to : word,
+			);
+			if (isPositional(part)) {
+				positionals.push(...words);
+			} else {
+				flags.push(...(value === true ? [`--${key}`] : words.flatMap((word) => flagWords(key, word))));
+			}
+		}
+		// A positional that starts with `--` reads as a positional only after a lone `--`, so the flags come first then.
+		const dashed = positionals.some((word) => word.startsWith("--"));
+		const words = dashed ? [...flags, "--", ...positionals] : [...positionals, ...flags];
+		return [`limen ${this.command.name}`, ...words.map(shellWord)].join(" ");
 	}
 	/**
 	 * A positional or a flag's value. A text, a repeated positional or a repeatable flag gives its words or values
@@ -76,6 +106,15 @@ export class Parsed {
 		}
 		return this.values.get(name);
 	}
+}
+
+/** A flag's value as words of a command line: inline when it starts with `--`, which a separate word does not take. */
+function flagWords(flag: string, value: string): string[] {
+	return value.startsWith("--") ? [`--${flag}=${value}`] : [`--${flag}`, value];
+}
+/** A word as a POSIX shell reads it back: as it is when it holds no special character, else in single quotes. */
+function shellWord(word: string): string {
+	return /^[A-Za-z0-9_./:@+=%,-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;
 }
 
 const isFlag = (part: Part): part is Flag => "flag" in part;
@@ -326,5 +365,5 @@ export function parse(command: Command, args: readonly string[]): Parsed {
 	const declared = new Set(
 		command.schema.flatMap((part) => (isPositional(part) ? [part.positional] : isFlag(part) ? [part.flag] : [])),
 	);
-	return new Parsed(new Map([...flags, ...placed.values]), declared);
+	return new Parsed(new Map([...flags, ...placed.values]), declared, command);
 }

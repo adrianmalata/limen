@@ -46,7 +46,8 @@ R-021 przerwał limit 5 h, przebieg 3 dokończył go świeżym implementerem i R
 `limen migrate`, bramka 484/484, cztery uwagi rundy 3 czekają na pytanie nocne Q-10; limit tygodniowy 98 %); limit
 tygodniowy zatrzymał noc o 06:15 w R-022 po rundzie 1 recenzji; rano 21.11 Adrian zresetował limit i zapisał D-062
 (jeden ticket poprawek R-093 dla uwag Q-9 i Q-10, przed tagiem a0.2.0), a sesja dzienna wznawia R-022; D-063: punkt (8) R-093 (atomowy zapis rekordu w test/plant.ts), nowy R-094 (wrapper
-w kolejce kończy się, gdy znika folder joba) i autopilot do 13:00. -->
+w kolejce kończy się, gdy znika folder joba) i autopilot do 13:00; D-064 usuwa push przy 98 %; R-022 zamknięty (jeden resolver odwołań do jobów
+src/job/reference.ts, bramka 504/504, dwie uwagi rundy 3 czekają na pytanie Q-11). -->
 
 
 
@@ -1165,7 +1166,7 @@ Columns:
 | R-019 | One lock module with process identity and a bounded wait | 2 | A-017, A-018, A-055, A-058, A-087, T-25, D-029, D-056 | R-018, R-020 | M | delegated | night | yes | — | — | done |
 | R-020 | A Linux platform adapter and declared system requirements | 2 | A-083, T-12, T-32, D-060 | R-013 | M | delegated | night | — | — | — | done |
 | R-021 | One `record.json` per job, written only by the transition function | 2 | S1+, A-019, A-053, A-056, T-20, T-25, D-057 | R-016, R-018, R-019 | L | delegated | night | yes | — | — | done |
-| R-022 | Exact job references through one resolver | 2 | T-20, D-061 | R-014, R-021 | M | delegated | night | yes | — | — | active |
+| R-022 | Exact job references through one resolver | 2 | T-20, D-061 | R-014, R-021 | M | delegated | night | yes | — | — | done |
 | R-023 | Commands are thin adapters over domain operations | 2 | T-26, D-044, D-045, D-046, D-061 | R-014, R-021, R-089 | M | delegated | night | — | — | — | ready (D-061) |
 | R-092 | A refusal leaves no trace: `validate` then `apply` | 2 | T-38, D-061 | R-021, R-023 | L | delegated | night | — | — | — | planned |
 | R-093 | The round-3 notes of R-019 and R-021: the migration keeps `born`, guarded hook reads | 2 | T-25, T-02, T-30, D-062, D-063 | R-019, R-021, R-022 | S | delegated | night | — | — | — | ready (D-062, D-063) |
@@ -2483,14 +2484,21 @@ Morning of 2026-11-21 (`limen-rebuild-13`, after Adrian's "sprawdź" at 06:24):
   second and last round of fixes; 1 (the race test of `stop`) is R-021's and goes to R-093 (8) by D-063 (1). The
   round-2 implementer's gate failed once on the unchanged queue test of `s3-finish-wake`, so it replied `BLOCKED`
   (D-029); D-063 (2) settled it (measurement, five orphaned wrappers stopped, one more gate run) and added R-094.
-- From about 09:10: autopilot until 13:00 (D-063 (4)); Adrian is driving.
+- From about 09:10: autopilot until 13:00 (D-063 (4)); Adrian is driving. D-064 (his message at about 09:10): the
+  98 % push of D-053 (1) is removed.
+- R-022 `done` (delegated): the main session's gate after the round-2 fixes 504/504, `fails-before.mjs` exit 0 (eight
+  files); review round 3 PASS with four notes: two in `outcome.md` fixed by the main session (D-053 (2)), two on code
+  (the migration's report of a token shared with `.limen/unmigrated/`, the keeper comment's "read once") in
+  `.night/questions.md` → Q-11 (recommended: two more items of R-093), no ticket blocked. Cost: weekly 0 % → 2 %.
+- R-093's `ticket.md` written at R-022's tree (`check.mjs` requires it once R-022 is `done`, D-054 (1)); it stays
+  untracked until R-093's own commit, as R-022's did. Its grep criteria match at R-022's tree (they fail before).
 
-Active ticket: R-022 (step 4: the main session's gate after the round-2 fixes, then review round 3).
+Active ticket: none.
 
 Next (autopilot until 13:00 on 2026-11-21, D-063 (4); then by day):
-0. R-022: the main session's gate once (D-063 (2)); `fails-before.mjs`; review round 3; the commit `R-022:`. A failed
-   gate or a FAIL of round 3 makes R-022 `blocked` with a question in `.night/questions.md`.
-1. R-093 (its `ticket.md` at the HEAD after R-022, from D-062 and D-063 (1)), then R-094, then R-089 and R-023.
+0. Answers waiting: Q-11 (R-022's round-3 notes). An answer "1" that comes before R-093's implementer starts adds
+   items (9) and (10) to its `ticket.md` → `## Decisions`; an answer after that start makes one S ticket.
+1. R-093 (`ticket.md` written), then R-094 (its `ticket.md` at the HEAD after R-093), then R-089 and R-023.
 2. Then R-092, R-024 and R-025, and the close: tag `a0.2.0`, gate 5.2 by phone, with the night defaults above.
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as

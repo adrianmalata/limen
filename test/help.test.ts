@@ -94,7 +94,7 @@ const LAND = [
 	"limen land <job> [--onto <branch>] [--yes] [--keep-open]",
 	"merge a done job onto this branch and close its ticket",
 	"",
-	"  <job>              the job's id, its suffix or its label",
+	"  <job>              the job's full id or its 8-character token",
 	"  --onto <branch>    refuse unless <branch> is the checked-out branch",
 	"  --yes              do not ask for confirmation in a terminal",
 	"  --keep-open        keep the ticket active, because more slices remain",

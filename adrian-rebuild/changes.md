@@ -2,7 +2,7 @@
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
-R-019, R-021. -->
+R-019, R-021, R-022. -->
 
 # Changes
 
@@ -213,3 +213,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-10, M-01)
 - Commit: R-021
 - Rollback: git revert $(git log --format=%H --grep='^R-021:' adrian-rebuild --) (+ the snapshot of `## Deployment` 0.1 for every migrated project)
+
+## 2026-11-21 R-022 Exact job references through one resolver
+- What: new `src/job/reference.ts` (`resolveJob`: only a full id or an 8-hex token that exactly one id owns, from the folder names; every other form exits 2, class `usage`, with `JOB_NOT_FOUND`, `JOB_TOKEN_SHARED` or `JOB_NOT_EXACT`, the candidates in the message and `next` the command with the one candidate's token or `limen status --all`; a damaged record is a candidate only when the word matches its id; `JOB_OTHER_TEAM` for a group member's control; `withNewJobId` draws the token under `.limen/jobs.lock` against `.limen/jobs/` and `.limen/unmigrated/` until the job's folder exists), new `src/job/id.ts` (the one form of the job id and token); `src/job/lookup.ts` removed, `resolveJobId` out of `src/job/job.ts`; the ten job-typed commands resolve through the module (`src/commands/{continue,diff,keeper,land,open,show,steer,stop,watch}.ts`), `spawn` and `continue` name jobs through `withNewJobId`; `src/parser.ts` (`commandWith`), `src/registry.ts`, `src/outcome.ts`, `src/job/migration.ts` and `src/job/record.ts` (`jobFolderNames`); `docs/commands.md`, `docs/jobs.md`, `templates/agents.md` (+ `templates/.history/agents.md`); tests `test/job/reference.test.ts`, `test/job/id.test.ts`, `test/cli/land.test.ts` (new), `test/cli/stop.test.ts`, `test/structure.test.ts` (the job-matcher scan, the registry-derived resolver scan, the T-25 id-form and listing scans, `UNTYPED_THROWS` 222 → 218), `test/u7-job-ids.test.ts`, `test/outcome.test.ts`, `test/help.test.ts`
+- Why: T-20, T-25, D-061, D-063
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (504/504); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (eight test files fail at HEAD); `node --test test/job/reference.test.ts` → exit 0 (11/11)
+- Measurement: unmeasured (plan.md → Measurement: M-05, M-01)
+- Commit: R-022
+- Rollback: git revert $(git log --format=%H --grep='^R-022:' adrian-rebuild --)

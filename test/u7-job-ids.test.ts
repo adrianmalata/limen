@@ -1,32 +1,8 @@
-// U7: every command that takes a job resolves it here, and every spawn names and bounds its job here.
-// A query must resolve to exactly one job or to none; a timeout must be explicit and fit Node's timer.
+// U7: every spawn names and bounds its job here: a job id from its label and its token, and an explicit timeout that
+// fits Node's timer. The resolver of job references is test/job/reference.test.ts.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { makeJobId, parseDuration, resolveJobId } from "../src/job/job.ts";
-
-test("a job resolves by full id, id suffix, exact label or label prefix, and only when one job matches", () => {
-	const ids = [
-		"2026-08-13-f001-implementation-7a2f0b1c",
-		"2026-08-13-f001-review-d4821e3f",
-		"2026-08-14-f002-fix-0000aaaa",
-	];
-	const [impl = "", review = "", fix = ""] = ids;
-	const labels = { [impl]: "F001 implementation", [review]: "F001 review", [fix]: "F002" };
-	const resolves = [
-		[review, review],
-		["7a2f0b1c", impl],
-		["review-d4821e3f", review],
-		["F001 review", review],
-		["f001 impl", impl],
-		["F002", fix],
-	] as const;
-	for (const [query, id] of resolves) {
-		assert.equal(resolveJobId(query, ids, labels), id, query);
-	}
-	for (const query of ["F001", "2026-08-1", "ab", "1c", "missing", "  "]) {
-		assert.throws(() => resolveJobId(query, ids, labels), query);
-	}
-});
+import { makeJobId, parseDuration } from "../src/job/job.ts";
 
 test("a job id hoists the feature number, keeps a bounded slug, and ends in a random suffix", () => {
 	const shape = /^\d{4}-\d{2}-\d{2}-([a-z0-9-]+)-[0-9a-f]{8}$/;

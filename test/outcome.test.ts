@@ -218,11 +218,22 @@ test("BAD_ARGUMENT: spawn with an unknown flag exits 2 before it writes anything
 	assert.deepEqual(readdirSync(join(p.root, ".limen/jobs")), jobs);
 });
 
-test("UNTYPED: a refusal that carries no type of its own exits 1 with code UNTYPED", () => {
+test("JOB_NOT_FOUND: show of a well-formed id that names no job exits 2 with limen status --all in next", () => {
 	const run = limen(p, ["show", "2026-11-18-none-1a2b3c4d"]);
+	assert.equal(run.status, 2, run.stderr);
+	assert.deepEqual(readOutcome(run), { class: "usage", code: "JOB_NOT_FOUND", next: "limen status --all" });
+	assert.equal(
+		outputText(run),
+		'no job of this project has the id or token "2026-11-18-none-1a2b3c4d"\nno job matches it\n',
+	);
+});
+
+test("UNTYPED: a refusal that carries no type of its own exits 1 with code UNTYPED", () => {
+	// A group member's land is one of the author's untyped refusals (R-082 types them).
+	const run = limen(p, ["land", "2026-11-18-none-1a2b3c4d"], { env: { LIMEN_GROUP_ID: "g1" } });
 	assert.equal(run.status, 1, run.stderr);
 	assert.deepEqual(readOutcome(run), { class: "refused", code: "UNTYPED", next: "" });
-	assert.equal(outputText(run), 'no job matches "2026-11-18-none-1a2b3c4d"\n');
+	assert.equal(outputText(run), "group members cannot land; the owner-facing lead owns landing\n");
 });
 
 test("limen status ends its stdout with the success line", () => {

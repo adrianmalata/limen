@@ -1,5 +1,5 @@
 import { renderJobDirectory } from "../job/listing.ts";
-import { resolveJob } from "../job/lookup.ts";
+import { jobArgument, resolveJob } from "../job/reference.ts";
 import { colorWanted, humanDetail, paintWhen } from "../job/view.ts";
 import type { Parsed } from "../parser.ts";
 import { limenRoot } from "../project/git.ts";
@@ -15,7 +15,7 @@ export async function showCommand(values: Parsed, cwd: string): Promise<undefine
 	const root = limenRoot(cwd);
 	const jobsRoot = `${root}/.limen/jobs`;
 	await confirmDeadJobs(jobsRoot);
-	const { id } = await resolveJob(cwd, values.get("job") ?? "", "read");
+	const { id } = await resolveJob(cwd, jobArgument(values), "read");
 	const loaded = await renderJobDirectory(root, jobsRoot, id, "detail");
 	console.log(human ? humanDetail(loaded.record, paint) : loaded.compact);
 }

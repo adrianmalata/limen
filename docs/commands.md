@@ -4,7 +4,7 @@
 
 The coordinator runs job commands. The operator runs setup commands. Run `limen --help` for the installed command list. Run `limen <command> --help`, for example `limen land --help`, for one command's usage line, its flags and an example, and `limen <group> --help`, for example `limen picture --help`, for the lines of a group.
 
-Where the reference shows them, IDs, unique suffixes, and unique labels work the same.
+Where the reference shows `<id|token>`, a command takes the job's full ID or its token, the 8 hexadecimal characters that end the ID. Any other form, such as a label, a label prefix or a shorter suffix, exits 2 (`JOB_NOT_EXACT`) with the jobs it may mean in the message; a token that several IDs share exits 2 (`JOB_TOKEN_SHARED`), and so does an ID or token that names no job (`JOB_NOT_FOUND`). A job whose ID ends in 4 hexadecimal characters, as before 2026-08-14, or whose token another ID shares, takes only its full ID. When a reference is refused, `next` is the same command with the token of the one job the reference may mean (its full ID when the job takes only that), or `limen status --all` when it may mean several jobs or none.
 
 ## Exit codes and the final line
 
@@ -141,7 +141,7 @@ Start a worker, a reviewer, or a job in one child repository, or continue a fini
 limen spawn --engine <engine> --provider <provider> --model <model> --thinking <level> "instruction" [--label L] [--branch B] [--role NAME] [--timeout 20m] [--task-file F|-] [--prepare CMD] [--priority 1|2|3] [--detached] [--extension PATH ...]
 limen spawn --engine <engine> --provider <provider> --model <model> --thinking <level> --repo R "instruction" [--label L]
 limen spawn --engine <engine> --provider <provider> --model <model> --thinking <level> --review --detached --branch B --label L [--base REF] [--head REF] "instruction"
-limen continue <id|suffix|label> "follow-up instruction" [--label L] [--engine pi] [--provider P] [--model M] [--thinking T] [--detached] [--timeout D] [--priority 1|2|3] [--extension PATH ...]
+limen continue <id|token> "follow-up instruction" [--label L] [--engine pi] [--provider P] [--model M] [--thinking T] [--detached] [--timeout D] [--priority 1|2|3] [--extension PATH ...]
 ```
 
 **Detached.** Every job runs detached, under a wrapper with the limits of [Limits](jobs.md#limits); inside Herdr it also gets a tab that follows its log. `--detached` is accepted and changes nothing.
@@ -168,9 +168,9 @@ Read the plant inbox, the job records, and the diff of a job, or open a job in H
 
 ```text
 limen status [--all]
-limen show <id|suffix|label>
-limen diff <id|suffix|label>
-limen open <id|suffix|label>
+limen show <id|token>
+limen diff <id|token>
+limen open <id|token>
 ```
 
 `status` is the plant inbox. It has four parts:
@@ -188,7 +188,7 @@ When the project has leftover files, a section `Leftover files (N); check them, 
 
 After the leftover files, `limen status` names the `LIMEN_*` variables of its own environment that Limen does not read: a section `Environment settings Limen no longer reads (N); remove them:` with one line `<name>: <what replaces it>` for each, such as `LIMEN_PREPARE: the spawn flag --prepare`, and for a name Limen never had `nothing (not a Limen name)`. A section `Environment variables read until a ticket replaces them (N):` lists each setting still read from the environment with `until <ticket>`: `LIMEN_WORKER_MODEL` (R-062), `LIMEN_COORDINATOR` (R-050), the six `LIMEN_GITHUB_*` names of the GitHub poller (R-059) and `LIMEN_PACKAGE` (R-049). The names Limen sets between its own processes and the knobs of the tests are not listed. A section with no name is not shown.
 
-In a terminal, `show` shows the job for people. Through a pipe, it prints the compact format that tools read. The terminal alone selects the view; `LIMEN_VIEW` is no longer read. `NO_COLOR` removes the color. An unknown job ID exits 1 with `no job matches "<id>"`. The old `jobs` command was split into `limen status --all` and `limen show <job>`: `jobs <id>` exits 2 and names `limen show <id>`, and every other form of it names `limen status --all`.
+In a terminal, `show` shows the job for people. Through a pipe, it prints the compact format that tools read. The terminal alone selects the view; `LIMEN_VIEW` is no longer read. `NO_COLOR` removes the color. An ID or token that names no job exits 2 with the code `JOB_NOT_FOUND` and `limen status --all` in `next`. The old `jobs` command was split into `limen status --all` and `limen show <job>`: `jobs <id>` exits 2 and names `limen show <id>`, and every other form of it names `limen status --all`.
 
 `limen show <id>` also shows `model`, the provider and model that the session's turns ran, and `tokens`, the turns and the input, output, cache-read and cache-write totals of that job's own turns. When a turn ran a model other than the one spawn recorded in the job's route, the line shows both: `served … · requested …`. This informs; it does not block.
 
@@ -201,10 +201,10 @@ A job is starting while `limen spawn` still sets it up: the worktree and the lau
 Correct or stop a running job, or subscribe to it.
 
 ```text
-limen steer <id|suffix|label> | --running "correction"
-limen stop <id|suffix|label> [reason]
-limen watch <id|suffix|label> | --running
-limen unwatch <id|suffix|label> | --all
+limen steer <id|token> | --running "correction"
+limen stop <id|token> [reason]
+limen watch <id|token> | --running
+limen unwatch <id|token> | --all
 ```
 
 ### Land and clean up
@@ -212,7 +212,7 @@ limen unwatch <id|suffix|label> | --all
 Merge a job and close its ticket, close the Herdr tabs of a feature, and remove finished worktrees or records.
 
 ```text
-limen land <id|suffix|label> [--onto BRANCH] [--yes] [--keep-open]
+limen land <id|token> [--onto BRANCH] [--yes] [--keep-open]
 limen close <FNNN>
 limen prune [--retire [--dry-run]]
 ```

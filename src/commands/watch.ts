@@ -1,8 +1,8 @@
 import { access, mkdir, rm } from "node:fs/promises";
 import { atomicWrite } from "../atomic-write.ts";
 import { isTerminal } from "../job/job.ts";
-import { resolveJob } from "../job/lookup.ts";
 import { jobFolders, readRecord, transition } from "../job/record.ts";
+import { type JobArgument, jobArgument, resolveJob } from "../job/reference.ts";
 import type { Parsed } from "../parser.ts";
 import { limenRoot } from "../project/git.ts";
 import { currentNotificationSession, herdrWakePane } from "./spawn.ts";
@@ -15,14 +15,14 @@ export type WakeRoute = { readonly session: string } | { readonly pane: string }
 
 /** `limen watch`: this coordinator gets the job's wake, or the wakes of every job running now with `--running`. */
 export function watchCommand(values: Parsed, cwd: string): Promise<undefined> {
-	return changeSubscriptions(values.has("running") ? undefined : values.get("job"), cwd, true);
+	return changeSubscriptions(values.has("running") ? undefined : jobArgument(values), cwd, true);
 }
 /** `limen unwatch`: this coordinator stops getting the job's wake, or every job's with `--all`. */
 export function unwatchCommand(values: Parsed, cwd: string): Promise<undefined> {
-	return changeSubscriptions(values.has("all") ? undefined : values.get("job"), cwd, false);
+	return changeSubscriptions(values.has("all") ? undefined : jobArgument(values), cwd, false);
 }
 /** Subscribes or unsubscribes one job, or every job when `query` is undefined. */
-async function changeSubscriptions(query: string | undefined, cwd: string, watching: boolean): Promise<undefined> {
+async function changeSubscriptions(query: JobArgument | undefined, cwd: string, watching: boolean): Promise<undefined> {
 	const next = watching ? "follow the job with `limen show <id>` instead" : "it watches nothing";
 	const route = coordinatorWakeRoute(watching ? "watch" : "unwatch", next);
 	const bulk = query === undefined;

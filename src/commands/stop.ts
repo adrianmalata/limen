@@ -1,21 +1,21 @@
 import { mkdir } from "node:fs/promises";
 import { finalizeJob, requestedTerminal } from "../job/finalize.ts";
 import { SESSION_ID } from "../job/job.ts";
-import { resolveJob } from "../job/lookup.ts";
 import { appendLimenLog, readRecord, transition } from "../job/record.ts";
+import { type JobReference, jobArgument, resolveJob } from "../job/reference.ts";
 import type { Parsed } from "../parser.ts";
 import { platform } from "../platform/platform.ts";
 import { containEscapedDescendants, discoverEscapedDescendants, waitForProcessGroup } from "../runtime/contain.ts";
 /** `limen stop`: stops a running job with the reason given, or "stopped by request". */
 export async function stopCommand(values: Parsed, cwd: string): Promise<undefined> {
-	await stopJob(values.get("job") ?? "", values.get("reason") ?? "", cwd);
+	await stopJob(jobArgument(values), values.get("reason") ?? "", cwd);
 }
 /**
  * Stops the job `query` names; a group's stop calls it for each member job. A job its wrapper has not run yet ends
  * here at once, only from `starting`, and its wrapper then finds it no longer starting and runs no engine; a wrapper
  * that moved it to running in between is stopped as a running job, signal and all.
  */
-export async function stopJob(query: string, given: string, cwd: string): Promise<void> {
+export async function stopJob(query: JobReference, given: string, cwd: string): Promise<void> {
 	const { id, jobDir } = await resolveJob(cwd, query, "control");
 	let record = await readRecord(jobDir);
 	const reason = given.trim() || "stopped by request";

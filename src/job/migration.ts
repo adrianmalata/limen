@@ -6,13 +6,14 @@
 // state moves unchanged to `.limen/unmigrated/<id>/`. The migration refuses while a job runs or starts, and a second
 // run finds nothing to do. `--dry-run` plans the same steps and writes nothing.
 import { existsSync, type Stats } from "node:fs";
-import { mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { atomicRename, atomicWrite } from "../atomic-write.ts";
 import { arrayOf, nullOr, numberIn, object, parseJson, string } from "../boundary.ts";
 import { LimenError } from "../outcome.ts";
 import { platform } from "../platform/platform.ts";
 import { liveJob, STARTUP_GRACE_MS, startingJob } from "../runtime/reap.ts";
+import { hexEndOf, tokenOf } from "./id.ts";
 import { SESSION_ID } from "./job.ts";
 import {
 	checkedRecord,
@@ -23,6 +24,7 @@ import {
 	JOB_STATES,
 	type JobRecord,
 	type JobState,
+	jobFolderNames,
 	type Progress,
 	progressPath,
 	type Queued,
@@ -84,8 +86,6 @@ const REMOVED_FEATURES = [
 const OLD_STATES: readonly string[] = ["running", "done", "failed", "stopped"];
 const CLOCK_TICKS = /^\d{1,20}$/;
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
-/** The final token of a job id that `makeJobId` (src/job/job.ts) writes now; anything else is an older format. */
-const TOKEN = /-([0-9a-f]{8})$/;
 
 /** What the migration did, or would do, to one job folder. */
 export type FolderStep =
@@ -123,7 +123,7 @@ function jobsRunning(ids: readonly string[]): LimenError {
 /** Migrates the job folders of the project at `root`, or with `dryRun` only plans it; returns the report. */
 export async function migrateProject(root: string, dryRun: boolean): Promise<MigrationReport> {
 	const jobsRoot = join(root, ".limen", "jobs");
-	const ids = await folders(jobsRoot);
+	const ids = await jobFolderNames(jobsRoot);
 	const running: string[] = [];
 	for (const id of ids) {
 		if (await folderLive(join(jobsRoot, id))) {
@@ -138,7 +138,7 @@ export async function migrateProject(root: string, dryRun: boolean): Promise<Mig
 		steps.push(await migrateFolder(root, id, dryRun));
 	}
 	// The folders after the moves, each listed once: one this run moved is now only below `.limen/unmigrated/`.
-	const known = [...(await folders(jobsRoot)), ...(await folders(join(root, ".limen", "unmigrated")))];
+	const known = [...(await jobFolderNames(jobsRoot)), ...(await jobFolderNames(join(root, ".limen", "unmigrated")))];
 	return { jobsRoot, dryRun, steps, ...tokenReport(known) };
 }
 
@@ -183,15 +183,6 @@ export async function oldJobLive(jobDir: string, now = Date.now()): Promise<bool
 /** The label the older record holds; for the deployment's gate, which names the jobs it waits for. */
 export async function oldLabel(jobDir: string): Promise<string> {
 	return (await oldFiles(jobDir)).get("label") ?? "";
-}
-
-/** The job folders below `folder`, sorted; none when it does not exist. */
-async function folders(folder: string): Promise<string[]> {
-	const entries = await readdir(folder, { withFileTypes: true }).catch(whenAbsent([]));
-	return entries
-		.filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
-		.map((entry) => entry.name)
-		.sort();
 }
 
 /** The trimmed text of each file of the older record the folder holds, by name. */
@@ -472,10 +463,10 @@ function queuedOf(text: string): Queued | undefined {
 
 /** The ids of an older format and the tokens two ids share (T-20 (6)): their jobs take only the full id. */
 function tokenReport(ids: readonly string[]): Pick<MigrationReport, "olderIds" | "collisions"> {
-	const olderIds = ids.filter((id) => !TOKEN.test(id));
+	const olderIds = ids.filter((id) => tokenOf(id) === undefined);
 	const byToken = Map.groupBy(
 		ids.flatMap((id) => {
-			const token = TOKEN.exec(id)?.[1] ?? /-([0-9a-f]{4})$/.exec(id)?.[1];
+			const token = hexEndOf(id);
 			return token ? [{ id, token }] : [];
 		}),
 		(entry) => entry.token,

@@ -15,10 +15,10 @@ import {
 	teamRoute,
 } from "../job/group-cabinet.ts";
 import { syncLifecycle } from "../job/group-events.ts";
-import { isTerminal, makeJobId, parseDuration } from "../job/job.ts";
-import { resolveJob } from "../job/lookup.ts";
+import { isTerminal, parseDuration } from "../job/job.ts";
 import { publishJob } from "../job/publication.ts";
 import { type JobRecord, jobFolders, readRecord } from "../job/record.ts";
+import { type JobReference, jobArgument, referenceWord, resolveJob, withNewJobId } from "../job/reference.ts";
 import { JOB_STARTED, type Success } from "../outcome.ts";
 import type { Parsed } from "../parser.ts";
 import {
@@ -57,7 +57,7 @@ import {
  * round driver builds it itself (T-26).
  */
 export type ContinueRequest = {
-	readonly query: string;
+	readonly query: JobReference;
 	readonly instruction: readonly string[];
 	readonly label?: string | undefined;
 	readonly engine?: string | undefined;
@@ -72,7 +72,7 @@ export type ContinueRequest = {
 export function continueCommand(values: Parsed, cwd: string): Promise<Success> {
 	return startContinue(
 		{
-			query: values.get("job") ?? "",
+			query: jobArgument(values),
 			instruction: values.list("instruction"),
 			label: values.get("label"),
 			engine: values.get("engine"),
@@ -103,15 +103,15 @@ type ContinueOptions = {
 	readonly timeoutMs: number | undefined;
 	readonly priority: number | undefined;
 	readonly selected: readonly string[];
-	readonly query: string;
+	readonly query: JobReference;
 	readonly instruction: string;
 };
 /** The checked options of a continuation; a value that does not hold refuses before any job record exists. */
 function continueOptions(request: ContinueRequest): ContinueOptions {
 	const label = request.label === undefined ? undefined : normalizeLabel(request.label);
 	const instruction = request.instruction.join(" ").trim();
-	if (!request.query || !instruction) {
-		throw new Error('continue requires <id|suffix|label> "follow-up instruction"');
+	if (!referenceWord(request.query) || !instruction) {
+		throw new Error('continue requires <id|token> "follow-up instruction"');
 	}
 	return {
 		label,
@@ -192,38 +192,41 @@ async function continueJob(request: ContinueRequest, cwd: string, locked = false
 	const extensions = await continuationExtensions(parent, membership, options.selected, cwd);
 	preflightEngine(profile, chosenModel, provider);
 	const finalLabel = label ?? `${parent.record.label || parentId} · continue`;
-	const id = makeJobId(finalLabel);
-	const jobDir = `${root}/.limen/jobs/${id}`;
 	const role = parent.record.role || "worker";
 	const preamble = resolvePreamble(root, role, "record");
-	const slot = round === undefined ? "worker" : "coordinator";
-	const member = membership?.member
-		? await claimMember(membership.run, membership.member.team, slot, id, parentId, round)
-		: undefined;
 	const repository = parent.repo ? workspaceRepository(root, parent.repo) : root;
-	if (!existsSync(parent.worktree) && !branchExists(repository, parent.branch)) {
-		throw new Error(
-			`parent worktree ${parent.worktree} is gone and branch ${parent.branch} is missing in ${repository}; restore that branch before continuing`,
-		);
-	}
-	const group =
-		membership && member ? { id: membership.run.id, team: member.team, deadline: member.deadline } : undefined;
-	await publishContinuation({
-		jobDir,
-		parent,
-		repository,
-		task: options.instruction,
-		label: finalLabel,
-		role,
-		engine: profile.id,
-		model: chosenModel,
-		provider,
-		thinking,
-		extensions,
-		// A continuation keeps its parent's place in the start-queue order unless it names its own.
-		priority: options.priority ?? jobPriority(parent.record),
-		membership,
-		group,
+	// The new token stays unique while its lock is held, until publication has made the job's folder (T-20 (1)).
+	const { id, jobDir, group } = await withNewJobId(root, finalLabel, async (id) => {
+		const jobDir = `${root}/.limen/jobs/${id}`;
+		const slot = round === undefined ? "worker" : "coordinator";
+		const member = membership?.member
+			? await claimMember(membership.run, membership.member.team, slot, id, parentId, round)
+			: undefined;
+		if (!existsSync(parent.worktree) && !branchExists(repository, parent.branch)) {
+			throw new Error(
+				`parent worktree ${parent.worktree} is gone and branch ${parent.branch} is missing in ${repository}; restore that branch before continuing`,
+			);
+		}
+		const group =
+			membership && member ? { id: membership.run.id, team: member.team, deadline: member.deadline } : undefined;
+		await publishContinuation({
+			jobDir,
+			parent,
+			repository,
+			task: options.instruction,
+			label: finalLabel,
+			role,
+			engine: profile.id,
+			model: chosenModel,
+			provider,
+			thinking,
+			extensions,
+			// A continuation keeps its parent's place in the start-queue order unless it names its own.
+			priority: options.priority ?? jobPriority(parent.record),
+			membership,
+			group,
+		});
+		return { id, jobDir, group };
 	});
 	await restoreParentWorktree(jobDir, repository, parent.worktree, parent.branch);
 	const continuation = {

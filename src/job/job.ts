@@ -98,35 +98,16 @@ export function derivePulse(input: {
 	}
 	return "think";
 }
-export function resolveJobId(
-	query: string,
-	ids: readonly string[],
-	labels: Readonly<Record<string, string>> = {},
-): string {
-	const needle = query.trim();
-	if (!needle) {
-		throw new Error("job id required");
-	}
-	if (ids.includes(needle)) {
-		return needle;
-	}
-	const matches = ids.filter((id) => {
-		const label = labels[id] ?? "";
-		return (
-			label === needle ||
-			(needle.length >= 3 &&
-				(id.endsWith(needle) || id.endsWith(`-${needle}`) || label.toLowerCase().startsWith(needle.toLowerCase())))
-		);
-	});
-	if (matches.length === 1) {
-		return matches[0] ?? needle;
-	}
-	if (matches.length === 0) {
-		throw new Error(`no job matches ${JSON.stringify(needle)}`);
-	}
-	throw new Error(`ambiguous job ${JSON.stringify(needle)}: ${matches.join(", ")}`);
+/** A random job token: the 8 hex characters that end a job id (T-20 (1)); test/job/id.test.ts checks it for `TOKEN`. */
+export function jobToken(): string {
+	return randomBytes(4).toString("hex");
 }
-export function makeJobId(label: string): string {
+/**
+ * A job id: the date, a slug of the label with its feature number first, and `token`; test/job/id.test.ts checks it
+ * against `JOB_ID` (src/job/id.ts). Only `withNewJobId` (src/job/reference.ts) names a new job, since it draws a token
+ * no other job holds.
+ */
+export function makeJobId(label: string, token = jobToken()): string {
 	const feature = /\bf\d{3,}\b/i.exec(label)?.[0] ?? "";
 	const words = `${feature} ${label.replace(/\bf\d{3,}\b/gi, " ")}`.toLowerCase();
 	const slug =
@@ -135,7 +116,7 @@ export function makeJobId(label: string): string {
 			.replace(/^-|-$/g, "")
 			.slice(0, 32)
 			.replace(/-$/, "") || "job";
-	return `${new Date().toISOString().slice(0, 10)}-${slug}-${randomBytes(4).toString("hex")}`;
+	return `${new Date().toISOString().slice(0, 10)}-${slug}-${token}`;
 }
 export function parseDuration(value: string): number {
 	const match = /^(\d+)(ms|s|m|h)$/.exec(value);

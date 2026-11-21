@@ -8,6 +8,7 @@ import { basename, dirname, join, relative } from "node:path";
 import test, { type TestContext } from "node:test";
 import ts from "typescript";
 import { templateHistoryText } from "../src/project/inherit.ts";
+import { REGISTRY } from "../src/registry.ts";
 import { knownFiles, SKIPPED } from "./known-files.ts";
 
 // The fixture's git and the listing of the repository must not depend on the laptop's own git configuration.
@@ -153,11 +154,9 @@ test("T-01: the catch-all sites in src/ and hook/ stay at most their baseline co
 	}
 });
 
-// The author's untyped refusals, which `failureOf` maps to UNTYPED (exit code 1) until R-082 types them. The count at
-// R-013's parent, less the sites R-013 typed as LimenError: the four parse errors of src/commands/flags.ts (BAD_FLAG)
-// and ten checks of src/integrations/github-poller.ts (GITHUB_CONFIG): the six before the poll's loop, the two in
-// `appJwt`, the one in `privatePath` and the one in `installationToken`.
-const UNTYPED_THROWS = 275 - 14;
+// The author's untyped refusals, which `failureOf` maps to UNTYPED (exit code 1) until R-082 types them. The count
+// measured at R-022, whose resolver replaced the untyped refusals of the job matcher; a change may only lower it.
+const UNTYPED_THROWS = 218;
 test("T-01: the untyped throw new Error( sites in src/ and hook/ stay at most their baseline count, less the typed ones", async () => {
 	const [all] = await occurrences(["src", "hook"], "throw new Error(", "src/outcome.ts");
 	assert.ok(all <= UNTYPED_THROWS, `${all} sites of throw new Error(, at most ${UNTYPED_THROWS}`);
@@ -918,6 +917,142 @@ test("A-083: outside src/platform/ no file of src/ or hook/ reads /proc/, names 
 		.filter(({ path }) => !path.startsWith(PLATFORM))
 		.flatMap(({ path, text }) => platformCalls(path, text));
 	assert.deepEqual(found, []);
+});
+
+/** The one resolver of job references (T-20 (4), T-25 (1)): the only code that matches a job argument to a job. */
+const RESOLVER = "src/job/reference.ts";
+/**
+ * The forms of an approximate match of a job, each with the files besides the resolver where it may stand: an id's
+ * start or end compared with a word, a label's text matched or compared with a value, a label map, and a new job's id
+ * made outside the resolver's draw of a unique token.
+ */
+const MATCHERS: ReadonlyArray<{ readonly pattern: RegExp; readonly allowed: readonly string[] }> = [
+	{ pattern: /\b\w*(?:[iI]d|[iI]ds)\??\.(?:endsWith|startsWith)\((?!["'])/g, allowed: [] },
+	{ pattern: /\blabel\??\.(?:toLowerCase|toUpperCase|startsWith|endsWith|includes)\(/g, allowed: [] },
+	{ pattern: /\blabel\s*[!=]==?\s*(?!undefined\b|null\b|["'`])[\w?.]+/g, allowed: [] },
+	{ pattern: /[!=]==?\s*(?:[\w?]+\.)*label\b/g, allowed: [] },
+	{ pattern: /\blabels\[/g, allowed: [] },
+	{ pattern: /\bmakeJobId\(/g, allowed: ["src/job/job.ts"] },
+];
+/** Label comparisons outside the resolver that name no job. */
+const MATCHER_EXCEPTIONS: ReadonlyArray<{ readonly path: string; readonly text: string }> = [
+	// The spawn's warning that a live job already holds the label it was given.
+	{ path: "src/commands/spawn.ts", text: "record?.label === label" },
+	// Herdr tabs' labels, not jobs'.
+	{ path: "src/integrations/herdr.ts", text: "row.label !== name" },
+	{ path: "src/commands/status.ts", text: "label !== String(tab.number)" },
+];
+
+/** Each approximate matcher of a job in the code `text` at `path`, as `<path>:<line>: <match>`. */
+function jobMatchers(path: string, text: string): string[] {
+	if (path === RESOLVER) {
+		return [];
+	}
+	return text
+		.split("\n")
+		.flatMap((line, index) =>
+			MATCHERS.filter(({ allowed }) => !allowed.includes(path)).flatMap(({ pattern }) =>
+				[...line.matchAll(pattern)]
+					.filter(() => !MATCHER_EXCEPTIONS.some((entry) => entry.path === path && line.includes(entry.text)))
+					.map((match) => `${path}:${index + 1}: ${match[0]}`),
+			),
+		);
+}
+
+test("the job-matcher scan finds an id suffix, a label prefix, a label comparison, a label map and a new id, and skips the resolver, literals, absent values and the exceptions", () => {
+	const fixture = [
+		"const hit = ids.filter((id) => id.endsWith(`-` + needle));",
+		"if (label.toLowerCase().startsWith(word)) {}",
+		"if (record.label === needle) {}",
+		"if (needle === record?.label) {}",
+		'if (typeof label === "string") {}',
+		"const label = labels[id];",
+		"const id = makeJobId(label);",
+		'if (id.startsWith(".")) {}',
+		"const label = request.label === undefined ? undefined : request.label;",
+		"if (record?.label === label) {}",
+	].join("\n");
+	assert.deepEqual(jobMatchers("src/commands/spawn.ts", fixture), [
+		"src/commands/spawn.ts:1: id.endsWith(",
+		"src/commands/spawn.ts:2: label.toLowerCase(",
+		"src/commands/spawn.ts:3: label === needle",
+		"src/commands/spawn.ts:4: === record?.label",
+		"src/commands/spawn.ts:6: labels[",
+		"src/commands/spawn.ts:7: makeJobId(",
+	]);
+	assert.deepEqual(jobMatchers(RESOLVER, fixture), []);
+	assert.deepEqual(jobMatchers("src/job/job.ts", "export function makeJobId(label: string) {}"), []);
+});
+
+// T-20: a reference is exact; an approximate match is a hint in the resolver's refusal, never an execution elsewhere.
+test("T-20: outside src/job/reference.ts no file of src/ or hook/ matches a job by an id suffix or a label, or makes a new job id", async () => {
+	const found = (await knownSources(["src", "hook"])).flatMap(({ path, text }) => jobMatchers(path, text));
+	assert.deepEqual(found, []);
+});
+
+test("T-20 (4): the module of every handler that takes an argument of type job resolves it through src/job/reference.ts", async () => {
+	const registry = await readFile(join(root, "src", "registry.ts"), "utf8");
+	const typed = REGISTRY.filter((entry) =>
+		entry.schema.some((part) => ("type" in part && part.type === "job") || ("value" in part && part.value === "job")),
+	);
+	const unresolved: string[] = [];
+	for (const entry of typed) {
+		const imported = new RegExp(
+			`import \\{[^}]*\\b${entry.handler.name}\\b[^}]*\\} from "\\./(commands/[\\w-]+\\.ts)"`,
+		);
+		const module = imported.exec(registry)?.[1];
+		const text = module === undefined ? "" : await readFile(join(root, "src", module), "utf8");
+		if (!(text.includes(`from "../job/reference.ts"`) && /\bresolveJob\(/.test(text))) {
+			unresolved.push(entry.name);
+		}
+	}
+	assert.deepEqual(
+		{ count: typed.length, unresolved },
+		{ count: 10, unresolved: [] },
+		"continue, steer, stop, land, diff, show, open, watch, unwatch and keeper take a job",
+	);
+});
+
+/** The one module of the job id's form (T-25 (2), T-20 (1), (6)): its date and slug, its token, its older 4-hex end. */
+const JOB_ID_MODULE = "src/job/id.ts";
+/** A pattern of the job id's form as source text: its date and slug, or a run of 8 or 4 hex characters. */
+const JOB_ID_PATTERN = /\\d\{4\}-\\d\{2\}-\\d\{2\}-|\[0-9a-f\]\{[48]\}/g;
+/** Hex runs outside the job id's module that are not a job's. */
+const JOB_ID_PATTERN_EXCEPTIONS: ReadonlyArray<{ readonly path: string; readonly text: string }> = [
+	// The kernel's boot id, a UUID.
+	{ path: "src/platform/linux.ts", text: "export const BOOT_ID =" },
+];
+
+// T-25 (2): a copy of the id's form can drift from the ids Limen writes, so one module holds it.
+test("T-25: outside src/job/id.ts no file of src/, hook/, bin/ or seat/ writes a pattern of a job id or its token, except the boot id", async () => {
+	const found = (await knownSources(RUNTIME))
+		.filter(({ path }) => path !== JOB_ID_MODULE)
+		.flatMap(({ path, text }) =>
+			text
+				.split("\n")
+				.flatMap((line, index) =>
+					JOB_ID_PATTERN_EXCEPTIONS.some((entry) => entry.path === path && line.includes(entry.text))
+						? []
+						: [...line.matchAll(JOB_ID_PATTERN)].map((match) => `${path}:${index + 1}: ${match[0]}`),
+				),
+		);
+	assert.deepEqual(found, []);
+});
+
+/** The modules that take job ids from folder names, besides the record module that lists them (T-25 (1)). */
+const JOB_FOLDER_READERS = ["src/job/reference.ts", "src/job/migration.ts"] as const;
+
+// T-25 (1): the listing carries the rule for a missing folder (ENOENT), so one module holds it.
+test("T-25: src/job/reference.ts and src/job/migration.ts list job folders only through src/job/record.ts", async () => {
+	const listing: string[] = [];
+	for (const path of JOB_FOLDER_READERS) {
+		const text = await readFile(join(root, path), "utf8");
+		const imported = /import \{[^}]*\bjobFolderNames\b[^}]*\} from "\.\/record\.ts"/.test(text);
+		if (/\breaddir(?:Sync)?\b/.test(text) || !imported) {
+			listing.push(path);
+		}
+	}
+	assert.deepEqual(listing, []);
 });
 
 // Each shipped templates/.history/<name> starts with the hash of the current templates/<name>.

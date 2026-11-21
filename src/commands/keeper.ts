@@ -7,8 +7,8 @@ import { atomicWrite } from "../atomic-write.ts";
 import { transport } from "../config.ts";
 import { readRun } from "../job/group-cabinet.ts";
 import { isTerminal } from "../job/job.ts";
-import { resolveJob } from "../job/lookup.ts";
 import { type JobRecord, readRecord } from "../job/record.ts";
+import { type JobReference, jobArgument, referenceWord, resolveJob } from "../job/reference.ts";
 import type { Success } from "../outcome.ts";
 import type { Parsed } from "../parser.ts";
 import { branchCommit, branchExists, commitHasFile, limenRoot, workspaceRepository } from "../project/git.ts";
@@ -19,7 +19,7 @@ import { startSpawn } from "./spawn.ts";
 type Route = { readonly engine: string; readonly provider: string; readonly model: string; readonly thinking: string };
 type KeeperOptions = {
 	readonly ticket: string;
-	readonly jobs: readonly string[];
+	readonly jobs: readonly JobReference[];
 	readonly candidate?: string;
 	readonly group?: string;
 	readonly route: Route;
@@ -124,7 +124,7 @@ export async function keeperCommand(values: Parsed, cwd: string): Promise<Succes
 }
 
 function keeperOptions(values: Parsed): KeeperOptions {
-	const jobs = values.list("job");
+	const jobs = values.list("job").map((word) => jobArgument(values, "job", word));
 	const group = values.get("group");
 	if (jobs.length === 0 && !group) {
 		throw new Error("keeper requires --job ID or --group GROUP-ID");
@@ -147,14 +147,15 @@ function keeperOptions(values: Parsed): KeeperOptions {
 
 /** The jobs the keeper reads. A group's keeper reads every member; the lead names the group, not each member. */
 async function finishedJobs(root: string, options: KeeperOptions): Promise<KeeperJob[]> {
-	const queries = new Set(options.jobs);
+	// A job named twice is read once: by the word it was given, or the member's id.
+	const queries = new Map(options.jobs.map((query) => [referenceWord(query), query]));
 	if (options.group) {
 		for (const member of (await readRun(root, options.group)).members) {
-			queries.add(member.id);
+			queries.set(member.id, queries.get(member.id) ?? member.id);
 		}
 	}
 	const jobs: KeeperJob[] = [];
-	for (const query of queries) {
+	for (const query of queries.values()) {
 		const { id, jobDir } = await resolveJob(root, query, "control");
 		const record = await readRecord(jobDir);
 		// The process the record names still finishes the job after its terminal record; it counts as live.

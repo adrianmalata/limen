@@ -8,8 +8,21 @@
 // never after a terminal state, with an exclusive claim at the terminal transition so that one finisher wins; the write
 // is atomicWrite's temp, fsync and rename, so a reader sees the old record or the new one. The content files
 // (`task.md`, `log`, `result`, the notes, `start-notice`, `session/`) and the receipt folders stay plain files; `log` is
-// appended to (`appendLimenLog`), not written by atomicWrite.
-import { closeSync, constants, existsSync, fstatSync, openSync, readdirSync, readSync, type Stats } from "node:fs";
+// appended to (`appendLimenLog`), not written by atomicWrite. `jobFolderNames` lists a folder of job folders, with its
+// rule for a folder that does not exist. `jobFolders` and its callers list through it, and test/structure.test.ts
+// requires src/job/reference.ts and src/job/migration.ts to use it (T-25 (1)); `jobFoldersSync` reads the folder with
+// its own `readdirSync` and `ENOENT` rule, and shares only the filter of names with it.
+import {
+	closeSync,
+	constants,
+	type Dirent,
+	existsSync,
+	fstatSync,
+	openSync,
+	readdirSync,
+	readSync,
+	type Stats,
+} from "node:fs";
 import { appendFile, type FileHandle, open, readdir, readFile, rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { atomicWrite } from "../atomic-write.ts";
@@ -218,36 +231,44 @@ export function unmigratedFolder(jobDir: string): boolean {
 	return !existsSync(join(jobDir, RECORD)) && existsSync(join(jobDir, OLD_STATE));
 }
 
-/** The job folders below `jobsRoot`, sorted, none when it does not exist; NOT_MIGRATED when one holds an older record. */
-export async function jobFolders(jobsRoot: string): Promise<string[]> {
-	const entries = await readdir(jobsRoot, { withFileTypes: true }).catch((error: unknown) => {
+/**
+ * The names of the job folders below `folder`, such as `.limen/jobs/` or `.limen/unmigrated/`: sorted, without hidden
+ * names, none when `folder` does not exist. It reads no record; `jobFolders` also refuses an older one.
+ */
+export async function jobFolderNames(folder: string): Promise<string[]> {
+	const entries = await readdir(folder, { withFileTypes: true }).catch((error: unknown) => {
 		if (hasCode(error, "ENOENT")) {
 			return [];
 		}
 		throw error;
 	});
-	return checkedFolders(
-		jobsRoot,
-		entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name),
-	);
+	return visibleFolders(entries);
+}
+/** The job folders below `jobsRoot`, sorted, none when it does not exist; NOT_MIGRATED when one holds an older record. */
+export async function jobFolders(jobsRoot: string): Promise<string[]> {
+	return checkedFolders(jobsRoot, await jobFolderNames(jobsRoot));
 }
 /** `jobFolders` for a caller that cannot wait, such as a hook. */
 export function jobFoldersSync(jobsRoot: string): string[] {
-	let names: string[];
+	let entries: Dirent[];
 	try {
-		names = readdirSync(jobsRoot, { withFileTypes: true })
-			.filter((entry) => entry.isDirectory())
-			.map((entry) => entry.name);
+		entries = readdirSync(jobsRoot, { withFileTypes: true });
 	} catch (error) {
 		if (hasCode(error, "ENOENT")) {
 			return [];
 		}
 		throw error;
 	}
-	return checkedFolders(jobsRoot, names);
+	return checkedFolders(jobsRoot, visibleFolders(entries));
 }
-function checkedFolders(jobsRoot: string, names: readonly string[]): string[] {
-	const folders = names.filter((name) => !name.startsWith(".")).sort();
+/** The folders among `entries` whose names are not hidden, sorted by name. */
+function visibleFolders(entries: readonly Dirent[]): string[] {
+	return entries
+		.filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+		.map((entry) => entry.name)
+		.sort();
+}
+function checkedFolders(jobsRoot: string, folders: string[]): string[] {
 	const old = folders.find((name) => unmigratedFolder(join(jobsRoot, name)));
 	if (old !== undefined) {
 		throw notMigrated(jobsRoot, old);

@@ -102,7 +102,7 @@ export const GROUPS: readonly Group[] = [
 /** D-040: until module switches exist (R-044), the header says only what is true now. */
 export const MODULES_HEADER = "Modules";
 
-const JOB: Positional = { positional: "job", type: "job", about: "the job's id, its suffix or its label" };
+const JOB: Positional = { positional: "job", type: "job", about: "the job's full id or its 8-character token" };
 const ROUTE_ABOUT = {
 	engine: "the engine that runs the job; pi is the only one",
 	provider: "the provider of the job's model",
