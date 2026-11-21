@@ -2443,6 +2443,11 @@ Morning of 2026-11-21 (`limen-rebuild-13`, after Adrian's "sprawdź" at 06:24):
   adrian-rebuild/R-022-exact-job-references/ticket.md` → exit 0: the tree is the night's R-022 work after round 1.
 - The night defaults for Adrian (D-054 (2)) are in the `outcome.md` → `## Night defaults` of R-019 (17), R-021 and
   R-022; they wait for gate 5.2.
+- The commit `D-062:` (`78e7664`, pushed) took in R-022's staged `git rm src/job/lookup.ts` by mistake, since the
+  session ran `git add <paths>` and `git commit` while the implementer's deletion was in the index. The next commit
+  puts the file back into the index only (`git restore --source=0e4e588 --staged`), so `78e7664` is the one commit
+  whose tree lacks it and R-022's own commit holds the deletion. Rule for every commit outside a ticket while a
+  ticket's work is in the tree: `git diff --cached --name-status` shows only the intended paths before `git commit`.
 
 Active ticket: R-022 (step 4, the round-1 fixes 1–4 by a fresh implementer).
 
