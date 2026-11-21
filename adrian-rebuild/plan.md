@@ -43,8 +43,9 @@ R-023 gotowe do nocy po D-061 (odpowiedzi zgodne z rekomendacjami; nowy ticket R
 w dzień; przekazanie do limen-rebuild-13, która uruchomiła noc na hasło Adriana; nocą 20/21.11 R-019 zamknięty
 (jeden moduł blokad src/lock.ts, bramka 429/429, trzy uwagi rundy 3 czekają na pytanie nocne Q-9); implementera
 R-021 przerwał limit 5 h, przebieg 3 dokończył go świeżym implementerem i R-021 zamknięty (jeden record.json na job,
-`limen migrate`, bramka 484/484, cztery uwagi rundy 3 czekają na pytanie nocne Q-10; limit tygodniowy 98 %). -->
-
+`limen migrate`, bramka 484/484, cztery uwagi rundy 3 czekają na pytanie nocne Q-10; limit tygodniowy 98 %); limit
+tygodniowy zatrzymał noc o 06:15 w R-022 po rundzie 1 recenzji; rano 21.11 Adrian zresetował limit i zapisał D-062
+(jeden ticket poprawek R-093 dla uwag Q-9 i Q-10, przed tagiem a0.2.0), a sesja dzienna wznawia R-022. -->
 
 
 
@@ -746,6 +747,29 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   `group wait`) are exempt from the T-26 scans by that field (D-039, R-018's exception-list precedent), while the logic
   other commands use moves to domain modules; ticket operations stay in `src/project/` until R-061 creates
   `src/spec/`; a converted refusal carries its own code (T-01, T-28 (1)). Check: R-022's, R-023's and R-092's criteria.
+- 2026-11-21 D-062 (Adrian, night questions Q-9 and Q-10, "Zgoda na rekomendację" to both; the precedent is D-027):
+  the three round-3 notes of R-019's review and the four of R-021's get one fix ticket, R-093, stage 2, size S,
+  `delegated`, `night` (a night run may take it), depending on R-019, R-021 and R-022 (whose round-1 fixes change
+  `src/job/migration.ts` and `templates/agents.md` too). It is done before the tag `a0.2.0`, because `## Deployment`
+  2.1 runs R-021's migration on the seat. Its `ticket.md` is written at the HEAD it starts from, from this entry and
+  the two `review.md` → Round 3. The changes (lines at `0e4e588`):
+  (1) one helper that reads an error's `code`: `hasCode` in `src/lock.ts` is a renamed copy of `isCode` in
+  `src/platform/linux.ts`, so one definition lives in the module that owns it (T-25 (2)).
+  (2) The `LOCK_LOST` test in `test/lock.test.ts` asserts the class `environment` (exit 4) besides the code (T-02's
+  Check).
+  (3) The comment in `test/lock.test.ts` that points to "the ticket's Migration" names R-019 (T-30 (2)).
+  (4) The migration keeps a `born` value its field cannot hold, as it keeps any such value: the file stays and the
+  migration reports a `kept born` line, with a fixture test of a finished folder that has `born` and no usable `pid`
+  (`src/job/migration.ts`, lines 413–421; before R-021, `finalizeJob` removed `pid` before `born`, so such folders
+  exist on the seat).
+  (5) The coordinator hook's map of damaged records is cleared with `reportedDamage` at a session start and keyed by
+  the job folder rather than the bare job id (`hook/wake.ts`, line 1061).
+  (6) The hook's per-tick reads of `progress.json` for the status line, and the one unguarded advisory read, go
+  through the hook's damage guard, with a test of a damaged `progress.json` (`hook/wake.ts`, lines 1109 and 1213;
+  `src/job/wake-text.ts`, lines 20 and 149).
+  (7) The coordinator manual's pulse `starting` loses "or no pid yet", since a running record without a pid shows
+  `unknown` (`templates/agents.md`, line 142, with its history hash).
+  Check: R-093's criteria.
 
 ### Gate 2 §2, copied
 
@@ -1113,9 +1137,10 @@ Columns:
 | R-019 | One lock module with process identity and a bounded wait | 2 | A-017, A-018, A-055, A-058, A-087, T-25, D-029, D-056 | R-018, R-020 | M | delegated | night | yes | — | — | done |
 | R-020 | A Linux platform adapter and declared system requirements | 2 | A-083, T-12, T-32, D-060 | R-013 | M | delegated | night | — | — | — | done |
 | R-021 | One `record.json` per job, written only by the transition function | 2 | S1+, A-019, A-053, A-056, T-20, T-25, D-057 | R-016, R-018, R-019 | L | delegated | night | yes | — | — | done |
-| R-022 | Exact job references through one resolver | 2 | T-20, D-061 | R-014, R-021 | M | delegated | night | yes | — | — | ready (D-061) |
+| R-022 | Exact job references through one resolver | 2 | T-20, D-061 | R-014, R-021 | M | delegated | night | yes | — | — | active |
 | R-023 | Commands are thin adapters over domain operations | 2 | T-26, D-044, D-045, D-046, D-061 | R-014, R-021, R-089 | M | delegated | night | — | — | — | ready (D-061) |
 | R-092 | A refusal leaves no trace: `validate` then `apply` | 2 | T-38, D-061 | R-021, R-023 | L | delegated | night | — | — | — | planned |
+| R-093 | The round-3 notes of R-019 and R-021: the migration keeps `born`, guarded hook reads | 2 | T-25, T-02, T-30, D-062 | R-019, R-021, R-022 | S | delegated | night | — | — | — | ready (D-062) |
 | R-024 | `limen stats` over records and transcripts | 2 | H-01, H-20, §2, T-33 | R-021, R-023 | M | delegated | night | — | pi | 2.3 | planned |
 | R-025 | Test coverage derived from the command registry | 2 | T-28, T-29, D-045, D-046 | R-014, R-023, R-092 | M | delegated | night | — | — | — | planned |
 | R-026 | Every job runs in its own systemd user scope | 3 | A-029, A-052, T-43 | R-020, R-021 | L | delegated | night | — | systemd | 3.2, 3.7, 3.8 | planned |
@@ -2397,19 +2422,36 @@ Night run of 2026-11-20/21 (until 07:00; `night.mjs` run 1 started at 23:26:54):
 - Weekly use reached 98 % at 05:08 (read from the run's `rate_limit_event` lines in `.night/2026-11-20-run-3.log`, since
   a night run has no status line) and 99 % at 05:37; the D-053 push "Hej, mamy 98% limitu tygodniowego, zresetuj
   licznik" was tried and not sent ("Remote Control inactive" in a `claude -p` run), so the morning session tells Adrian.
+- R-021 committed and pushed as `0e4e588` (05:39). R-022 `active` (delegated, from 05:41): its `ticket.md` was written
+  before that commit at R-021's tree (`check.mjs` requires it once R-021 is `done`, D-054 (1)) and stays untracked until
+  R-022's own commit, as R-019's did. With the weekly use at 99 %, the limit may cut its implementer; then the tree
+  holds its partial work, and the next session starts from `compare --git` on `node_modules/.rebuild-review/R-022.git`
+  and continues with a fresh implementer, as run 3 did for R-021.
+- The end of the night (read by `limen-rebuild-13` from `launcher.log` and the run logs' `result` events): R-022's
+  implementer finished, the main session's gate passed (498/498), and review round 1 was PASS with four notes, all to
+  be fixed (`review.md`, `ticket.md` → `## Decisions`); the snapshot for the fixing implementer was taken at 06:13, and
+  at 06:15 the weekly limit ended run 3 before that implementer started (HTTP 429, "You've hit your weekly limit ·
+  resets Nov 23, 5pm"). Runs 1 and 2 had ended on the five-hour limit (429) at 02:06 and 02:36. No run wrote a reason
+  into `status.json`, so `night.mjs` ended with exit 3 after three runs, as designed. R-089 and R-023 did not start.
 
-Active ticket: none.
+Morning of 2026-11-21 (`limen-rebuild-13`, after Adrian's "sprawdź" at 06:24):
+- Adrian reset the weekly limit (D-053; the night's push had not reached him) and answered Q-9 and Q-10 "Zgoda na
+  rekomendację" → D-062: one fix ticket R-093 for the seven round-3 notes of R-019 and R-021, `ready (D-062)`, after
+  R-022 too (same files) and before the tag `a0.2.0`. He agreed that the session takes over the morning: R-022 from
+  its round-1 fixes, then R-089 and R-023.
+- `review-guard.mjs compare --git node_modules/.rebuild-review/R-022.git
+  adrian-rebuild/R-022-exact-job-references/ticket.md` → exit 0: the tree is the night's R-022 work after round 1.
+- The night defaults for Adrian (D-054 (2)) are in the `outcome.md` → `## Night defaults` of R-019 (17), R-021 and
+  R-022; they wait for gate 5.2.
 
-Next (night of 2026-11-20/21, then by day):
-0. The night run until 07:00 (started by `limen-rebuild-13` on Adrian's word; D-024, D-053 (3)). R-019 and R-021
-   are `done`; the night's `ready` tickets left in dependency order: R-089 and R-022 (after R-021) on independent
-   branches, R-023 after R-021 and R-089; the night writes the `ticket.md` of R-022 and R-023 at the HEAD it starts
-   each from (D-061, the inventories in `evidence/`).
-1. Morning: the day session reads `.night/status.json` and `.night/questions.md` (Q-9, Q-10), tells Adrian that the
-   weekly use reached 98–99 % in the night (D-053's push could not be sent), moves answers to `ticket.md` →
-   `## Decisions`, lists the night defaults of R-019 and R-021 for him, and goes on with stage 2 (R-092, R-024, R-025,
-   the fix tickets of Q-9 and Q-10 if he agrees, then the close: tag `a0.2.0`, gate 5.2 by phone).
-2. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
+Active ticket: R-022 (step 4, the round-1 fixes 1–4 by a fresh implementer).
+
+Next (by day on 2026-11-21):
+0. R-022: a new `snapshot --git` after the commit `D-062:`, a fresh `rebuild-implementer` for fixes 1–4 (`ticket.md` →
+   `## Decisions`), the main session's gate, review round 2, the commit `R-022:`.
+1. R-089, then R-023 (both `ready`), delegated by day; then R-093's `ticket.md` at the HEAD after R-022, and R-093.
+2. Then R-092, R-024 and R-025, and the close: tag `a0.2.0`, gate 5.2 by phone, with the night defaults above.
+3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
    D-047 and D-054 were.
 

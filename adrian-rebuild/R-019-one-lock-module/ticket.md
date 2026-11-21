@@ -6,7 +6,7 @@ nazwę na unikalną, potem tworzy nową z `wx` (A-087, D-029). Czekanie trwa naj
 z kodem 3, który nazywa plik blokady, właściciela i wskazówkę, a stary plik właściciela z samym pid jest porzucony
 tylko, gdy tego pid już nie ma (D-056); commit usuwa wyjątki blokad ze skanu zapisu R-018 i wyjątek D-031 z
 `## Agents`. Stan: zamknięty nocą 20/21.11 (done); domyślne decyzje nocy i poprawki z recenzji są w `## Decisions`,
-a trzy uwagi rundy 3 czekają na pytanie nocne Q-9. -->
+a trzy uwagi rundy 3 idą do ticketu poprawek R-093 (D-062, odpowiedź na pytanie nocne Q-9). -->
 
 # R-019 One lock module with process identity and a bounded wait
 
@@ -357,3 +357,5 @@ removed by hand once its poller is gone.
   copies the adapter's `isCode`, the `LOCK_LOST` test does not assert the class, a comment names "the ticket's
   Migration" without R-019) are not fixed here and wait for Adrian's answer to `.night/questions.md` → Q-9, with no
   ticket blocked; note 4 (Change 8's sentence) was fixed by the main session.
+- 2026-11-21 D-062 (Adrian, Q-9, "Zgoda na rekomendację"): notes 1–3 of round 3 go to the fix ticket R-093 (stage 2,
+  S, `delegated`, `night`, before the tag `a0.2.0`), together with the four round-3 notes of R-021 (Q-10).

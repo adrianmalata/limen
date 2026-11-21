@@ -4,7 +4,8 @@ po stanie końcowym (A-019, A-053, A-056, S1+, D-057). Każdy czytelnik, także 
 i skrypt wdrożenia, czyta rekord przez jeden moduł; nowe polecenie `limen migrate [--dry-run]` przenosi istniejące
 projekty, a niezmigrowany projekt jest odmawiany kodem 4. Stan: napisany nocą 20/21.11 z inwentarza
 `evidence/inventories/R-021.md`; zamknięty tej nocy (delegated, recenzja PASS w rundzie 3, bramka 484/484), z
-decyzjami rund recenzji w `## Decisions`. -->
+decyzjami rund recenzji w `## Decisions`; cztery uwagi rundy 3 idą do ticketu poprawek R-093 (D-062, pytanie nocne
+Q-10). -->
 
 # R-021 One `record.json` per job, written only by the transition function
 
@@ -344,3 +345,7 @@ migrated project (an old Limen reads no `record.json`).
   (T-29) "publishRecord writes a starting record once, …" and "the read refuses a record that is a symlink or has a
   second name" are split, one mechanism each.
   Rejected: findings 3 (to R-022's resolver), 4 (an open point for Adrian) and 8 (the place of seat-tool tests).
+- 2026-11-21 D-062 (Adrian, Q-10, "Zgoda na rekomendację"): the four round-3 notes not fixed here (`review.md` →
+  Round 3: the migration's `born` without a usable `pid`, the hook's damaged map that only grows, the unguarded
+  `progress.json` reads, the manual's `starting`) go to the fix ticket R-093 (stage 2, S, `delegated`, `night`), with
+  R-019's three (Q-9); the `born` fix lands before the tag `a0.2.0`, since `## Deployment` 2.1 runs this migration.
