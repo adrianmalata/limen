@@ -31,6 +31,12 @@ import {
 
 const WAKE_HOOK = fileURLToPath(new URL("../hook/wake.ts", import.meta.url));
 const ROUTE = ["--engine", "pi", "--provider", "p", "--model", "m", "--thinking", "high", "--detached"];
+/**
+ * The timeout of the queued job `timed`. It waits in the queue for longer than this, and then its engine blocks until
+ * the timeout ends it, so a timeout counted from the queue would end it as soon as it starts. A loaded machine can
+ * only lengthen both intervals, so nothing here rests on how fast an engine runs (D-063 (3)).
+ */
+const TIMED_TIMEOUT_MS = 2_000;
 let p: Plant;
 let coord = "";
 const sessions: ChildProcess[] = [];
@@ -59,6 +65,16 @@ function wakes(dir: string, id: string) {
 	return engineEvents(dir).flatMap((event, index) =>
 		event.text?.startsWith("Limen job") && event.text.includes(id) ? [{ ...event, index }] : [],
 	);
+}
+/** The time of the first Limen line of job `id`'s log whose message starts with `text`; NaN without one. */
+function logged(id: string, text: string): number {
+	for (const entry of jobFile(p, id, "log").split("\n")) {
+		const [, at = "", message = ""] = /^\[limen (\S+)\] (.*)$/.exec(entry) ?? [];
+		if (message.startsWith(text)) {
+			return Date.parse(at);
+		}
+	}
+	return Number.NaN;
 }
 const delivered = (ids: readonly string[], session = "coord") =>
 	until(join(p.root, ".limen", "jobs"), () =>
@@ -202,9 +218,10 @@ test("a held gate queues jobs by priority and a rule's start priority holds the 
 	writeFileSync(reading, '{"cpuIdle":10,"memoryFree":80}');
 	const pipe = join(p.parent, "timed-reading");
 	execFileSync("mkfifo", [pipe]); // timed reads its load from this pipe: each sample it takes waits for the test
-	// A dead wrapper and a stopped job at the head hold nothing; a 2s timeout counts from engine start, not the queue.
+	// A dead wrapper and a stopped job at the head hold nothing; a timeout counts from engine start, not the queue.
 	const [dead = "", stopped = ""] = ["q dead", "q stopped"].map((label) => job("say no", label, ["--priority", "1"]));
-	const timed = job("say timed", "q timed", ["--timeout", "2s"], { PI_SESSION_ID: "coord", LIMEN_START_READING: pipe });
+	const timeout = ["--timeout", `${TIMED_TIMEOUT_MS / 1_000}s`];
+	const timed = job("block", "q timed", timeout, { PI_SESSION_ID: "coord", LIMEN_START_READING: pipe });
 	const run = limen(p, ["spawn", ...ROUTE, "--label", "late", "block"], { env: { PI_SESSION_ID: "coord" } });
 	assert.match(
 		outputText(run),
@@ -214,7 +231,6 @@ test("a held gate queues jobs by priority and a rule's start priority holds the 
 	const urgent = job("block", "q urgent", ["--priority", "1"]);
 	process.kill(jobRecord(p, dead)?.identity?.pid ?? 0, "SIGKILL");
 	assert.equal(outputText(limen(p, ["stop", stopped, "not needed"])), `stopped ${stopped}: not needed\n`);
-	await until(jobDir(p, timed), () => Date.now() - Date.parse(jobRecord(p, timed)?.startedAt ?? "") > 2_500);
 	// The budget: urgent starts under a start priority 2 rule; a change to 1 while timed samples must still hold timed.
 	limen(p, ["rule", "set", "week", "--until", "1h", "--start-priority", "2", "Low"]);
 	writeFileSync(reading, '{"cpuIdle":90,"memoryFree":80}');
@@ -228,16 +244,27 @@ test("a held gate queues jobs by priority and a rule's start priority holds the 
 	assert.match(shown, new RegExp(` · queued · waiting \\d+s: ${held}, 1 ahead · `));
 	assert.match(limen(p, ["seat", "queue"]).stdout, new RegExp(`1\\. ${timed} .+\\n   ${held}\\n.+\\n2\\. ${later} `));
 	assert.ok(!engineEvents(coord).some((event) => event.text?.startsWith("limen: late started")), "no toast yet");
-	sessions[0]?.kill("SIGSTOP"); // The quick job ends while its listener sleeps, before its start notice.
+	// timed cannot start before the next write to its pipe, so the steps above count toward its time in the queue.
+	await until(jobDir(p, timed), () => Date.now() - logged(timed, "queued: ") > TIMED_TIMEOUT_MS);
+	sessions[0]?.kill("SIGSTOP"); // timed ends while its listener sleeps, before its start notice.
 	assert.match(limen(p, ["rule", "end", "week"]).stdout, /^rule week ended/);
 	await writeFile(pipe, "{}"); // timed, the head again, samples once more
-	assert.equal(waitJob(p, timed), "done");
+	assert.equal(waitJob(p, timed), "failed");
 	sessions[0]?.kill("SIGCONT");
+	// The timeout ended timed at least the timeout after its engine started, after it had waited longer in the queue.
+	const queuedMs = logged(timed, "start queue: started") - logged(timed, "queued: ");
+	const ranMs = Date.parse(jobRecord(p, timed)?.finishedAt ?? "") - logged(timed, "worker started");
+	const ended = { failure: jobRecord(p, timed)?.failure?.kind, queued: queuedMs > TIMED_TIMEOUT_MS };
+	assert.deepEqual(
+		{ ...ended, ran: ranMs >= TIMED_TIMEOUT_MS },
+		{ failure: "timeout", queued: true, ran: true },
+		`queued ${queuedMs} ms, ran ${ranMs} ms`,
+	);
 	const noticed = (id: string) => existsSync(join(jobDir(p, id), "notify/delivered/_start.coord"));
 	await until(jobDir(p, later), () => noticed(later) && noticed(urgent));
 	await Promise.all([later, urgent].map((id) => release(jobDir(p, id))));
 	assert.equal([later, urgent, stopped].map((id) => waitJob(p, id)).join(), "done,done,stopped");
-	const started = (id: string) => /\[limen (\S+)\] start queue: started/.exec(jobFile(p, id, "log"))?.[1] ?? "";
+	const started = (id: string) => logged(id, "start queue: started");
 	assert.ok(started(urgent) < started(timed) && started(timed) < started(later), "priority, then queue time");
 	assert.equal(jobFile(p, stopped, "log").match(/\] stopped:/g)?.length, 1, "a queued stop finalizes once");
 	await delivered([later, urgent, timed]);

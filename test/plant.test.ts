@@ -1,13 +1,26 @@
 // The shared test helpers of test/plant.ts: `waitJob` returns only once the job's wrapper has given up its folder, a
-// record the plant writes by hand is never read in part, and a plant runs the git that comes first on the runner's PATH.
+// record the plant writes by hand is never read in part, a plant runs the git that comes first on the runner's PATH,
+// and its cleanup leaves no wrapper of the plant running.
 import assert from "node:assert/strict";
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { editRecord, plant as newPlant, type Plant, waitJob, writeRecord } from "./plant.ts";
+import type { Identity } from "../src/job/record.ts";
+import { platform } from "../src/platform/platform.ts";
+import {
+	editRecord,
+	jobDir,
+	jobRecord,
+	plant as newPlant,
+	type Plant,
+	spawnJob,
+	until,
+	waitJob,
+	writeRecord,
+} from "./plant.ts";
 
 const JOB = "2026-11-18-waited-1a2b3c4d";
 /**
@@ -132,4 +145,49 @@ test("D-060: a plant runs the git that comes first on the runner's PATH", async 
 	const p = await newPlant();
 	t.after(() => p.cleanup());
 	assert.equal(execFileSync("git", ["--version"], { env: p.env, encoding: "utf8" }), "git version 0.0.0-fixture\n");
+});
+
+/**
+ * The poll of the queued job in the cleanup test: one decision, then a sleep longer than the test, so the wrapper
+ * cannot notice by itself that its folder is gone (src/runtime/start-queue.ts) and only cleanup can end it.
+ */
+const QUEUED_POLL_MS = "600000";
+
+// D-063 (3): a queued wrapper has no engine and no path of the plant in its command line, so the plant's `pkill -f`
+// missed it, and it outlived the plant that cleanup removed.
+test("cleanup stops every wrapper the plant started, a queued one with no engine included", async (t) => {
+	const p = await newPlant();
+	const wrappers: Identity[] = [];
+	t.after(async () => {
+		// For a cleanup that misses one: only a live process that still has the recorded start time gets the signal.
+		for (const { pid, born } of wrappers) {
+			const now = pid === null ? undefined : await platform.processInfo(pid);
+			if (pid !== null && now?.kind === "present" && now.process.born === born) {
+				process.kill(pid, "SIGKILL");
+			}
+		}
+		await p.cleanup();
+	});
+	const running = spawnJob(p, "block");
+	await until(jobDir(p, running), () => existsSync(join(jobDir(p, running), "fake-blocked-1")));
+	// Below the start gate's 25% CPU idle, so the next job waits in the queue and starts no engine.
+	writeFileSync(join(p.parent, "start-reading.json"), '{"cpuIdle":10,"memoryFree":80}');
+	const queued = spawnJob(p, "say queued", [], { env: { LIMEN_START_POLL_MS: QUEUED_POLL_MS } });
+	await until(jobDir(p, queued), () => Boolean(jobRecord(p, queued)?.queued?.detail));
+	for (const id of [running, queued]) {
+		const identity = jobRecord(p, id)?.identity;
+		assert.ok(identity?.pid, `${id} names its wrapper`);
+		wrappers.push(identity);
+	}
+	assert.deepEqual(
+		wrappers.map(({ pid }) => exited(pid ?? 0)),
+		[false, false],
+		"both wrappers run before cleanup",
+	);
+	await p.cleanup();
+	assert.deepEqual(
+		wrappers.map(({ pid }) => exited(pid ?? 0)),
+		[true, true],
+		"no wrapper of the plant runs after cleanup",
+	);
 });

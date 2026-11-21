@@ -1,16 +1,21 @@
 // The shared throwaway plant every scenario runs on: a temp Git repo after a real `limen init`, an environment built
 // from an allowlist, the scripted fake engine (test/fake-engine.mjs) as `pi`, and a fetch sink that records
-// every request a Limen process makes. Scenarios wait on file events and FIFOs; nothing here sleeps.
+// every request a Limen process makes. Scenarios wait on file events and FIFOs; nothing here sleeps, and only a
+// process's exit, which raises no file event, is read again on a short interval (`waitJob`, and cleanup's listing of
+// the plant's processes).
 import { type ChildProcess, execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, watch } from "node:fs";
 import { mkdir, mkdtemp, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { atomicWrite } from "../src/atomic-write.ts";
 import { TERMINAL_STATES } from "../src/job/job.ts";
 import { emptyRecord, type JobRecord, readRecordSync, serialized } from "../src/job/record.ts";
 import { readOutcome } from "../src/outcome.ts";
+import { platform } from "../src/platform/platform.ts";
+import { hasCode } from "../src/system-error.ts";
 
 export const LIMEN = fileURLToPath(new URL("../bin/limen", import.meta.url));
 const FAKE_ENGINE = fileURLToPath(new URL("./fake-engine.mjs", import.meta.url));
@@ -67,6 +72,10 @@ settle();
 `;
 /** The bound of one `waitJob`: below the suite's 180-second test timeout, which cannot fire while `spawnSync` blocks. */
 const WAIT_MS = 120_000;
+/** How long cleanup goes on stopping the plant's processes; SIGKILL ends a process within milliseconds. */
+const STOP_MS = 10_000;
+/** How long cleanup waits after a round of signals before it lists the plant's processes again, as `WAITER` does. */
+const STOP_CHECK_MS = 20;
 
 export type Plant = {
 	readonly parent: string;
@@ -157,7 +166,8 @@ export async function plant(): Promise<Plant> {
 		bin,
 		env,
 		cleanup: async () => {
-			// Engines carry the plant path in argv; ending them lets their wrappers finish before the files go.
+			await stopProcesses(parent);
+			// A process started outside the plant's environment still ends here when its argv holds the plant path.
 			spawnSync("pkill", ["-f", parent]);
 			await rm(parent, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 		},
@@ -175,6 +185,65 @@ export async function plant(): Promise<Plant> {
 	git(root, "add", "-A");
 	git(root, "commit", "-q", "-m", "limen init");
 	return made;
+}
+
+/**
+ * Stops every process of the plant `parent` and returns once none is left. Each process the plant starts inherits the
+ * plant's `LIMEN_HOME` (a test knob, src/config.ts), so the environment names them all, a queued wrapper included,
+ * which has no engine yet and no path of the plant in its command line (D-063 (3)). The processes are listed again
+ * after each round of signals until the list is empty: a process can start another one between the listing and its
+ * signal, and that one inherits the plant's environment too. The signal is SIGKILL: a stopped process (a test's
+ * SIGSTOP) holds a SIGTERM until it continues, and a wrapper that ends normally writes into the folder that cleanup
+ * removes next. The platform adapter sends it (src/platform/): a process that exited after the listing is `missing`
+ * and needs none. A process the system does not let the test signal, or one of the plant still running after
+ * `STOP_MS`, fails the cleanup, and the folder stays.
+ */
+async function stopProcesses(parent: string): Promise<void> {
+	const deadline = Date.now() + STOP_MS;
+	for (let left = await plantProcesses(parent); left.length > 0; left = await plantProcesses(parent)) {
+		if (Date.now() >= deadline) {
+			throw new Error(`cleanup: processes ${left.join(", ")} of the plant ${parent} still run after SIGKILL`);
+		}
+		const denied: number[] = [];
+		for (const pid of left) {
+			if (platform.signalProcess(pid, "SIGKILL") === "denied") {
+				denied.push(pid);
+			}
+		}
+		if (denied.length > 0) {
+			throw new Error(`cleanup: the test may not signal processes ${denied.join(", ")} of the plant ${parent}`);
+		}
+		await delay(STOP_CHECK_MS);
+	}
+}
+/**
+ * The processes that carry the plant's environment and have not exited, the test's own process aside. A process that
+ * is gone or a zombie is absent for the platform adapter (src/platform/); one the system cannot describe still counts.
+ */
+async function plantProcesses(parent: string): Promise<number[]> {
+	const mark = `LIMEN_HOME=${parent}`;
+	const marked = (await readdir("/proc"))
+		.filter((name) => /^\d+$/.test(name))
+		.map(Number)
+		.filter((pid) => pid !== process.pid && environment(pid).includes(mark));
+	const running: number[] = [];
+	for (const pid of marked) {
+		if ((await platform.processInfo(pid)).kind !== "absent") {
+			running.push(pid);
+		}
+	}
+	return running;
+}
+/** The environment entries of the process `pid`; none for a process that is gone or that another user owns. */
+function environment(pid: number): string[] {
+	try {
+		return readFileSync(`/proc/${pid}/environ`, "utf8").split("\0");
+	} catch (error) {
+		if (hasCode(error, "ENOENT") || hasCode(error, "ESRCH") || hasCode(error, "EACCES")) {
+			return [];
+		}
+		throw error;
+	}
 }
 
 /** A Git repo with one commit, configured for commits under GIT_CONFIG_GLOBAL=/dev/null. */

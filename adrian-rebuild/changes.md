@@ -229,3 +229,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-01)
 - Commit: R-093
 - Rollback: git revert $(git log --format=%H --grep='^R-093:' adrian-rebuild --)
+
+## 2026-11-21 R-094 A queued wrapper ends when its job folder is gone; tests stop their wrappers
+- What: `src/runtime/start-queue.ts` (`waitForStart` returns `QueueEnd`: `started`, `stopped` or `gone`; a job whose `record.json` is missing, its folder removed or recreated empty by the lock, ends the wait at its next poll, leaves the queue and writes nothing into the folder); `src/runtime/wrapper.ts` (at `gone` the wrapper returns before `finalizeJob`, setup and the engine); `docs/jobs.md` ("Stop and loss"); `test/plant.ts` (`cleanup` kills every process with the plant's own `LIMEN_HOME` through `platform.signalProcess` and lists again until none is left, before `pkill -f` and the removal); tests `test/runtime/start-queue.test.ts`, `test/runtime/wrapper.test.ts` (new), `test/plant.test.ts`, `test/s3-finish-wake.test.ts` (the queue test proves that a timeout counts from engine start by intervals that load can only lengthen)
+- Why: T-01, T-29, D-063
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (515/515); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (four test files fail at HEAD); `node --test test/runtime/wrapper.test.ts` → exit 0 (1/1)
+- Measurement: measured
+- Commit: R-094
+- Rollback: git revert $(git log --format=%H --grep='^R-094:' adrian-rebuild --)

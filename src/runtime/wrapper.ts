@@ -96,7 +96,12 @@ export async function runInternalJob(): Promise<void> {
 	if (!running) {
 		return;
 	}
-	if (queued && !(await waitForStart(jobDir, stop.signal))) {
+	const queueEnd = queued ? await waitForStart(jobDir, stop.signal) : "started";
+	// A job whose folder went while it was queued has no record to end and no engine to start (D-063 (3)).
+	if (queueEnd === "gone") {
+		return;
+	}
+	if (queueEnd === "stopped") {
 		const requested = (await readRecord(jobDir))?.stopRequested;
 		const reason = requested || "stopped while queued";
 		await finalizeJob(jobDir, requestedTerminal(reason), reason, { shutdownDeadline });

@@ -7,7 +7,15 @@ import { type BadData, duration, eachField, either, numberIn, object, oneOf, par
 import { testKnob } from "../config.ts";
 import { groupLock } from "../job/group-cabinet.ts";
 import { formatDuration } from "../job/job.ts";
-import { appendLimenLog, type JobRecord, type Queued, readRecord, textFile, transition } from "../job/record.ts";
+import {
+	appendLimenLog,
+	type JobRecord,
+	type Queued,
+	readRecord,
+	recordPath,
+	textFile,
+	transition,
+} from "../job/record.ts";
 import { LimenError } from "../outcome.ts";
 import { platform } from "../platform/platform.ts";
 import { readOptional } from "../project/inherit.ts";
@@ -158,13 +166,17 @@ export async function enterStartQueue(jobDir: string, record: JobRecord | undefi
 	return queues ? { since: new Date().toISOString(), detail: null, ahead: null } : undefined;
 }
 
+/** How a job's wait in the start queue ended: its turn came, it was stopped, or its folder or record is gone. */
+export type QueueEnd = "started" | "stopped" | "gone";
+
 /**
  * Holds the job in the seat queue until no rule holds its priority, it is first in priority, then queue-time order, the
  * settle interval since the last start has passed, and its reading passes the gate. Only the first job samples the
- * load. The gate and the rules are read again on each poll, so an edit or a rule's end reaches waiting jobs. Returns
- * false when the job was stopped while it waited. A job that waited leaves `start-notice` for its coordinator.
+ * load. The gate and the rules are read again on each poll, so an edit or a rule's end reaches waiting jobs. A job that
+ * waited leaves `start-notice` for its coordinator. A job whose folder or record is gone stops at its next poll and
+ * writes nothing more into the folder, since no record is left to end and no engine can start (D-063 (3)).
  */
-export async function waitForStart(jobDir: string, stop: AbortSignal): Promise<boolean> {
+export async function waitForStart(jobDir: string, stop: AbortSignal): Promise<QueueEnd> {
 	const id = basename(jobDir);
 	const record = await readRecord(jobDir);
 	const since = record?.queued?.since ?? new Date().toISOString();
@@ -177,8 +189,16 @@ export async function waitForStart(jobDir: string, stop: AbortSignal): Promise<b
 		pid: process.pid,
 	};
 	let shown: { kind: string; ahead: number; at: number } | undefined;
+	let gone = false;
+	// Before the poll, after its decision and after a record change: the folder can go while the job sleeps or samples
+	// the load. The record, not only the folder: a folder removed while a change takes the job's lock comes back empty,
+	// since the lock creates its folder (src/lock.ts).
+	const recordGone = () => {
+		gone = !existsSync(recordPath(jobDir));
+		return gone;
+	};
 	try {
-		while (!stop.aborted) {
+		while (!(stop.aborted || recordGone())) {
 			await enqueue(entry);
 			const decision = await decide(entry, startGate().gate, stop).catch((error: unknown) => {
 				if (stop.aborted) {
@@ -187,11 +207,14 @@ export async function waitForStart(jobDir: string, stop: AbortSignal): Promise<b
 				throw error;
 			});
 			if (!decision) {
-				return false;
+				return "stopped";
+			}
+			if (recordGone()) {
+				return "gone";
 			}
 			if (decision.start) {
 				await started(jobDir, entry, decision.detail, shown !== undefined);
-				return true;
+				return "started";
 			}
 			if (
 				!shown ||
@@ -201,6 +224,9 @@ export async function waitForStart(jobDir: string, stop: AbortSignal): Promise<b
 			) {
 				const queued: Queued = { since, detail: decision.detail, ahead: decision.ahead };
 				await transition(jobDir, { from: ["running"], set: { queued } });
+				if (recordGone()) {
+					return "gone";
+				}
 				if (!shown || (decision.kind !== shown.kind && decision.kind.startsWith("rules"))) {
 					await appendLimenLog(jobDir, `queued: ${decision.detail}, ${decision.ahead} ahead`);
 				}
@@ -208,11 +234,14 @@ export async function waitForStart(jobDir: string, stop: AbortSignal): Promise<b
 			}
 			await delay(pollMs(), undefined, { signal: stop }).catch(() => {});
 		}
-		return false;
+		return gone ? "gone" : "stopped";
 	} finally {
 		await rm(entryPath(id), { force: true });
-		// A job that ended while it waited has no queue left to clear: its terminal record holds none.
-		await transition(jobDir, { from: ["running"], set: { queued: null } });
+		// A job that ended while it waited has no queue left to clear: its terminal record holds none. A job whose record
+		// is gone has none either, and the lock of a transition that raced a removal would create the folder again.
+		if (!gone) {
+			await transition(jobDir, { from: ["running"], set: { queued: null } });
+		}
 	}
 }
 /** Writes the job's entry, and writes it again if a reader removed it, so a live wrapper always holds its place. */

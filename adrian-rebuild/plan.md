@@ -50,7 +50,9 @@ w kolejce kończy się, gdy znika folder joba) i autopilot do 13:00; D-064 usuwa
 src/job/reference.ts, bramka 504/504, dwie uwagi rundy 3 czekają na pytanie Q-11);
 ticket.md R-093 napisany i przekazanie do limen-rebuild-14, która prowadzi autopilota do 13:00; R-093 zamknięty
 (jeden helper kodu błędu src/system-error.ts, migracja zachowuje `born`, strzeżone odczyty hooka, atomowy zapis
-rekordu w test/plant.ts, bramka 511/511); następny jest R-094. -->
+rekordu w test/plant.ts, bramka 511/511); R-094 zamknięty (wrapper w kolejce kończy się bez rekordu joba,
+sprzątanie testów zatrzymuje wszystkie procesy plant, test kolejki odporny na obciążenie, bramka 515/515; trzy uwagi
+rundy 3 czekają na pytanie Q-12, zatrzymany proces 1509615 na Q-13). -->
 
 
 
@@ -1173,7 +1175,7 @@ Columns:
 | R-023 | Commands are thin adapters over domain operations | 2 | T-26, D-044, D-045, D-046, D-061 | R-014, R-021, R-089 | M | delegated | night | — | — | — | ready (D-061) |
 | R-092 | A refusal leaves no trace: `validate` then `apply` | 2 | T-38, D-061 | R-021, R-023 | L | delegated | night | — | — | — | planned |
 | R-093 | The round-3 notes of R-019 and R-021: the migration keeps `born`, guarded hook reads | 2 | T-25, T-02, T-30, D-062, D-063 | R-019, R-021, R-022 | S | delegated | night | — | — | — | done |
-| R-094 | A queued wrapper ends when its job folder is gone; tests stop their wrappers | 2 | T-01, T-29, D-063 | R-093 | S | delegated | night | — | — | — | ready (D-063) |
+| R-094 | A queued wrapper ends when its job folder is gone; tests stop their wrappers | 2 | T-01, T-29, D-063 | R-093 | S | delegated | night | — | — | — | done |
 | R-024 | `limen stats` over records and transcripts | 2 | H-01, H-20, §2, T-33 | R-021, R-023 | M | delegated | night | — | pi | 2.3 | planned |
 | R-025 | Test coverage derived from the command registry | 2 | T-28, T-29, D-045, D-046 | R-014, R-023, R-092 | M | delegated | night | — | — | — | planned |
 | R-026 | Every job runs in its own systemd user scope | 3 | A-029, A-052, T-43 | R-020, R-021 | L | delegated | night | — | systemd | 3.2, 3.7, 3.8 | planned |
@@ -2517,13 +2519,29 @@ push, by the handover):
   D-054 (1)); it stays untracked until R-094's own commit, as R-022's did. Its mechanism, found while writing it: a
   queued wrapper carries the plant's path neither in its command line nor through an engine, so the plant's `pkill -f`
   misses it, and `waitForStart` never reads its own folder.
+- R-093 committed and pushed as `613f4bb` (10:29). R-094 `active` (delegated, from 10:30).
+- R-094 `done` (delegated): `waitForStart` returns how the wait ended (`started`, `stopped`, `gone`); a job whose
+  record is missing (folder removed, or recreated empty by the lock's `mkdir`) ends the wait at its next poll, and
+  the wrapper returns before setup and the engine, writing nothing into the folder; the plant's `cleanup` kills every
+  process with the plant's own `LIMEN_HOME` and lists again until none is left; the queue test proves that a timeout
+  counts from engine start by intervals that load can only lengthen (`timed` now blocks and ends on its timeout).
+  Review: round 1 PASS with eight notes (five fixed, one deviation accepted, two not fixed here), round 2 PASS with
+  three (all fixed in the second and last round), round 3 PASS with four: one in `review.md` fixed by the main session
+  (D-053 (2)), three on code and tests in `.night/questions.md` → Q-12 (recommended: one S ticket before `a0.2.0`,
+  which also takes Q-11's notes if Q-11 makes a ticket). The main session's gate 513/513, 514/514 and 515/515 after the
+  three rounds; `fails-before.mjs` exit 0 each time. Q-13: the stopped `coord` process 1509615 (a leftover of the
+  failed gate run of R-022's round 2), which `kill` would end only after Adrian's yes.
+- For gate 5.2 (`outcome.md` → Open points): in one mutation run of fix 2 (queue time counted against the timeout),
+  `test/s3-finish-wake.test.ts` also failed one `wokeOnce` assertion (`1 !== 0`, its test name cut from the output);
+  the run changed code the test runs, so by D-029 it is no finding, and the unchanged tree passed the file 7/7 before
+  and after; a possible double wake that predates R-094.
 
 Active ticket: none.
 
 Next (autopilot until 13:00 on 2026-11-21, D-063 (4); then by day):
-0. Answers waiting: Q-11 (R-022's round-3 notes). R-093 is `done`, so an answer "1" or "2" makes one S ticket of
-   stage 2 (Q-11's options).
-1. R-094 (its `ticket.md` written at the HEAD after R-093's commit), then R-089 and R-023.
+0. Answers waiting: Q-11 (R-022's round-3 notes), Q-12 (R-094's round-3 notes) and Q-13 (the stopped process
+   1509615). Answers "1" to Q-11 and Q-12 make one S fix ticket of stage 2, before `a0.2.0` (Q-12's option 1).
+1. R-089, then R-023.
 2. Then R-092, R-024 and R-025, and the close: tag `a0.2.0`, gate 5.2 by phone, with the night defaults above.
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
