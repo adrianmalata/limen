@@ -1,14 +1,16 @@
-// hook/wake.ts: the `limen` command reads its arguments from Pi only through a guard, the hook does nothing in a
-// project whose job records an older Limen wrote, and a damaged record does not stop the wakes of the other jobs.
+// hook/wake.ts: the guard on the `limen` command's arguments, nothing done before `limen migrate`, and damaged records
+// and progress files, which stop no wake and no status line, are named once, and are forgotten at a session start.
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import limenWake from "../../hook/wake.ts";
 import { emptyRecord, serialized } from "../../src/job/record.ts";
 import { LimenError } from "../../src/outcome.ts";
+import { processIdentity } from "../../src/runtime/reap.ts";
 import { withEnvironment } from "../environment.ts";
+import { writeRecord } from "../plant.ts";
 
 /** The handler of the `limen` command that the hook registers on a fake `pi`. */
 function commandHandler(): (args: unknown, context: unknown) => Promise<void> {
@@ -84,29 +86,29 @@ async function until(check: () => boolean, limit = 10_000): Promise<void> {
 	}
 }
 
-// T-01: a damaged record is reported, once per session; the sweep goes on to the other jobs.
-test("a damaged record before a finished job: the finished job's wake still comes, and the hook names the damage once", async (t) => {
-	const root = await mkdtemp(join(tmpdir(), "limen-wake-damaged-"));
+/** A project in a new folder in the OS temporary folder, in the environment of a coordinator outside Herdr. */
+async function hookProject(t: TestContext, prefix: string): Promise<{ readonly root: string; readonly jobs: string }> {
+	const root = await mkdtemp(join(tmpdir(), prefix));
 	t.after(() => rm(root, { recursive: true, force: true }));
 	const home = join(root, "home");
 	withEnvironment(t, { LIMEN_JOB: "", LIMEN_HOME: home, HOME: home, HERDR_TAB_ID: "", HERDR_PANE_ID: "" });
 	await mkdir(join(root, ".agents", "limen"), { recursive: true });
-	const jobs = join(root, ".limen", "jobs");
-	const session = "wake-damaged-session";
-	const damaged = "2026-11-21-damaged-0001";
-	const finished = "2026-11-21-finished-0002";
-	await mkdir(join(jobs, damaged, "notify", "subscribers"), { recursive: true });
-	await writeFile(join(jobs, damaged, "record.json"), '{"version": 1, "state": 7}\n');
-	await mkdir(join(jobs, finished, "notify", "subscribers"), { recursive: true });
-	await writeFile(
-		join(jobs, finished, "record.json"),
-		serialized({ ...emptyRecord(finished), state: "done", label: "finished", finishedAt: new Date().toISOString() }),
-	);
-	for (const id of [damaged, finished]) {
-		await writeFile(join(jobs, id, "notify", "ready"), "1\n");
-		await writeFile(join(jobs, id, "notify", "subscribers", session), `${new Date().toISOString()}\n`);
-	}
+	return { root, jobs: join(root, ".limen", "jobs") };
+}
+
+/** What a coordinator's hook showed and sent: its notes, every status line it set, and its wakes. */
+type Coordinator = {
+	readonly notes: string[];
+	readonly statuses: Array<string | undefined>;
+	readonly wakes: string[];
+	shutdown(): void;
+};
+
+/** A new instance of the hook on a fake `pi`, started for the session `session` in `root`; it ends after `t`. */
+function startCoordinator(t: TestContext, root: string, session: string): Coordinator {
 	const handlers = new Map<unknown, unknown>();
+	const notes: string[] = [];
+	const statuses: Array<string | undefined> = [];
 	const wakes: string[] = [];
 	limenWake({
 		on(...args: unknown[]) {
@@ -124,20 +126,112 @@ test("a damaged record before a finished job: the finished job's wake still come
 		"the hook handles the session's start and end",
 	);
 	t.after(() => shutdown({}, {}));
-	const notes: string[] = [];
 	start(
 		{},
 		{
 			cwd: root,
 			isIdle: () => true,
 			sessionManager: { getSessionId: () => session },
-			ui: { notify: (text: string) => notes.push(text), setStatus() {} },
+			ui: {
+				notify: (text: string) => notes.push(text),
+				setStatus: (_key: string, value: string | undefined) => statuses.push(value),
+			},
 		},
 	);
-	await until(() => wakes.some((wake) => wake.includes(finished)));
-	// Two more ticks of the sweep read the damaged record again; it is still named once.
-	await new Promise((resolve) => setTimeout(resolve, 1_200));
-	const damage = notes.filter((note) => note.includes("is damaged"));
-	assert.equal(damage.length, 1, notes.join("\n"));
-	assert.match(damage[0] ?? "", new RegExp(`the record of job ${damaged} is damaged: .*${damaged}/record\\.json: `));
+	return { notes, statuses, wakes, shutdown: () => shutdown({}, {}) };
+}
+
+/** The notes that name a damaged file of a job. */
+function damageNotes(coordinator: Coordinator): string[] {
+	return coordinator.notes.filter((note) => note.includes("is damaged"));
+}
+
+/** Waits for `ticks` more sweeps of the hook: each sweep sets the status line, to a value or to none. */
+async function sweeps(coordinator: Coordinator, ticks: number): Promise<void> {
+	const seen = coordinator.statuses.length;
+	await until(() => coordinator.statuses.length >= seen + ticks);
+}
+
+// T-01: a damaged record is reported, once per session; the sweep goes on to the other jobs.
+test("a damaged record before a finished job: the finished job's wake still comes, and the hook names the damage once", async (t) => {
+	const { root, jobs } = await hookProject(t, "limen-wake-damaged-");
+	const session = "wake-damaged-session";
+	const damaged = "2026-11-21-damaged-0001";
+	const finished = "2026-11-21-finished-0002";
+	await mkdir(join(jobs, damaged, "notify", "subscribers"), { recursive: true });
+	await writeFile(join(jobs, damaged, "record.json"), '{"version": 1, "state": 7}\n');
+	await mkdir(join(jobs, finished, "notify", "subscribers"), { recursive: true });
+	await writeFile(
+		join(jobs, finished, "record.json"),
+		serialized({ ...emptyRecord(finished), state: "done", label: "finished", finishedAt: new Date().toISOString() }),
+	);
+	for (const id of [damaged, finished]) {
+		await writeFile(join(jobs, id, "notify", "ready"), "1\n");
+		await writeFile(join(jobs, id, "notify", "subscribers", session), `${new Date().toISOString()}\n`);
+	}
+	const coordinator = startCoordinator(t, root, session);
+	await until(() => coordinator.wakes.some((wake) => wake.includes(finished)));
+	// Two more sweeps read the damaged record again; it is still named once.
+	await sweeps(coordinator, 2);
+	const damage = damageNotes(coordinator);
+	assert.equal(damage.length, 1, coordinator.notes.join("\n"));
+	assert.match(damage[0] ?? "", new RegExp(`a file of job ${damaged} is damaged: .*${damaged}/record\\.json: `));
+});
+
+// T-01: what the hook found damaged belongs to one session; a new session reads every file again and names only what
+// is still damaged.
+test("a record repaired after the hook named its damage is not named again after a new session start", async (t) => {
+	const { root, jobs } = await hookProject(t, "limen-wake-repaired-");
+	const id = "2026-11-21-repaired-0003";
+	await mkdir(join(jobs, id), { recursive: true });
+	await writeFile(join(jobs, id, "record.json"), '{"version": 1, "state": 7}\n');
+	const first = startCoordinator(t, root, "wake-repaired-session-1");
+	await until(() => damageNotes(first).some((note) => note.includes(id)));
+	await writeRecord(join(jobs, id), { state: "done", label: "repaired", finishedAt: new Date().toISOString() });
+	first.shutdown();
+	const second = startCoordinator(t, root, "wake-repaired-session-2");
+	await sweeps(second, 3);
+	assert.deepEqual(damageNotes(second), []);
+});
+
+/** A running job of the test process, labelled `label`, whose progress file holds `progress`. */
+async function runningJob(jobs: string, id: string, label: string, progress: string): Promise<void> {
+	const at = new Date().toISOString();
+	await writeRecord(join(jobs, id), { state: "running", label, identity: await processIdentity(), startedAt: at });
+	await writeFile(join(jobs, id, "progress.json"), progress);
+}
+
+// T-01: the status line reads each running job's progress on every tick; a damaged one counts as none.
+test("a damaged progress.json: the status line still shows every running job, and the hook names the damage once", async (t) => {
+	const { root, jobs } = await hookProject(t, "limen-wake-progress-");
+	const damaged = "2026-11-21-alpha-0004";
+	await runningJob(jobs, damaged, "alpha", "{ not json\n");
+	await runningJob(jobs, "2026-11-21-beta-0005", "beta", '{"activity":"tool","lastTool":"bash","toolCalls":3}\n');
+	const coordinator = startCoordinator(t, root, "wake-progress-session");
+	await until(() => coordinator.statuses.some((status) => status?.startsWith("limen 2 · ")));
+	await sweeps(coordinator, 2);
+	const status = coordinator.statuses.findLast((line) => line !== undefined) ?? "";
+	assert.match(status, /^limen 2 · alpha think \(unwatched\) beta tool:bash \(unwatched\)$/);
+	const damage = damageNotes(coordinator);
+	assert.equal(damage.length, 1, coordinator.notes.join("\n"));
+	assert.match(damage[0] ?? "", new RegExp(`a file of job ${damaged} is damaged: .*${damaged}/progress\\.json: `));
+});
+
+// T-01: a job's progress tells the completion wake only whether the job produced nothing; a damaged one holds no wake.
+test("a finished job whose progress.json is damaged still gets its completion wake, and the hook names the damage once", async (t) => {
+	const { root, jobs } = await hookProject(t, "limen-wake-finished-progress-");
+	const session = "wake-finished-progress-session";
+	const id = "2026-11-21-finished-0006";
+	const job = join(jobs, id);
+	await writeRecord(job, { state: "done", label: "finished", finishedAt: new Date().toISOString() });
+	await writeFile(join(job, "progress.json"), "{ not json\n");
+	await mkdir(join(job, "notify", "subscribers"), { recursive: true });
+	await writeFile(join(job, "notify", "ready"), "1\n");
+	await writeFile(join(job, "notify", "subscribers", session), `${new Date().toISOString()}\n`);
+	const coordinator = startCoordinator(t, root, session);
+	await until(() => coordinator.wakes.some((wake) => wake.includes(id)));
+	await sweeps(coordinator, 2);
+	const damage = damageNotes(coordinator);
+	assert.equal(damage.length, 1, coordinator.notes.join("\n"));
+	assert.match(damage[0] ?? "", new RegExp(`a file of job ${id} is damaged: .*${id}/progress\\.json: `));
 });

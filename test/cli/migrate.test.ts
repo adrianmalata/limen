@@ -189,6 +189,35 @@ test("a born that is not in clock ticks stays in its file, the record's born is 
 	assert.ok(report.includes(`job ${id}: migrate (done); kept born: not in clock ticks\n`), report);
 });
 
+// T-28 (3): before R-021, finalizeJob removed `pid` before `born`, so a finished folder can hold a start time with no
+// pid; no identity of the record takes it, so it stays in its file and the report names it.
+test("a born without a usable pid stays in its file, the record has no identity, and the report names it", async (t) => {
+	const p = await project(t);
+	const id = "2026-11-03-born-2b3c4d5e";
+	const dir = await oldFolder(p, id, { state: "done\n", "task.md": "x\n", log: "", born: "123456\n" });
+	const run = limen(p, ["migrate"]);
+	assert.equal(run.status, 0, run.stderr);
+	assert.equal(readRecordSync(dir)?.identity, null);
+	assert.equal(readFileSync(join(dir, "born"), "utf8"), "123456\n");
+	const report = outputText(run);
+	assert.ok(report.includes(`job ${id}: migrate (done); kept born: no usable pid\n`), report);
+});
+
+// The group owner's identity carries its own start time, so the folder's `born` is not the identity's either.
+test("a born without a usable pid stays in its file when the record takes the group owner's identity", async (t) => {
+	const p = await project(t);
+	const id = "2026-11-03-born-3c4d5e6f";
+	const owner = '{"pid":4243,"born":"654321"}\n';
+	const files = { state: "done\n", "task.md": "x\n", log: "", born: "123456\n", "group-owner.json": owner };
+	const dir = await oldFolder(p, id, files);
+	const run = limen(p, ["migrate"]);
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(readRecordSync(dir)?.identity, { pid: 4243, born: "654321", bootId: null });
+	assert.equal(readFileSync(join(dir, "born"), "utf8"), "123456\n");
+	const report = outputText(run);
+	assert.ok(report.includes(`job ${id}: migrate (done); kept born: no usable pid\n`), report);
+});
+
 test("a job without task.md or log migrates, and the report notes the missing content", async (t) => {
 	const p = await project(t);
 	const id = "2026-11-03-bare-1a2b3c4d";

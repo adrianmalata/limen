@@ -1,5 +1,5 @@
-// The shared test helpers of test/plant.ts: `waitJob` returns only once the job's wrapper has given up its folder, and
-// a plant runs the git that comes first on the runner's PATH.
+// The shared test helpers of test/plant.ts: `waitJob` returns only once the job's wrapper has given up its folder, a
+// record the plant writes by hand is never read in part, and a plant runs the git that comes first on the runner's PATH.
 import assert from "node:assert/strict";
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
@@ -7,7 +7,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { plant as newPlant, type Plant, waitJob, writeRecord } from "./plant.ts";
+import { editRecord, plant as newPlant, type Plant, waitJob, writeRecord } from "./plant.ts";
 
 const JOB = "2026-11-18-waited-1a2b3c4d";
 /**
@@ -46,6 +46,67 @@ test("A-088: waitJob returns only after the job's state is terminal and its pid 
 	const plant = { parent: root, root, bin: root, env: {}, cleanup: async () => {} } satisfies Plant;
 	const state = waitJob(plant, JOB);
 	assert.deepEqual([state, exited(pid)], ["done", true]);
+});
+
+/** How often the record-write test rewrites the record while the reader reads it. */
+const WRITES = 300;
+const RECORD_MODULE = new URL("../src/job/record.ts", import.meta.url).href;
+/**
+ * The reader of the record-write test: it reads the job folder's record (argument 1) through the record module, as
+ * `finalizeJob` does, until the stop file (argument 2) exists, then prints how many reads it made and the error of
+ * each read that did not take the record.
+ */
+const READER = [
+	'import { existsSync } from "node:fs";',
+	`import { readRecordSync } from ${JSON.stringify(RECORD_MODULE)};`,
+	"const [dir, stop] = process.argv.slice(1);",
+	"let reads = 0;",
+	"const failed = [];",
+	'process.stdout.write("reading\\n");',
+	"while (!existsSync(stop)) {",
+	"\treads += 1;",
+	"\ttry {",
+	"\t\treadRecordSync(dir);",
+	"\t} catch (error) {",
+	"\t\tfailed.push(String(error?.message ?? error));",
+	"\t}",
+	"}",
+	'process.stdout.write(JSON.stringify({ reads, failed }) + "\\n");',
+].join("\n");
+
+// D-063 (1): a test that rewrites a record while a Limen process reads it, as the race test of test/cli/stop.test.ts
+// does, must meet only whole records, as production writes them (src/atomic-write.ts).
+test("a reader running while the plant writes record.json reads only whole records", async (t) => {
+	const root = mkdtempSync(join(tmpdir(), "limen-plant-write-"));
+	const dir = join(root, ".limen", "jobs", JOB);
+	const stop = join(root, "stop");
+	await writeRecord(dir, { label: "first" });
+	const reader: ChildProcess = spawn(process.execPath, ["--input-type=module", "--eval", READER, dir, stop], {
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+	t.after(() => {
+		reader.kill("SIGKILL");
+		rmSync(root, { recursive: true, force: true });
+	});
+	let output = "";
+	let errors = "";
+	reader.stdout?.on("data", (chunk) => (output += chunk));
+	reader.stderr?.on("data", (chunk) => (errors += chunk));
+	const exited = once(reader, "exit");
+	const reading = reader.stdout ? once(reader.stdout, "data") : Promise.reject(new Error("the reader has no stdout"));
+	const first = await Promise.race([reading.then(() => "reading"), exited.then(() => "exited")]);
+	assert.equal(first, "reading", errors);
+	for (let write = 0; write < WRITES; write += 1) {
+		await (write % 2 === 0
+			? writeRecord(dir, { label: `written ${write}` })
+			: editRecord(dir, () => ({ label: `edited ${write}` })));
+	}
+	writeFileSync(stop, "");
+	const [code] = await exited;
+	assert.equal(code, 0, errors);
+	const report = JSON.parse(output.trim().split("\n").at(-1) ?? "");
+	assert.ok(report.reads > 0, output);
+	assert.deepEqual(report.failed.slice(0, 3), [], `${report.failed.length} of ${report.reads} reads failed`);
 });
 
 // D-060: the laptop's first git is not the system's, and a plant's PATH is fixed, so without the link a plant would

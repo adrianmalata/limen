@@ -315,6 +315,13 @@ class OldValues {
 	text(name: Moved): string | null {
 		return this.field(name, (value) => value, "");
 	}
+	/** Keeps the file with the reason `why` when it holds text that no field of the record takes. */
+	keep(name: Moved, why: string): void {
+		if (this.files.get(name)) {
+			this.unread.add(name);
+			this.kept.push(`kept ${name}: ${why}`);
+		}
+	}
 }
 
 async function migratedRecord(jobDir: string, id: string, files: ReadonlyMap<Moved, string>): Promise<Built> {
@@ -398,17 +405,20 @@ async function runValues(jobDir: string, values: OldValues): Promise<Fields> {
 }
 
 /**
- * The identity of the older record: its `pid` and `born`, else the group owner's; `born` only as clock ticks, so a
- * `born` file of another text stays, as any value its field cannot hold.
+ * The identity of the older record: its `pid` and `born`, else the group owner's. A `born` stays in its file, as any
+ * value its field cannot hold, when it is not in clock ticks, and when the folder has no usable pid: the group owner's
+ * identity has a start time of its own, so no identity takes the folder's (before R-021, `finalizeJob` removed `pid`
+ * before `born`, so a finished folder can hold such a `born`).
  */
 function identityOf(values: OldValues): JobRecord["identity"] {
 	const pid = values.field("pid", pidOf, "not a pid");
 	const owner = values.field("group-owner.json", jsonOf(ownerOf), "not the JSON of a group owner");
-	const born = values.field("born", (text) => (CLOCK_TICKS.test(text) ? text : undefined), "not in clock ticks");
-	if (pid !== null) {
-		return { pid, born, bootId: null };
+	if (pid === null) {
+		values.keep("born", "no usable pid");
+		return owner ? { pid: owner.pid, born: CLOCK_TICKS.test(owner.born) ? owner.born : null, bootId: null } : null;
 	}
-	return owner ? { pid: owner.pid, born: CLOCK_TICKS.test(owner.born) ? owner.born : null, bootId: null } : null;
+	const born = values.field("born", (text) => (CLOCK_TICKS.test(text) ? text : undefined), "not in clock ticks");
+	return { pid, born, bootId: null };
 }
 
 /** The failure of a failed job by today's patterns: its last `failed:` log line, else its engine's stop reason. */

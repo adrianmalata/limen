@@ -7,6 +7,7 @@ import { mkdir, mkdtemp, readdir, realpath, rm, symlink, writeFile } from "node:
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { atomicWrite } from "../src/atomic-write.ts";
 import { TERMINAL_STATES } from "../src/job/job.ts";
 import { emptyRecord, type JobRecord, readRecordSync, serialized } from "../src/job/record.ts";
 import { readOutcome } from "../src/outcome.ts";
@@ -280,20 +281,25 @@ export function jobRecord(plant: Plant, id: string, options: RunOptions = {}): J
 
 /**
  * Writes the record of the job folder `dir` by hand, as a test that plants a job without a wrapper needs: the empty
- * record of the folder's name (src/job/record.ts) with `fields`.
+ * record of the folder's name (src/job/record.ts) with `fields`. The write is atomicWrite's, as every write of a
+ * record is, so a Limen process that reads the record meanwhile reads the old one or the new one, never a part
+ * (D-063 (1)).
  */
 export async function writeRecord(dir: string, fields: Partial<JobRecord> = {}): Promise<void> {
 	await mkdir(dir, { recursive: true });
-	await writeFile(join(dir, "record.json"), serialized({ ...emptyRecord(basename(dir)), ...fields }));
+	await atomicWrite(join(dir, "record.json"), serialized({ ...emptyRecord(basename(dir)), ...fields }));
 }
 
-/** Changes fields of the record of the job folder `dir` by hand, as a test that plants an older or odd record does. */
+/**
+ * Changes fields of the record of the job folder `dir` by hand, as a test that plants an older or odd record does;
+ * written whole, as `writeRecord` writes.
+ */
 export async function editRecord(dir: string, fields: (record: JobRecord) => Partial<JobRecord>): Promise<void> {
 	const record = readRecordSync(dir);
 	if (!record) {
 		throw new Error(`${dir} holds no record to edit`);
 	}
-	await writeFile(join(dir, "record.json"), serialized({ ...record, ...fields(record) }));
+	await atomicWrite(join(dir, "record.json"), serialized({ ...record, ...fields(record) }));
 }
 
 /** The state of the job's record, or "" while it has none. */

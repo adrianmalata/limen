@@ -6,6 +6,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { cpus } from "node:os";
 import { readOptional } from "../project/inherit.ts";
+import { hasCode } from "../system-error.ts";
 import type { CoreTimes, MemoryReading, Platform, ProcessQueryOutcome, ProcessRow, SignalResult } from "./platform.ts";
 
 const TABLE_MAX_BYTES = 1024 * 1024;
@@ -90,7 +91,7 @@ async function processInfo(pid: number): Promise<ProcessQueryOutcome> {
 	try {
 		return parseStat(pid, await readFile(`/proc/${pid}/stat`, "utf8"));
 	} catch (error) {
-		return isCode(error, "ENOENT") ? { kind: "absent" } : { kind: "unavailable" };
+		return hasCode(error, "ENOENT") ? { kind: "absent" } : { kind: "unavailable" };
 	}
 }
 
@@ -174,10 +175,10 @@ function signalTarget(target: number, signal: NodeJS.Signals | 0): SignalResult 
 		process.kill(target, signal);
 		return "sent";
 	} catch (error) {
-		if (isCode(error, "ESRCH")) {
+		if (hasCode(error, "ESRCH")) {
 			return "missing";
 		}
-		if (isCode(error, "EPERM")) {
+		if (hasCode(error, "EPERM")) {
 			return "denied";
 		}
 		throw error;
@@ -189,10 +190,6 @@ function coreTimes(): readonly CoreTimes[] {
 		idle: times.idle,
 		total: Object.values(times).reduce((sum, value) => sum + value, 0),
 	}));
-}
-
-function isCode(error: unknown, code: string): boolean {
-	return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }
 
 export const linux: Platform = {

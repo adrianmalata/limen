@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { type Guarded, type LockRecord, lockPath, ownerGone, withLock } from "../src/lock.ts";
-import { LimenError } from "../src/outcome.ts";
+import { EXIT_CODES, LimenError } from "../src/outcome.ts";
 import { platform } from "../src/platform/platform.ts";
 import { withEnvironment } from "./environment.ts";
 
@@ -258,7 +258,9 @@ test("LOCK_LOST: a release leaves a lock that no longer holds the holder's token
 		}),
 	);
 	assert.equal(readFileSync(path, "utf8"), foreign);
-	assert.ok(error instanceof LimenError && error.code === "LOCK_LOST", String(error));
+	assert.ok(error instanceof LimenError, String(error));
+	// T-02: a lock that another process removed or replaced is a failure of the environment, exit 4.
+	assert.deepEqual([error.class, error.code, EXIT_CODES[error.class]], ["environment", "LOCK_LOST", 4]);
 });
 
 /**
@@ -296,7 +298,7 @@ test("a claim on a dead lock whose taker died is taken over too, so the takeover
 	assert.equal(await withLock(guarded, async () => "ran"), "ran");
 });
 
-// The forms an older Limen wrote (the ticket's Migration, D-056 (3)): a folder with an owner file, a file with a pid.
+// The forms an older Limen wrote (R-019's Migration, D-056 (3)): a folder with an owner file, a file with a pid.
 test("a lock folder of an older Limen whose owner file names a live pid is kept", async (t) => {
 	const guarded = { folder: folder(t) };
 	mkdirSync(lockPath(guarded));

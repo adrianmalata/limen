@@ -1,5 +1,6 @@
 import { mkdir, readdir } from "node:fs/promises";
 import { atomicWrite } from "../atomic-write.ts";
+import { hasCode } from "../system-error.ts";
 
 /** Queue one steer for the worker's steering hook; numbers continue past every inbox, claim and delivered name. */
 export async function enqueueSteer(jobDir: string, message: string): Promise<string> {
@@ -11,7 +12,7 @@ export async function enqueueSteer(jobDir: string, message: string): Promise<str
 			await atomicWrite(`${inbox}/${seq}`, `${message}\n`, { exclusive: true });
 			return seq;
 		} catch (error: unknown) {
-			if (!isExist(error)) {
+			if (!hasCode(error, "EEXIST")) {
 				throw error;
 			}
 		}
@@ -27,8 +28,4 @@ async function highest(jobDir: string): Promise<number> {
 		const value = Number(name);
 		return /^\d+$/.test(name) && value > max ? value : max;
 	}, 0);
-}
-
-function isExist(error: unknown): boolean {
-	return typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST";
 }

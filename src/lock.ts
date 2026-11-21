@@ -15,6 +15,7 @@ import { at, either, matching, numberIn, object, optional, parseJson } from "./b
 import { testKnob } from "./config.ts";
 import { LimenError } from "./outcome.ts";
 import { BOOT_ID, type ProcessQueryOutcome, platform } from "./platform/platform.ts";
+import { hasCode } from "./system-error.ts";
 
 /** The longest wait for a lock that a live owner holds (D-056 (2)). */
 const WAIT_MS = 60_000;
@@ -429,9 +430,4 @@ function hint(path: string, owned: Owned | undefined): string {
 		return `a reused pid keeps such a lock: if ps -p ${owned.pid} -o pid,lstart,args shows no Limen command, remove ${path} by hand and run the command again`;
 	}
 	return "run the command again";
-}
-
-/** Whether `error` is a system error with the code `code`. */
-function hasCode(error: unknown, code: string): boolean {
-	return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }

@@ -2,8 +2,8 @@
 (D-063 (1)): jeden helper kodu błędu zamiast kopii w src/lock.ts, test LOCK_LOST sprawdza też klasę, komentarz wskazuje
 R-019; migracja zachowuje `born` bez użytecznego `pid`; hook czyści mapę uszkodzonych rekordów na starcie sesji
 i chroni odczyty `progress.json`; podręcznik koordynatora bez „or no pid yet”; `writeRecord` i `editRecord`
-w test/plant.ts zapisują atomowo. Stan: napisany 21.11 w dzień (autopilot D-063 (4)) przy drzewie po R-022; gotowy
-(delegated). -->
+w test/plant.ts zapisują atomowo. Stan: napisany 21.11 w dzień (autopilot D-063 (4)) przy drzewie po R-022; po
+rundzie 1 recenzji doszły zakres AC-13 i dwie poprawki (`isExist`, nagłówek testu hooka); zamknięty 21.11. -->
 
 # R-093 The round-3 notes of R-019 and R-021: the migration keeps `born`, guarded hook reads
 
@@ -119,3 +119,16 @@ None: no format on disk changes. Change 4 changes what `limen migrate` keeps; it
 ## Decisions
 
 - 2026-11-21 D-062 and D-063 (1) (Adrian): quoted in `## Problem`.
+- 2026-11-21 (main session, review round 1, `review.md` → Round 1): AC-13's "no test helper writes a job file
+  non-atomically" means a helper that writes a job file while a reader may run, which is Change 8's plant helpers
+  (D-063 (1)); a fixture written into a fresh folder before any reader starts (`recorded` in
+  `test/job/record.test.ts`, `runningJob` in `test/hook/wake.test.ts`, the damaged fixtures that must stay raw text)
+  is outside it.
+- 2026-11-21 (main session, review round 1; the first round of fixes, for a fresh `rebuild-implementer`):
+  - Fix 1 (note 1, T-25 (2)): `isExist` in `src/job/steer-inbox.ts` becomes a call of `hasCode(error, "EEXIST")` from
+    `src/system-error.ts`, with no local copy left; the header comment of `src/system-error.ts` stops listing the
+    modules that call it (T-30: a list of callers goes stale; the fix itself would make it so).
+  - Fix 6 (note 6, T-29 (5)): the first line of `test/hook/wake.test.ts` names what the file now covers (damaged
+    records and progress files, and the clearing at a session start); the earlier damaged-record test uses the
+    helpers `hookProject` and `startCoordinator` instead of its own copy of their setup.
+  - The other inline code checks that `outcome.md` → Open points lists stay for T-25's later ticket.

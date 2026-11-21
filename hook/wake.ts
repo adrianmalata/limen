@@ -6,7 +6,14 @@ import { transport } from "../src/config.ts";
 import { coordinatorRegistration } from "../src/integrations/coordinator-registration.ts";
 import { herdrBinary } from "../src/integrations/herdr.ts";
 import { closedFeatures, closedJobFeatures, derivePulse, isTerminal, type Pulse, SESSION_ID } from "../src/job/job.ts";
-import { isProgressName, type JobRecord, jobFoldersSync, readProgressSync, readRecordSync } from "../src/job/record.ts";
+import {
+	isProgressName,
+	type JobRecord,
+	jobFoldersSync,
+	type Progress,
+	readProgressSync,
+	readRecordSync,
+} from "../src/job/record.ts";
 import { openChecks } from "../src/job/task-note.ts";
 import {
 	CLAIM_STALE_MS,
@@ -102,7 +109,7 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 		| { readonly key: string; readonly until: number; readonly jobs: readonly FinishedJob[] }
 		| undefined;
 	const firstDead = new Map<string, number>();
-	// The damaged records this session already named, so each one is reported once.
+	// The job folders whose damaged file this session already named, so each one is reported once.
 	const reportedDamage = new Set<string>();
 	// Records with nothing left to deliver here, oldest first. A watch event, a fallback due time, or the refresh reopens one.
 	const settled = new Set<string>();
@@ -492,10 +499,11 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 				!existsSync(join(job, "notify", "delivered", "_fallback"))
 			);
 		};
-		// The wake text reads the record again; a record damaged since then sends nothing.
+		// The wake text reads the record again; a record damaged since then sends nothing. A damaged progress file only
+		// leaves out whether the job produced nothing.
 		const message = undamaged(
 			job,
-			() => completionWake(job, label, state, id, branch, repo, { fallback, session: sessionId }),
+			() => completionWake(job, label, state, id, branch, repo, { fallback, session: sessionId }, progressOf),
 			"",
 		);
 		if (!message) {
@@ -584,7 +592,7 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 				!existsSync(join(job, "notify", "delivered", "_advisory._fallback"))
 			);
 		};
-		const message = advisoryWake(job, label, id, branch, repo, advisory, fallback);
+		const message = advisoryWake(job, label, id, branch, repo, advisory, fallback, record);
 		const routed = claimDelivery(
 			job,
 			slot,
@@ -768,7 +776,7 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 				running.filter((id) => stateOf(jobs, id) === "running"),
 				generation,
 			);
-			for (const line of damagedRecords(reportedDamage)) {
+			for (const line of damagedFiles(reportedDamage)) {
 				session?.ui.notify(line, "warning");
 			}
 		} catch {
@@ -874,6 +882,7 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 		activeDeliveries.clear();
 		firstDead.clear();
 		reportedDamage.clear();
+		damaged.clear();
 		reopenAll();
 		refreshTicks = 0;
 		listing = undefined;
@@ -1057,18 +1066,22 @@ function notMigratedReason(jobs: string): string | undefined {
 		return undefined;
 	}
 }
-/** Each damaged record the hook read, by job id, so that it reports each one once (T-01). */
+/**
+ * Each job folder whose record or progress file the hook read as damaged in this session, with the error, so that it
+ * reports each one once (T-01). A session start clears it with the session's reported set, so a file repaired since is
+ * not named again, and one still damaged is named once more.
+ */
 const damaged = new Map<string, string>();
 /**
- * What `read` gives for the job; when its record is damaged, `instead`, so one bad record does not stop the wakes of
- * every other job, and `damagedRecords` names it.
+ * What `read` gives for the job folder `job`; when a file it reads is damaged, `instead`, so one bad file does not stop
+ * the wakes and the status line of every other job, and `damagedFiles` names it.
  */
 function undamaged<T>(job: string, read: () => T, instead: T): T {
 	try {
 		return read();
 	} catch (error) {
 		if (error instanceof LimenError && error.code === "BAD_DATA") {
-			damaged.set(basename(job), error.message);
+			damaged.set(job, error.message);
 			return instead;
 		}
 		throw error;
@@ -1078,13 +1091,17 @@ function undamaged<T>(job: string, read: () => T, instead: T): T {
 function recordOf(job: string): JobRecord | undefined {
 	return undamaged(job, () => readRecordSync(job), undefined);
 }
-/** The damaged records found since the last call, each reported once. */
-function damagedRecords(reported: Set<string>): string[] {
-	const fresh = [...damaged].filter(([id]) => !reported.has(id));
-	for (const [id] of fresh) {
-		reported.add(id);
+/** The job's progress; a damaged one counts as none here (`undamaged`). */
+function progressOf(job: string): Progress | undefined {
+	return undamaged(job, () => readProgressSync(job), undefined);
+}
+/** The job folders with a damaged file found since the last call and not in `reported`, each reported once. */
+function damagedFiles(reported: Set<string>): string[] {
+	const fresh = [...damaged].filter(([job]) => !reported.has(job));
+	for (const [job] of fresh) {
+		reported.add(job);
 	}
-	return fresh.map(([id, message]) => `limen: the record of job ${id} is damaged: ${message}`);
+	return fresh.map(([job, message]) => `limen: a file of job ${basename(job)} is damaged: ${message}`);
 }
 /** The job line: each running job with its pulse, then each finished job with its state, until it lands or closes. */
 async function jobDisplay(
@@ -1106,7 +1123,7 @@ async function jobDisplay(
 		runningIds.map(async (id) => {
 			const label = recordOf(join(jobs, id))?.label || id;
 			const pulse = await pulseOf(jobs, id);
-			const tool = readProgressSync(join(jobs, id))?.lastTool ?? "";
+			const tool = progressOf(join(jobs, id))?.lastTool ?? "";
 			const watching = subscribed(join(jobs, id), session);
 			return {
 				label,
@@ -1210,7 +1227,7 @@ function finishedJobs(jobs: string, tab: string | undefined, session: string): F
 }
 async function pulseOf(jobs: string, id: string): Promise<Pulse> {
 	const record = recordOf(join(jobs, id));
-	const activity = readProgressSync(join(jobs, id))?.activity;
+	const activity = progressOf(join(jobs, id))?.activity;
 	return derivePulse({
 		starting: !record || record.state === "starting",
 		owner: await ownerState(record?.identity ?? null),

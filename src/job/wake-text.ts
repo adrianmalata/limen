@@ -4,7 +4,7 @@ import { TEMPORARY_NAME } from "../atomic-write.ts";
 import { readOptional } from "../project/inherit.ts";
 import { ticketPointers } from "../project/planning.ts";
 import { producedNothing } from "./job.ts";
-import { type JobRecord, readProgressSync, readRecordSync } from "./record.ts";
+import { type JobRecord, type Progress, readProgressSync, readRecordSync } from "./record.ts";
 import { openChecks } from "./task-note.ts";
 import { claimSlots, deliveryExists } from "./wake-delivery.ts";
 
@@ -52,6 +52,8 @@ export function jobEnding(job: string, record = readRecordSync(job)): string {
  * the wake.
  */
 type CompletionRoute = { readonly fallback?: boolean; readonly instruction?: string; readonly session?: string };
+/** A read of the job folder's progress; the hook passes its damage guard, so a damaged file reads as none there. */
+type ProgressRead = (job: string) => Progress | undefined;
 export function completionWake(
 	job: string,
 	label: string,
@@ -60,6 +62,7 @@ export function completionWake(
 	branch: string,
 	repo: string,
 	route: CompletionRoute = {},
+	progressOf: ProgressRead = readProgressSync,
 ): string {
 	const { fallback = false, instruction: routeInstruction } = route;
 	const record = readRecordSync(job);
@@ -74,7 +77,7 @@ export function completionWake(
 	const waited = missedStartNotice(job, route.session);
 	// A start notice the session never got is its own paragraph after the lead, word for word.
 	const lead = [said, waited, open.length ? `Open checks:\n${open.join("\n")}` : ""].filter(Boolean).join("\n\n");
-	const empty = jobProducedNothing(job, record);
+	const empty = jobProducedNothing(record, progressOf(job));
 	const facts = empty ? "It produced nothing (0 tool calls, no commits)." : "";
 	let handoff = "The job failed or stopped; inspect the failure before deciding whether to resume work.";
 	if (state === "done") {
@@ -129,6 +132,10 @@ export function keeperHint(job: string, id: string, record = readRecordSync(job)
 	const ticket = ticketPointers(text(join(job, "task.md")))[0]?.path ?? "<ticket>";
 	return `If it added, moved or changed a ticket, start limen keeper ${ticket} --job ${id} --engine <engine> --provider <provider> --model <model> --thinking <level> and land the keeper job instead.`;
 }
+/**
+ * The wake of a running job's advisory. Its ending comes from `record`, the record the caller read, so the wake reads
+ * no record of its own: the hook reads records through its damage guard (T-01).
+ */
 export function advisoryWake(
 	job: string,
 	label: string,
@@ -137,6 +144,7 @@ export function advisoryWake(
 	repo: string,
 	advisory: string,
 	fallback: boolean,
+	record: JobRecord,
 ): string {
 	const location = repo ? ` in repository ${repo}` : "";
 	const task = firstSentence(text(join(job, "task.md")));
@@ -146,7 +154,7 @@ export function advisoryWake(
 	const instruction = fallback
 		? "The subscribed coordinator is busy. Do not spawn, stop, or steer on this wake unless the human asks."
 		: "Inspect the job record and continue the loop; steer; or open the tab and exit if you mean the session to end.";
-	return joinWake(lead, jobEnding(job), "", instruction);
+	return joinWake(lead, jobEnding(job, record), "", instruction);
 }
 function joinWake(lead: string, ending: string, facts: string, instruction: string): string {
 	const parts = [lead];
@@ -168,7 +176,7 @@ function firstSentence(body: string): string {
 	const sentence = (cut === -1 ? paragraph : paragraph.slice(0, cut + 1)).trim();
 	return sentence.length > 240 ? `${sentence.slice(0, 239)}…` : sentence;
 }
-function jobProducedNothing(job: string, record: JobRecord | undefined): boolean {
+function jobProducedNothing(record: JobRecord | undefined, progress: Progress | undefined): boolean {
 	const commits = record?.commits ? record.commits.join("\n") : undefined;
-	return producedNothing(readProgressSync(job)?.toolCalls ?? undefined, commits);
+	return producedNothing(progress?.toolCalls ?? undefined, commits);
 }

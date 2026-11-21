@@ -43,6 +43,7 @@ import {
 import { withLock } from "../lock.ts";
 import { LimenError } from "../outcome.ts";
 import { BOOT_ID } from "../platform/platform.ts";
+import { hasCode } from "../system-error.ts";
 import { isTerminal, SESSION_ID } from "./job.ts";
 
 /** The record's schema version (D-057 (7.8)); a field added later is optional for a record of this version. */
@@ -750,9 +751,4 @@ function progressOf(value: unknown, field: string): Progress {
 		lastTool: nullOr(string)(fields.get("lastTool"), at(field, "lastTool")),
 		toolCalls: nullOr(numberIn({ integer: true, min: 0 }))(fields.get("toolCalls"), at(field, "toolCalls")),
 	};
-}
-
-/** Whether `error` is a system error with the code `code`. */
-function hasCode(error: unknown, code: string): boolean {
-	return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }

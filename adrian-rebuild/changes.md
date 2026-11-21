@@ -221,3 +221,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-05, M-01)
 - Commit: R-022
 - Rollback: git revert $(git log --format=%H --grep='^R-022:' adrian-rebuild --)
+
+## 2026-11-21 R-093 The round-3 notes of R-019 and R-021: the migration keeps `born`, guarded hook reads
+- What: new `src/system-error.ts` (`hasCode`, the one error-code helper, importing nothing because of the load cycle through `src/lock.ts`), its copies gone from `src/lock.ts`, `src/job/record.ts`, `src/platform/linux.ts` and `src/job/steer-inbox.ts` (`isExist`); `src/job/migration.ts` (a `born` with no usable `pid` keeps its file, `kept born: no usable pid`); `hook/wake.ts` (the damaged map keyed by the job folder and cleared at a session start, every per-tick record and progress read through the damage guard, the damage line "a file of job … is damaged"); `src/job/wake-text.ts` (`advisoryWake` takes its caller's record, `completionWake` an optional progress reader); `templates/agents.md` (+ `templates/.history/agents.md`; `starting` without "or no pid yet"); `test/plant.ts` (`writeRecord` and `editRecord` through `atomicWrite`); tests `test/plant.test.ts`, `test/lock.test.ts`, `test/cli/migrate.test.ts`, `test/hook/wake.test.ts`, `test/job/wake-text.test.ts`
+- Why: T-25, T-02, T-30, T-29, D-062, D-063
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (511/511); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (five test files fail at HEAD); `node --test test/cli/stop.test.ts` → exit 0 (2/2)
+- Measurement: unmeasured (plan.md → Measurement: M-01)
+- Commit: R-093
+- Rollback: git revert $(git log --format=%H --grep='^R-093:' adrian-rebuild --)
