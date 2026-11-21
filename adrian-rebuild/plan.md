@@ -621,7 +621,8 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   (1) His weekly limit resets on Mondays at 17:00, and he has one free reset of the limits: by day the session reads
   `seven_day_used_percentage` at every safe point and before it starts a subagent, and at 98 % or more it sends the
   push "Hej, mamy 98% limitu tygodniowego, zresetuj licznik" and keeps working; there is no other stop threshold by
-  day or by night (a night run cannot read its use; the morning session reports a night that hit the limit). (2) A
+  day or by night (a night run cannot read its use; the morning session reports a night that hit the limit); item (1)
+  removed on 2026-11-21 by D-064. (2) A
   cheaper review (amends `## Agents` step 6): a round whose verdict is PASS and whose findings to fix touch only
   `docs/`, `outcome.md` or `review.md` is closed by the main session's own fixes, with no further review round; a fix
   of code or tests still gets a round. (3) A rehearsal of the night mode on the night of 2026-11-20: he asks for it from
@@ -792,6 +793,11 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   `.night/questions.md` and its ticket becomes `blocked`, category A defaults by D-054 (2). No decision push while he
   drives, except D-053's at 98 %. A handover by D-047 carries the mode in `## State`.
   Check: R-093's and R-094's criteria; R-022's gate run in its `outcome.md`.
+- 2026-11-21 D-064 (Adrian: "Usuń proszę tę zasadę o 98% i resecie, bo reset miałem jednorazowy"): D-053 (1) is
+  removed, and with it the 98 % exception of D-063 (4). His one free reset of the limits was used on the morning of
+  2026-11-21. No session sends a push at any weekly use or asks for a reset; the weekly limit resets on Mondays at
+  17:00, and there is still no stop threshold by day or by night. A run that the limit cuts is reported as before (a
+  night's by the morning session). Check: none (a rule for the sessions' conduct).
 
 ### Gate 2 §2, copied
 
