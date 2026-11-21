@@ -47,7 +47,8 @@ R-021 przerwał limit 5 h, przebieg 3 dokończył go świeżym implementerem i R
 tygodniowy zatrzymał noc o 06:15 w R-022 po rundzie 1 recenzji; rano 21.11 Adrian zresetował limit i zapisał D-062
 (jeden ticket poprawek R-093 dla uwag Q-9 i Q-10, przed tagiem a0.2.0), a sesja dzienna wznawia R-022; D-063: punkt (8) R-093 (atomowy zapis rekordu w test/plant.ts), nowy R-094 (wrapper
 w kolejce kończy się, gdy znika folder joba) i autopilot do 13:00; D-064 usuwa push przy 98 %; R-022 zamknięty (jeden resolver odwołań do jobów
-src/job/reference.ts, bramka 504/504, dwie uwagi rundy 3 czekają na pytanie Q-11). -->
+src/job/reference.ts, bramka 504/504, dwie uwagi rundy 3 czekają na pytanie Q-11);
+ticket.md R-093 napisany i przekazanie do limen-rebuild-14, która prowadzi autopilota do 13:00. -->
 
 
 
@@ -2490,8 +2491,9 @@ Morning of 2026-11-21 (`limen-rebuild-13`, after Adrian's "sprawdź" at 06:24):
   files); review round 3 PASS with four notes: two in `outcome.md` fixed by the main session (D-053 (2)), two on code
   (the migration's report of a token shared with `.limen/unmigrated/`, the keeper comment's "read once") in
   `.night/questions.md` → Q-11 (recommended: two more items of R-093), no ticket blocked. Cost: weekly 0 % → 2 %.
-- R-093's `ticket.md` written at R-022's tree (`check.mjs` requires it once R-022 is `done`, D-054 (1)); it stays
-  untracked until R-093's own commit, as R-022's did. Its grep criteria match at R-022's tree (they fail before).
+- R-093's `ticket.md` written at R-022's tree (`check.mjs` requires it once R-022 is `done`, D-054 (1)); its grep
+  criteria match at R-022's tree (they fail before). It is committed with the handover below, as R-091's was, because
+  `handover.mjs start` needs a clean tree.
 
 Active ticket: none.
 
@@ -2532,3 +2534,10 @@ Handover of 2026-11-20 (D-047, at 47 % context, after the commit `D-061:`): `lim
 acts: a push notification to Adrian that it takes over and waits for the night phrase; `node
 adrian-rebuild/tools/handover.mjs close-previous`, whose lines it reports to Adrian; then `Next` 0. The handover after
 it is `limen-rebuild-14`.
+
+Handover of 2026-11-21 (D-047, at 31 % context, after the commit `R-022:` and the commit of R-093's `ticket.md`):
+`limen-rebuild-13` starts `limen-rebuild-14` with `node adrian-rebuild/tools/handover.mjs start 14` and ends its turn.
+The autopilot of D-063 (4) goes on until 13:00 on 2026-11-21 (Adrian is driving): the next session sends no push,
+not even the takeover one; its first act is `node adrian-rebuild/tools/handover.mjs close-previous`, whose lines go
+into this section; then `Next` 1 (R-093 is `ready` with its `ticket.md`), by the night mode's rules, with no new
+ticket after 13:00. The handover after it is `limen-rebuild-15`.
