@@ -1884,10 +1884,10 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-20, day session `limen-rebuild-13`, rebuild stage 5 in plan stage 2: stage 1 is closed at `a0.1.1`
-(deployed on 2026-11-20, with B.2 closed by D-050); stage 2 has R-015–R-018 and R-020 done and R-019, R-021–R-023 and
-R-089 `ready` for the night of 2026-11-20/21. The newest entries are at the end of this section, from "Day session of
-2026-11-20".
+Updated 2026-11-21, day session `limen-rebuild-15`, rebuild stage 5 in plan stage 2: stage 1 is closed at `a0.1.1`
+(deployed on 2026-11-20, with B.2 closed by D-050); stage 2 has R-015–R-023, R-089 and R-093–R-095 done, and R-096,
+R-092, R-024 and R-025 left before the tag `a0.2.0`. The newest entries are at the end of this section, from "Day
+session of 2026-11-21, continued (`limen-rebuild-15`".
 
 Handover of 2026-11-19 (D-033, at 37 % context, after the commit `R-014:`): `limen-rebuild-5` started
 `limen-rebuild-6` in `tmux` in remote-control mode (14:10) and ended. WSL booted at 10:34 on 2026-11-19, after the
@@ -2732,3 +2732,11 @@ acts are a push notification to Adrian that it takes over at R-023 and waits for
 adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into this section, then `Next` 1 (R-023 `ready` with
 its `ticket.md`, written at R-089's tree; it runs AC-5 and AC-6 at HEAD first, D-025). Q-14's answer goes into
 D-066 and, for option 1, into R-095's `ticket.md` when it is written. The handover after it is `limen-rebuild-16`.
+
+Handover of 2026-11-21 (D-047, at 30 % context, after the commit `R-095:` (`f2ed1f6`)): `limen-rebuild-15` starts
+`limen-rebuild-16` with `node adrian-rebuild/tools/handover.mjs start 16` and ends its turn. By day: the next
+session's first acts are a push notification to Adrian that it takes over at R-096 and waits for Q-17, then `node
+adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into this section, then `Next` 1: R-096's
+`ticket.md` (D-067; written at `f2ed1f6`, with Q-17's two items if Adrian answers "1"; its grep criteria run at HEAD
+first, D-025). Q-17's answer goes into D-068. The night defaults and open points of R-019, R-021, R-022, R-023 and
+R-095 wait for gate 5.2. The handover after it is `limen-rebuild-17`.
