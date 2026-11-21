@@ -1,7 +1,7 @@
 // The one registry of Limen's commands (T-19): each entry's name, what it acts on (T-18), its kind (T-04), its
 // visibility, its summary, its schema of positionals and flags, the `ids` keys it may return (D-022), one example and
-// its handler. `src/main.ts` dispatches through it, `src/parser.ts` reads its words by it, and `src/help.ts` generates
-// the help and the command sections of docs/commands.md from it.
+// its handler, a thin adapter over one domain operation (T-26). `src/main.ts` dispatches through it, `src/parser.ts`
+// reads its words by it, and `src/help.ts` generates the help and the command sections of docs/commands.md from it.
 import { boardCommand } from "./commands/board-view.ts";
 import { closeCommand } from "./commands/close.ts";
 import { continueCommand } from "./commands/continue.ts";
@@ -25,8 +25,8 @@ import {
 	groupStartCommand,
 	groupStatusCommand,
 	groupStopCommand,
-	groupWaitCommand,
 } from "./commands/group.ts";
+import { groupWaitCommand } from "./commands/group-wait.ts";
 import { initCommand, workspaceInitCommand } from "./commands/init.ts";
 import { keeperCommand } from "./commands/keeper.ts";
 import { landCommand } from "./commands/land.ts";
@@ -44,7 +44,7 @@ import { stopCommand } from "./commands/stop.ts";
 import { sweepCommand } from "./commands/sweep.ts";
 import { ticketCheckCommand, ticketDoneCommand, ticketNewCommand } from "./commands/ticket.ts";
 import { unwatchCommand, watchCommand } from "./commands/watch.ts";
-import type { IdKey, Success } from "./outcome.ts";
+import type { CommandText, IdKey, Success } from "./outcome.ts";
 import type { Command, Flag, Parsed, Positional } from "./parser.ts";
 
 /** What a command acts on (T-18): one job, the owner's conversation, this project, or the group it belongs to. */
@@ -58,8 +58,12 @@ export type CommandObject =
 	| "group"
 	| "picture"
 	| "workspace";
-/** A command returns its result or throws (D-028); `undefined` is a success with `next` null. */
-export type Handler = (values: Parsed, cwd: string) => Promise<Success | undefined>;
+/**
+ * A command reads its values, calls one domain operation and returns its result or throws (D-028, T-26 (1));
+ * `undefined` is a success with `next` null. `out` takes the text the operation reports as it goes, which the shared
+ * wrapper prints when the command ends (D-061 (3)).
+ */
+export type Handler = (values: Parsed, cwd: string, out: CommandText) => Promise<Success | undefined>;
 /**
  * One command. An internal one names its `caller` and stays out of `limen --help`. `movedBy` names the ticket that
  * moves or cuts it (D-039, D-042); the help does not show it. `irreversible` marks a command whose change cannot be
@@ -158,6 +162,7 @@ const SPAWN: Entry = {
 			positional: "task",
 			type: "text",
 			replacedBy: "task-file",
+			dropsDashes: true,
 			about: "what the job does: a short instruction that names its ticket",
 		},
 		...DASHED_ROUTE,
@@ -947,13 +952,3 @@ export const REGISTRY: readonly Entry[] = [
 ];
 /** The registered command names; the table of old names (`src/old-names.ts`) holds none of them. */
 export const COMMAND_NAMES: readonly string[] = REGISTRY.map((entry) => entry.name);
-
-/** The entry the first words name, the longest name when a command and its subcommand both match; with the rest. */
-export function lookup(
-	words: readonly string[],
-	registry: readonly Entry[] = REGISTRY,
-): { readonly entry: Entry; readonly rest: readonly string[] } | undefined {
-	const named = registry.filter((entry) => entry.name.split(" ").every((word, index) => words[index] === word));
-	const entry = named.sort((left, right) => right.name.length - left.name.length)[0];
-	return entry && { entry, rest: words.slice(entry.name.split(" ").length) };
-}

@@ -9,12 +9,12 @@ import { readRun } from "../job/group-cabinet.ts";
 import { isTerminal } from "../job/job.ts";
 import { type JobRecord, readRecord } from "../job/record.ts";
 import { type JobReference, jobArgument, referenceWord, resolveJob } from "../job/reference.ts";
-import type { Success } from "../outcome.ts";
+import { startSpawn } from "../job/spawning.ts";
+import type { CommandText, Success } from "../outcome.ts";
 import type { Parsed } from "../parser.ts";
 import { branchCommit, branchExists, commitHasFile, limenRoot, workspaceRepository } from "../project/git.ts";
+import { landTicketCheck, TICKET_PATH } from "../project/ticket-check.ts";
 import { ownerState } from "../runtime/reap.ts";
-import { landTicketCheck, TICKET_PATH } from "./land.ts";
-import { startSpawn } from "./spawn.ts";
 
 type Route = { readonly engine: string; readonly provider: string; readonly model: string; readonly thinking: string };
 type KeeperOptions = {
@@ -41,7 +41,7 @@ const DEFAULT_TIMEOUT = "20m";
  * After the work: a short job on its own branch at the candidate tip fixes the ticket, board and map links. Its
  * success is the keeper job's start, which `main` reports once.
  */
-export async function keeperCommand(values: Parsed, cwd: string): Promise<Success> {
+export async function keeperCommand(values: Parsed, cwd: string, out: CommandText): Promise<Success> {
 	if (transport("LIMEN_GROUP_ID")) {
 		throw new Error(
 			"group members cannot start a keeper; the owner-facing lead starts one after it merges the team branches",
@@ -114,6 +114,7 @@ export async function keeperCommand(values: Parsed, cwd: string): Promise<Succes
 				repo: first.repo || undefined,
 			},
 			cwd,
+			out,
 		);
 	} catch (error) {
 		execFileSync("git", ["branch", "-D", keeperBranch], { cwd: repository, stdio: "ignore" });

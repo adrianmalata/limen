@@ -2,7 +2,7 @@
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
-R-019, R-021, R-022. -->
+R-019, R-021, R-022, R-093, R-094, R-089, R-023. -->
 
 # Changes
 
@@ -245,3 +245,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-05)
 - Commit: R-089
 - Rollback: git revert $(git log --format=%H --grep='^R-089:' adrian-rebuild --)
+
+## 2026-11-21 R-023 Commands are thin adapters over domain operations
+- What: the logic of the commands without `movedBy` moves out of `src/commands` into new domain modules (`src/job/{spawning,continuation,stopping,watching,steer-delivery,landing,detail,group-control}.ts`, `src/project/{ticket-check,ticket-folders,summary,board-jobs,setup}.ts`, `src/integrations/{hunk,github-claims}.ts`, `src/picture/picture-check.ts`, `src/runtime/pruning.ts`); `git mv` of `src/commands/group-rounds.ts` → `src/job/group-rounds.ts` and `src/commands/github-doctor.ts` → `src/integrations/github-doctor.ts`; `group wait` whole into `src/commands/group-wait.ts`; every command file a thin handler; `src/main.ts` and `src/outcome.ts` (`CommandText`: the wrapper holds a command's text and prints it at its end, so `spawn`'s early id line goes; `land`'s terminal question carries its notes); `src/runtime/launcher.ts` (the one module that starts Limen's own CLI, `runLimen` reading the final line through `readOutcome`; `wrapper.ts`, `group-cabinet.ts`, `rule.ts` and `github-poller.ts` go through it); `src/parser.ts`, `src/old-names.ts`, `src/registry.ts` (command words read only in the parser, `dropsDashes`, the import cycle gone; `jobs` with a flag names `limen status --all`); `gitText` in `src/project/git.ts`; `bin/limen-group-fixture.mjs`; `docs/commands.md`, `docs/jobs.md`, `docs/seat/agent-setup.md`, `CONTRIBUTING.md`, `templates/agents.md` with its history line; the scans of imports, prints, CLI launches and command words in `test/structure.test.ts`, new `test/runtime/launcher.test.ts` and `test/job/landing.test.ts`, and nine changed test files
+- Why: T-26, T-19, D-044, D-045, D-046, D-061
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (588/588); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (eleven test files, the tests that pass at HEAD named in `outcome.md`); `git grep -n -E 'from "\./[a-z-]+\.ts"' -- src/commands` → exit 1; `git grep -n 'commands/' -- src/runtime src/job src/project src/integrations hook bin` → exit 1
+- Measurement: unmeasured (plan.md → Measurement: M-01, M-05)
+- Commit: R-023
+- Rollback: git revert $(git log --format=%H --grep='^R-023:' adrian-rebuild --)

@@ -9,7 +9,9 @@ import { dirname, join, relative } from "node:path";
 import { type TestContext, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { isTerminal } from "../../src/job/job.ts";
+import { commandOf } from "../../src/main.ts";
 import { OLD_ENGINES, OLD_FLAGS, OLD_NAMES, OLD_ROLES } from "../../src/old-names.ts";
+import { LimenError } from "../../src/outcome.ts";
 import { checkNext, outputText, readOutcome } from "../final-line.ts";
 import {
 	engineEvents,
@@ -304,14 +306,14 @@ test("picture build --out and picture serve --dir refuse with one removal line b
 });
 
 test("resolvePreamble throws the removal line of the role picture in a project without .agents/limen/picture.md", async (t) => {
-	const { resolvePreamble } = await import("../../src/commands/spawn.ts");
+	const { resolvePreamble } = await import("../../src/job/spawning.ts");
 	const root = mkdtempSync(join(tmpdir(), "limen-role-"));
 	t.after(() => rmSync(root, { recursive: true, force: true }));
 	assert.throws(() => resolvePreamble(root, "picture"), { message: R007_REFUSALS["role picture"] });
 });
 
 test("resolvePreamble returns the project's own .agents/limen/picture.md, so a project keeps a role of that name", async (t) => {
-	const { resolvePreamble } = await import("../../src/commands/spawn.ts");
+	const { resolvePreamble } = await import("../../src/job/spawning.ts");
 	const root = mkdtempSync(join(tmpdir(), "limen-role-"));
 	t.after(() => rmSync(root, { recursive: true, force: true }));
 	mkdirSync(join(root, ".agents/limen"), { recursive: true });
@@ -350,14 +352,14 @@ test("continue refuses a job of the role picture once the project's own role fil
 });
 
 test("resolvePreamble throws the removal line of the role scout in a project without .agents/limen/scout.md", async (t) => {
-	const { resolvePreamble } = await import("../../src/commands/spawn.ts");
+	const { resolvePreamble } = await import("../../src/job/spawning.ts");
 	const root = mkdtempSync(join(tmpdir(), "limen-role-"));
 	t.after(() => rmSync(root, { recursive: true, force: true }));
 	assert.throws(() => resolvePreamble(root, "scout"), { message: SCOUT_REFUSAL });
 });
 
 test("resolvePreamble returns the project's own .agents/limen/scout.md, so a project keeps a role of that name", async (t) => {
-	const { resolvePreamble } = await import("../../src/commands/spawn.ts");
+	const { resolvePreamble } = await import("../../src/job/spawning.ts");
 	const root = mkdtempSync(join(tmpdir(), "limen-role-"));
 	t.after(() => rmSync(root, { recursive: true, force: true }));
 	mkdirSync(join(root, ".agents/limen"), { recursive: true });
@@ -485,7 +487,7 @@ async function oldEntries() {
 
 test("D-046 (1): a removed name has a next only when its successor is a fixed command or one built from its words", async () => {
 	// Imported here, so the CLI tests below fail at their own assertions before the function exists.
-	const { oldNext } = await import("../../src/old-names.ts");
+	const { oldNext } = await import("../../src/parser.ts");
 	const entries = await oldEntries();
 	assert.deepEqual(
 		Object.fromEntries(entries.map(([name, entry]) => [name, [oldNext(entry, []), oldNext(entry, ["a1b2c3d4"])]])),
@@ -494,7 +496,7 @@ test("D-046 (1): a removed name has a next only when its successor is a fixed co
 });
 
 test("D-046 (3): every next of the table of old names is null or a command that main runs", async () => {
-	const { oldNext } = await import("../../src/old-names.ts");
+	const { oldNext } = await import("../../src/parser.ts");
 	for (const [, entry] of await oldEntries()) {
 		for (const words of [[], ["a1b2c3d4"]]) {
 			checkNext(oldNext(entry, words));
@@ -589,6 +591,46 @@ test("REMOVED: the shared parser reads the words of limen jobs, so limen jobs --
 		[run.status, readOutcome(run)],
 		[2, { class: "usage", code: "REMOVED", next: "limen show a1b2c3d4" }],
 	);
+});
+
+/** The `next` of the refusal of `limen jobs` with `words` after it, as `main` reads the command line. */
+function jobsNext(words: readonly string[]): string | null {
+	try {
+		commandOf(["jobs", ...words]);
+	} catch (error) {
+		if (error instanceof LimenError && error.code === "REMOVED") {
+			return error.next;
+		}
+		throw error;
+	}
+	return assert.fail(`limen jobs ${words.join(" ")} was not refused`);
+}
+
+// D-045 (2), D-046: a flag among the old words asks for the list, so only a job word alone names `show`, and the word
+// goes into the command as a shell reads it back.
+test("REMOVED: a form of limen jobs with a flag names limen status --all, a ref alone names limen show <ref>, and each next is a command main runs", () => {
+	const forms: ReadonlyArray<readonly [readonly string[], string]> = [
+		[[], "limen status --all"],
+		[["--all"], "limen status --all"],
+		[["--running"], "limen status --all"],
+		[["--active"], "limen status --all"],
+		[["--label", "x"], "limen status --all"],
+		[["--bogus"], "limen status --all"],
+		[["--all", "a1b2c3d4"], "limen status --all"],
+		[["a1b2c3d4", "--running"], "limen status --all"],
+		[["a1b2c3d4"], "limen show a1b2c3d4"],
+		[["--", "a1b2c3d4"], "limen show a1b2c3d4"],
+		[["--", "--all"], "limen show -- --all"],
+		[["a b"], "limen show 'a b'"],
+	];
+	const nexts = forms.map(([words]) => jobsNext(words));
+	assert.deepEqual(
+		nexts,
+		forms.map(([, next]) => next),
+	);
+	for (const next of nexts) {
+		checkNext(next);
+	}
 });
 
 test("REMOVED: limen queue exits 2, says it was renamed and names limen seat queue", async (t) => {

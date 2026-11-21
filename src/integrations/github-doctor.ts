@@ -5,8 +5,9 @@ import { homedir, userInfo } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { testKnob } from "../config.ts";
-import { bindingPath, liveCoordinator, originRepository, readBinding } from "../integrations/github-review.ts";
-import { herdrBinary } from "../integrations/herdr.ts";
+import type { CommandText } from "../outcome.ts";
+import { bindingPath, liveCoordinator, originRepository, readBinding } from "./github-review.ts";
+import { herdrBinary } from "./herdr.ts";
 
 type Seat = {
 	release: string;
@@ -120,25 +121,33 @@ function aclAllows(path: string, poller: string, permission: "r" | "x", uid: num
 }
 
 type Report = (ok: boolean, label: string, fix: string) => void;
-/** What every later check needs: the seat, the report line writer, and the poller and worker identities. */
+/**
+ * What every later check needs: the seat, the report line writer, where the report goes, and the poller and worker
+ * identities.
+ */
 type Doctor = {
 	readonly root: string;
 	readonly seat: Seat;
 	readonly report: Report;
+	readonly out: CommandText;
 	readonly pollerUid: number;
 	readonly gid: number;
 	readonly worker: string;
 };
-// This inspects metadata and access only. Never read or print the App key, poller env, or sudo output.
-export async function githubDoctor(root: string, seat: Seat = seatDefaults()): Promise<void> {
+/**
+ * `limen github doctor`: the seat's safety checks for the GitHub module, one line each in `out`; any repair needed
+ * refuses after the report. This inspects metadata and access only. Never read or print the App key, poller env, or
+ * sudo output.
+ */
+export async function githubDoctor(root: string, out: CommandText, seat: Seat = seatDefaults()): Promise<void> {
 	let failures = 0;
 	const report: Report = (ok, label, fix) => {
-		console.log(`${ok ? "OK" : "FIX"} ${label}${ok ? "" : ` — ${fix}`}`);
+		out.line(`${ok ? "OK" : "FIX"} ${label}${ok ? "" : ` — ${fix}`}`);
 		if (!ok) {
 			failures++;
 		}
 	};
-	const doctor: Doctor = { root, seat, report, ...checkSeatIdentities(seat, report) };
+	const doctor: Doctor = { root, seat, report, out, ...checkSeatIdentities(seat, report) };
 	const releaseSafe = await checkRootInstall(doctor);
 	await checkPollerService(doctor, releaseSafe);
 	await checkPollerSecrets(doctor);
@@ -349,7 +358,7 @@ async function checkProject(doctor: Doctor, project: string): Promise<void> {
 }
 /** Poller traverse and group access to the project's binding; false when another project has no binding. */
 async function checkProjectAccess(
-	{ root, seat, report, pollerUid, gid }: Doctor,
+	{ root, seat, report, out, pollerUid, gid }: Doctor,
 	project: string,
 	label: string,
 ): Promise<boolean> {
@@ -358,7 +367,7 @@ async function checkProjectAccess(
 	const github = await info(join(project, ".limen/github"));
 	const bindingFile = await info(bindingPath(project));
 	if (project !== root && !bindingFile) {
-		console.log(`SKIP ${label} has no GitHub binding`);
+		out.line(`SKIP ${label} has no GitHub binding`);
 		return false;
 	}
 	let traverse = !!registryPath?.isDirectory();

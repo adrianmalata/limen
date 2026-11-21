@@ -1,5 +1,5 @@
-// src/commands/stop.ts: `limen stop` on a job named approximately, and on a job whose wrapper moves it from starting to
-// running while the stop runs.
+// `limen stop` (src/job/stopping.ts) on a job named approximately, and on a job whose wrapper moves it from starting
+// to running while the stop runs.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
@@ -8,8 +8,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { stopJob } from "../../src/commands/stop.ts";
 import { readRecord } from "../../src/job/record.ts";
+import { stopJob } from "../../src/job/stopping.ts";
 import { withLock } from "../../src/lock.ts";
 import { platform } from "../../src/platform/platform.ts";
 import { readOutcome } from "../final-line.ts";

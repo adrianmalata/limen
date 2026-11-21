@@ -127,3 +127,39 @@ line's `ids.job`, as the coordinator manual and the tests' reader already do.
 ## Decisions
 
 - 2026-11-20 D-061 and the notes of D-044, D-045 (2) and D-046 (Adrian): quoted in `## Problem`.
+- 2026-11-21 D-067 (1) (Adrian: "zgoda na obie rekomendacje"; the implementer's `BLOCKED` of 15:14 under D-029): the
+  one failure of "a held gate queues jobs by priority …" (`test/s3-finish-wake.test.ts:216`, the assertion of the
+  "started after" marks got `[true, false, false, true, false, true]`, one wake too many) in the implementer's gate
+  run is measured, not rerun for a green result: 10 runs of the file alone on this tree and 10 at `HEAD` through
+  `fails-before.mjs`. Result (the main session, 15:18–15:28): 10 of 10 alone on this tree passed (exit 0, 27–30 s
+  each), and 10 of 10 at `HEAD` passed (`fails-before.mjs` exit 1 each, "pass at HEAD"; an 11th run printed
+  `ℹ pass 7`, `ℹ fail 0`), so the trees do not differ. Then this ticket's gate runs once more; a failure of it is again a D-029
+  finding. The cause of the extra wake is R-096's, not this ticket's. The pattern fix of `test/s2-herdr.test.ts`
+  (it needed `spawn`'s early id line, which change 3 removes) is part of this ticket.
+- 2026-11-21 (main session, review round 1, `review.md` → Round 1; the first round of fixes, for the resumed
+  `rebuild-implementer`):
+  - Fix 1 (finding 1): in a terminal, `limen land` shows the lines the owner reads to decide (the uncommitted-files
+    note, the ticket check's warn lines, the test-line cap line) before its confirm question, once, as it did at
+    `HEAD` (AC-10), within D-061 (3): for example the question's text carries them, so the held text stays printed at
+    the command's end. A test shows the order when the confirm can be driven in-process (for example an injected
+    `confirm`); otherwise `outcome.md` says why there is none.
+  - Fix 2 (finding 2): `docs/commands.md` (the streaming clause) and `CONTRIBUTING.md` (thin adapters) say that the
+    commands with `movedBy` are the exception until their tickets move them.
+  - Fix 3 (finding 3): a CLI test shows that `limen spawn` drops lone `--` words from its task (through the parser's
+    `dropsDashes`), failing without the field; the comment in `src/job/spawning.ts` says that the drop happens in the
+    parser, so in-process callers of `startSpawn` pass a task without them.
+  - Fix 4 (finding 4): `gitText` moves to `src/project/git.ts`, and `src/project/ticket-check.ts` and
+    `src/job/landing.ts` import it from there.
+  - Fix 5 (finding 5): `outcome.md` → `## Fails before` gives the reason the four new fixture tests of
+    `test/structure.test.ts` pass at HEAD (they run the test file's own scan functions on synthetic text).
+- 2026-11-21 (main session, review round 2, `review.md` → Round 2; the second and last round of fixes, for the
+  resumed `rebuild-implementer`):
+  - Fix R2-1 (finding 1, blocking, AC-7): `outcome.md` → `## Fails before` names the new test of Fix 3
+    (`test/cli/spawn.test.ts`, "a spawn drops each lone -- from its task words …") as passing at HEAD, with its
+    reason: the drop moved from `spawn`'s own filter into the parser's `dropsDashes` with its behaviour kept, and the
+    run without the field shows that the test checks the moved drop. The main session's check:
+    `node adrian-rebuild/tools/fails-before.mjs test/cli/spawn.test.ts` → exit 1, "pass at HEAD", 2/2. The section
+    also says that the tool's line names the files of one run that exits 1, not each file failing.
+  - Fix R2-2 (finding 2): `docs/commands.md`'s sentence on when a command prints names `land`'s terminal confirm
+    question as carrying its notes (the uncommitted-files note, the ticket check's warn lines, the test-line cap
+    line), written before the answer.

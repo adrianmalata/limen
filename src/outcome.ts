@@ -14,10 +14,19 @@ export type FailureClass = Exclude<OutcomeClass, "ok">;
 export type Ids = { readonly job?: string; readonly ticket?: string; readonly question?: string };
 export type IdKey = keyof Ids;
 /**
- * A command's result on success: `next` as the final line carries it, the `ids` of what it made, and `text`, one line
+ * A command's result on success: `next` as the final line carries it, the `ids` of what it made, and `text`, the text
  * for people that `main` prints just before the final line. A command that returns nothing ends with `next` null.
  */
 export type Success = { readonly next: string | null; readonly ids?: Ids; readonly text?: string };
+/**
+ * Where a command's operations put the text they report as they go: `line` for stdout, `diagnostic` for a line beside
+ * the result on stderr. `main` holds it and prints it in its order when the command ends, before the result's text or
+ * the failure's message (D-061 (3)), so a failure keeps the report that came before it.
+ */
+export type CommandText = {
+	readonly line: (text: string) => void;
+	readonly diagnostic: (text: string) => void;
+};
 /**
  * The final line (T-37; D-045, D-046): `code` is null exactly when `class` is `ok`, otherwise the failure's identifier,
  * so the field has one type; `next` is a Limen command with concrete values, or null when no command follows.

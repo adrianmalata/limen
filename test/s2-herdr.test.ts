@@ -104,7 +104,8 @@ test("in Herdr a spawn with no mode flag runs detached under its --timeout; queu
 			env,
 		},
 	);
-	assert.match(run.stdout, /\nqueued flagless: CPU 90% idle \(gate 25%\), memory 10% free \(gate 20%\), 0 ahead\n/);
+	// D-061 (3): the queued line is the first line of spawn's text, which no early id line comes before any more.
+	assert.match(run.stdout, /^queued flagless: CPU 90% idle \(gate 25%\), memory 10% free \(gate 20%\), 0 ahead\n/);
 	const id = startedJob(run);
 	await writeFile(reading, "{}");
 	// The wake goes whole through the Herdr socket this test process serves, while the wrapper still runs: the wait

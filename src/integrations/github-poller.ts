@@ -7,7 +7,8 @@ import { atomicWrite } from "../atomic-write.ts";
 import { exception } from "../config.ts";
 import { readJobFile } from "../job/record.ts";
 import { withLock } from "../lock.ts";
-import { EXIT_CODES, failureOf, LimenError } from "../outcome.ts";
+import { type CommandText, EXIT_CODES, failureOf, LimenError } from "../outcome.ts";
+import { runLimen } from "../runtime/launcher.ts";
 import {
 	claimId,
 	claimPath,
@@ -617,12 +618,15 @@ async function handoff(
 	claim.attemptedAt = new Date().toISOString();
 	claim.receipt = "pending: coordinator unavailable";
 	await persist(root, state, claim);
-	const command = exception("LIMEN_GITHUB_LIMEN_BIN") || "/opt/limen/bin/limen";
-	const ensure = spawnSync("sudo", ["-n", "-u", binding.user, "--", command, "github", "ensure", root], {
-		encoding: "utf8",
+	// The CLI runs as the coordinator's account, which reaches its Herdr client; the launcher reads its final line, and
+	// a run with no valid final line counts as failed (T-26 (4)).
+	const as = {
+		cli: exception("LIMEN_GITHUB_LIMEN_BIN") || "/opt/limen/bin/limen",
+		user: binding.user,
 		timeout: 20_000,
-	});
-	if (ensure.status !== 0) {
+	};
+	const ensure = runLimen(["github", "ensure", root], as);
+	if (ensure.outcome.class !== "ok") {
 		await reply(
 			root,
 			state,
@@ -636,20 +640,13 @@ async function handoff(
 	// Record an ambiguous attempt before invoking Herdr. Never blindly prompt twice after this point.
 	claim.receipt = "handoff attempted; outcome unconfirmed";
 	await persist(root, state, claim);
-	const delivered = spawnSync(
-		"sudo",
-		["-n", "-u", binding.user, "--", command, "github", "deliver", root, String(claim.id), claim.outcomeNonce],
-		{
-			encoding: "utf8",
-			timeout: 20_000,
-		},
-	);
-	if (delivered.status !== 0) {
-		claim.receipt = /(?:bare.shell|not an available shell|agent_not_found|target_not_found)/i.test(
-			delivered.stderr ?? "",
-		)
+	const delivered = runLimen(["github", "deliver", root, String(claim.id), claim.outcomeNonce], as);
+	if (delivered.outcome.class !== "ok") {
+		// The receipt keeps Herdr's own words from the failure's message, for the person who inspects the claim.
+		const { stderr } = delivered.output;
+		claim.receipt = /(?:bare.shell|not an available shell|agent_not_found|target_not_found)/i.test(stderr)
 			? "pending: coordinator unavailable (Herdr refused prompt before acceptance)"
-			: `handoff attempted; outcome unconfirmed (${(delivered.stderr || delivered.error?.message || "unavailable").trim().slice(0, 250)})`;
+			: `handoff attempted; outcome unconfirmed (${(stderr || delivered.error?.message || "unavailable").trim().slice(0, 250)})`;
 		await persist(root, state, claim);
 		await reply(
 			root,
@@ -785,10 +782,10 @@ async function pollProject(root: string, state: string, binding: GithubBinding, 
 }
 
 /**
- * One polling pass over every registered project. A project's failure is printed on its own line and the pass goes on;
- * then the most severe failure (the highest exit code) fails the poll, with its class, code and next (D-028).
+ * One polling pass over every registered project. A project's failure goes to `out` on its own line and the pass goes
+ * on; then the most severe failure (the highest exit code) fails the poll, with its class, code and next (D-028).
  */
-export async function pollGithub(): Promise<void> {
+export async function pollGithub(out: CommandText): Promise<void> {
 	const registry = exception("LIMEN_GITHUB_PROJECTS_FILE");
 	if (!registry || !isAbsolute(registry) || process.getuid?.() === 0) {
 		throw configFailure("github poll requires an isolated non-root poller and absolute LIMEN_GITHUB_PROJECTS_FILE");
@@ -829,7 +826,7 @@ export async function pollGithub(): Promise<void> {
 				await project(root, stateDir, jwt);
 			}
 		} catch (error) {
-			console.error(`${root}: ${reason(error)}`);
+			out.diagnostic(`${root}: ${reason(error)}`);
 			failures.push({ thrown: error, failure: failureOf(error) });
 		}
 	}

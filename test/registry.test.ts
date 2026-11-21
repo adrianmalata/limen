@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { main } from "../src/main.ts";
 import { OLD_FLAGS } from "../src/old-names.ts";
+import { LimenError } from "../src/outcome.ts";
 import { parse } from "../src/parser.ts";
 import { type Entry, GROUPS, REGISTRY } from "../src/registry.ts";
 import { readOutcome } from "./final-line.ts";
@@ -194,4 +195,48 @@ test("UNDECLARED_IDS: a handler that returns an ids key its entry does not decla
 	assert.equal(code, 5);
 	const output = { status: 5, stdout: "", stderr: `${errors.join("\n")}\n` };
 	assert.deepEqual(readOutcome(output), { class: "internal", code: "UNDECLARED_IDS", next: null });
+});
+
+// D-061 (3): a command's text reaches its streams when the command ends, in the order it gave it, and the text it gave
+// before it failed is printed with the failure.
+test("T-26: the wrapper prints a command's text when the command ends, the text before a failure too", async (t) => {
+	const stdout: string[] = [];
+	const stderr: string[] = [];
+	t.mock.method(console, "log", (line: unknown) => stdout.push(String(line)));
+	t.mock.method(console, "error", (line: unknown) => stderr.push(String(line)));
+	let printedWhileRunning = -1;
+	const probe: Entry = {
+		name: "probe",
+		object: "project",
+		kind: "read",
+		visibility: "public",
+		summary: "a probe",
+		schema: [],
+		ids: [],
+		example: "limen probe",
+		handler: async (_values, _cwd, out) => {
+			out.line("first");
+			out.diagnostic("noted");
+			out.line("second");
+			printedWhileRunning = stdout.length + stderr.length;
+			throw new LimenError({ class: "refused", code: "PROBE_REFUSED", message: "probe refused", next: null });
+		},
+	};
+	const herdr = process.env.LIMEN_HERDR;
+	process.env.LIMEN_HERDR = "0";
+	t.after(() => {
+		if (herdr === undefined) {
+			delete process.env.LIMEN_HERDR;
+		} else {
+			process.env.LIMEN_HERDR = herdr;
+		}
+	});
+	await main(["probe"], process.cwd(), [probe]);
+	const status = process.exitCode === undefined ? null : Number(process.exitCode);
+	process.exitCode = 0;
+	const output = { status, stdout: `${stdout.join("\n")}\n`, stderr: `${stderr.join("\n")}\n` };
+	assert.deepEqual(
+		[printedWhileRunning, stdout, stderr.slice(0, -1), readOutcome(output)],
+		[0, ["first", "second"], ["noted", "probe refused"], { class: "refused", code: "PROBE_REFUSED", next: null }],
+	);
 });

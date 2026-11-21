@@ -1,12 +1,11 @@
-import { spawn } from "node:child_process";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
-import { fileURLToPath } from "node:url";
 import { atomicWrite, TEMPORARY_NAME } from "../atomic-write.ts";
 import { groupAdvanceEnvironment, transport } from "../config.ts";
 import { withLock } from "../lock.ts";
 import { platform } from "../platform/platform.ts";
 import { limenRoot } from "../project/git.ts";
+import { startLimen } from "../runtime/launcher.ts";
 import { ownerState } from "../runtime/reap.ts";
 import { SESSION_ID } from "./job.ts";
 import { readRecord } from "./record.ts";
@@ -258,16 +257,7 @@ export async function claimMember(
  * Its environment holds no transport name of the finished job (`groupAdvanceEnvironment`).
  */
 export function startGroupAdvance(run: GroupRun): void {
-	const limen = fileURLToPath(new URL("../../bin/limen", import.meta.url));
-	const child = spawn(process.execPath, [limen, "group", "advance", run.id], {
-		cwd: run.root,
-		detached: true,
-		stdio: "ignore",
-		env: groupAdvanceEnvironment(),
-	});
-	// An advance that cannot start leaves the round for the next finish or `limen group status`.
-	child.once("error", () => {});
-	child.unref();
+	startLimen(["group", "advance", run.id], { cwd: run.root, env: groupAdvanceEnvironment() });
 }
 export async function jobMembership(jobDir: string): Promise<GroupIdentity | undefined> {
 	const id = (await readRecord(jobDir))?.group;

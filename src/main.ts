@@ -1,17 +1,17 @@
 import { endDueRules } from "./commands/rule.ts";
 import { transport } from "./config.ts";
 import { commandHelp, generalHelp, groupEntries, groupHelp } from "./help.ts";
-import { removedWords } from "./old-names.ts";
-import { EXIT_CODES, failureOf, finalLine, LimenError, type Success } from "./outcome.ts";
-import { asksHelp, type Parsed, parse } from "./parser.ts";
-import { type Entry, lookup, REGISTRY } from "./registry.ts";
+import { type CommandText, EXIT_CODES, failureOf, finalLine, LimenError, type Success } from "./outcome.ts";
+import { type Parsed, parse, readCommandLine } from "./parser.ts";
+import { type Entry, REGISTRY } from "./registry.ts";
 import { failInternalJob, runInternalJob } from "./runtime/wrapper.ts";
 
 /**
- * The shared wrapper, the only code in `src/` that sets the exit code (D-028): every command process ends with exactly
- * one final line (`src/outcome.ts`), on stdout after a success and its text line and on stderr after a failure's
- * message, and exits with its class's code. A command another command calls in-process prints no line; the internal
- * job run prints none. `registry` is the command registry; a test gives its own.
+ * The shared wrapper, the only code in `src/` that sets the exit code (D-028) and prints a command's text (D-061 (3)):
+ * every command process ends with exactly one final line (`src/outcome.ts`), on stdout after a success and its text
+ * and on stderr after a failure's message, and exits with its class's code. The text a command reports as it goes is
+ * held and printed when the command ends, before the result's text or the failure's message. The internal job run
+ * prints no final line. `registry` is the command registry; a test gives its own.
  */
 export async function main(
 	args: readonly string[],
@@ -22,14 +22,16 @@ export async function main(
 		await internalRun();
 		return;
 	}
+	const held = heldText();
 	let line: string;
 	let text: string | undefined;
 	try {
-		const success: Success = (await runCommand(args, cwd, registry)) ?? { next: null };
+		const success: Success = (await runCommand(args, cwd, registry, held.text)) ?? { next: null };
 		line = finalLine({ class: "ok", code: null, next: success.next, ...(success.ids ? { ids: success.ids } : {}) });
 		text = success.text;
 	} catch (error) {
 		const failure = failureOf(error);
+		held.print();
 		console.error(failure.message);
 		if (failure.class === "internal") {
 			// T-02: an unexpected exception keeps its stack, from the value that was thrown.
@@ -42,11 +44,28 @@ export async function main(
 		process.exitCode = EXIT_CODES[failure.class];
 		return;
 	}
+	held.print();
 	if (text !== undefined) {
 		console.log(text);
 	}
 	console.log(line);
 	process.exitCode = EXIT_CODES.ok;
+}
+
+/** The text a command reports while it runs, held in its order with its stream until `print` at the command's end. */
+function heldText(): { readonly text: CommandText; readonly print: () => void } {
+	const lines: Array<{ readonly diagnostic: boolean; readonly text: string }> = [];
+	return {
+		text: {
+			line: (text) => lines.push({ diagnostic: false, text }),
+			diagnostic: (text) => lines.push({ diagnostic: true, text }),
+		},
+		print: () => {
+			for (const { diagnostic, text } of lines.splice(0)) {
+				(diagnostic ? console.error : console.log)(text);
+			}
+		},
+	};
 }
 
 /** The job wrapper's own run: not a command, so no final line, and a failure exits 1 as before R-013. */
@@ -64,26 +83,21 @@ async function internalRun(): Promise<void> {
 export type CommandOf = { readonly help: string } | { readonly entry: Entry; readonly values: Parsed };
 
 /**
- * What `args` ask for, by the rules `main` follows before anything runs: no word, `--help`, `-h` or `help` the general
+ * What `args` ask for, by the rules `main` follows before anything runs, as the shared parser reads them: the general
  * help; a removed name its refusal; a group word its lines for `--help`, else a usage error; an entry its own help for
  * `--help`, else the values the shared parser reads from its words. Every refusal here is a usage error (exit code 2).
  * The tests' reader of the final line runs every `next` through it (D-046 (3)).
  */
 export function commandOf(args: readonly string[], registry: readonly Entry[] = REGISTRY): CommandOf {
-	const [name] = args;
-	if (!name || name === "--help" || name === "-h" || name === "help") {
+	const read = readCommandLine(args, registry);
+	if (read.kind === "general-help") {
 		return { help: generalHelp(registry) };
 	}
-	const removed = removedWords(args);
-	if (removed) {
-		throw removed;
+	if (read.kind === "other") {
+		return { help: groupOrUnknown(read, registry) };
 	}
-	const found = lookup(args, registry);
-	if (!found) {
-		return { help: groupOrUnknown(name, args.slice(1), registry) };
-	}
-	const { entry, rest } = found;
-	return asksHelp(entry, rest) ? { help: commandHelp(entry, registry) } : { entry, values: parse(entry, rest) };
+	const { command: entry, rest } = read;
+	return read.help ? { help: commandHelp(entry, registry) } : { entry, values: parse(entry, rest) };
 }
 
 /**
@@ -94,11 +108,11 @@ async function runCommand(
 	args: readonly string[],
 	cwd: string,
 	registry: readonly Entry[],
+	out: CommandText,
 ): Promise<Success | undefined> {
 	const command = commandOf(args, registry);
 	if ("help" in command) {
-		console.log(command.help);
-		return undefined;
+		return { next: null, text: command.help };
 	}
 	const { entry, values } = command;
 	// A rule whose timer died still ends once; this only starts a detached timer.
@@ -107,7 +121,7 @@ async function runCommand(
 	} catch {
 		// A rule record is a side channel too.
 	}
-	const success = await entry.handler(values, cwd);
+	const success = await entry.handler(values, cwd, out);
 	const undeclared = Object.keys(success?.ids ?? {}).filter((key) => !entry.ids.some((declared) => declared === key));
 	if (undeclared.length) {
 		throw new LimenError({
@@ -124,24 +138,25 @@ async function runCommand(
  * A group word (`limen ticket`) gives its lines for `--help` and refuses otherwise with them in the message; any other
  * word is an unknown command.
  */
-function groupOrUnknown(name: string, rest: readonly string[], registry: readonly Entry[]): string {
-	if (!groupEntries(name, registry).length) {
+function groupOrUnknown(
+	{ word, sub, help }: { readonly word: string; readonly sub: string | undefined; readonly help: boolean },
+	registry: readonly Entry[],
+): string {
+	if (!groupEntries(word, registry).length) {
 		throw new LimenError({
 			class: "usage",
 			code: "UNKNOWN_COMMAND",
-			message: `unknown command ${JSON.stringify(name)}\n\n${generalHelp(registry)}`,
+			message: `unknown command ${JSON.stringify(word)}\n\n${generalHelp(registry)}`,
 			next: "limen --help",
 		});
 	}
-	// A group word has no schema, so every word that starts with `--` reads as a switch.
-	if (asksHelp({ name, schema: [] }, rest)) {
-		return groupHelp(name, registry);
+	if (help) {
+		return groupHelp(word, registry);
 	}
-	const [sub] = rest;
 	throw new LimenError({
 		class: "usage",
 		code: sub === undefined ? "BAD_ARGUMENT" : "UNKNOWN_COMMAND",
-		message: `limen ${name}: ${sub === undefined ? "name one of its commands" : `unknown command ${JSON.stringify(sub)}`}\n${groupHelp(name, registry)}`,
-		next: `limen ${name} --help`,
+		message: `limen ${word}: ${sub === undefined ? "name one of its commands" : `unknown command ${JSON.stringify(sub)}`}\n${groupHelp(word, registry)}`,
+		next: `limen ${word} --help`,
 	});
 }

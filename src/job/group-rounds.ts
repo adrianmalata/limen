@@ -1,9 +1,14 @@
+// The rounds of a group (T-26 (2)): each round continues every team's job with the others' results, and the last one
+// tells the lead the group's result once. `limen group advance` runs it, and group start names the first round's jobs.
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { atomicWrite } from "../atomic-write.ts";
 import { herdrPrompt } from "../integrations/coordinator-wake.ts";
 import { herdrBinary } from "../integrations/herdr.ts";
+import type { CommandText } from "../outcome.ts";
+import { ownerState } from "../runtime/reap.ts";
+import { startContinue } from "./continuation.ts";
 import {
 	type GroupMember,
 	type GroupRun,
@@ -14,13 +19,11 @@ import {
 	roundJobs,
 	saveJson,
 	teamRoute,
-} from "../job/group-cabinet.ts";
-import { publishResult } from "../job/group-events.ts";
-import { roundInstruction, routeName } from "../job/group-packet.ts";
-import { isTerminal } from "../job/job.ts";
-import { type JobRecord, readRecord, textFile } from "../job/record.ts";
-import { ownerState } from "../runtime/reap.ts";
-import { startContinue } from "./continue.ts";
+} from "./group-cabinet.ts";
+import { publishResult } from "./group-events.ts";
+import { roundInstruction, routeName } from "./group-packet.ts";
+import { isTerminal } from "./job.ts";
+import { type JobRecord, readRecord, textFile } from "./record.ts";
 
 const PROMPT_MS = 15_000;
 
@@ -63,13 +66,14 @@ async function roundTeams(run: GroupRun, round: number): Promise<string[]> {
 /**
  * Starts the next round once every team of the current round has ended, and tells the lead the result once after the
  * last. Any process may call it: each finished team job starts one, and the launch lock makes the steps happen once.
+ * The text of the rounds' starts goes to `out`.
  */
-export async function advanceGroup(root: string, id: string): Promise<void> {
+export async function advanceGroup(root: string, id: string, out: CommandText): Promise<void> {
 	await ownersExited(await readRun(root, id));
 	await groupLock(
 		`${root}/.limen/groups/${id}/launch`,
 		async () => {
-			while (await advanceOnce(root, id)) {
+			while (await advanceOnce(root, id, out)) {
 				// A round whose every launch failed has already ended; the next pass moves past it.
 			}
 		},
@@ -93,7 +97,7 @@ async function ownersExited(run: GroupRun): Promise<void> {
 		}
 	}
 }
-async function advanceOnce(root: string, id: string): Promise<boolean> {
+async function advanceOnce(root: string, id: string, out: CommandText): Promise<boolean> {
 	const run = await readRun(root, id);
 	if (!run.routes || run.stopped || run.closed || run.finishedAt) {
 		return false;
@@ -116,7 +120,7 @@ async function advanceOnce(root: string, id: string): Promise<boolean> {
 	}
 	await mkdir(roundFolder(run, next), { recursive: true });
 	for (const team of nextTeams) {
-		await startRound(run, team, next);
+		await startRound(run, team, next, out);
 	}
 	await groupLock(groupPath(run), async () => {
 		const current = await readRun(root, id);
@@ -149,7 +153,7 @@ async function endReason(run: GroupRun, member: GroupMember): Promise<string> {
 	return ended?.replace(terminal, "") || ((await memberRecord(run, member))?.stopReason ?? "");
 }
 /** Continues the team's last job in its own session and worktree, or records why it could not. */
-async function startRound(run: GroupRun, team: string, round: number): Promise<void> {
+async function startRound(run: GroupRun, team: string, round: number, out: CommandText): Promise<void> {
 	const parent = lastJob(run, round - 1, team);
 	if (!parent || lastJob(run, round, team)) {
 		return;
@@ -163,6 +167,7 @@ async function startRound(run: GroupRun, team: string, round: number): Promise<v
 				...teamRoute(run, team),
 			},
 			run.root,
+			out,
 			round,
 		);
 	} catch (error) {

@@ -8,7 +8,7 @@ import { after, test } from "node:test";
 import { LimenError } from "../src/outcome.ts";
 import { type Command, limenCommand, parse, usage } from "../src/parser.ts";
 import { outputText, readOutcome } from "./final-line.ts";
-import { LIMEN } from "./plant.ts";
+import { limen as inPlant, jobDir, LIMEN, plant, writeRecord } from "./plant.ts";
 
 // A parse error happens before any command reads a project, so a folder outside every repository serves.
 const outside = mkdtempSync(join(tmpdir(), "limen-parser-"));
@@ -136,10 +136,19 @@ test("an abbreviated usage line ends with … only when it hides a flag", () => 
 	assert.deepEqual([usage(shown), usage(hiding)], ["probe --model <model>", "probe --model <model> …"]);
 });
 
-// `--help` asks for help only where it stands as a flag of its own: not as a flag's value, and not after `--`.
-test("a --help that is the value of a flag asks for no help, so the command runs with it as its value", () => {
-	const run = limen(["continue", "2026-11-18-none-1a2b3c4d", "x", "--label", "--help"]);
-	assert.deepEqual([run.status === 0, run.stdout.includes("limen continue <job>")], [false, false]);
+// `--help` asks for help only where it stands as a flag of its own: not as a flag's value, and not after `--`. D-044:
+// continue's own refusal of a running job, exit 1, shows that the parser gave it the label; a parser refusal exits 2.
+test("a --help that is the value of a flag asks for no help, so continue runs with it as its label and refuses the running job itself", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = "2026-11-21-help-1a2b3c4d";
+	await writeRecord(jobDir(p, id), { state: "running", label: "demo" });
+	const run = inPlant(p, ["continue", id, "x", "--label", "--help"]);
+	assert.deepEqual(
+		[run.status, readOutcome(run).code, run.stdout.includes("limen continue <job>")],
+		[1, "UNTYPED", false],
+	);
+	assert.match(outputText(run), new RegExp(`job ${id} is running; continue needs a finished job`));
 });
 
 test("a --help after a lone -- asks for no help, so it reads as a positional", () => {

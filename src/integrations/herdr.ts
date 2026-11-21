@@ -7,6 +7,8 @@ import { atomicWrite } from "../atomic-write.ts";
 import { testKnob } from "../config.ts";
 import { closedFeatures, closedJobFeatures } from "../job/job.ts";
 import { jobFolders, readRecord } from "../job/record.ts";
+import { type JobReference, resolveJob } from "../job/reference.ts";
+import { limenRoot } from "../project/git.ts";
 
 export type HerdrPlace = {
 	readonly workspace: string;
@@ -139,6 +141,13 @@ export async function openDiffTab(input: {
 	}
 	call(herdr, ["pane", "run", place.pane, input.hunk, ...input.args]);
 	return `opened ${input.label} diff`;
+}
+
+/** `limen open`: opens the log tab of the job `query` names in Herdr; returns the line that says what it did. */
+export async function openJob(cwd: string, query: JobReference): Promise<string> {
+	const { jobDir } = await resolveJob(cwd, query, "read");
+	const running = (await readRecord(jobDir))?.state === "running";
+	return openJobPlace({ jobDir, cwd: limenRoot(cwd), running });
 }
 
 export async function openJobPlace(input: {

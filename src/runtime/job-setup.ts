@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { pruneForJob } from "../commands/prune.ts";
 import { transport } from "../config.ts";
 import { appendLimenLog } from "../job/record.ts";
 import { limitMs, plantLimits } from "../project/limits.ts";
+import { pruneForJob } from "./pruning.ts";
 
 const DEFAULT_PREPARE_MS = 5 * 60_000;
 

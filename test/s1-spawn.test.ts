@@ -19,6 +19,7 @@ import {
 	repository,
 	routed,
 	spawnJob,
+	startedJob,
 	TICKET,
 	waitJob,
 } from "./plant.ts";
@@ -125,6 +126,20 @@ test("a detached spawn says to end the turn, then ends with the golden final lin
 	const lines = run.stdout.trimEnd().split("\n").slice(-2);
 	assert.deepEqual(lines, ["End your turn; Limen wakes you when the job ends.", golden]);
 	assert.equal(waitJob(p, made[0] ?? ""), "done");
+});
+
+// D-061 (3): the wrapper prints a command's text at its end, so spawn no longer prints the id before the worktree
+// exists; the text names the job once, after its start line, and the final line carries it in ids.job.
+test("a spawn prints no early id line: its id is one line of text, after the start line and before the sentence", () => {
+	const run = limen(p, ["spawn", ...routed([]), "say once"]);
+	assert.equal(run.status, 0, run.stderr);
+	const id = startedJob(run);
+	const lines = run.stdout.trimEnd().split("\n");
+	assert.deepEqual(
+		[lines.filter((line) => line === id).length, lines.at(-4), lines.at(-3)],
+		[1, "started say once", id],
+	);
+	assert.equal(waitJob(p, id), "done");
 });
 
 test("a workspace job works in one child repository", async () => {

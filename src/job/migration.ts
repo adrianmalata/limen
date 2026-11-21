@@ -10,8 +10,9 @@ import { mkdir, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { atomicRename, atomicWrite } from "../atomic-write.ts";
 import { arrayOf, nullOr, numberIn, object, parseJson, string } from "../boundary.ts";
-import { LimenError } from "../outcome.ts";
+import { LimenError, type Success } from "../outcome.ts";
 import { platform } from "../platform/platform.ts";
+import { limenRoot } from "../project/git.ts";
 import { liveJob, STARTUP_GRACE_MS, startingJob } from "../runtime/reap.ts";
 import { hexEndOf, tokenOf } from "./id.ts";
 import { SESSION_ID } from "./job.ts";
@@ -118,6 +119,17 @@ function jobsRunning(ids: readonly string[]): LimenError {
 		message: `jobs still running or starting: ${ids.join(", ")}; the migration moves no record under a live job, so run it again once they have ended`,
 		next: "limen migrate --dry-run",
 	});
+}
+
+/**
+ * `limen migrate`: migrates the job folders of the project at `cwd` (D-057 (1)), from the project's root on the agents'
+ * account, with its report as the text; with `dryRun` the same report, nothing written, and the run that would write
+ * as `next` while there is something to do. A second run has nothing to do.
+ */
+export async function migrateProjectAt(cwd: string, dryRun: boolean): Promise<Success> {
+	const report = await migrateProject(limenRoot(cwd), dryRun);
+	const changes = report.steps.some((step) => step.kind !== "current");
+	return { next: dryRun && changes ? "limen migrate" : null, text: reportLines(report).join("\n") };
 }
 
 /** Migrates the job folders of the project at `root`, or with `dryRun` only plans it; returns the report. */

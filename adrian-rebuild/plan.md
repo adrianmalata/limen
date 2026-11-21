@@ -56,7 +56,11 @@ rundy 3 czekają na pytanie Q-12, zatrzymany proces 1509615 na Q-13); D-065: odp
 z rekomendacjami (nowy ticket poprawek R-095, proces zakończony); R-089 zamknięty (w linii końcowej `code` i `next`
 są wartością albo null, `next` zawsze poleceniem, czytnik testów i skan importów przez drzewo składni, bramka
 572/572; dwie uwagi o skanie czekają na pytanie Q-14); ticket.md R-023 napisany i przekazanie do
-limen-rebuild-15, która zaczyna R-023 w dzień. -->
+limen-rebuild-15, która zaczyna R-023 w dzień; D-066: Q-14 jako punkt (f) R-095; D-067: jednorazowa porażka testu
+s3-finish-wake w bramce R-023 mierzona jak w D-063 (2), nowy ticket R-096 (przyczyna nadmiarowego wake'a), stara
+sesja limen-rebuild-9 zatrzymana; R-023 zamknięty (komendy jako cienkie adaptery nad modułami domeny, tekst
+komendy drukowany na końcu, jeden moduł uruchamiający CLI Limena, słowa komend tylko w parserze; bramka 588/588,
+runda 3 recenzji bez uwag). -->
 
 
 
@@ -822,6 +826,26 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   `platform.signalProcess`. (2) Q-13, option 1: the session ended the stopped process 1509615 (`kill -KILL`, exit 0;
   the `coord` session of a plant whose folder was gone, state `T`). Check: R-095's criteria; for (2), `/proc/1509615`
   is gone.
+- 2026-11-21 D-066 (Adrian, between 14:23 and 15:14: "1"; Q-14, asked again in the conversation by
+  `limen-rebuild-15` while R-023's implementer ran): R-089's
+  round-3 notes 1 and A go to R-095 as item (f): `fileOf` (`test/final-line.test.ts`) resolves an import as Node's
+  own resolver does (the path normalized, so `../src//outcome.ts` names `src/outcome.ts`; a `file:` URL by the URL
+  rules, so one with no `//` names a path from the filesystem root), with a fixture case for each form, and its
+  comment says what it does. R-095 keeps size S. Check: R-095's criteria.
+- 2026-11-21 D-067 (Adrian, about 15:18: "zgoda na obie rekomendacje"; Q-15 and Q-16, asked in the conversation with
+  a push): (1) Q-15, option 2: the one failure of "a held gate queues jobs by priority …"
+  (`test/s3-finish-wake.test.ts`, one wake too many) in the gate of R-023's implementer is measured as in D-063 (2),
+  not rerun for a green result: 10 runs of the file alone on R-023's tree and 10 at `HEAD` through `fails-before.mjs`,
+  recorded in R-023's `ticket.md` → `## Decisions`; then R-023's gate runs once more, and a failure of it is again a
+  D-029 finding. A new ticket R-096, stage 2, size S, `delegated`, `night`, after R-023 and R-095 (R-095 changes the
+  queue's and the plant's tests), before the tag `a0.2.0`: the cause of the extra wake in this test, found and removed,
+  whether a coordinator really hears an event twice (the wake delivery) or only the test's timing fails, with a
+  reproduction under the gate's load that fails before the change; the third symptom of the same test (D-063 (2):
+  `timed` ended `failed`; R-094's `outcome.md` → Open points: `wokeOnce` `1 !== 0`). (2) Q-16, option 1: the session
+  stopped a `claude` process in the repository that `close-previous` does not match (a `claude bg-pty-host` and its
+  `--fork-session --resume` of `limen-rebuild-9`'s conversation, running since 2026-11-20 12:36; `kill`, exit 0), since
+  a message waking it would have worked on the same tree with a day-old context. Check: R-096's criteria; for (2),
+  `ps` lists neither process.
 
 ### Gate 2 §2, copied
 
@@ -1190,11 +1214,12 @@ Columns:
 | R-020 | A Linux platform adapter and declared system requirements | 2 | A-083, T-12, T-32, D-060 | R-013 | M | delegated | night | — | — | — | done |
 | R-021 | One `record.json` per job, written only by the transition function | 2 | S1+, A-019, A-053, A-056, T-20, T-25, D-057 | R-016, R-018, R-019 | L | delegated | night | yes | — | — | done |
 | R-022 | Exact job references through one resolver | 2 | T-20, D-061 | R-014, R-021 | M | delegated | night | yes | — | — | done |
-| R-023 | Commands are thin adapters over domain operations | 2 | T-26, D-044, D-045, D-046, D-061 | R-014, R-021, R-089 | M | delegated | night | — | — | — | ready (D-061) |
+| R-023 | Commands are thin adapters over domain operations | 2 | T-26, D-044, D-045, D-046, D-061 | R-014, R-021, R-089 | M | delegated | night | — | — | — | done |
 | R-092 | A refusal leaves no trace: `validate` then `apply` | 2 | T-38, D-061 | R-021, R-023 | L | delegated | night | — | — | — | planned |
 | R-093 | The round-3 notes of R-019 and R-021: the migration keeps `born`, guarded hook reads | 2 | T-25, T-02, T-30, D-062, D-063 | R-019, R-021, R-022 | S | delegated | night | — | — | — | done |
 | R-094 | A queued wrapper ends when its job folder is gone; tests stop their wrappers | 2 | T-01, T-29, D-063 | R-093 | S | delegated | night | — | — | — | done |
 | R-095 | The round-3 notes of R-022 and R-094: the shared-token report, `keeper`'s de-duplication, the record check | 2 | T-01, T-29, T-30, D-065 | R-022, R-094 | S | delegated | night | — | — | — | planned |
+| R-096 | One wake per event: the extra wake of the held-gate queue test, found and removed | 2 | T-29, D-067 | R-023, R-095 | S | delegated | night | — | — | — | planned |
 | R-024 | `limen stats` over records and transcripts | 2 | H-01, H-20, §2, T-33 | R-021, R-023 | M | delegated | night | — | pi | 2.3 | planned |
 | R-025 | Test coverage derived from the command registry | 2 | T-28, T-29, D-045, D-046 | R-014, R-023, R-092 | M | delegated | night | — | — | — | planned |
 | R-026 | Every job runs in its own systemd user scope | 3 | A-029, A-052, T-43 | R-020, R-021 | L | delegated | night | — | systemd | 3.2, 3.7, 3.8 | planned |
@@ -2575,19 +2600,55 @@ push, by the handover):
   resolution (`../src//outcome.ts` and a `file:` URL with no `//` pass it) wait for Adrian: Q-14 (recommended: item (f)
   of R-095). The same-name note (`readOutcome`, `outputText` in the reader) goes to the scan ticket of T-25.
 
+Day session of 2026-11-21, continued (`limen-rebuild-15`, by day; its `close-previous` printed `handover: closed tmux
+session limen-rebuild-14` and one `handover: stopped claude …` line and exited 0; its takeover push was skipped as
+redundant, the terminal being active):
+- R-023's AC-5 and AC-6 run at `dfcb4ba` (D-025): 14 and 2 lines, every one a line the ticket removes.
+- R-023 `active` (delegated, from 14:23).
+- Q-14 → D-066 (Adrian: "1"): item (f) of R-095.
+- R-023's implementer replied `BLOCKED` at 15:14 (D-029): its gate (586 tests, 584 pass) failed once on the unchanged
+  "a held gate queues jobs by priority …" (`test/s3-finish-wake.test.ts`: the wakes' "started after" marks
+  `[true, false, false, true, false, true]` against `[true, false, true, false, true]`, one wake too many), the same
+  test as D-063 (2) with a third symptom (R-094's `outcome.md` → Open points: a `wokeOnce` `1 !== 0` in a mutation
+  run); the file alone passed 7/7 once afterwards (a diagnosis run). The other failure, `test/s2-herdr.test.ts`'s
+  pattern that needed `spawn`'s early id line, it fixed (2/2 alone). `compare --git` → exit 0. No leftover wrapper
+  processes at 15:12 (`ps`). Asked as Q-15, with Q-16 (an old `claude` process in the repository).
+- Q-15 and Q-16 → D-067 (Adrian: "zgoda na obie rekomendacje"): the measurement of D-063 (2) and the new R-096
+  (`planned`); the session stopped the two processes of Q-16 (`kill`, exit 0; `ps` no longer lists them).
+
+- R-023 measurement (D-067 (1)): 10 of 10 alone on the tree and 10 of 10 at `HEAD` passed; the resumed implementer's
+  second gate 586/586 (`DONE`); `compare --git` → exit 0; the main session's gate 586/586 (114.7 s) and
+  `fails-before.mjs` exit 0 (nine files). Review round 1 PASS with five notes, all fixed in the first round of fixes
+  by the resumed implementer (`review.md` → Round 1; `ticket.md` → `## Decisions`).
+
+- R-023 first round of fixes: the implementer's gate 588/588 (`DONE`); `compare --git` → exit 0; the main session's
+  gate 588/588 and `fails-before.mjs` exit 0 (eleven files). Review round 2 FAIL: AC-7 not met (the new `spawn`
+  test passes at HEAD, confirmed alone, and `## Fails before` did not name it) and one docs note; both go to the
+  second and last round of fixes.
+- R-023 `done` (delegated): the commands without `movedBy` are thin handlers over new domain modules in `src/job/`,
+  `src/project/`, `src/runtime/`, `src/integrations/` and `src/picture/`; no command imports another, and nothing
+  outside the wrapper and the registry imports `src/commands`; the wrapper holds a command's text and prints it at its
+  end (`CommandText`), so `spawn`'s early id line is gone and `land`'s terminal question carries its notes;
+  `src/runtime/launcher.ts` is the one module that starts Limen's own CLI; command words are read only in the parser.
+  Review: round 1 PASS with five notes (all fixed), round 2 FAIL on AC-7 (`## Fails before` missed the new `spawn`
+  test that passes at HEAD) with one docs note, both fixed in the second and last round; round 3 PASS with no
+  findings. The main session's gate 586/586, 588/588 and 588/588; `fails-before.mjs` exit 0 (eleven files). Open
+  points for gate 5.2 (`outcome.md`): the GitHub poller still reads Herdr's words for a failed `github deliver`
+  (R-082, R-059); `hook/wake.ts` reads its own `/limen` word outside the parser scan.
+
 Active ticket: none.
 
 Next (autopilot until 13:00 on 2026-11-21, D-063 (4); then by day):
 0. Answers waiting: Q-14 (R-089's two round-3 notes on the import scan's path resolution; asked in the conversation
    on 2026-11-21 at about 14:25, with a push).
-1. R-023, then R-095 (its `ticket.md` at the HEAD it starts from, with item (f) if Q-14 is answered "1"; `ready` once
-   written).
+1. R-095 (its `ticket.md` at the HEAD it starts from, with item (f) by D-066; `ready` once written), then R-096
+   (D-067; its `ticket.md` at the HEAD it starts from).
 2. Then R-092, R-024 and R-025, and the close: tag `a0.2.0`, gate 5.2 by phone, with the night defaults above.
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
    D-047 and D-054 were.
 
-Open questions for Adrian (asked in the conversation on 2026-11-21 at about 14:25, with a push):
+Open questions for Adrian: none (Q-14 → D-066; Q-15 and Q-16 → D-067). Resolved:
 - Q-14 (R-089's round-3 notes 1 and A, `R-089-final-line-null/review.md` → Round 3): the import scan's `fileOf`
   (`test/final-line.test.ts`) resolves paths unlike Node in two forms: `../src//outcome.ts` (an empty segment kept)
   and a `file:` URL with no `//` (resolved against the test file, while Node resolves it from the root; its comment

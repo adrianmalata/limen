@@ -1,7 +1,8 @@
 // The one parser of command words (T-19, T-25): every command declares its positionals and flags in its registry
 // entry, and this module alone turns words into values. Every error it finds is a usage error (T-02: exit code 2)
-// whose message ends with the command's usage line, built from the same schema as the help.
-import { removedFlagRefusal } from "./old-names.ts";
+// whose message ends with the command's usage line, built from the same schema as the help. It also reads which
+// command, removed name or help the first words name (D-044), so no other module reads the words of a command line.
+import { OLD_FLAGS, OLD_NAMES, type OldName, removedCommand, removedFlag, removedRefusal } from "./old-names.ts";
 import { LimenError } from "./outcome.ts";
 
 /** A job reference, a ticket number (`FNNN`), free text, a path, a branch, or one word. */
@@ -9,7 +10,8 @@ export type PositionalType = "job" | "ticket" | "text" | "path" | "branch" | "wo
 /**
  * A positional. `shown` names it in the usage line where its name is not the word to show. A final positional of
  * type `text` takes the remaining words, joined by a space. `replacedBy` names a flag that stands in its place, as
- * `--running` does for `steer <job>`.
+ * `--running` does for `steer <job>`. `dropsDashes` drops each lone `--` from its words: only the first one ends the
+ * flags, and spawn's task has never kept the others.
  */
 export type Positional = {
 	readonly positional: string;
@@ -18,6 +20,7 @@ export type Positional = {
 	readonly optional?: true;
 	readonly repeated?: true;
 	readonly replacedBy?: string;
+	readonly dropsDashes?: true;
 	readonly about: string;
 };
 /**
@@ -323,7 +326,8 @@ function placeWords(command: Command, words: readonly string[], flags: ReadonlyM
 		}
 		if (take > 0) {
 			const taken = words.slice(next, next + take);
-			values.set(part.positional, rest ? taken : (taken[0] ?? ""));
+			const kept = part.dropsDashes ? taken.filter((word) => word !== "--") : taken;
+			values.set(part.positional, rest ? kept : (kept[0] ?? ""));
 			next += take;
 		}
 	}
@@ -365,6 +369,73 @@ export function asksHelp(command: Command, args: readonly string[]): boolean {
 		}
 	}
 	return false;
+}
+
+/**
+ * The `next` of the refusal of `old` when `words` follow its name: its fixed command, the one it builds from the words
+ * as this parser reads them, written as a shell reads it back, or null (D-046 (1)).
+ */
+export function oldNext(old: OldName, words: readonly string[]): string | null {
+	const { next } = old;
+	if (next === null || typeof next === "string") {
+		return next;
+	}
+	const command = next.of(tryParse({ name: old.name, schema: next.words }, words));
+	return limenCommand(command.name, command);
+}
+
+/**
+ * The refusal of a removed flag of a command, or `undefined`; `words` are the command's other words, from which a
+ * `next` such as the group id of `group status` is built. The parser refuses with it when the flag stands as a flag, so
+ * a value that looks like it, as in `--label --tab`, still reads as a value.
+ */
+function removedFlagRefusal(command: string, flag: string, words: readonly string[]): LimenError | undefined {
+	const old = OLD_FLAGS.find((entry) => entry.command === command && entry.name === flag);
+	return old && removedRefusal(removedFlag(command, flag) ?? flag, oldNext(old, words), "argument");
+}
+
+/** The named thing of `named` whose name the first words are, the longest when a name and a longer one both are. */
+function firstNamed<T extends { readonly name: string }>(
+	words: readonly string[],
+	named: readonly T[],
+): { readonly found: T; readonly rest: readonly string[] } | undefined {
+	const matching = named.filter((item) => item.name.split(" ").every((word, index) => words[index] === word));
+	const found = matching.sort((left, right) => right.name.length - left.name.length)[0];
+	return found && { found, rest: words.slice(found.name.split(" ").length) };
+}
+
+/**
+ * What the words of a command line name, by the rules `main` follows before anything runs: the general help; a command
+ * of `commands` with the words after its name and whether they ask for its help; or another first word, a group or an
+ * unknown command, with the word after it and whether the rest asks for help.
+ */
+export type CommandLine<C extends Command> =
+	| { readonly kind: "general-help" }
+	| { readonly kind: "command"; readonly command: C; readonly rest: readonly string[]; readonly help: boolean }
+	| { readonly kind: "other"; readonly word: string; readonly sub: string | undefined; readonly help: boolean };
+
+/**
+ * Reads which of `commands` the first words of `args` name. No word, `--help`, `-h` or `help` asks for the general
+ * help. A removed name refuses with its line from src/old-names.ts (a usage error) before any command is looked up,
+ * so it writes nothing.
+ */
+export function readCommandLine<C extends Command>(args: readonly string[], commands: readonly C[]): CommandLine<C> {
+	const [word] = args;
+	if (!word || word === "--help" || word === "-h" || word === "help") {
+		return { kind: "general-help" };
+	}
+	const removed = firstNamed(args, OLD_NAMES);
+	if (removed) {
+		const { found, rest } = removed;
+		throw removedRefusal(removedCommand(found.name) ?? found.name, oldNext(found, rest), "argument");
+	}
+	const named = firstNamed(args, commands);
+	if (named) {
+		return { kind: "command", command: named.found, rest: named.rest, help: asksHelp(named.found, named.rest) };
+	}
+	// A first word that names no command has no schema, so every word after it that starts with `--` reads as a switch.
+	const rest = args.slice(1);
+	return { kind: "other", word, sub: rest[0], help: asksHelp({ name: word, schema: [] }, rest) };
 }
 
 /** The values of `args`, or `undefined` where `parse` refuses them with a usage error. */

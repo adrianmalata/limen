@@ -37,7 +37,8 @@ export async function registerProject(root: string): Promise<void> {
 	const project = resolve(root);
 	await updateRegisteredProjects((projects) => (projects.includes(project) ? projects : [...projects, project]));
 }
-export async function installSeatSweep(): Promise<void> {
+/** Writes the LaunchAgent that runs the sweep every 60 s; returns the lines that say what it wrote. */
+export async function installSeatSweep(): Promise<string> {
 	const path = join(home(), "Library", "LaunchAgents", "limen-sweep.plist");
 	const values = [process.execPath, join(PACKAGE_ROOT, "bin", "limen"), "sweep"]
 		.map((value) => `<string>${xml(value)}</string>`)
@@ -45,13 +46,12 @@ export async function installSeatSweep(): Promise<void> {
 	const plist = `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>Label</key><string>works.earendil.limen-sweep</string><key>ProgramArguments</key><array>${values}</array><key>StartInterval</key><integer>60</integer></dict></plist>\n`;
 	fs.mkdirSync(dirname(path), { recursive: true });
 	fs.writeFileSync(path, plist);
-	console.log(
-		`wrote ${path}\nnode ${process.execPath}\nlimen ${join(PACKAGE_ROOT, "bin", "limen")}\nMoving this checkout requires running limen sweep --install again.`,
-	);
+	return `wrote ${path}\nnode ${process.execPath}\nlimen ${join(PACKAGE_ROOT, "bin", "limen")}\nMoving this checkout requires running limen sweep --install again.`;
 }
-export async function uninstallSeatSweep(): Promise<void> {
+/** Removes that LaunchAgent; returns the line that says so. */
+export async function uninstallSeatSweep(): Promise<string> {
 	const path = join(home(), "Library", "LaunchAgents", "limen-sweep.plist");
 	fs.rmSync(path, { force: true });
-	console.log(`removed ${path}`);
+	return `removed ${path}`;
 }
 const xml = (value: string) => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");

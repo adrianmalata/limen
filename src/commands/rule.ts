@@ -1,8 +1,6 @@
-import { spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { fileURLToPath } from "node:url";
 import { atomicWrite } from "../atomic-write.ts";
 import { transport } from "../config.ts";
 import { type LiveCoordinator, liveCoordinators } from "../integrations/coordinator-registration.ts";
@@ -25,8 +23,8 @@ import {
 	type SeatRule,
 	writeRule,
 } from "../project/seat-rules.ts";
+import { startLimen } from "../runtime/launcher.ts";
 
-const LIMEN = fileURLToPath(new URL("../../bin/limen", import.meta.url));
 const UNITS = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
 const PING_MS = 20_000;
 type Kind = "set" | "change" | "end";
@@ -131,13 +129,9 @@ async function endRule(rule: SeatRule, why: string): Promise<readonly string[] |
 }
 
 function startTimer(rule: SeatRule): void {
-	const child = spawn(process.execPath, [LIMEN, "rule", "timer", ruleFolder(rule.name), rule.version], {
-		detached: true,
-		stdio: "ignore",
+	startLimen(["rule", "timer", ruleFolder(rule.name), rule.version], {
 		env: { ...process.env, LIMEN_INTERNAL_RUN: undefined },
 	});
-	child.once("error", () => {});
-	child.unref();
 }
 
 /**

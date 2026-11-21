@@ -20,11 +20,11 @@ export async function sweepCommand(values: Parsed): Promise<undefined> {
 		throw new Error("sweep takes --install or --uninstall, not both");
 	}
 	if (values.has("install")) {
-		await installSeatSweep();
+		console.log(await installSeatSweep());
 		return;
 	}
 	if (values.has("uninstall")) {
-		await uninstallSeatSweep();
+		console.log(await uninstallSeatSweep());
 		return;
 	}
 	const living = await updateRegisteredProjects((projects) =>

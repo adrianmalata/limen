@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { appendFile, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { atomicWrite } from "../atomic-write.ts";
-import { engineEnvironment, type TransportName, transport, wrapperEnvironment } from "../config.ts";
+import { engineEnvironment, type TransportName, transport } from "../config.ts";
 import { promptStartNotice } from "../integrations/coordinator-wake.ts";
 import { finalizeJob, isFailedStopReason, requestedTerminal } from "../job/finalize.ts";
 import { jobMembership } from "../job/group-cabinet.ts";
@@ -30,24 +30,6 @@ const DEFAULT_TIMEOUT_MS = 90 * 60_000;
 const MAX_TOOL_CALLS = 900;
 /** The tool-start cap: `toolCalls` of the project's limits file, read at each tool start, else 900 (R-015). */
 const toolCallCap = (): number => limitCount("toolCalls", MAX_TOOL_CALLS);
-/** Starts a job's wrapper with what the spawner passes; it inherits no transport or removed name (R-015). */
-export async function launchWrapper(environment: Readonly<Partial<Record<TransportName, string>>>): Promise<number> {
-	const executable = fileURLToPath(new URL("../../bin/limen", import.meta.url));
-	const child = spawn(process.execPath, [executable], {
-		detached: true,
-		stdio: "ignore",
-		env: wrapperEnvironment({ ...environment, LIMEN_INTERNAL_RUN: "1" }),
-	});
-	await new Promise<void>((resolve, reject) => {
-		child.once("spawn", resolve);
-		child.once("error", reject);
-	});
-	if (!child.pid) {
-		throw new Error("could not start the detached job wrapper");
-	}
-	child.unref();
-	return child.pid;
-}
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: split pending: internal job runner
 // biome-ignore lint/complexity/noExcessiveLinesPerFunction: same split as the line above
 export async function runInternalJob(): Promise<void> {

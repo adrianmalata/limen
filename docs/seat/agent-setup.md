@@ -137,7 +137,7 @@ install -o root -g root -m 0755 /root/install/herdr /usr/local/bin/herdr
 
 ## 5 · Project and `limen init`
 
-`limen init` registers the Git top-level folder of the current directory in `~/.limen/projects` (`src/commands/init.ts:25-26,64`). In a tool folder that is a Git clone, it registers a junk project.
+`limen init` registers the Git top-level folder of the current directory in `~/.limen/projects` (`src/project/setup.ts:39,91`). In a tool folder that is a Git clone, it registers a junk project.
 
 - worker$ `gh repo clone $PROJECT_REPO $PROJECT_DIR -- --branch $PROJECT_BRANCH && cd $PROJECT_DIR && test "$(git rev-parse --show-toplevel)" = $PROJECT_DIR && limen init`
 - If the clone asks for a passphrase or fails with `Permission denied (publickey)`, Git uses SSH. Run worker$ `gh config set git_protocol https -h github.com && rm -rf $PROJECT_DIR`, then clone again. Do not add a seat SSH key for this.

@@ -4,11 +4,12 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, relative } from "node:path";
+import { basename, dirname, join, posix, relative } from "node:path";
 import test, { type TestContext } from "node:test";
 import ts from "typescript";
 import { templateHistoryText } from "../src/project/inherit.ts";
 import { REGISTRY } from "../src/registry.ts";
+import { importsOf } from "./imports.ts";
 import { knownFiles, SKIPPED } from "./known-files.ts";
 
 // The fixture's git and the listing of the repository must not depend on the laptop's own git configuration.
@@ -691,7 +692,7 @@ const JOB_NAME_EXCEPTIONS: ReadonlyArray<{ readonly path: string; readonly name:
 		name: "started-at",
 		reason: "a coordinator's registration folder",
 	},
-	{ path: "src/commands/github-doctor.ts", name: "state", reason: "the GitHub poller's state folder" },
+	{ path: "src/integrations/github-doctor.ts", name: "state", reason: "the GitHub poller's state folder" },
 	{ path: "docs/seat/github-setup.sh", name: "state", reason: "the GitHub poller's state folder" },
 	{ path: "docs/seat/quota-resume.ts", name: "state", reason: "the folder ~/.local/state of the XDG layout" },
 ];
@@ -937,10 +938,10 @@ const MATCHERS: ReadonlyArray<{ readonly pattern: RegExp; readonly allowed: read
 /** Label comparisons outside the resolver that name no job. */
 const MATCHER_EXCEPTIONS: ReadonlyArray<{ readonly path: string; readonly text: string }> = [
 	// The spawn's warning that a live job already holds the label it was given.
-	{ path: "src/commands/spawn.ts", text: "record?.label === label" },
+	{ path: "src/job/spawning.ts", text: "record?.label === label" },
 	// Herdr tabs' labels, not jobs'.
 	{ path: "src/integrations/herdr.ts", text: "row.label !== name" },
-	{ path: "src/commands/status.ts", text: "label !== String(tab.number)" },
+	{ path: "src/project/summary.ts", text: "label !== String(tab.number)" },
 ];
 
 /** Each approximate matcher of a job in the code `text` at `path`, as `<path>:<line>: <match>`. */
@@ -972,13 +973,13 @@ test("the job-matcher scan finds an id suffix, a label prefix, a label compariso
 		"const label = request.label === undefined ? undefined : request.label;",
 		"if (record?.label === label) {}",
 	].join("\n");
-	assert.deepEqual(jobMatchers("src/commands/spawn.ts", fixture), [
-		"src/commands/spawn.ts:1: id.endsWith(",
-		"src/commands/spawn.ts:2: label.toLowerCase(",
-		"src/commands/spawn.ts:3: label === needle",
-		"src/commands/spawn.ts:4: === record?.label",
-		"src/commands/spawn.ts:6: labels[",
-		"src/commands/spawn.ts:7: makeJobId(",
+	assert.deepEqual(jobMatchers("src/job/spawning.ts", fixture), [
+		"src/job/spawning.ts:1: id.endsWith(",
+		"src/job/spawning.ts:2: label.toLowerCase(",
+		"src/job/spawning.ts:3: label === needle",
+		"src/job/spawning.ts:4: === record?.label",
+		"src/job/spawning.ts:6: labels[",
+		"src/job/spawning.ts:7: makeJobId(",
 	]);
 	assert.deepEqual(jobMatchers(RESOLVER, fixture), []);
 	assert.deepEqual(jobMatchers("src/job/job.ts", "export function makeJobId(label: string) {}"), []);
@@ -990,19 +991,47 @@ test("T-20: outside src/job/reference.ts no file of src/ or hook/ matches a job 
 	assert.deepEqual(found, []);
 });
 
-test("T-20 (4): the module of every handler that takes an argument of type job resolves it through src/job/reference.ts", async () => {
+/** Whether the code `text` of the file `path` imports the one resolver and calls it. */
+function resolvesJobs(path: string, text: string): boolean {
+	const imported = importsOf(path, text).some(
+		({ module }) => module !== undefined && importedFile(path, module) === RESOLVER,
+	);
+	return imported && /\bresolveJob\(/.test(text);
+}
+
+/** The modules of src/ outside src/commands that the code `text` of the file `path` imports. */
+function domainModules(path: string, text: string): string[] {
+	return importsOf(path, text).flatMap(({ module }) => {
+		const file = module === undefined ? undefined : importedFile(path, module);
+		return file?.startsWith("src/") && !file.startsWith("src/commands/") ? [file] : [];
+	});
+}
+
+// T-26 (1): a handler reads its values and calls one domain operation, which resolves its job argument; the scan reads
+// the handler's module and the domain modules it calls.
+test("T-20 (4): the module of every handler that takes an argument of type job, or the domain module it calls, resolves it through src/job/reference.ts", async () => {
 	const registry = await readFile(join(root, "src", "registry.ts"), "utf8");
+	const modules = new Map(
+		importsOf("src/registry.ts", registry).flatMap(({ module, names }) => {
+			const file = module === undefined ? undefined : importedFile("src/registry.ts", module);
+			return file === undefined ? [] : names.map((name) => [name, file] as const);
+		}),
+	);
 	const typed = REGISTRY.filter((entry) =>
 		entry.schema.some((part) => ("type" in part && part.type === "job") || ("value" in part && part.value === "job")),
 	);
 	const unresolved: string[] = [];
 	for (const entry of typed) {
-		const imported = new RegExp(
-			`import \\{[^}]*\\b${entry.handler.name}\\b[^}]*\\} from "\\./(commands/[\\w-]+\\.ts)"`,
+		const module = modules.get(entry.handler.name);
+		const text = module === undefined ? "" : await readFile(join(root, module), "utf8");
+		const called = module === undefined ? [] : domainModules(module, text);
+		const read = await Promise.all(
+			called.map(async (file) => ({ file, code: await readFile(join(root, file), "utf8") })),
 		);
-		const module = imported.exec(registry)?.[1];
-		const text = module === undefined ? "" : await readFile(join(root, "src", module), "utf8");
-		if (!(text.includes(`from "../job/reference.ts"`) && /\bresolveJob\(/.test(text))) {
+		const resolved =
+			module !== undefined &&
+			[{ file: module, code: text }, ...read].some(({ file, code }) => resolvesJobs(file, code));
+		if (!resolved) {
 			unresolved.push(entry.name);
 		}
 	}
@@ -1053,6 +1082,272 @@ test("T-25: src/job/reference.ts and src/job/migration.ts list job folders only 
 		}
 	}
 	assert.deepEqual(listing, []);
+});
+
+/** A file of code by its path from the repository root, for the scans of T-26 that also run on fixtures. */
+type Code = { readonly path: string; readonly text: string };
+const COMMANDS = "src/commands/";
+/** The two files outside src/commands that import the commands: the wrapper and the registry (T-26 (3)). */
+const COMMAND_IMPORTERS: ReadonlySet<string> = new Set(["src/main.ts", "src/registry.ts"]);
+
+/** The file of the repository that the relative module path `module` in the file `path` names, else undefined. */
+function importedFile(path: string, module: string): string | undefined {
+	return /^\.{1,2}\//.test(module) ? posix.normalize(posix.join(posix.dirname(path), module)) : undefined;
+}
+
+/**
+ * The command files whose every registry entry carries `movedBy`, which the scans of T-26 leave out (D-061): each
+ * file of src/commands holds the handlers that src/registry.ts imports from it.
+ */
+async function movedCommandFiles(): Promise<ReadonlySet<string>> {
+	const registry = await readFile(join(root, "src", "registry.ts"), "utf8");
+	const files = new Map<string, boolean>();
+	for (const { module, names } of importsOf("src/registry.ts", registry)) {
+		const file = module === undefined ? undefined : importedFile("src/registry.ts", module);
+		if (!file?.startsWith(COMMANDS)) {
+			continue;
+		}
+		const entries = REGISTRY.filter((entry) => names.includes(entry.handler.name));
+		files.set(file, entries.length > 0 && entries.every((entry) => entry.movedBy !== undefined));
+	}
+	return new Set([...files].filter(([, moved]) => moved).map(([file]) => file));
+}
+
+/**
+ * Each import of `files` against T-26 (3), as `<path>: <code>`: a command file that imports another command file or a
+ * value of the registry, a file of src/ outside src/commands, but the wrapper and the registry, or of hook/ or bin/
+ * that imports a command file, and a file of src/ that imports bin/. The command files of `moved` are left out.
+ */
+function commandImports(files: readonly Code[], moved: ReadonlySet<string>): string[] {
+	const found: string[] = [];
+	for (const { path, text } of files) {
+		for (const imported of importsOf(path, text)) {
+			const target = imported.module === undefined ? undefined : importedFile(path, imported.module);
+			if (target === undefined) {
+				continue;
+			}
+			const command = target.startsWith(COMMANDS);
+			const wrong = path.startsWith(COMMANDS)
+				? !moved.has(path) && (command || (target === "src/registry.ts" && !imported.typeOnly))
+				: (command && !COMMAND_IMPORTERS.has(path)) || (path.startsWith("src/") && target.startsWith("bin/"));
+			if (wrong) {
+				found.push(`${path}: ${imported.code}`);
+			}
+		}
+	}
+	return found;
+}
+
+test("T-26: no command file imports another or a value of the registry, and outside src/commands only the wrapper and the registry import one", async () => {
+	const files = await knownSources(["src", "hook", "bin"]);
+	assert.deepEqual(commandImports(files, await movedCommandFiles()), []);
+});
+
+test("the command-import scan finds both directions and skips the wrapper, the registry, a type import and a moved command", () => {
+	const files: Code[] = [
+		{ path: "src/commands/a.ts", text: 'import { b } from "./b.ts";\nimport type { Entry } from "../registry.ts";\n' },
+		{ path: "src/commands/c.ts", text: 'import { REGISTRY } from "../registry.ts";\n' },
+		{ path: "src/commands/moved.ts", text: 'import { b } from "./b.ts";\n' },
+		{ path: "src/job/d.ts", text: 'import { b } from "../commands/b.ts";\n' },
+		{ path: "src/job/e.ts", text: 'import { f } from "../../bin/f.mjs";\n' },
+		{ path: "hook/g.ts", text: 'import { b } from "../src/commands/b.ts";\n' },
+		{ path: "bin/h.mjs", text: 'import { b } from "../src/commands/b.ts";\n' },
+		{ path: "src/main.ts", text: 'import { b } from "./commands/b.ts";\n' },
+		{ path: "src/registry.ts", text: 'import { b } from "./commands/b.ts";\n' },
+	];
+	assert.deepEqual(commandImports(files, new Set(["src/commands/moved.ts"])), [
+		'src/commands/a.ts: import { b } from "./b.ts";',
+		'src/commands/c.ts: import { REGISTRY } from "../registry.ts";',
+		'src/job/d.ts: import { b } from "../commands/b.ts";',
+		'src/job/e.ts: import { f } from "../../bin/f.mjs";',
+		'hook/g.ts: import { b } from "../src/commands/b.ts";',
+		'bin/h.mjs: import { b } from "../src/commands/b.ts";',
+	]);
+});
+
+/** The calls that print: the output methods of `console` and a write to either stream of the process. */
+const PRINTS = /\bconsole\.(?:log|error|warn|info|debug)\(|\bprocess\.(?:stdout|stderr)\.write\(/g;
+/** The one streaming command (D-061 (3)) and the module that prints while it runs, which the scan leaves out. */
+const STREAMING = { command: "picture serve", module: "src/picture/picture-serve.ts" } as const;
+
+/**
+ * Each print in `files` outside the wrapper, the streaming command's module and the command files of `moved`, as
+ * `<path>:<line>: <call>`: every other command's text goes through the wrapper, which prints it at the command's end.
+ */
+function printCalls(files: readonly Code[], moved: ReadonlySet<string>): string[] {
+	return files
+		.filter(({ path }) => path !== "src/main.ts" && path !== STREAMING.module && !moved.has(path))
+		.flatMap(({ path, text }) =>
+			text
+				.split("\n")
+				.flatMap((line, index) => [...line.matchAll(PRINTS)].map((match) => `${path}:${index + 1}: ${match[0]}`)),
+		);
+}
+
+// D-061 (3): a command that prints as it goes leaves a half report when it fails, and its text interleaves with what
+// it calls in-process, so the shared wrapper prints all of a command's text when the command ends.
+test("T-26: no file of src/ prints but the wrapper, the module of the streaming picture serve and the moved commands", async () => {
+	assert.ok(
+		REGISTRY.some((entry) => entry.name === STREAMING.command),
+		`${STREAMING.command} is a registry command`,
+	);
+	assert.deepEqual(printCalls(await knownSources(["src"]), await movedCommandFiles()), []);
+});
+
+test("the print scan finds console output and stream writes, and skips the wrapper, the streaming module and a moved command", () => {
+	const files: Code[] = [
+		{ path: "src/job/a.ts", text: 'const x = 1;\nconsole.log("a");\n' },
+		{ path: "src/commands/b.ts", text: 'process.stdout.write("b");\nconsole.error("b");\n' },
+		{ path: "src/main.ts", text: 'console.log("line");\n' },
+		{ path: STREAMING.module, text: 'console.error("serving");\n' },
+		{ path: "src/commands/moved.ts", text: 'console.log("moved");\n' },
+	];
+	assert.deepEqual(printCalls(files, new Set(["src/commands/moved.ts"])), [
+		"src/job/a.ts:2: console.log(",
+		"src/commands/b.ts:1: process.stdout.write(",
+		"src/commands/b.ts:2: console.error(",
+	]);
+});
+
+/** The one module that starts Limen's own CLI and reads its final line (D-061 (4)). */
+const LAUNCHER = "src/runtime/launcher.ts";
+/** The functions of node:child_process that start a process. */
+const STARTERS: ReadonlySet<string> = new Set([
+	"spawn",
+	"spawnSync",
+	"exec",
+	"execSync",
+	"execFile",
+	"execFileSync",
+	"fork",
+]);
+/**
+ * What names Limen's own CLI in code: a path that ends in its entry point `bin/limen`, that path in parts, or the
+ * setting of its path; a sentence that mentions `bin/limen` names no process to start.
+ */
+const LIMEN_CLI = /bin\/limen["'`]|["'`]bin["'`],\s*["'`]limen["'`]|LIMEN_GITHUB_LIMEN_BIN/;
+
+/** The initializer of each variable the code declares, by its name. */
+function declaredValues(source: ts.SourceFile): ReadonlyMap<string, string> {
+	const values = new Map<string, string>();
+	const visit = (node: ts.Node): void => {
+		if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer !== undefined) {
+			values.set(node.name.text, node.initializer.getText(source));
+		}
+		ts.forEachChild(node, visit);
+	};
+	visit(source);
+	return values;
+}
+
+/** The name of the function a call calls, as a name or as the last name of a property access. */
+function calleeName(call: ts.CallExpression): string | undefined {
+	const callee = call.expression;
+	return ts.isIdentifier(callee) ? callee.text : ts.isPropertyAccessExpression(callee) ? callee.name.text : undefined;
+}
+
+/**
+ * Each start of Limen's own CLI in the code `text` at `path`, as `<path>:<line>: <function>`: a call of a function that
+ * starts a process whose program, or a word of its literal list of arguments, names the CLI, itself or through a
+ * variable the file declares.
+ */
+function cliLaunches(path: string, text: string): string[] {
+	const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+	const values = declaredValues(source);
+	const found: string[] = [];
+	const visit = (node: ts.Node): void => {
+		const callee = ts.isCallExpression(node) ? calleeName(node) : undefined;
+		if (ts.isCallExpression(node) && callee !== undefined && STARTERS.has(callee)) {
+			const [program, list] = node.arguments;
+			const words = list !== undefined && ts.isArrayLiteralExpression(list) ? [...list.elements] : [];
+			const parts = [...(program === undefined ? [] : [program]), ...words].flatMap((part) => [
+				part.getText(source),
+				ts.isIdentifier(part) ? (values.get(part.text) ?? "") : "",
+			]);
+			if (parts.some((part) => LIMEN_CLI.test(part))) {
+				found.push(`${path}:${source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1}: ${callee}`);
+			}
+		}
+		ts.forEachChild(node, visit);
+	};
+	visit(source);
+	return found;
+}
+
+// T-26 (4), D-061 (4): a caller that starts Limen's CLI by hand reads its text for people or nothing at all; one module
+// starts it and reads the final line through the client function.
+test("T-26: outside src/runtime/launcher.ts no file of src/ starts Limen's own CLI", async () => {
+	const found = (await knownSources(["src"]))
+		.filter(({ path }) => path !== LAUNCHER && path.endsWith(".ts"))
+		.flatMap(({ path, text }) => cliLaunches(path, text));
+	assert.deepEqual(found, []);
+});
+
+test("the launch scan finds a start of bin/limen directly, through a variable and through the CLI path setting, and skips other processes and text", () => {
+	const fixture = [
+		'const limen = fileURLToPath(new URL("../../bin/limen", import.meta.url));',
+		'spawn(process.execPath, [limen, "group", "advance", id], { detached: true });',
+		'const command = exception("LIMEN_GITHUB_LIMEN_BIN") || "/opt/limen/bin/limen";',
+		'spawnSync("sudo", ["-n", "-u", user, "--", command, "github", "ensure", root]);',
+		'child_process.execFileSync(join(PACKAGE_ROOT, "bin", "limen"), ["status"]);',
+		'spawnSync("git", ["status"], { cwd: root });',
+		`const prompt = \`run \${PACKAGE_ROOT}/bin/limen github resolve\`;`,
+		'spawnSync("herdr", ["agent", "prompt", pane, prompt]);',
+	].join("\n");
+	assert.deepEqual(cliLaunches("src/job/a.ts", fixture), [
+		"src/job/a.ts:2: spawn",
+		"src/job/a.ts:4: spawnSync",
+		"src/job/a.ts:5: execFileSync",
+	]);
+});
+
+/** The parser of command words (T-19, D-044), the one file that may read them. */
+const PARSER = "src/parser.ts";
+/**
+ * The idioms that read command words: a comparison of a word with a flag (`--help`, `-h`, a lone `--`) or with the word
+ * `help`, and the match of a command's name word by word against the words of a command line.
+ */
+const WORD_READS: readonly RegExp[] = [
+	/[!=]==\s*(["'`])(?:--?[A-Za-z][\w-]*|--|help)\1/g,
+	/(["'`])(?:--?[A-Za-z][\w-]*|--|help)\1\s*[!=]==/g,
+	/\.split\(\s*["'`] ["'`]\s*\)\.every\(/g,
+];
+
+/** Each read of command words in the code `text` at `path` outside the parser, as `<path>:<line>: <match>`. */
+function wordReads(path: string, text: string): string[] {
+	if (path === PARSER) {
+		return [];
+	}
+	return text
+		.split("\n")
+		.flatMap((line, index) =>
+			WORD_READS.flatMap((pattern) => [...line.matchAll(pattern)].map((match) => `${path}:${index + 1}: ${match[0]}`)),
+		);
+}
+
+// D-044: a word read outside the parser follows rules of its own, as the `--help` lookup and the old `jobs` words did.
+test("T-19: outside src/parser.ts no file of src/ reads command words", async () => {
+	const found = (await knownSources(["src"])).flatMap(({ path, text }) => wordReads(path, text));
+	assert.deepEqual(found, []);
+});
+
+test("the word scan finds a flag or help comparison and a name matched word by word, and skips other dashes and the parser", () => {
+	const fixture = [
+		'if (!name || name === "--help" || name === "-h" || name === "help") {}',
+		'const task = words.filter((word) => word !== "--");',
+		'const named = names.filter((old) => old.name.split(" ").every((word, index) => words[index] === word));',
+		'if (all[0]?.trimEnd() !== "---") {}',
+		'const source = task === "-" ? "-" : undefined;',
+		'if (ref.startsWith("-")) {}',
+	].join("\n");
+	assert.deepEqual(wordReads("src/a.ts", fixture), [
+		'src/a.ts:1: === "--help"',
+		'src/a.ts:1: === "-h"',
+		'src/a.ts:1: === "help"',
+		'src/a.ts:2: !== "--"',
+		'src/a.ts:3: .split(" ").every(',
+	]);
+	assert.deepEqual(wordReads(PARSER, fixture), []);
 });
 
 // Each shipped templates/.history/<name> starts with the hash of the current templates/<name>.

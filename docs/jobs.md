@@ -99,7 +99,7 @@ limen land <id>
 
 ### Job IDs and labels
 
-- **Job ID:** The final line of `spawn` carries the durable job ID in `ids.job` ([the final line](commands.md#exit-codes-and-the-final-line)). Spawn also prints it as a text line as soon as the job record exists, so a spawn killed during setup still names its job.
+- **Job ID:** The final line of `spawn` carries the durable job ID in `ids.job` ([the final line](commands.md#exit-codes-and-the-final-line)). Spawn prints its text when it ends, the ID after its start line; a spawn killed during setup prints no ID, and `limen status` lists the job its record names.
 - **Labels:** A label names the change first and the feature number last. A repair label or a review label names its round.
 - **Labels that name a lead:** Ordinary text such as `Fix the lead-in paragraph · F900` is allowed. Lead ownership comes from the coordinator pane, not the label; `--role coordinator` and `--role lead` remain refused.
 - **Group labels:** Team jobs read `team-2 coordinator · F773`, so jobs on the same feature remain distinct.

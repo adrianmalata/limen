@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { transport } from "../config.ts";
@@ -326,6 +326,13 @@ export function worktreeState(cwd: string): "clean" | "dirty" | "none" {
 export function liveDiffstat(cwd: string, branch: string): string {
 	const result = git(cwd, ["diff", "--stat", `HEAD...${branch}`]);
 	return result.status === 0 ? result.stdout.trim() : `(unavailable: ${result.stderr.trim() || "git diff failed"})`;
+}
+/**
+ * The output of a git command in `cwd`, trimmed, up to 64 MiB; a failed command throws. The land's ticket check and
+ * its test-line cap read the branch's diff and tree through it.
+ */
+export function gitText(cwd: string, args: readonly string[]): string {
+	return execFileSync("git", args, { cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }).trim();
 }
 function requireGit(cwd: string, args: readonly string[], input?: string): GitResult {
 	const result = git(cwd, args, input);

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { groupWaitCommand, waitCapped } from "../../src/commands/group.ts";
+import { groupWaitCommand, waitCapped } from "../../src/commands/group-wait.ts";
 import { main } from "../../src/main.ts";
 import type { Parsed } from "../../src/parser.ts";
 import { REGISTRY } from "../../src/registry.ts";
@@ -100,7 +100,7 @@ test("a member's group wait past the CLI cap exits 0, says so and names the same
 	withEnvironment(t, { ...member, LIMEN_HERDR: "0" });
 	const capped = REGISTRY.map((entry) =>
 		entry.name === "group wait"
-			? { ...entry, handler: (values: Parsed, cwd: string) => groupWaitCommand(values, cwd, 50) }
+			? { ...entry, handler: (values: Parsed, cwd: string) => groupWaitCommand(values, cwd, undefined, 50) }
 			: entry,
 	);
 	const stdout: string[] = [];
