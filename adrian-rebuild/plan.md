@@ -62,7 +62,10 @@ sesja limen-rebuild-9 zatrzymana; R-023 zamknięty (komendy jako cienkie adapter
 komendy drukowany na końcu, jeden moduł uruchamiający CLI Limena, słowa komend tylko w parserze; bramka 588/588,
 runda 3 recenzji bez uwag); R-095 zamknięty (raport migracji o tokenie wspólnym z .limen/unmigrated/, `keeper` czyta
 job raz, błąd sprawdzenia rekordu w kolejce z przyczyną w logu, `fileOf` jak Node; bramka 598/598; dwie uwagi
-o pliku testu czekają na pytanie Q-17). -->
+o pliku testu czekają na pytanie Q-17); limen-rebuild-16: Q-17 → D-068 (dwa punkty R-096), Q-18 → D-069 (przyczyna
+nadmiarowego wake'a w fałszywym silniku testów, który emitował agent_settled po każdej turze; Pi robi to raz na
+przebieg) i R-096 zamknięty (jeden agent_settled na przebieg w test/fake-engine.mjs, nowy test deterministyczny,
+bramka 599/599). -->
 
 
 
@@ -848,6 +851,19 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   `--fork-session --resume` of `limen-rebuild-9`'s conversation, running since 2026-11-20 12:36; `kill`, exit 0), since
   a message waking it would have worked on the same tree with a day-old context. Check: R-096's criteria; for (2),
   `ps` lists neither process.
+- 2026-11-21 D-068 (Adrian, before 18:23: "Zgodnie z rekomendacją"; Q-17, asked in the conversation with a push):
+  option 1: R-095's round-3 notes 2 and 3 (`R-095-round-3-notes-r022-r094/review.md` → Round 3) are items (d) and (e)
+  of R-096, which keeps size S. (d) `waitFailure` (`test/runtime/start-queue.test.ts`) reports how a wait ended that
+  did not reject (its resolved value, e.g. `"gone"`), not "the wait ended with undefined"; (e) the file's opening
+  line names its third mechanism, a record check that fails (T-29 (5)). Check: R-096's criteria.
+- 2026-11-21 D-069 (Adrian, about 19:28: "zgodnie z rekomendacjami"; Q-18, R-096's `BLOCKED`, asked in the
+  conversation with a push): option 1. R-096 goes on without a failing run under load, on the deterministic proof:
+  the cause is the test's fake engine (`test/fake-engine.mjs` fires `agent_settled` after every turn, while Pi 1.5.1
+  drains its follow-ups inside one run and emits it once after the run), not the wake delivery. The fake engine
+  emits one `agent_settled` per run, as Pi does; a new `test/fake-engine.test.ts` makes the sequence happen; AC-4
+  runs as `node adrian-rebuild/tools/fails-before.mjs test/fake-engine.test.ts`; AC-7's load evidence is the runs
+  of (a) with no failure, repeated after the change. This departs from D-067's "a reproduction under the gate's
+  load" by the deterministic test. Check: R-096's criteria.
 
 ### Gate 2 §2, copied
 
@@ -1221,7 +1237,7 @@ Columns:
 | R-093 | The round-3 notes of R-019 and R-021: the migration keeps `born`, guarded hook reads | 2 | T-25, T-02, T-30, D-062, D-063 | R-019, R-021, R-022 | S | delegated | night | — | — | — | done |
 | R-094 | A queued wrapper ends when its job folder is gone; tests stop their wrappers | 2 | T-01, T-29, D-063 | R-093 | S | delegated | night | — | — | — | done |
 | R-095 | The round-3 notes of R-022 and R-094: the shared-token report, `keeper`'s de-duplication, the record check | 2 | T-01, T-29, T-30, D-065 | R-022, R-094 | S | delegated | night | — | — | — | done |
-| R-096 | One wake per event: the extra wake of the held-gate queue test, found and removed | 2 | T-29, D-067 | R-023, R-095 | S | delegated | night | — | — | — | planned |
+| R-096 | One wake per event: the extra wake of the held-gate queue test, found and removed | 2 | T-29, D-067 | R-023, R-095 | S | delegated | night | — | — | — | done |
 | R-024 | `limen stats` over records and transcripts | 2 | H-01, H-20, §2, T-33 | R-021, R-023 | M | delegated | night | — | pi | 2.3 | planned |
 | R-025 | Test coverage derived from the command registry | 2 | T-28, T-29, D-045, D-046 | R-014, R-023, R-092 | M | delegated | night | — | — | — | planned |
 | R-026 | Every job runs in its own systemd user scope | 3 | A-029, A-052, T-43 | R-020, R-021 | L | delegated | night | — | systemd | 3.2, 3.7, 3.8 | planned |
@@ -1884,10 +1900,10 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-21, day session `limen-rebuild-15`, rebuild stage 5 in plan stage 2: stage 1 is closed at `a0.1.1`
-(deployed on 2026-11-20, with B.2 closed by D-050); stage 2 has R-015–R-023, R-089 and R-093–R-095 done, and R-096,
+Updated 2026-11-21, day session `limen-rebuild-16`, rebuild stage 5 in plan stage 2: stage 1 is closed at `a0.1.1`
+(deployed on 2026-11-20, with B.2 closed by D-050); stage 2 has R-015–R-023, R-089 and R-093–R-096 done, and
 R-092, R-024 and R-025 left before the tag `a0.2.0`. The newest entries are at the end of this section, from "Day
-session of 2026-11-21, continued (`limen-rebuild-15`".
+session of 2026-11-21, continued (`limen-rebuild-16`".
 
 Handover of 2026-11-19 (D-033, at 37 % context, after the commit `R-014:`): `limen-rebuild-5` started
 `limen-rebuild-6` in `tmux` in remote-control mode (14:10) and ended. WSL booted at 10:34 on 2026-11-19, after the
@@ -2662,24 +2678,59 @@ redundant, the terminal being active):
   597/597 and 598/598; `fails-before.mjs` exit 0 (five files) each time. Open points for gate 5.2 (`outcome.md`): the
   class and code of `QUEUE_RECORD_UNREADABLE` reach no reader (R-082); the other mixed shared-token lines (R-031).
 
+Day session of 2026-11-21, continued (`limen-rebuild-16`, by day; its `close-previous` printed `handover: closed tmux
+session limen-rebuild-15` and one `handover: stopped claude …` line and exited 0; its takeover push was skipped as
+redundant, the terminal being active; Q-17 asked again in the conversation, with a push):
+- R-096's `ticket.md` written at `29722fd` from D-067 (1); it has no grep criteria (D-025). Q-17's two items are not in
+  it yet; an answer "1" adds them as a dated entry of its `## Decisions` before the review.
+- R-096 `active` (delegated, from 17:53).
+- Q-17 → D-068 (Adrian: "Zgodnie z rekomendacją"): items (d) and (e) of R-096, in its `## Decisions` with AC-8.
+- R-096's implementer replied `BLOCKED` at about 18:23: within (a)'s limit no run failed under load (6 of 10 gate
+  runs, all 598/598, and 29 of 30 runs of the file beside them, 7/7 each; the permission classifier denied two file
+  runs, not retried), but it found the cause and reproduced it deterministically in a scratch test (3 of 3 fail at
+  HEAD): `test/fake-engine.mjs`'s `turn()` fires `agent_settled` after every turn, also while a follow-up is queued,
+  so `confirmDeliveries` (`hook/wake.ts`) counts the wake unconfirmed, releases the claim and the next sweep injects
+  it again; Pi 1.5.1 drains follow-ups inside one run and emits `agent_settled` once after it (`agent-loop.js`,
+  line 196; `agent-session.js`, line 738; the main session checked both). The delivery code is right; the same
+  sequence explains R-094's open point 5. `compare --git` → exit 0; the tree is unchanged. Asked as Q-18.
+
+- Q-18 → D-069 (Adrian: "zgodnie z rekomendacjami"): option 1; the implementer is resumed with D-068 and D-069.
+
+- R-096's resumed implementer `DONE` (D-068, D-069): the fake engine settles once per run; the new
+  `test/fake-engine.test.ts`; items (d) and (e). After it, 6 gate runs (599/599) and 29 runs of the file beside them
+  with no failure. `compare --git` → exit 0; the main session's gate 599/599 and `fails-before.mjs
+  test/fake-engine.test.ts` exit 0 (the new test fails at HEAD on the double wake). Review round 1 PASS with three
+  notes: two fixed in the first round of fixes (T-18 "run" in the fake engine's header; an async FIFO write), one
+  with no change (`review.md` → Round 1). `review-verdict.mjs` rejected the first check of the reply, since AC-8, AC-9
+  and AC-4's D-069 form were only in `## Decisions`; they moved into `## Acceptance` and the same reply checked
+  consistent.
+- R-096 `done` (delegated): the extra wake came from the test's fake engine, which fired `agent_settled` after every
+  turn while a follow-up was queued, so the hook counted the wake unconfirmed and sent it again; Pi 1.5.1 settles once
+  per run, so a real coordinator hears the event once and the delivery code is unchanged. The same mechanism explains
+  R-094's open point 5. Review: round 1 PASS with three notes (two fixed, one no change), round 2 PASS with one note
+  on `outcome.md`, fixed by the main session (D-053 (2)). The main session's gate 599/599 twice; `fails-before.mjs
+  test/fake-engine.test.ts` exit 0 twice. Open point for gate 5.2 (`outcome.md`): a message a hook sends while
+  `agent_settled` is emitted starts a new run of the fake engine, with no test of its own.
+
 Active ticket: none.
 
-Next (autopilot until 13:00 on 2026-11-21, D-063 (4); then by day):
-0. Answers waiting: Q-14 (R-089's two round-3 notes on the import scan's path resolution; asked in the conversation
-   on 2026-11-21 at about 14:25, with a push).
-1. R-096 (D-067; its `ticket.md` at the HEAD it starts from, with Q-17's two items if Adrian answers "1").
-2. Then R-092, R-024 and R-025, and the close: tag `a0.2.0`, gate 5.2 by phone, with the night defaults above.
+Next (by day):
+1. R-092 (L, delegated; its dependencies R-021 and R-023 are done): its `ticket.md` at the HEAD it starts from, from
+   T-38 and D-061.
+2. Then R-024 and R-025, and the close: tag `a0.2.0`, gate 5.2 by phone, with the night defaults above.
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
    D-047 and D-054 were.
 
-Open questions for Adrian (asked in the conversation on 2026-11-21, with a push):
-- Q-17 (R-095's round-3 notes 2 and 3, `R-095-round-3-notes-r022-r094/review.md` → Round 3): in
-  `test/runtime/start-queue.test.ts`, the helper `waitFailure` reports a wait that ends `"gone"` instead of rejecting
-  as "the wait ended with undefined" (diagnosis only), and the file's opening line does not name its third mechanism,
-  a record check that fails (T-29 (5)). Options: 1. two items of R-096, whose `ticket.md` is written next and whose
-  subject is the same area's tests (recommended: a few lines, no ticket of their own); 2. a separate S ticket; 3. no
-  ticket. A full answer: the option number.
+Resolved (Q-17 → D-068; Q-18 → D-069), asked in the conversation with a push:
+- Q-17 (R-095's round-3 notes 2 and 3): `waitFailure`'s message and the opening line of
+  `test/runtime/start-queue.test.ts`. Options: 1. two items of R-096 (recommended); 2. a separate S ticket; 3. no
+  ticket.
+- Q-18 (R-096's `BLOCKED`): go on without a failing run under load, on the deterministic proof? Options: 1. fix the
+  fake engine (one `agent_settled` per run, as Pi), a new `test/fake-engine.test.ts`, AC-4 as
+  `fails-before.mjs test/fake-engine.test.ts`, AC-7 records the load runs with no failure (recommended); 2. a larger
+  load limit first, then 1; 3. change the hook instead (rejected by the implementer: a wake Pi never takes would not
+  be recovered).
 
 Resolved (Q-14 → D-066; Q-15 and Q-16 → D-067):
 - Q-14 (R-089's round-3 notes 1 and A, `R-089-final-line-null/review.md` → Round 3): the import scan's `fileOf`

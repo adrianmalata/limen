@@ -1,5 +1,6 @@
-// src/runtime/start-queue.ts: the seat's start gate comes from <seat>/start-gate.json and its defaults only, and a
-// queued job whose folder or record is gone leaves the queue, at whichever of its record checks meets the removal.
+// src/runtime/start-queue.ts: the seat's start gate comes from <seat>/start-gate.json and its defaults only; a queued
+// job whose folder or record is gone leaves the queue, at whichever of its record checks meets the removal; and a
+// record check that fails for another reason than ENOENT ends the wait with that failure.
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -116,14 +117,20 @@ function breakRecord(dir: string): void {
 	rmSync(recordPath(dir));
 	symlinkSync(basename(recordPath(dir)), recordPath(dir));
 }
-/** The error the wait `waiting` rejects with; the test fails when the wait ends otherwise or with another error type. */
+/**
+ * The error the wait `waiting` rejects with. The test fails when the wait resolves, and says how it ended (`"gone"`,
+ * `"stopped"` or `"started"`), or when it rejects with another error type.
+ */
 async function waitFailure(waiting: Promise<QueueEnd>): Promise<LimenError> {
-	const end: unknown = await waiting.then(
-		() => undefined,
-		(error: unknown) => error,
+	const end = await waiting.then(
+		(ended): { readonly ended: QueueEnd } => ({ ended }),
+		(error: unknown) => ({ error }),
 	);
-	assert.ok(end instanceof LimenError, `the wait ended with ${String(end)}`);
-	return end;
+	if ("ended" in end) {
+		assert.fail(`the wait did not fail: it ended "${end.ended}"`);
+	}
+	assert.ok(end.error instanceof LimenError, `the wait failed with ${String(end.error)}`);
+	return end.error;
 }
 /** The class, the code and whether the cause is the ELOOP of `breakRecord`, of a failure of the record check. */
 const failureFacts = (failure: LimenError) => ({

@@ -2,7 +2,7 @@
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
-R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095. -->
+R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096. -->
 
 # Changes
 
@@ -261,3 +261,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: measured
 - Commit: R-095
 - Rollback: git revert $(git log --format=%H --grep='^R-095:' adrian-rebuild --)
+
+## 2026-11-21 R-096 One wake per event: the extra wake of the held-gate queue test, found and removed
+- What: `test/fake-engine.mjs` (a run takes the batches queued during its turns and ends with one `agent_settled`, as Pi 1.5.1 does; the header names the engine process), the new `test/fake-engine.test.ts` (a wake sent during a held turn enters the same run and is heard once), `test/runtime/start-queue.test.ts` (`waitFailure` says how a wait ended that did not reject; the opening line names the failed record check); the cause, the load runs before and after, and R-094's open point 5 in `outcome.md` → `## Cause`
+- Why: T-29, D-067, D-068, D-069
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (599/599); `node adrian-rebuild/tools/fails-before.mjs test/fake-engine.test.ts` → exit 0; `node --test test/s3-finish-wake.test.ts` → exit 0
+- Measurement: measured
+- Commit: R-096
+- Rollback: git revert $(git log --format=%H --grep='^R-096:' adrian-rebuild --)

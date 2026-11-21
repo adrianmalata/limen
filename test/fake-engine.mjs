@@ -5,7 +5,8 @@
 //   · idle (a bash tool whose one child waits without CPU) · /<command> <args> (runs a command a hook registered, as a user typing it)
 // `block` writes fake-blocked-<n> and waits for one write to the FIFO fake-gate. Records: fake-argv.json, fake-env.json
 // (variable names), fake-task.txt, fake-system.txt (system prompt after before_agent_start), fake-context.txt (the hidden
-// context messages before_agent_start returned), fake-events.jsonl, and one transcript line per run in --session-dir.
+// context messages before_agent_start returned), fake-events.jsonl, and one transcript line per engine process in
+// --session-dir.
 import { execFileSync, spawn } from "node:child_process";
 import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -59,7 +60,9 @@ const context = {
 	},
 };
 // A steer joins the running turn. Other messages queue; every message queued before a turn starts enters that turn,
-// and the turn gets one assistant reply, as Pi does with followUpMode "all". A hook's sendMessage enters as role custom.
+// and the turn gets one assistant reply, as Pi does with followUpMode "all". A message queued while a run is busy
+// enters that run's next turn, and the run settles once, when none is left: Pi takes follow-ups when the agent would
+// stop and emits agent_settled after the run (E-16). A hook's sendMessage enters as role custom.
 const deliver = (kind, text, as) => {
 	record({ event: as ?? kind, text });
 	if (as === "steer") {
@@ -67,7 +70,7 @@ const deliver = (kind, text, as) => {
 	}
 	queued.push({ role: kind === "message" ? "custom" : "user", content: [{ type: "text", text }] });
 	if (queued.length === 1) {
-		turns = turns.then(() => turn(queued.splice(0), "ok"));
+		turns = turns.then(() => run(queued.splice(0), "ok"));
 	}
 };
 const api = {
@@ -77,8 +80,21 @@ const api = {
 	sendUserMessage: (text, options) => deliver("user", text, options?.deliverAs),
 	sendMessage: (message, options) => deliver("message", message.content, options?.deliverAs),
 };
-async function turn(messages, reply, stopReason) {
+/** One run: a turn for `messages`, then a turn for each batch that queued meanwhile; it settles once none is left. */
+async function run(messages, reply, stopReason) {
+	// The batch was queued during an earlier run, which took it, so this run has nothing to do.
+	if (messages.length === 0) {
+		return;
+	}
 	idle = false;
+	await turn(messages, reply, stopReason);
+	while (queued.length > 0) {
+		await turn(queued.splice(0), "ok");
+	}
+	idle = true;
+	await fire("agent_settled", {});
+}
+async function turn(messages, reply, stopReason) {
 	for (const message of messages) {
 		await fire("message_start", { message });
 		await fire("message_end", { message });
@@ -97,8 +113,6 @@ async function turn(messages, reply, stopReason) {
 	}
 	await fire("message_end", { message: assistant });
 	await fire("turn_end", {});
-	idle = true;
-	await fire("agent_settled", {});
 }
 let blocks = 0;
 async function block() {
@@ -156,7 +170,7 @@ for (const line of task.split("\n")) {
 		await commands.get(word.slice(1))?.handler(value, context);
 	}
 }
-turns = turns.then(() => turn([{ role: "user", content: [{ type: "text", text: task }] }], reply, stopReason));
+turns = turns.then(() => run([{ role: "user", content: [{ type: "text", text: task }] }], reply, stopReason));
 await turns;
 await fire("session_shutdown", {});
 record({ event: "exit", code });
