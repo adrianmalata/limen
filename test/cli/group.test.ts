@@ -1,10 +1,15 @@
-// `limen group wait`: only a team member waits, and its time limit and its cap end the wait with one typed failure.
+// `limen group wait`: only a team member waits, and its time limit and its cap end the wait with a success that names
+// the same wait.
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { waitCapped } from "../../src/commands/group.ts";
-import { LimenError, outputText, readOutcome } from "../../src/outcome.ts";
+import { groupWaitCommand, waitCapped } from "../../src/commands/group.ts";
+import { main } from "../../src/main.ts";
+import type { Parsed } from "../../src/parser.ts";
+import { REGISTRY } from "../../src/registry.ts";
+import { withEnvironment } from "../environment.ts";
+import { outputText, readOutcome } from "../final-line.ts";
 import { limen, type Plant, plant, TICKET } from "../plant.ts";
 
 const MEMBER = "2026-11-19-f001-team-1-worker-1a2b3c4d";
@@ -52,16 +57,68 @@ test("GROUP_WAIT_MEMBERS_ONLY: the lead's group wait exits 1, says the lead gets
 	);
 });
 
-test("GROUP_WAIT_TIMEOUT: a member's group wait past its --timeout exits 3 with exactly one final line", async (t) => {
+test("GROUP_WAIT_MEMBERS_ONLY: a group wait outside a team that gives no group id names group status without one", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const run = await runningGroup(p);
+	const waited = limen(p, ["group", "wait", "--timeout", "500ms"], { env: { PI_SESSION_ID: run.lead } });
+	assert.equal(waited.status, 1, waited.stderr);
+	assert.deepEqual(readOutcome(waited), {
+		class: "refused",
+		code: "GROUP_WAIT_MEMBERS_ONLY",
+		next: "limen group status",
+	});
+});
+
+// D-046 (5): a member waits again while its work is live, so its time limit is a success that names the same call.
+test("a member's group wait past its --timeout exits 0, says so and names the same wait in its one final line", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const run = await runningGroup(p);
 	const member = { LIMEN_GROUP_ID: run.id, LIMEN_CONTEXT_ROOT: p.root, LIMEN_JOB_ID: MEMBER, LIMEN_TEAM_ID: "team-1" };
 	const waited = limen(p, ["group", "wait", "--timeout", "500ms"], { env: member });
-	assert.equal(waited.status, 3, waited.stderr);
-	assert.deepEqual(readOutcome(waited), { class: "transient", code: "GROUP_WAIT_TIMEOUT", next: "limen group status" });
+	assert.equal(waited.status, 0, waited.stderr);
+	assert.deepEqual(
+		[outputText(waited), readOutcome(waited)],
+		[
+			"group wait timed out; re-enter bounded wait while your collaboration or children remain live\n",
+			{ class: "ok", code: null, next: "limen group wait --timeout 500ms" },
+		],
+	);
 	const finals = `${waited.stdout}${waited.stderr}`.split("\n").filter((line) => line.startsWith('{"class"'));
 	assert.equal(finals.length, 1, `${waited.stdout}${waited.stderr}`);
+});
+
+// D-046 (5): the CLI cap ends a wait as its --timeout does. The test runs `main` in-process with the cap of `group wait`
+// set to 50 ms, below the --timeout given, so it need not wait the 20 s of the real cap.
+test("a member's group wait past the CLI cap exits 0, says so and names the same wait in its one final line", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const run = await runningGroup(p);
+	// LIMEN_HERDR 0: no rule timer starts from this in-process run (src/commands/rule.ts, endDueRules).
+	const member = { LIMEN_GROUP_ID: run.id, LIMEN_CONTEXT_ROOT: p.root, LIMEN_JOB_ID: MEMBER, LIMEN_TEAM_ID: "team-1" };
+	withEnvironment(t, { ...member, LIMEN_HERDR: "0" });
+	const capped = REGISTRY.map((entry) =>
+		entry.name === "group wait"
+			? { ...entry, handler: (values: Parsed, cwd: string) => groupWaitCommand(values, cwd, 50) }
+			: entry,
+	);
+	const stdout: string[] = [];
+	const stderr: string[] = [];
+	t.mock.method(console, "log", (line: unknown) => stdout.push(`${String(line)}\n`));
+	t.mock.method(console, "error", (line: unknown) => stderr.push(`${String(line)}\n`));
+	await main(["group", "wait", "--timeout", "10s"], p.root, capped);
+	const status = process.exitCode === undefined ? null : Number(process.exitCode);
+	process.exitCode = 0;
+	const waited = { status, stdout: stdout.join(""), stderr: stderr.join("") };
+	assert.equal(waited.status, 0, waited.stderr);
+	assert.deepEqual(
+		[outputText(waited), readOutcome(waited)],
+		[
+			"group wait timed out after the 0.05-second CLI cap; inspect any uncertain delivery receipt before retrying\n",
+			{ class: "ok", code: null, next: "limen group wait --timeout 10s" },
+		],
+	);
 });
 
 test("BAD_ARGUMENT: group start without --team exits 2, names the missing flag and shows the usage line", async (t) => {
@@ -76,19 +133,13 @@ test("BAD_ARGUMENT: group start without --team exits 2, names the missing flag a
 	]);
 });
 
-test("GROUP_WAIT_TIMEOUT: the wait cap rejects a stalled operation after its bound and aborts the operation's signal", async () => {
+test("the wait cap ends a stalled operation after its bound with the sentence that the limit passed and aborts its signal", async () => {
 	let signal: AbortSignal | undefined;
-	const stalled = waitCapped(20, "limen group status g1", (given) => {
+	const ended = await waitCapped(20, (given) => {
 		signal = given;
 		return new Promise<never>(() => {});
 	});
-	await assert.rejects(stalled, (error: unknown) => {
-		assert.ok(error instanceof LimenError, String(error));
-		assert.deepEqual(
-			[error.class, error.code, error.next],
-			["transient", "GROUP_WAIT_TIMEOUT", "limen group status g1"],
-		);
-		return true;
-	});
-	assert.equal(signal?.aborted, true);
+	const limitPassed =
+		"group wait timed out after the 0.02-second CLI cap; inspect any uncertain delivery receipt before retrying";
+	assert.deepEqual([ended, signal?.aborted], [{ limitPassed }, true]);
 });

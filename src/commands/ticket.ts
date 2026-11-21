@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { atomicWriteSync } from "../atomic-write.ts";
 import { transport } from "../config.ts";
 import { LimenError, type Success } from "../outcome.ts";
-import type { Parsed } from "../parser.ts";
+import { limenCommand, type Parsed } from "../parser.ts";
 import { readPicture } from "../picture/picture-build.ts";
 import { ID_PATTERN } from "../picture/picture-model.ts";
 import { currentBranch, limenRoot, repoRoot } from "../project/git.ts";
@@ -82,7 +82,7 @@ export async function ticketNewCommand(values: Parsed, cwd: string): Promise<Suc
 		return { path, code };
 	});
 	console.log(written.path);
-	return { next: "", ids: { ticket: written.code } };
+	return { next: null, ids: { ticket: written.code } };
 }
 
 /** `limen ticket done`: the close `limen land` makes, for work that landed by a hand merge or needed no code. */
@@ -130,11 +130,12 @@ export async function ticketCheckCommand(values: Parsed, cwd: string): Promise<u
 		(gate.ok ? console.log : console.error)(line);
 	}
 	if (!gate.ok) {
+		// D-045 (5.1): the fix is prose, so it is the line after the refusal's own; `next` checks the same branch again.
 		throw new LimenError({
 			class: "refused",
 			code: "TICKET_CHECK_FAILED",
-			message: `ticket check: changed tickets on ${branch} fail against ${target}`,
-			next: `fix the tickets listed above, then run limen ticket check ${branch}`,
+			message: `ticket check: changed tickets on ${branch} fail against ${target}\nfix the tickets listed above`,
+			next: limenCommand("ticket check", { positionals: [branch] }),
 		});
 	}
 	console.log(

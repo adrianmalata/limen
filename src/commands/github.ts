@@ -244,7 +244,7 @@ async function handOffClaim(
 	}
 	const started = await startGithubJob(root, claim, job.model, job.task);
 	console.log(started);
-	return { next: JOB_STARTED, ids: { job: started } };
+	return { next: null, ids: { job: started }, text: JOB_STARTED };
 }
 
 /** Rings the coordinator's Herdr pane with the claim, unless a job already answers it. */

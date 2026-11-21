@@ -30,7 +30,7 @@ export type Requirement = { readonly tool: string; readonly probe: () => LimenEr
 
 /** A declared tool that is not on PATH or cannot start. */
 function missingTool(message: string, cause?: unknown): LimenError {
-	return new LimenError({ class: "environment", code: "MISSING_TOOL", message, next: "", cause });
+	return new LimenError({ class: "environment", code: "MISSING_TOOL", message, next: null, cause });
 }
 
 /** A git that cannot start, from the error of its spawn: not on PATH (`ENOENT`), or another reason it names. */
@@ -51,7 +51,7 @@ export function nodeFailure(version: string): LimenError | undefined {
 		return;
 	}
 	const message = `limen requires Node.js ${NODE_MAJOR} or newer (this is ${version})`;
-	return new LimenError({ class: "environment", code: "NODE_VERSION", message, next: "" });
+	return new LimenError({ class: "environment", code: "NODE_VERSION", message, next: null });
 }
 
 /** Whether a folder of PATH holds `tool`, the same lookup as the engine's and Herdr's. */
@@ -82,7 +82,7 @@ function gitFailure(): LimenError | undefined {
 			if (result.status !== 0) {
 				const said = result.stderr.trim().split("\n", 1)[0] || `exit code ${result.status}`;
 				const message = `git does not run "git ${GIT_FEATURE.join(" ")}", which Limen reads worktrees with: ${said}. ${NEWER_GIT}`;
-				return new LimenError({ class: "environment", code: "MISSING_FEATURE", message, next: "" });
+				return new LimenError({ class: "environment", code: "MISSING_FEATURE", message, next: null });
 			}
 		}
 		return;

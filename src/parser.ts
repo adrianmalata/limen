@@ -58,27 +58,39 @@ export class Parsed {
 	 * (T-20 (3), D-045 (2)).
 	 */
 	commandWith(name: string, from: string, to: string): string {
+		return this.line(
+			() => true,
+			(key, word) => (key === name && word === from ? to : word),
+		);
+	}
+	/**
+	 * The command line that gives these values, built from the schema so that it parses back to them: all of them, or
+	 * only the parts that `kept` names. A `next` that repeats the call, such as `group wait` past its limit (D-046 (5)).
+	 */
+	commandLine(kept?: readonly string[]): string {
+		return this.line(
+			(key) => kept === undefined || kept.includes(key),
+			(_key, word) => word,
+		);
+	}
+	/** The command line of the parts `keep` takes, each word of a part as `word` gives it. */
+	private line(keep: (key: string) => boolean, word: (key: string, word: string) => string): string {
 		const positionals: string[] = [];
 		const flags: string[] = [];
 		for (const part of this.command.schema) {
 			const key = isPositional(part) ? part.positional : isFlag(part) ? part.flag : undefined;
 			const value = key === undefined ? undefined : this.values.get(key);
-			if (key === undefined || value === undefined) {
+			if (key === undefined || value === undefined || !keep(key)) {
 				continue;
 			}
-			const words = (typeof value === "string" ? [value] : value === true ? [] : value).map((word) =>
-				key === name && word === from ? to : word,
-			);
+			const words = (typeof value === "string" ? [value] : value === true ? [] : value).map((each) => word(key, each));
 			if (isPositional(part)) {
 				positionals.push(...words);
 			} else {
-				flags.push(...(value === true ? [`--${key}`] : words.flatMap((word) => flagWords(key, word))));
+				flags.push(...(value === true ? [`--${key}`] : words.flatMap((each) => flagWords(key, each))));
 			}
 		}
-		// A positional that starts with `--` reads as a positional only after a lone `--`, so the flags come first then.
-		const dashed = positionals.some((word) => word.startsWith("--"));
-		const words = dashed ? [...flags, "--", ...positionals] : [...positionals, ...flags];
-		return [`limen ${this.command.name}`, ...words.map(shellWord)].join(" ");
+		return limenCommand(this.command.name, { flags, positionals });
 	}
 	/**
 	 * A positional or a flag's value. A text, a repeated positional or a repeatable flag gives its words or values
@@ -115,6 +127,21 @@ function flagWords(flag: string, value: string): string[] {
 /** A word as a POSIX shell reads it back: as it is when it holds no special character, else in single quotes. */
 function shellWord(word: string): string {
 	return /^[A-Za-z0-9_./:@+=%,-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;
+}
+
+/**
+ * The command `limen <name>` with the words of its flags and its positionals, each as a shell reads it back, so that
+ * the shared parser reads them again: a `next` with concrete values (D-045 (5.1)). A positional that starts with `--`
+ * reads as a positional only after a lone `--`, so the flags come first then.
+ */
+export function limenCommand(
+	name: string,
+	words: { readonly flags?: readonly string[]; readonly positionals?: readonly string[] },
+): string {
+	const { flags = [], positionals = [] } = words;
+	const dashed = positionals.some((word) => word.startsWith("--"));
+	const ordered = dashed ? [...flags, "--", ...positionals] : [...positionals, ...flags];
+	return [`limen ${name}`, ...ordered.map(shellWord)].join(" ");
 }
 
 const isFlag = (part: Part): part is Flag => "flag" in part;
@@ -230,7 +257,14 @@ function readFlag(command: Command, args: readonly string[], index: number, flag
 	const equals = word.indexOf("=");
 	const name = word.slice(2, equals === -1 ? undefined : equals);
 	const removed = command.schema.some((part) => "removed" in part && part.removed === name);
-	const refusal = removed ? removedFlagRefusal(command.name, `--${name}`) : undefined;
+	// The command's other words, from which the refusal of a removed flag may build its `next`.
+	const refusal = removed
+		? removedFlagRefusal(
+				command.name,
+				`--${name}`,
+				args.filter((_, at) => at !== index),
+			)
+		: undefined;
 	if (refusal) {
 		throw refusal;
 	}

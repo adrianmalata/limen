@@ -5,7 +5,7 @@ import { chmodSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs"
 import { join } from "node:path";
 import { test } from "node:test";
 import { isTerminal } from "../../src/job/job.ts";
-import { outputText, readOutcome } from "../../src/outcome.ts";
+import { outputText, readOutcome } from "../final-line.ts";
 import {
 	editRecord,
 	jobDir,
@@ -37,6 +37,22 @@ test("a continuation started from a subdirectory of the project continues its pa
 	const id = startedJob(run);
 	await ended(p, id);
 	assert.deepEqual([jobRecord(p, id)?.parent, jobState(p, id)], [parent, "done"]);
+});
+
+// D-046 (3): the sentence is text for the coordinator, so it is the last text line, and nothing follows in `next`.
+test("a continuation says to end the turn on its last text line and ends with a null next and the job in ids", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const parent = spawnJob(p, "commit");
+	await ended(p, parent);
+	const run = limen(p, ["continue", parent, "say continued"]);
+	assert.equal(run.status, 0, run.stderr);
+	const id = startedJob(run);
+	await ended(p, id);
+	assert.deepEqual(
+		[outputText(run).trimEnd().split("\n").at(-1), readOutcome(run)],
+		["End your turn; Limen wakes you when the job ends.", { class: "ok", code: null, next: null, ids: { job: id } }],
+	);
 });
 
 test("limen continue copies the parent's session transcript with the transcript's permission bits", async (t) => {
@@ -84,7 +100,7 @@ test("limen continue of a finished job recorded with the removed engine devin re
 	assert.notEqual(run.status, 0, run.stdout);
 	assert.equal(outputText(run), "engine devin was removed with Devin cloud jobs (R-003); use --engine pi\n");
 	// Read from a record, not given on the command line: a refusal, not a usage error.
-	assert.deepEqual(readOutcome(run), { class: "refused", code: "REMOVED", next: "use --engine pi" });
+	assert.deepEqual(readOutcome(run), { class: "refused", code: "REMOVED", next: null });
 	assert.deepEqual(readdirSync(join(p.root, ".limen/jobs")), [parent]);
 });
 
@@ -98,7 +114,7 @@ test("limen continue of a finished job recorded with the removed engine omp refu
 	const run = limen(p, ["continue", parent, "say continued"]);
 	assert.notEqual(run.status, 0, run.stdout);
 	assert.equal(outputText(run), "engine omp was removed with the OMP engine (R-004); use --engine pi\n");
-	assert.deepEqual(readOutcome(run), { class: "refused", code: "REMOVED", next: "use --engine pi" });
+	assert.deepEqual(readOutcome(run), { class: "refused", code: "REMOVED", next: null });
 	assert.deepEqual(readdirSync(join(p.root, ".limen/jobs")), [parent]);
 });
 

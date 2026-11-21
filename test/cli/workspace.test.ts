@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
-import { outputText, readOutcome } from "../../src/outcome.ts";
+import { outputText, readOutcome } from "../final-line.ts";
 import { limen, pathWithout, plant } from "../plant.ts";
 
 test("MISSING_TOOL: limen workspace init refuses with exit code 4 and names tar when tar is not on PATH, before it writes", async (t) => {

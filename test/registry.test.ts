@@ -8,6 +8,7 @@ import { main } from "../src/main.ts";
 import { OLD_FLAGS } from "../src/old-names.ts";
 import { parse } from "../src/parser.ts";
 import { type Entry, GROUPS, REGISTRY } from "../src/registry.ts";
+import { readOutcome } from "./final-line.ts";
 
 const SRC = fileURLToPath(new URL("../src", import.meta.url));
 const COMMANDS = join(SRC, "commands");
@@ -172,7 +173,7 @@ test("UNDECLARED_IDS: a handler that returns an ids key its entry does not decla
 		schema: [],
 		ids: [],
 		example: "limen probe",
-		handler: async () => ({ next: "", ids: { job: "2026-11-19-probe-a1b2c3d4" } }),
+		handler: async () => ({ next: null, ids: { job: "2026-11-19-probe-a1b2c3d4" } }),
 	};
 	const errors: string[] = [];
 	t.mock.method(console, "error", (line: unknown) => errors.push(String(line)));
@@ -191,5 +192,6 @@ test("UNDECLARED_IDS: a handler that returns an ids key its entry does not decla
 	const code = process.exitCode;
 	process.exitCode = 0;
 	assert.equal(code, 5);
-	assert.deepEqual(JSON.parse(errors.at(-1) ?? "{}"), { class: "internal", code: "UNDECLARED_IDS", next: "" });
+	const output = { status: 5, stdout: "", stderr: `${errors.join("\n")}\n` };
+	assert.deepEqual(readOutcome(output), { class: "internal", code: "UNDECLARED_IDS", next: null });
 });

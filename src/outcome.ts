@@ -2,7 +2,7 @@
 // writes the line (`finalLine`, for `main`) and alone reads it (`readOutcome`, for every caller of the CLI, T-26 (4)),
 // through the validators of src/boundary.ts (T-27 (2)). That module takes `LimenError` from here, so this one uses its
 // exports only inside functions, never while it loads: either module can then load first.
-import { at, checkValue, matching, object, oneOf, optional, parseJson, string } from "./boundary.ts";
+import { at, checkValue, matching, nullOr, object, oneOf, optional, parseJson } from "./boundary.ts";
 import { JOB_ID } from "./job/id.ts";
 
 /** The exit code of each class (T-02): the exit code is the class, and the final line carries the detail. */
@@ -13,25 +13,36 @@ export type FailureClass = Exclude<OutcomeClass, "ok">;
 /** The identifiers of what a command created or changed, never its data (D-022); the registry declares each command's keys. */
 export type Ids = { readonly job?: string; readonly ticket?: string; readonly question?: string };
 export type IdKey = keyof Ids;
-/** A command's result on success; a command that returns nothing ends with `next` "". */
-export type Success = { readonly next: string; readonly ids?: Ids };
-/** The final line: `code` is `0` exactly when `class` is `ok` (D-022), otherwise the failure's identifier. */
-export type Outcome = {
-	readonly class: OutcomeClass;
-	readonly code: 0 | string;
-	readonly next: string;
-	readonly ids?: Ids;
-};
+/**
+ * A command's result on success: `next` as the final line carries it, the `ids` of what it made, and `text`, one line
+ * for people that `main` prints just before the final line. A command that returns nothing ends with `next` null.
+ */
+export type Success = { readonly next: string | null; readonly ids?: Ids; readonly text?: string };
+/**
+ * The final line (T-37; D-045, D-046): `code` is null exactly when `class` is `ok`, otherwise the failure's identifier,
+ * so the field has one type; `next` is a Limen command with concrete values, or null when no command follows.
+ */
+export type Outcome =
+	| { readonly class: "ok"; readonly code: null; readonly next: string | null; readonly ids?: Ids }
+	| { readonly class: FailureClass; readonly code: string; readonly next: string | null; readonly ids?: Ids };
 /** What a finished CLI process left: its exit status and both streams. */
 export type Output = { readonly status: number | null; readonly stdout: string; readonly stderr: string };
 
 /** The code of a refusal the author threw as a plain `Error`: it has no type and no next command until R-082. */
 export const UNTYPED = "UNTYPED";
-/** The `next` of a command whose success creates exactly one job (D-022). */
+/**
+ * The text line of a command whose success creates exactly one job (D-022); it is text for the coordinator, not a
+ * command, so that success's `next` is null (D-046 (3)).
+ */
 export const JOB_STARTED = "End your turn; Limen wakes you when the job ends.";
 
 const FAILURE_CLASSES: readonly string[] = ["refused", "usage", "transient", "environment", "internal"];
 const CODE = /^[A-Z][A-Z0-9_]*$/;
+/**
+ * A `next` starts as a Limen command does, with `limen`, a space and a word, so prose, `""` and `0` never pass; the
+ * tests' reader of the final line parses the rest of every `next` a test reads (D-046 (3)).
+ */
+const NEXT = /^limen \S/;
 /**
  * The format of each `ids` value: a job id of any form Limen has written (src/job/id.ts), a ticket number, a question
  * number.
@@ -56,18 +67,18 @@ type FailureFields = {
 	readonly class: FailureClass;
 	readonly code: string;
 	readonly message: string;
-	readonly next: string;
+	readonly next: string | null;
 	readonly cause?: unknown;
 };
 
 /**
- * A failure with its class, its code and the next command (T-01). A refusal and a usage error name the next command;
- * only `UNTYPED`, which `failureOf` gives the author's plain errors, has none.
+ * A failure with its class, its code and the next command (T-01). Every failure gives `next`: a Limen command with
+ * concrete values, or null when no command follows, and then its message says what to do (D-045 (2), D-046 (1)).
  */
 export class LimenError extends Error {
 	readonly class: FailureClass;
 	readonly code: string;
-	readonly next: string;
+	readonly next: string | null;
 	constructor(failure: FailureFields) {
 		super(failure.message, failure.cause === undefined ? undefined : { cause: failure.cause });
 		if (!FAILURE_CLASSES.includes(failure.class)) {
@@ -76,9 +87,8 @@ export class LimenError extends Error {
 		if (!CODE.test(failure.code)) {
 			throw new TypeError(`LimenError code ${JSON.stringify(failure.code)} is not an upper-case identifier`);
 		}
-		const named = failure.next.trim() !== "" || failure.code === UNTYPED;
-		if ((failure.class === "refused" || failure.class === "usage") && !named) {
-			throw new TypeError(`LimenError ${failure.code} of class ${failure.class} needs a next command`);
+		if (failure.next !== null && !NEXT.test(failure.next)) {
+			throw new TypeError(`LimenError ${failure.code} has the next ${JSON.stringify(failure.next)}, not a command`);
 		}
 		this.name = "LimenError";
 		this.class = failure.class;
@@ -96,10 +106,10 @@ export function failureOf(error: unknown): LimenError {
 		return error;
 	}
 	if (error instanceof Error && Object.getPrototypeOf(error) === Error.prototype) {
-		return new LimenError({ class: "refused", code: UNTYPED, message: error.message, next: "", cause: error });
+		return new LimenError({ class: "refused", code: UNTYPED, message: error.message, next: null, cause: error });
 	}
 	const message = error instanceof Error ? error.message : String(error);
-	return new LimenError({ class: "internal", code: "INTERNAL", message, next: "", cause: error });
+	return new LimenError({ class: "internal", code: "INTERNAL", message, next: null, cause: error });
 }
 
 /** The final line for `outcome`: `class`, `code`, `next`, then `ids` when given; an invalid outcome throws. */
@@ -149,22 +159,30 @@ export function outputText(output: Output): string {
 
 /** A broken final line is an internal error of the process that wrote it. */
 function broken(message: string, cause?: unknown): LimenError {
-	return new LimenError({ class: "internal", code: "INTERNAL", message, next: "", cause });
+	return new LimenError({ class: "internal", code: "INTERNAL", message, next: null, cause });
 }
 
 function isOutcomeClass(name: unknown): name is OutcomeClass {
 	return typeof name === "string" && Object.hasOwn(EXIT_CODES, name);
 }
 
-/** The validator of the final line (src/boundary.ts): `code` is `0` for class `ok`, otherwise an identifier. */
+/** The validator of the final line (src/boundary.ts): `code` is null for class `ok`, otherwise an identifier. */
 function finalLineOf(value: unknown, field: string): Outcome {
 	const fields = object(KEYS)(value, field);
 	const name = oneOf(OUTCOME_CLASSES)(fields.get("class"), at(field, "class"));
-	const codeOf = name === "ok" ? oneOf([0]) : matching(CODE, "an upper-case identifier");
-	const code = codeOf(fields.get("code"), at(field, "code"));
-	const next = string(fields.get("next"), at(field, "next"));
+	const code = fields.get("code");
+	if (name === "ok") {
+		return { class: name, code: oneOf([null])(code, at(field, "code")), ...lineTail(fields, field) };
+	}
+	const failure = matching(CODE, "an upper-case identifier")(code, at(field, "code"));
+	return { class: name, code: failure, ...lineTail(fields, field) };
+}
+
+/** The fields of the line after `code`: `next`, which is there and is null or starts as a command does, and `ids`. */
+function lineTail(fields: ReadonlyMap<string, unknown>, field: string): Pick<Outcome, "next" | "ids"> {
+	const next = nullOr(matching(NEXT, "a Limen command"))(fields.get("next"), at(field, "next"));
 	const ids = optional(idsOf)(fields.get("ids"), at(field, "ids"));
-	return ids === undefined ? { class: name, code, next } : { class: name, code, next, ids };
+	return ids === undefined ? { next } : { next, ids };
 }
 
 /** The validator of the line's `ids`: each key known, each value in the format of its kind. */

@@ -58,7 +58,7 @@ export type CommandObject =
 	| "group"
 	| "picture"
 	| "workspace";
-/** A command returns its result or throws (D-028); `undefined` is a success with `next` "". */
+/** A command returns its result or throws (D-028); `undefined` is a success with `next` null. */
 export type Handler = (values: Parsed, cwd: string) => Promise<Success | undefined>;
 /**
  * One command. An internal one names its `caller` and stays out of `limen --help`. `movedBy` names the ticket that

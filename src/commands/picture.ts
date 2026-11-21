@@ -12,18 +12,23 @@ const SERVE_PORT = 4747;
 
 /** `limen picture build`: the offline check of the map with its tickets and board. */
 export async function pictureBuildCommand(values: Parsed, cwd: string): Promise<undefined> {
-	await build(cwd, values.get("dir"), values.get("json"), values.has("strict"));
+	const check = { dir: values.get("dir"), json: values.get("json"), strict: values.has("strict") };
+	await build(cwd, check, values.commandLine(["dir", "strict"]));
 }
 /** `limen picture serve`: this project's job activity on 127.0.0.1. */
 export async function pictureServeCommand(values: Parsed, cwd: string): Promise<undefined> {
 	await serve(cwd, values.get("port"));
 }
 
+/** What `picture build` checks: the map's folder, the file for its model, and whether an error refuses. */
+type BuildCheck = { readonly dir: string | undefined; readonly json: string | undefined; readonly strict: boolean };
+
 /**
  * Checks the map with its tickets and board: each diagnostic on stderr, the counts on stdout, no page. With `--strict`
- * an error diagnostic is a refusal (D-028), which `main` ends with after the diagnostics.
+ * an error diagnostic is a refusal (D-028), which `main` ends with after the diagnostics; its `next` is `again`, the
+ * same check of the same folder (D-045 (5.1)).
  */
-async function build(cwd: string, dir: string | undefined, json: string | undefined, strict: boolean): Promise<void> {
+async function build(cwd: string, { dir, json, strict }: BuildCheck, again: string): Promise<void> {
 	const { picture, root } = await pictureSources(cwd, dir);
 	const out = json === undefined ? undefined : resolve(cwd, json);
 	const model = await buildPicture(picture, out, root);
@@ -39,8 +44,8 @@ async function build(cwd: string, dir: string | undefined, json: string | undefi
 		throw new LimenError({
 			class: "refused",
 			code: "PICTURE_INVALID",
-			message: `picture build --strict: ${errors} error${errors === 1 ? "" : "s"} in the map, its tickets or its board`,
-			next: "fix the errors listed above, then run limen picture build --strict",
+			message: `picture build --strict: ${errors} error${errors === 1 ? "" : "s"} in the map, its tickets or its board\nfix the errors listed above`,
+			next: again,
 		});
 	}
 }

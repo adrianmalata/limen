@@ -4,7 +4,6 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
-import ts from "typescript";
 import {
 	arrayOf,
 	at,
@@ -29,6 +28,7 @@ import { LimenError } from "../src/outcome.ts";
 import { PLANT_LIMITS, plantLimits } from "../src/project/limits.ts";
 import { GATE_FILE, startGate } from "../src/runtime/start-queue.ts";
 import { withEnvironment } from "./environment.ts";
+import { importsOf } from "./imports.ts";
 
 const FILE = "fixture.json";
 
@@ -356,26 +356,13 @@ test("T-27: a damaged start-gate.json gives a typed error with the file, the fie
 
 /**
  * The modules the TypeScript `text` loads at run time, in order: each `import` and `export … from` that is not
- * type-only, and each `import(…)` with a literal path. Type-only forms are erased before the code runs.
+ * type-only, and each `import(…)`, by its literal path, or by its code when the path is computed. Type-only forms are
+ * erased before the code runs.
  */
 function runtimeImports(text: string): string[] {
-	const source = ts.createSourceFile("imports.ts", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-	const modules: string[] = [];
-	const visit = (node: ts.Node): void => {
-		if (ts.isImportDeclaration(node) && !node.importClause?.isTypeOnly && ts.isStringLiteral(node.moduleSpecifier)) {
-			modules.push(node.moduleSpecifier.text);
-		} else if (ts.isExportDeclaration(node) && !node.isTypeOnly && node.moduleSpecifier !== undefined) {
-			modules.push(
-				ts.isStringLiteral(node.moduleSpecifier) ? node.moduleSpecifier.text : node.moduleSpecifier.getText(),
-			);
-		} else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
-			const [path] = node.arguments;
-			modules.push(path !== undefined && ts.isStringLiteral(path) ? path.text : node.getText(source));
-		}
-		ts.forEachChild(node, visit);
-	};
-	visit(source);
-	return modules;
+	return importsOf("imports.ts", text)
+		.filter(({ typeOnly }) => !typeOnly)
+		.map(({ module, code }) => module ?? code);
 }
 
 test("the import scan finds a side-effect import, an export from a module and a dynamic import, and skips type-only imports", () => {

@@ -10,7 +10,7 @@ import { type TestContext, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { isTerminal } from "../../src/job/job.ts";
 import { OLD_ENGINES, OLD_FLAGS, OLD_NAMES, OLD_ROLES } from "../../src/old-names.ts";
-import { outputText, readOutcome } from "../../src/outcome.ts";
+import { checkNext, outputText, readOutcome } from "../final-line.ts";
 import {
 	engineEvents,
 	git,
@@ -456,7 +456,53 @@ test("every old engine has a feature, a ticket and a pointer, and engineProfile 
 	}
 });
 
-type Form = readonly [readonly string[], string];
+/**
+ * D-046 (1): the `next` of each removed name whose successor is a fixed command or one built from the words after the
+ * name, by the name as its refusal line shows it, first with no words after it and then with `a1b2c3d4`. Every other
+ * removed command, flag, engine value and role has null, and the sentence of its line says what to do instead.
+ */
+const NEXTS: Readonly<Record<string, readonly [string, string]>> = {
+	"picture tick": ["limen picture build", "limen picture build"],
+	"picture watch": ["limen status", "limen status"],
+	jobs: ["limen status --all", "limen show a1b2c3d4"],
+	queue: ["limen seat queue", "limen seat queue"],
+	"group status --json": ["limen group status", "limen group status a1b2c3d4"],
+};
+
+/** The `next` that NEXTS gives a removed name with no words after it. */
+const nextOf = (name: string): string | null => NEXTS[name]?.[0] ?? null;
+
+/** Every entry of the table of old names, by the name as its refusal line shows it. */
+async function oldEntries() {
+	const old = await import("../../src/old-names.ts");
+	return [
+		...old.OLD_NAMES.map((entry) => [entry.name, entry] as const),
+		...old.OLD_FLAGS.map((entry) => [`${entry.command} ${entry.name}`, entry] as const),
+		...old.OLD_ENGINES.map((entry) => [`engine ${entry.name}`, entry] as const),
+		...old.OLD_ROLES.map((entry) => [`role ${entry.name}`, entry] as const),
+	];
+}
+
+test("D-046 (1): a removed name has a next only when its successor is a fixed command or one built from its words", async () => {
+	// Imported here, so the CLI tests below fail at their own assertions before the function exists.
+	const { oldNext } = await import("../../src/old-names.ts");
+	const entries = await oldEntries();
+	assert.deepEqual(
+		Object.fromEntries(entries.map(([name, entry]) => [name, [oldNext(entry, []), oldNext(entry, ["a1b2c3d4"])]])),
+		Object.fromEntries(entries.map(([name]) => [name, NEXTS[name] ?? [null, null]])),
+	);
+});
+
+test("D-046 (3): every next of the table of old names is null or a command that main runs", async () => {
+	const { oldNext } = await import("../../src/old-names.ts");
+	for (const [, entry] of await oldEntries()) {
+		for (const words of [[], ["a1b2c3d4"]]) {
+			checkNext(oldNext(entry, words));
+		}
+	}
+});
+
+type Form = readonly [readonly string[], string | null];
 
 /** Runs each form in a fresh project; each must exit 2 with `REMOVED` and its `next`. */
 async function refusesAsRemoved(t: TestContext, forms: readonly Form[]): Promise<void> {
@@ -475,7 +521,7 @@ async function refusesAsRemoved(t: TestContext, forms: readonly Form[]): Promise
 test("REMOVED: every removed command and subcommand on the command line exits 2 and names what replaced it", async (t) => {
 	// `jobs` names one of two new forms; the test below holds both.
 	const forms = OLD_NAMES.filter((old) => old.name !== "jobs").map(
-		(old) => [old.name.split(" "), old.instead] as const,
+		(old) => [old.name.split(" "), nextOf(old.name)] as const,
 	);
 	await refusesAsRemoved(t, forms);
 });
@@ -483,21 +529,30 @@ test("REMOVED: every removed command and subcommand on the command line exits 2 
 test("REMOVED: every removed flag on the command line exits 2 and names what replaced it", async (t) => {
 	await refusesAsRemoved(
 		t,
-		OLD_FLAGS.map((old) => [[...old.command.split(" "), old.name], old.instead] as const),
+		OLD_FLAGS.map((old) => [[...old.command.split(" "), old.name], nextOf(`${old.command} ${old.name}`)] as const),
 	);
+});
+
+test("REMOVED: group status with a group id and the removed --json names group status with that id", async (t) => {
+	await refusesAsRemoved(t, [
+		[["group", "status", "a1b2c3d4", "--json"], "limen group status a1b2c3d4"],
+		[["group", "status", "--json", "a1b2c3d4"], "limen group status a1b2c3d4"],
+	]);
 });
 
 test("REMOVED: every removed engine value of spawn --engine exits 2 and names what replaced it", async (t) => {
 	await refusesAsRemoved(
 		t,
-		OLD_ENGINES.map((old) => [["spawn", "--engine", old.name, ...ROUTE.slice(2), "work"], old.instead] as const),
+		OLD_ENGINES.map(
+			(old) => [["spawn", "--engine", old.name, ...ROUTE.slice(2), "work"], nextOf(`engine ${old.name}`)] as const,
+		),
 	);
 });
 
 test("REMOVED: every removed role of spawn --role exits 2 and names what replaced it", async (t) => {
 	await refusesAsRemoved(
 		t,
-		OLD_ROLES.map((old) => [["spawn", "--role", old.name, ...ROUTE, "work"], old.instead] as const),
+		OLD_ROLES.map((old) => [["spawn", "--role", old.name, ...ROUTE, "work"], nextOf(`role ${old.name}`)] as const),
 	);
 });
 

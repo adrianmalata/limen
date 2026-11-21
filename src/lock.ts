@@ -284,7 +284,7 @@ async function release(held: Held): Promise<void> {
 			class: "environment",
 			code: "LOCK_LOST",
 			message: `${held.path} no longer holds the lock this process took (token ${held.token}): ${holds}; it was removed or replaced while it was held, so it stays as it is`,
-			next: "",
+			next: null,
 		});
 	}
 	await rm(held.path, { force: true });
@@ -401,7 +401,7 @@ function timedOut(path: string, owned: Owned | undefined, boundMs: number): Lime
 		class: "transient",
 		code: "LOCK_TIMEOUT",
 		message: `${path} is still held after ${boundMs / 1000} s by ${describeOwner(owned)}; ${hint(path, owned)}`,
-		next: "",
+		next: null,
 	});
 }
 

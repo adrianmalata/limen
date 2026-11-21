@@ -88,9 +88,37 @@ function boundedContext(text: string, limit: number, label: string, link: string
 
 const DOCTOR = "limen github doctor";
 const reason = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
-/** The network or GitHub's own state (T-02: transient, safe to retry at the timer's next run). */
+/**
+ * The network or GitHub's own state (T-02: transient, safe to retry at the timer's next run). `next` is the same poll:
+ * `limen github doctor` checks only local settings, which are fine on a 429 or a 5xx (D-045 (5.2)).
+ */
 function networkFailure(message: string, cause?: unknown): LimenError {
-	return new LimenError({ class: "transient", code: "GITHUB_NETWORK", message, next: DOCTOR, cause });
+	return new LimenError({ class: "transient", code: "GITHUB_NETWORK", message, next: "limen github poll", cause });
+}
+
+/**
+ * When GitHub lets the poller retry, by its own order: the `retry-after` header (seconds, or an HTTP date), else, when
+ * no request remains, the `x-ratelimit-reset` header (epoch seconds); undefined when it names no time.
+ */
+function retryTime(response: Response): Date | undefined {
+	const after = response.headers.get("retry-after")?.trim();
+	const reset = response.headers.get("x-ratelimit-reset")?.trim() ?? "";
+	const spent = response.headers.get("x-ratelimit-remaining") === "0";
+	let at = Number.NaN;
+	if (after !== undefined) {
+		at = /^\d+$/.test(after) ? Date.now() + Number(after) * 1000 : Date.parse(after);
+	} else if (spent && /^\d+$/.test(reset)) {
+		at = Number(reset) * 1000;
+	}
+	// A time past what a Date holds is no time either, so the message never fails on it.
+	const date = new Date(at);
+	return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+/** The network failure of a request GitHub answered with 429, a 5xx or a rate limit, with its retry time if it gives one. */
+function retryLater(failure: string, response: Response): LimenError {
+	const at = retryTime(response);
+	return networkFailure(at === undefined ? failure : `${failure}; retry after ${at.toISOString()}`);
 }
 /** A missing or invalid setting or credential of the poller (T-02: environment); `limen github doctor` names it. */
 function configFailure(message: string, cause?: unknown): LimenError {
@@ -127,10 +155,10 @@ async function api<T>(path: string, token: string, method = "GET", body?: object
 	if (!response.ok) {
 		const failure = `${what} returned HTTP ${response.status}`;
 		if (response.status === 429 || response.status >= 500) {
-			throw networkFailure(failure);
+			throw retryLater(failure, response);
 		}
 		if (rateLimit403(response)) {
-			throw networkFailure(`${failure} (rate limit)`);
+			throw retryLater(`${failure} (rate limit)`, response);
 		}
 		if (response.status === 401 || response.status === 403) {
 			throw configFailure(failure);

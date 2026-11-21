@@ -2,7 +2,8 @@
 z konkretnymi wartościami albo null, a proza zostaje na stderr (D-045 (2), (5), D-046 (1)–(3), (5)). Zmienia typ
 i walidator w src/outcome.ts, wszystkie miejsca z pustym `next`, prozą albo symbolem zastępczym, odmowy usuniętych
 nazw, `group wait` po limicie (wyjście 0) i zdanie po `spawn`; każdy `next` z testów przechodzi przez wspólny parser.
-Stan: gotowy do nocy (ready). -->
+Stan: zamknięty 21.11; fakty sprawdzone przy HEAD 4339985, nowe miejsca z R-019 i R-020 dopisane w ## Decisions,
+podobnie poprawki trzech rund recenzji i zakres skanu importów (odpowiedź na BLOCKED). -->
 
 # R-089 The final line's `code` and `next` are a value or `null`; `next` is always a command
 
@@ -125,3 +126,39 @@ none on disk; the final line is read by the coordinator and the tests, which thi
 - 2026-11-20 (main session): the parser check sits in the tests' reader of the final line, so every test that reads
   one covers its `next` without a list; the help line stays as it is, since it names the keys and no value shapes;
   `finalLineOf` refuses a `next` that does not start with `limen `, so prose cannot return.
+- 2026-11-21 (main session, at `4339985`, before the implementer starts; D-025): the facts' line numbers are of
+  2026-11-20, and R-015–R-022, R-093 and R-094 changed several of the files since, so the implementer locates each
+  site at HEAD. AC-4 and AC-5 still match at HEAD (they fail before). AC-4 now also finds sites that later tickets
+  added, which Change 2 covers by D-046 (2) ("Every `next: ""` becomes `null`"): `LOCK_TIMEOUT` and `LOCK_LOST`
+  (`src/lock.ts`, R-019; the hint of R-019's night default stays in the message), `MISSING_TOOL`, `NODE_VERSION` and
+  `MISSING_FEATURE` (`src/platform/requirements.ts`, R-020), and `BAD_DATA` (`src/boundary.ts`, moved by R-016).
+- 2026-11-21 (main session, review round 1, `review.md` → Round 1, findings 5 and 6): two deviations of `outcome.md`
+  are accepted. `TICKET_CHECK_FAILED` with no branch given names the branch the check ran on (the current branch, as
+  at HEAD), which is a concrete value. `GITHUB_NETWORK`'s reset time comes from `retry-after` when GitHub sends it,
+  otherwise from `x-ratelimit-reset` only when `x-ratelimit-remaining` is `0`, so a 5xx gets no misleading time.
+- 2026-11-21 (main session, review round 1; the first round of fixes, for a fresh `rebuild-implementer`):
+  - Fix 3 (finding 3, z. 14): the scan in `test/final-line.test.ts` that ties test files to the reader refuses every
+    import of `src/outcome.ts` in a test file other than the reader's own and `test/outcome.test.ts`, whatever its form
+    (named, `import * as`, or a dynamic `import()`), with a case of each form in its test.
+  - Fix 7 (finding 7): the hook's `NOT_MIGRATED` line (`hook/wake.ts`) names the command only when `next` is not
+    `null`, so it never writes "run null"; a test of that line with a `null` `next`.
+  - Fix 8 (finding 8, the cap part): a test that `group wait` past the 20 s cap, not only past `--timeout`, exits 0 with
+    class `ok`, `code` `null` and `next` the call as made (D-046 (5)), without a 20 s wait in the test (the bound is
+    already a parameter of `waitCapped`); if it cannot run without that wait, `outcome.md` says why.
+- 2026-11-21 (main session, the implementer's `BLOCKED` on Fix 3's scope; the main session's own wording, read by
+  finding 3's intent, z. 14): Fix 3 refuses the import forms that can reach the reading functions `readOutcome` and
+  `outputText`: a named import or re-export that names either, under any alias; every `import * as` (also `import type
+  * as`); every `export * from`; every `import()` with a literal path; and a side-effect import of `src/outcome.ts`.
+  Named imports of other names (`LimenError`, `EXIT_CODES`, `FINAL_LINE_KEYS`, `finalLine`) stay allowed, since none
+  of them reads a final line. Its test has one fixture case per refused form and one passing named import of
+  `LimenError`. A dynamic `import()` with a computed path is beyond any static scan; `outcome.md` names it as the
+  scan's limit.
+- 2026-11-21 (main session, review round 2, `review.md` → Round 2; the second and last round of fixes, for a fresh
+  `rebuild-implementer`):
+  - Fix R2-1 (finding 1, z. 14, T-25 (2)): the scan of `test/final-line.test.ts` reads each test file's imports,
+    re-exports and literal `import()` calls through the TypeScript AST, as `runtimeImports` in `test/boundary.test.ts`
+    does (one helper for both, in the module that owns it, rather than a second parser), and resolves each path
+    against the file, so comments, string-named imports, `./` segments and a query in the path cannot pass it; the
+    refused forms stay those of the `BLOCKED` entry above, now also an `import()` of `new URL(<literal>,
+    import.meta.url)`. Its test adds one fixture case for each form of finding 1. A path computed at run time stays
+    the scan's named limit.

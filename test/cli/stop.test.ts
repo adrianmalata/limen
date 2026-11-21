@@ -11,8 +11,8 @@ import test from "node:test";
 import { stopJob } from "../../src/commands/stop.ts";
 import { readRecord } from "../../src/job/record.ts";
 import { withLock } from "../../src/lock.ts";
-import { readOutcome } from "../../src/outcome.ts";
 import { platform } from "../../src/platform/platform.ts";
+import { readOutcome } from "../final-line.ts";
 import { jobDir, limen, plant, repository, until, writeRecord } from "../plant.ts";
 
 const ID = "2026-11-21-stop-1a2b3c4d";

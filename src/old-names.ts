@@ -1,12 +1,16 @@
 // The table of old names (T-18): a command, an engine value, a flag or a role that a cut removed refuses with one line
 // instead of reading as unknown, so a caller learns what replaced it. R-085 removes the table at the end of the rebuild.
 import { LimenError } from "./outcome.ts";
-import { type Schema, tryParse } from "./parser.ts";
+import { limenCommand, type Parsed, type Schema, tryParse } from "./parser.ts";
+
+/** A `next` built from the words after a removed name, as the shared parser reads them by `words`. */
+export type NextOf = { readonly words: Schema; readonly of: (values: Parsed | undefined) => string };
 
 /**
- * A removed name: the name, the feature it was removed with, the ticket that removed it, and what to use instead.
- * The refusal's `next` is `instead`, or, for a name with two new forms, what `next` makes of the words after the
- * name as the shared parser reads them by `next.words` (`undefined` when they do not parse).
+ * A removed name: the name, the feature it was removed with, the ticket that removed it, what to use instead, and the
+ * refusal's `next` (D-046 (1)). `next` is a Limen command only when the successor is a fixed command, or one built
+ * from the words after the name (`NextOf`, given `undefined` when they do not parse); otherwise it is null, and the
+ * refusal's line says `instead`.
  */
 export type OldName = {
 	readonly name: string;
@@ -18,7 +22,7 @@ export type OldName = {
 	 * removed with": `limen <name> <happened> (<ticket>)`.
 	 */
 	readonly happened?: string;
-	readonly next?: { readonly words: Schema; readonly of: (job: string | undefined) => string };
+	readonly next: string | null | NextOf;
 };
 /**
  * Where a removed name came from: a caller gave it on the command line (a usage error, exit code 2), or Limen read it
@@ -33,36 +37,42 @@ export const OLD_NAMES: readonly OldName[] = [
 		feature: "finish webhooks",
 		ticket: "R-002",
 		instead: "the coordinator gets a wake when a job ends",
+		next: null,
 	},
 	{
 		name: "linear",
 		feature: "the Linear mirror",
 		ticket: "R-003",
 		instead: "spec/features/ is the only record of ticket state",
+		next: null,
 	},
 	{
 		name: "planning",
 		feature: "private planning",
 		ticket: "R-006",
 		instead: "planning files are committed to Git",
+		next: null,
 	},
 	{
 		name: "highlight",
 		feature: "the Herdr highlight",
 		ticket: "R-006",
 		instead: "Herdr shows Limen's tabs without a mark",
+		next: null,
 	},
 	{
 		name: "ticket-author",
 		feature: "ticket authorship",
 		ticket: "R-006",
 		instead: "git log --diff-filter=A --follow -- <ticket path>",
+		next: null,
 	},
 	{
 		name: "wait",
 		feature: "waiting on a job",
 		ticket: "R-006",
 		instead: "the coordinator gets a wake when a job ends",
+		next: null,
 	},
 	// A subcommand: `main` refuses it before it looks for a registered one.
 	{
@@ -70,6 +80,7 @@ export const OLD_NAMES: readonly OldName[] = [
 		feature: "ticket series",
 		ticket: "R-006",
 		instead: "each project numbers its own tickets",
+		next: null,
 	},
 	// Subcommands too, whatever words follow.
 	{
@@ -77,12 +88,14 @@ export const OLD_NAMES: readonly OldName[] = [
 		feature: "the map jobs",
 		ticket: "R-007",
 		instead: "no job refreshes the map; limen picture build checks it",
+		next: "limen picture build",
 	},
 	{
 		name: "picture watch",
 		feature: "the map watch",
 		ticket: "R-007",
 		instead: "limen status lists a leftover watch hook and limen init --drop-leftovers removes it",
+		next: "limen status",
 	},
 	// D-038: one job's record moved to `show`, and the list of every job to `status --all`.
 	{
@@ -100,7 +113,10 @@ export const OLD_NAMES: readonly OldName[] = [
 				{ flag: "all", about: "every job" },
 				{ flag: "label", value: "prefix", about: "the jobs whose label starts with it" },
 			],
-			of: (job) => (job ? `limen show ${job}` : "limen status --all"),
+			of: (values) => {
+				const job = values?.get("job");
+				return job ? `limen show ${job}` : "limen status --all";
+			},
 		},
 	},
 	{
@@ -109,13 +125,14 @@ export const OLD_NAMES: readonly OldName[] = [
 		ticket: "R-014",
 		instead: "limen seat queue",
 		happened: "was renamed to limen seat queue",
+		next: "limen seat queue",
 	},
 ];
 
 /** Every cut ticket that removes a value of `--engine` adds its entry here. */
 export const OLD_ENGINES: readonly OldName[] = [
-	{ name: "devin", feature: "Devin cloud jobs", ticket: "R-003", instead: "use --engine pi" },
-	{ name: "omp", feature: "the OMP engine", ticket: "R-004", instead: "use --engine pi" },
+	{ name: "devin", feature: "Devin cloud jobs", ticket: "R-003", instead: "use --engine pi", next: null },
+	{ name: "omp", feature: "the OMP engine", ticket: "R-004", instead: "use --engine pi", next: null },
 ];
 
 /** A removed flag: the command that took it, the flag with its dashes, and the fields of `OldName`. */
@@ -127,6 +144,7 @@ const TAB = {
 	feature: "hosted jobs",
 	ticket: "R-005",
 	instead: "jobs run detached with a Herdr log tab; correct one with limen steer",
+	next: null,
 } as const;
 /**
  * Every cut ticket that removes a flag adds its entry here, and the command's registry entry keeps the flag as a
@@ -143,6 +161,7 @@ export const OLD_FLAGS: readonly OldFlag[] = [
 		feature: "reviews in a continued session",
 		ticket: "R-006",
 		instead: "a re-review is a new review job: limen spawn --review",
+		next: null,
 	},
 	{
 		command: "group status",
@@ -150,6 +169,11 @@ export const OLD_FLAGS: readonly OldFlag[] = [
 		feature: "the JSON group status",
 		ticket: "R-006",
 		instead: "limen group status shows the run",
+		next: {
+			// The words of `group status` without the removed flag: at most the group id, which the lead gives.
+			words: [{ positional: "group", type: "word", optional: true, about: "the group's id" }],
+			of: (values) => limenCommand("group status", { positionals: values?.list("group") ?? [] }),
+		},
 	},
 	{
 		command: "picture build",
@@ -157,6 +181,7 @@ export const OLD_FLAGS: readonly OldFlag[] = [
 		feature: "the Picture viewer",
 		ticket: "R-007",
 		instead: "picture build writes no page; --json F writes the model",
+		next: null,
 	},
 	{
 		command: "picture serve",
@@ -164,6 +189,7 @@ export const OLD_FLAGS: readonly OldFlag[] = [
 		feature: "the Picture viewer",
 		ticket: "R-007",
 		instead: "picture serve serves the jobs of the project it runs in, at /activity.json and /events",
+		next: null,
 	},
 ];
 
@@ -172,19 +198,32 @@ export const OLD_FLAGS: readonly OldFlag[] = [
  * keeps a role of that name, so the table is read only when no preamble for the role exists.
  */
 export const OLD_ROLES: readonly OldName[] = [
-	{ name: "picture", feature: "the map jobs", ticket: "R-007", instead: "no role maintains the map" },
+	{ name: "picture", feature: "the map jobs", ticket: "R-007", instead: "no role maintains the map", next: null },
 	{
 		name: "scout",
 		feature: "the scout role",
 		ticket: "R-009",
 		instead:
 			"the coordinator answers a short question itself; a long one is a survey job, whose deliverable is a notes file",
+		next: null,
 	},
 ];
 
 /** The typed refusal of a removed name with its line, by where the name came from (T-02, T-18). */
-function removal(message: string, next: string, source: NameSource): LimenError {
+function removal(message: string, next: string | null, source: NameSource): LimenError {
 	return new LimenError({ class: source === "argument" ? "usage" : "refused", code: "REMOVED", message, next });
+}
+
+/**
+ * The `next` of the refusal of `old` when `words` follow its name: its fixed command, the one it builds from the words
+ * as the shared parser reads them, or null (D-046 (1)).
+ */
+export function oldNext(old: OldName, words: readonly string[]): string | null {
+	const { next } = old;
+	if (next === null || typeof next === "string") {
+		return next;
+	}
+	return next.of(tryParse({ name: old.name, schema: next.words }, words));
 }
 
 /**
@@ -213,9 +252,11 @@ export function removedWords(words: readonly string[]): LimenError | undefined {
 	if (!old) {
 		return undefined;
 	}
-	const rest = words.slice(old.name.split(" ").length);
-	const next = old.next?.of(tryParse({ name: old.name, schema: old.next.words }, rest)?.get("job"));
-	return removal(removedCommand(old.name) ?? old.name, next ?? old.instead, "argument");
+	return removal(
+		removedCommand(old.name) ?? old.name,
+		oldNext(old, words.slice(old.name.split(" ").length)),
+		"argument",
+	);
 }
 
 /**
@@ -231,7 +272,7 @@ export function removedEngine(name: string): string | undefined {
 export function refuseRemovedEngine(name: string, source: NameSource): void {
 	const old = OLD_ENGINES.find((entry) => entry.name === name);
 	if (old) {
-		throw removal(removedEngine(name) ?? name, old.instead, source);
+		throw removal(removedEngine(name) ?? name, oldNext(old, []), source);
 	}
 }
 
@@ -248,7 +289,7 @@ export function removedRole(name: string): string | undefined {
 export function refuseRemovedRole(name: string, source: NameSource): void {
 	const old = OLD_ROLES.find((entry) => entry.name === name);
 	if (old) {
-		throw removal(removedRole(name) ?? name, old.instead, source);
+		throw removal(removedRole(name) ?? name, oldNext(old, []), source);
 	}
 }
 
@@ -259,10 +300,11 @@ export function removedFlag(command: string, flag: string): string | undefined {
 }
 
 /**
- * The refusal of a removed flag of a command, or `undefined`. The shared parser refuses with it when the flag stands
- * as a flag, so a value that looks like it, as in `--label --tab`, still reads as a value.
+ * The refusal of a removed flag of a command, or `undefined`; `words` are the command's other words, from which a
+ * `next` such as the group id of `group status` is built. The shared parser refuses with it when the flag stands as a
+ * flag, so a value that looks like it, as in `--label --tab`, still reads as a value.
  */
-export function removedFlagRefusal(command: string, flag: string): LimenError | undefined {
+export function removedFlagRefusal(command: string, flag: string, words: readonly string[]): LimenError | undefined {
 	const old = OLD_FLAGS.find((entry) => entry.command === command && entry.name === flag);
-	return old && removal(removedFlag(command, flag) ?? flag, old.instead, "argument");
+	return old && removal(removedFlag(command, flag) ?? flag, oldNext(old, words), "argument");
 }

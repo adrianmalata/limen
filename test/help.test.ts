@@ -7,8 +7,9 @@ import { join } from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { docsSections, entryHelp, generalHelp } from "../src/help.ts";
-import { EXIT_CODES, FINAL_LINE_KEYS, outputText, readOutcome } from "../src/outcome.ts";
+import { EXIT_CODES, FINAL_LINE_KEYS } from "../src/outcome.ts";
 import { REGISTRY } from "../src/registry.ts";
+import { outputText, readOutcome } from "./final-line.ts";
 import { LIMEN } from "./plant.ts";
 
 // `--help` reads no project, so a folder outside every repository serves.
@@ -105,7 +106,7 @@ const LAND = [
 test("T-19: limen --help prints the general help of Change 4 and ends with the success line", () => {
 	const run = limen(["--help"]);
 	assert.equal(run.status, 0, run.stderr);
-	assert.deepEqual(readOutcome(run), { class: "ok", code: 0, next: "" });
+	assert.deepEqual(readOutcome(run), { class: "ok", code: null, next: null });
 	assert.deepEqual(outputText(run).split("\n"), [...GENERAL, ""]);
 });
 

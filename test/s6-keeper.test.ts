@@ -5,7 +5,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import { outputText, readOutcome } from "../src/outcome.ts";
+import { outputText, readOutcome } from "./final-line.ts";
 import {
 	git,
 	jobDir,

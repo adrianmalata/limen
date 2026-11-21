@@ -10,7 +10,7 @@ import { open, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { outputText } from "../src/outcome.ts";
+import { outputText } from "./final-line.ts";
 import {
 	engineEvents,
 	FINAL,
@@ -225,7 +225,7 @@ test("a held gate queues jobs by priority and a rule's start priority holds the 
 	const run = limen(p, ["spawn", ...ROUTE, "--label", "late", "block"], { env: { PI_SESSION_ID: "coord" } });
 	assert.match(
 		outputText(run),
-		/\nqueued late: CPU 10% idle \(gate 25%\), memory 80% free \(gate 20%\), 3 ahead\n\S+\n$/,
+		/\nqueued late: CPU 10% idle \(gate 25%\), memory 80% free \(gate 20%\), 3 ahead\n\S+\nEnd your turn; Limen wakes you when the job ends\.\n$/,
 	);
 	const later = startedJob(run);
 	const urgent = job("block", "q urgent", ["--priority", "1"]);

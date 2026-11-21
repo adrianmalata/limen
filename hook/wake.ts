@@ -1060,11 +1060,19 @@ function notMigratedReason(jobs: string): string | undefined {
 		return undefined;
 	} catch (error) {
 		if (error instanceof LimenError && error.code === "NOT_MIGRATED") {
-			return `limen: wakes are off in this project: ${error.message}; run ${error.next}, then limen migrate, then reload this coordinator session (/reload): the hook checks only at session start`;
+			return notMigratedNotice(error);
 		}
 		// A folder the hook cannot list is handled where the hook makes it; this check only names an older record.
 		return undefined;
 	}
+}
+/**
+ * The note of a project an older Limen recorded. It names the refusal's `next` only when there is one, since `next`
+ * may be null (D-045 (2)) and the note must never ask to run "null".
+ */
+export function notMigratedNotice(error: LimenError): string {
+	const first = error.next === null ? "" : `${error.next}, then `;
+	return `limen: wakes are off in this project: ${error.message}; run ${first}limen migrate, then reload this coordinator session (/reload): the hook checks only at session start`;
 }
 /**
  * Each job folder whose record or progress file the hook read as damaged in this session, with the error, so that it

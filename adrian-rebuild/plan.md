@@ -52,7 +52,10 @@ ticket.md R-093 napisany i przekazanie do limen-rebuild-14, która prowadzi auto
 (jeden helper kodu błędu src/system-error.ts, migracja zachowuje `born`, strzeżone odczyty hooka, atomowy zapis
 rekordu w test/plant.ts, bramka 511/511); R-094 zamknięty (wrapper w kolejce kończy się bez rekordu joba,
 sprzątanie testów zatrzymuje wszystkie procesy plant, test kolejki odporny na obciążenie, bramka 515/515; trzy uwagi
-rundy 3 czekają na pytanie Q-12, zatrzymany proces 1509615 na Q-13). -->
+rundy 3 czekają na pytanie Q-12, zatrzymany proces 1509615 na Q-13); D-065: odpowiedzi Q-11–Q-13 zgodnie
+z rekomendacjami (nowy ticket poprawek R-095, proces zakończony); R-089 zamknięty (w linii końcowej `code` i `next`
+są wartością albo null, `next` zawsze poleceniem, czytnik testów i skan importów przez drzewo składni, bramka
+572/572; dwie uwagi o skanie czekają na pytanie Q-14). -->
 
 
 
@@ -804,6 +807,20 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   2026-11-21. No session sends a push at any weekly use or asks for a reset; the weekly limit resets on Mondays at
   17:00, and there is still no stop threshold by day or by night. A run that the limit cuts is reported as before (a
   night's by the morning session). Check: none (a rule for the sessions' conduct).
+- 2026-11-21 D-065 (Adrian, about 13:40: "Pytania Q11-Q13 zgodnie z rekomendacjami"; `.night/questions.md`):
+  (1) Q-11 and Q-12, option 1 each: one fix ticket R-095, stage 2, size S, `delegated`, `night` (a night run may take
+  it), depending on R-022 and R-094, before the tag `a0.2.0`. Its `ticket.md` is written at the HEAD it starts from,
+  from this entry and the two `review.md` → Round 3. The changes: (a) R-022's note 1: the report of `limen migrate`
+  and R-022's `## Migration` say what the resolver does with a token shared by a job in `.limen/jobs/` and a folder in
+  `.limen/unmigrated/` (the token names the job; the unmigrated folder has no reference until R-031); (b) R-022's note
+  2: `keeper` de-duplicates by the resolved job id, so its comment "A job named twice is read once" holds, with a test
+  of a job given by token and by its group; (c) R-094's note 1: an in-process test of the two "gone" checks of
+  `waitForStart` after the poll's decision and after its record change (the test holds the job's lock with `withLock`);
+  (d) R-094's note 2 (T-01): absence means `ENOENT` only, and any other error of the record check ends the wait as an
+  environment failure with its cause in the log; (e) R-094's note 3: the plant test's `after` hook signals through
+  `platform.signalProcess`. (2) Q-13, option 1: the session ended the stopped process 1509615 (`kill -KILL`, exit 0;
+  the `coord` session of a plant whose folder was gone, state `T`). Check: R-095's criteria; for (2), `/proc/1509615`
+  is gone.
 
 ### Gate 2 §2, copied
 
@@ -1163,7 +1180,7 @@ Columns:
 | R-088 | The same-task runner leaves no job running after an attempt | 1 | D-027, D-021 | R-011 | S | pair | day-after | — | pi | B.2 | done |
 | R-091 | The same-task runner refuses an unmarked Pi event and states its touchpoint definition | 1 | D-045, D-046, D-021, H-21 | R-011 | S | delegated | night | — | pi | B.2 | done |
 | R-090 | The deployment script names what it checked; a registry without a project refuses | 1 | D-045, D-046, D-008, §7 | R-012 | S | delegated | night | — | — | 1.0 | done |
-| R-089 | The final line's `code` and `next` are a value or `null`; `next` is always a command | 2 | T-37, T-02, D-045, D-046 | R-014 | M | delegated | night | — | — | — | ready |
+| R-089 | The final line's `code` and `next` are a value or `null`; `next` is always a command | 2 | T-37, T-02, D-045, D-046 | R-014 | M | delegated | night | — | — | — | done |
 | R-015 | One configuration reader; settings come only from owner files | 2 | T-03 | R-014 | M | delegated | night | yes | — | — | done |
 | R-016 | One boundary parsing module with validators; the cast ratchet | 2 | T-27 | R-013 | M | delegated | night | — | — | — | done |
 | R-017 | One Pi API adapter with type guards, checked against Pi's real types | 2 | T-32, D-055, D-058 | R-012, R-016 | M | delegated | night | — | pi | 2.2 | done |
@@ -1176,6 +1193,7 @@ Columns:
 | R-092 | A refusal leaves no trace: `validate` then `apply` | 2 | T-38, D-061 | R-021, R-023 | L | delegated | night | — | — | — | planned |
 | R-093 | The round-3 notes of R-019 and R-021: the migration keeps `born`, guarded hook reads | 2 | T-25, T-02, T-30, D-062, D-063 | R-019, R-021, R-022 | S | delegated | night | — | — | — | done |
 | R-094 | A queued wrapper ends when its job folder is gone; tests stop their wrappers | 2 | T-01, T-29, D-063 | R-093 | S | delegated | night | — | — | — | done |
+| R-095 | The round-3 notes of R-022 and R-094: the shared-token report, `keeper`'s de-duplication, the record check | 2 | T-01, T-29, T-30, D-065 | R-022, R-094 | S | delegated | night | — | — | — | planned |
 | R-024 | `limen stats` over records and transcripts | 2 | H-01, H-20, §2, T-33 | R-021, R-023 | M | delegated | night | — | pi | 2.3 | planned |
 | R-025 | Test coverage derived from the command registry | 2 | T-28, T-29, D-045, D-046 | R-014, R-023, R-092 | M | delegated | night | — | — | — | planned |
 | R-026 | Every job runs in its own systemd user scope | 3 | A-029, A-052, T-43 | R-020, R-021 | L | delegated | night | — | systemd | 3.2, 3.7, 3.8 | planned |
@@ -2535,13 +2553,34 @@ push, by the handover):
   `test/s3-finish-wake.test.ts` also failed one `wokeOnce` assertion (`1 !== 0`, its test name cut from the output);
   the run changed code the test runs, so by D-029 it is no finding, and the unchanged tree passed the file 7/7 before
   and after; a possible double wake that predates R-094.
+- R-094 committed and pushed as `4339985` (12:22); context 23 % at that safe point, so no handover. R-089 `active`
+  (delegated, from 12:26): AC-4 and AC-5 run at `4339985` still match, and its `ticket.md` → `## Decisions` names the
+  `next: ""` sites that R-016, R-019 and R-020 added since it was written.
+- From 13:00 by day (the autopilot ended; no new ticket started after 13:00). A push at 13:25 named the three open
+  questions; Adrian answered about 13:40 → D-065: R-095 (Q-11 and Q-12), and the session ended the stopped process
+  1509615 (Q-13).
+- R-089 review: round 1 PASS with eight notes (three fixed: the reader-import scan, the hook's "run null", a test of
+  the 20 s cap; two deviations accepted; three rejected with reasons); the fixing implementer replied `BLOCKED` on the
+  scope of the main session's own Fix 3 wording, which the main session settled by the finding's intent (a reading of
+  its own decision, not a taste choice) and resumed it; round 2 PASS with two notes: the scan goes to the TypeScript
+  AST in the second and last round of fixes, the by-hand comparison is rejected. The main session's gate 555/555 and
+  566/566.
+- R-089 `done` (delegated): `code` is `null` on success, `next` a `limen …` command with concrete values or `null`,
+  enforced by `LimenError` and the validator; `JOB_STARTED` is a text line; `group wait` past its limit exits 0; the
+  tests' reader `test/final-line.ts` runs every `next` through `main`'s parser, and a syntax-tree scan
+  (`test/imports.ts`) ties every test file to it. Review round 3: the first reply was rejected by `review-verdict.mjs`
+  (PASS with AC-7 `unknown`), so the main session added its gate run to `outcome.md` and ran it again: PASS with one
+  note. The main session's gate 572/572; `fails-before.mjs` exit 0 (24 files). Two notes on the scan's path
+  resolution (`../src//outcome.ts` and a `file:` URL with no `//` pass it) wait for Adrian: Q-14 (recommended: item (f)
+  of R-095). The same-name note (`readOutcome`, `outputText` in the reader) goes to the scan ticket of T-25.
 
 Active ticket: none.
 
 Next (autopilot until 13:00 on 2026-11-21, D-063 (4); then by day):
-0. Answers waiting: Q-11 (R-022's round-3 notes), Q-12 (R-094's round-3 notes) and Q-13 (the stopped process
-   1509615). Answers "1" to Q-11 and Q-12 make one S fix ticket of stage 2, before `a0.2.0` (Q-12's option 1).
-1. R-089, then R-023.
+0. Answers waiting: Q-14 (R-089's two round-3 notes on the import scan's path resolution; asked in the conversation
+   on 2026-11-21 at about 14:25, with a push).
+1. R-023, then R-095 (its `ticket.md` at the HEAD it starts from, with item (f) if Q-14 is answered "1"; `ready` once
+   written).
 2. Then R-092, R-024 and R-025, and the close: tag `a0.2.0`, gate 5.2 by phone, with the night defaults above.
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as

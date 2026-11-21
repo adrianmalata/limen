@@ -236,7 +236,7 @@ WORKER=$WORKER APP_ID=$APP_ID PEM_SOURCE=$PEM_SOURCE LIMEN_REPO=$LIMEN_REPO LIME
 
 ## 13 · Doctor, then the timer
 
-- **Check:** worker$ `cd $PROJECT_DIR && limen github doctor` exits 1; this is expected here. The only `FIX` line starts `FIX enabled active GitHub timer`; the last text line on stderr is `github doctor: 1 prerequisite need repair`, followed by the final line `{"class":"refused","code":"UNTYPED","next":""}`; `SKIP` lines are fine. **STOP** on any other `FIX`. Doctor also checks every other project bound on this seat; a closed coordinator there is a `FIX` too.
+- **Check:** worker$ `cd $PROJECT_DIR && limen github doctor` exits 1; this is expected here. The only `FIX` line starts `FIX enabled active GitHub timer`; the last text line on stderr is `github doctor: 1 prerequisite need repair`, followed by the final line `{"class":"refused","code":"UNTYPED","next":null}`; `SKIP` lines are fine. **STOP** on any other `FIX`. Doctor also checks every other project bound on this seat; a closed coordinator there is a `FIX` too.
 - If the `live registered Herdr agent` row is a `FIX`: worker$ `herdr agent get PANE` with the pane id from the connect line. The coordinator is live when the pane matches, `agent_status` is idle, working, blocked, or done, and `interactive_ready` is `true` or absent (phase 7). If the field is `false` or the status is different, the HUMAN attaches, restarts the coordinator in that pane, and runs `limen github connect` again.
 - root$ `systemctl enable --now limen-github.timer`
 - **Check:** root$ `systemctl is-enabled limen-github.timer` is `enabled`; `systemctl is-active limen-github.timer` is `active`. **STOP** if not.

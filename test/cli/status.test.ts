@@ -5,7 +5,7 @@ import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { outputText } from "../../src/outcome.ts";
+import { outputText } from "../final-line.ts";
 import { editRecord, jobDir, limen, plant, release, spawnJob, until, waitJob } from "../plant.ts";
 
 const AGENTS_TEMPLATE = fileURLToPath(new URL("../../templates/agents.md", import.meta.url));

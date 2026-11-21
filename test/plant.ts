@@ -13,9 +13,9 @@ import { fileURLToPath } from "node:url";
 import { atomicWrite } from "../src/atomic-write.ts";
 import { TERMINAL_STATES } from "../src/job/job.ts";
 import { emptyRecord, type JobRecord, readRecordSync, serialized } from "../src/job/record.ts";
-import { readOutcome } from "../src/outcome.ts";
 import { platform } from "../src/platform/platform.ts";
 import { hasCode } from "../src/system-error.ts";
+import { readOutcome } from "./final-line.ts";
 
 export const LIMEN = fileURLToPath(new URL("../bin/limen", import.meta.url));
 const FAKE_ENGINE = fileURLToPath(new URL("./fake-engine.mjs", import.meta.url));

@@ -12,5 +12,5 @@ export async function migrateCommand(values: Parsed, cwd: string): Promise<Succe
 	const report = await migrateProject(limenRoot(cwd), dryRun);
 	console.log(reportLines(report).join("\n"));
 	const changes = report.steps.some((step) => step.kind !== "current");
-	return { next: dryRun && changes ? "limen migrate" : "" };
+	return { next: dryRun && changes ? "limen migrate" : null };
 }

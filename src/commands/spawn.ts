@@ -153,7 +153,7 @@ export async function startSpawn(
 	const id = group
 		? await groupLock(`${groupPath(group.run)}/launch`, () => spawnJob(request, cwd, group), "wait")
 		: await spawnJob(request, cwd);
-	return { next: JOB_STARTED, ids: { job: id } };
+	return { next: null, ids: { job: id }, text: JOB_STARTED };
 }
 type SpawnGroup = { run: GroupRun; team: string; role: "coordinator" | "worker" };
 type SpawnTask = { text: string; bytes: Buffer; raw: boolean };

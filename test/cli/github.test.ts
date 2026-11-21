@@ -5,7 +5,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
-import { outputText, readOutcome } from "../../src/outcome.ts";
+import { outputText, readOutcome } from "../final-line.ts";
 import { git, limen, type Plant, plant, type Run, respond } from "../plant.ts";
 
 const REPO = "acme/widget";
@@ -41,7 +41,7 @@ test("GITHUB_NETWORK: github poll exits 3 when GitHub answers HTTP 503, after th
 	await respond(p, [{ match: `/repos/${REPO}/installation`, status: 503, body: {} }]);
 	const run = limen(p, ["github", "poll"], { env });
 	assert.equal(run.status, 3, run.stderr);
-	assert.deepEqual(readOutcome(run), { class: "transient", code: "GITHUB_NETWORK", next: "limen github doctor" });
+	assert.deepEqual(readOutcome(run), { class: "transient", code: "GITHUB_NETWORK", next: "limen github poll" });
 	const lines = outputText(run).split("\n");
 	assert.ok(lines.includes(`${p.root}: GitHub GET /repos/${REPO}/installation returned HTTP 503`), run.stderr);
 });
@@ -56,7 +56,7 @@ test("A-018: github poll takes over a poll lock whose poller is gone and goes on
 	await respond(p, [{ match: `/repos/${REPO}/installation`, status: 503, body: {} }]);
 	const run = limen(p, ["github", "poll"], { env });
 	assert.equal(run.status, 3, run.stderr);
-	assert.deepEqual(readOutcome(run), { class: "transient", code: "GITHUB_NETWORK", next: "limen github doctor" });
+	assert.deepEqual(readOutcome(run), { class: "transient", code: "GITHUB_NETWORK", next: "limen github poll" });
 });
 
 test("A-018: github disconnect takes over a poll lock whose poller is gone and exits 0", async (t) => {
@@ -82,13 +82,32 @@ async function forbidden(t: TestContext, headers: Record<string, string>): Promi
 test("GITHUB_NETWORK: github poll exits 3 when GitHub answers HTTP 403 with x-ratelimit-remaining 0", async (t) => {
 	const run = await forbidden(t, { "x-ratelimit-remaining": "0" });
 	assert.equal(run.status, 3, run.stderr);
-	assert.deepEqual(readOutcome(run), { class: "transient", code: "GITHUB_NETWORK", next: "limen github doctor" });
+	assert.deepEqual(readOutcome(run), { class: "transient", code: "GITHUB_NETWORK", next: "limen github poll" });
 });
 
 test("GITHUB_NETWORK: github poll exits 3 when GitHub answers HTTP 403 with a retry-after header", async (t) => {
 	const run = await forbidden(t, { "retry-after": "60" });
 	assert.equal(run.status, 3, run.stderr);
-	assert.deepEqual(readOutcome(run), { class: "transient", code: "GITHUB_NETWORK", next: "limen github doctor" });
+	assert.deepEqual(readOutcome(run), { class: "transient", code: "GITHUB_NETWORK", next: "limen github poll" });
+});
+
+// D-045 (5.2): `next` stays the same poll, and the time GitHub gives for a retry goes to the project's line on stderr,
+// from `retry-after` when it is there, else from `x-ratelimit-reset` when no request remains (GitHub's own order).
+test("GITHUB_NETWORK: github poll on a rate limit names the time of x-ratelimit-reset on the project's line", async (t) => {
+	const run = await forbidden(t, { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1795262400" });
+	assert.equal(run.status, 3, run.stderr);
+	const line = outputText(run)
+		.split("\n")
+		.find((text) => text.includes("installation returned HTTP 403"));
+	assert.match(line ?? run.stderr, /returned HTTP 403 \(rate limit\); retry after 2026-11-21T12:00:00\.000Z$/);
+});
+
+test("GITHUB_NETWORK: github poll on a rate limit names the time retry-after gives on the project's line", async (t) => {
+	const before = Date.now();
+	const run = await forbidden(t, { "retry-after": "60" });
+	const after = Date.now();
+	const at = Date.parse(/returned HTTP 403 \(rate limit\); retry after (\S+)$/m.exec(outputText(run))?.[1] ?? "");
+	assert.ok(at >= before + 60_000 && at <= after + 60_000, run.stderr);
 });
 
 test("GITHUB_CONFIG: github poll exits 4 when GitHub answers HTTP 403 that is not a rate limit", async (t) => {

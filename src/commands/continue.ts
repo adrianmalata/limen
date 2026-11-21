@@ -92,7 +92,7 @@ export function continueCommand(values: Parsed, cwd: string): Promise<Success> {
  */
 export async function startContinue(request: ContinueRequest, cwd: string, round?: number): Promise<Success> {
 	const id = await continueJob(request, cwd, round !== undefined, round);
-	return { next: JOB_STARTED, ids: { job: id } };
+	return { next: null, ids: { job: id }, text: JOB_STARTED };
 }
 type ContinueOptions = {
 	readonly label: string | undefined;

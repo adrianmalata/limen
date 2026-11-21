@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
-import limenWake from "../../hook/wake.ts";
+import limenWake, { notMigratedNotice } from "../../hook/wake.ts";
 import { emptyRecord, serialized } from "../../src/job/record.ts";
 import { LimenError } from "../../src/outcome.ts";
 import { processIdentity } from "../../src/runtime/reap.ts";
@@ -75,6 +75,15 @@ test("in a project whose job folder holds an older state file, session start doe
 	assert.deepEqual((await readdir(join(root, ".limen"))).sort(), ["jobs"], "nothing registered or written");
 	assert.deepEqual(await readdir(old), ["state"]);
 	assert.deepEqual((await readdir(root)).sort(), [".agents", ".limen"], "no seat registry made");
+});
+
+// D-045 (2): a refusal's `next` may be null, so the note names a command to run first only when there is one.
+test("NOT_MIGRATED: the hook's note with a null next asks to run only limen migrate, never null", () => {
+	const error = new LimenError({ class: "environment", code: "NOT_MIGRATED", message: "older records", next: null });
+	assert.equal(
+		notMigratedNotice(error),
+		"limen: wakes are off in this project: older records; run limen migrate, then reload this coordinator session (/reload): the hook checks only at session start",
+	);
 });
 
 /** Waits until `check` holds, failing after `limit` milliseconds. */

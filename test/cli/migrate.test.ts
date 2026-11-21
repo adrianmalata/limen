@@ -8,7 +8,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { type TestContext, test } from "node:test";
 import { readProgressSync, readRecordSync } from "../../src/job/record.ts";
-import { outputText, readOutcome } from "../../src/outcome.ts";
+import { outputText, readOutcome } from "../final-line.ts";
 import { limen, type Plant, plant, routed } from "../plant.ts";
 
 /** A project with no job yet; removed after the test. */
@@ -398,7 +398,7 @@ test("a second run has nothing to do, exits 0 and changes nothing", async (t) =>
 	assert.equal(again.status, 0, again.stderr);
 	assert.deepEqual(tree(limenDir), after);
 	assert.ok(outputText(again).endsWith("nothing to do: every job folder holds a record\n"), outputText(again));
-	assert.equal(readOutcome(again).next, "");
+	assert.equal(readOutcome(again).next, null);
 });
 
 // D-057 (7.6): the migration moves no record under a live job.

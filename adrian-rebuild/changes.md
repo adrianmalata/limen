@@ -237,3 +237,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: measured
 - Commit: R-094
 - Rollback: git revert $(git log --format=%H --grep='^R-094:' adrian-rebuild --)
+
+## 2026-11-21 R-089 The final line's `code` and `next` are a value or `null`; `next` is always a command
+- What: `src/outcome.ts` (`code` a string or `null`, `null` exactly on `ok`; `next` a `limen …` command or `null`, enforced by `LimenError` and the validator; `Success.text` for a text line before the final line), `src/main.ts` (`commandOf`, the dispatch the tests' reader shares), `src/parser.ts` (`limenCommand` and `Parsed.commandLine`, one shell-quoting builder of a concrete `next`), `src/registry.ts`, `src/old-names.ts` (`next` only for a fixed successor), `src/boundary.ts`, `src/lock.ts`, `src/platform/requirements.ts`, `bin/limen` (`null` for every blank `next`), `src/commands/{continue,github,group,migrate,picture,spawn,ticket}.ts` (`JOB_STARTED` as a text line; `group wait` past its limit exits 0 with the call as made; concrete `next` for `TICKET_CHECK_FAILED`, `PICTURE_INVALID`, `GROUP_WAIT_MEMBERS_ONLY`), `src/integrations/github-poller.ts` (`GITHUB_NETWORK` names `limen github poll`, the reset time on stderr), `hook/wake.ts` (`notMigratedNotice`); `docs/commands.md`, `docs/groups.md`, `docs/seat/agent-setup.md`; new `test/final-line.ts` (the tests' reader: every non-null `next` through `main`'s parser), `test/imports.ts` (one syntax-tree reader of a file's imports), `test/final-line.test.ts`; 23 test files moved to the reader or to the new values
+- Why: T-37, T-02, T-25, D-045, D-046
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (572/572); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (24 test files fail at HEAD); `git grep -n -E 'next: ""|"next":""|code: 0\b|"code":0' -- src hook bin docs` → exit 1
+- Measurement: unmeasured (plan.md → Measurement: M-05)
+- Commit: R-089
+- Rollback: git revert $(git log --format=%H --grep='^R-089:' adrian-rebuild --)

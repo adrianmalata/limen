@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
-import { readOutcome } from "../../src/outcome.ts";
+import { readOutcome } from "../final-line.ts";
 import { jobDir, limen, plant, writeRecord } from "../plant.ts";
 
 const ID = "2026-11-21-land-label-5e6f7a8b";

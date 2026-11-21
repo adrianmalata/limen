@@ -9,7 +9,7 @@ import { createServer } from "node:net";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { after, before, test } from "node:test";
-import { outputText } from "../src/outcome.ts";
+import { outputText } from "./final-line.ts";
 import {
 	FINAL,
 	jobDir,

@@ -129,7 +129,7 @@ function badData(
 	const { field, expected, got } = refused;
 	const place = field === "" ? "" : `${shownField(field)}: `;
 	const message = `${file}: ${place}expected ${expected}, got ${shownValue(got, shown)}`;
-	const error = new LimenError({ class: "environment", code: "BAD_DATA", message, next: "", cause });
+	const error = new LimenError({ class: "environment", code: "BAD_DATA", message, next: null, cause });
 	return Object.assign(error, { file, field, expected });
 }
 
@@ -250,8 +250,8 @@ function rangeText({ min, max }: Bounds): string {
 	return max === undefined ? "" : ` of at most ${max}`;
 }
 
-/** One of the literals `values`. */
-export function oneOf<const T extends string | number>(values: readonly T[]): Validator<T> {
+/** One of the literals `values`; null among them stands for a field that holds nothing (z. 10). */
+export function oneOf<const T extends string | number | null>(values: readonly T[]): Validator<T> {
 	const listed = alternatives(values.map((item) => JSON.stringify(item)));
 	const expected = values.length > 1 ? `one of ${listed}` : listed;
 	return (value, field) => {

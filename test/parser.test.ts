@@ -5,8 +5,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import { LimenError, outputText, readOutcome } from "../src/outcome.ts";
-import { type Command, parse, usage } from "../src/parser.ts";
+import { LimenError } from "../src/outcome.ts";
+import { type Command, limenCommand, parse, usage } from "../src/parser.ts";
+import { outputText, readOutcome } from "./final-line.ts";
 import { LIMEN } from "./plant.ts";
 
 // A parse error happens before any command reads a project, so a folder outside every repository serves.
@@ -144,4 +145,34 @@ test("a --help that is the value of a flag asks for no help, so the command runs
 test("a --help after a lone -- asks for no help, so it reads as a positional", () => {
 	const run = limen(["land", "--", "--help"]);
 	assert.deepEqual([run.status === 0, run.stdout.includes("limen land <job>")], [false, false]);
+});
+
+/** A command with an optional positional, a flag with a value and a switch, for the lines `Parsed` builds back. */
+const PROBE: Command = {
+	name: "probe run",
+	schema: [
+		{ positional: "group", type: "word", optional: true, about: "a group" },
+		{ flag: "timeout", value: "duration", about: "a limit" },
+		{ flag: "yes", about: "a switch" },
+	],
+};
+
+// D-046 (5): a `next` that repeats the call is built from the words the parser read, each value as it was given.
+test("commandLine builds the call back from its values, a positional that starts with -- after a lone --", () => {
+	const line = parse(PROBE, ["--yes", "--timeout", "5s", "--", "--odd"]).commandLine();
+	assert.equal(line, "limen probe run --timeout 5s --yes -- --odd");
+	const again = parse(PROBE, line.split(" ").slice(3));
+	assert.deepEqual([again.get("group"), again.get("timeout"), again.has("yes")], ["--odd", "5s", true]);
+});
+
+test("commandLine with the names it keeps builds only those parts of the call", () => {
+	const values = parse(PROBE, ["g1", "--timeout", "5s", "--yes"]);
+	assert.equal(values.commandLine(["group", "yes"]), "limen probe run g1 --yes");
+});
+
+test("limenCommand quotes a word with a special character so that a shell reads it back as one word", () => {
+	assert.equal(
+		limenCommand("ticket check", { positionals: ["it's a branch"] }),
+		"limen ticket check 'it'\\''s a branch'",
+	);
 });

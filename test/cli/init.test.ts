@@ -5,7 +5,7 @@ import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { outputText, readOutcome } from "../../src/outcome.ts";
+import { outputText, readOutcome } from "../final-line.ts";
 import { limen, type Plant, pathWithOldGit, pathWithout, plant, repository } from "../plant.ts";
 
 const template = (name: string) => fileURLToPath(new URL(`../../templates/${name}`, import.meta.url));
@@ -27,7 +27,7 @@ test("limen init passes its requirements check when every declared tool is on PA
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const run = await initFresh(p);
-	assert.deepEqual([run.status, run.code, run.wrote], [0, 0, true], run.text);
+	assert.deepEqual([run.status, run.code, run.wrote], [0, null, true], run.text);
 });
 
 test("MISSING_TOOL: limen init refuses with exit code 4 and names tar when tar is not on PATH, before it writes", async (t) => {
@@ -64,7 +64,7 @@ test("limen init passes its git probe when the environment sets safe.bareReposit
 	t.after(() => p.cleanup());
 	const explicit = { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "safe.bareRepository", GIT_CONFIG_VALUE_0: "explicit" };
 	const run = await initFresh(p, explicit);
-	assert.deepEqual([run.status, run.code, run.wrote], [0, 0, true], run.text);
+	assert.deepEqual([run.status, run.code, run.wrote], [0, null, true], run.text);
 });
 
 test("MISSING_TOOL: limen init refuses with exit code 4 and names pi when pi is not on PATH", async (t) => {

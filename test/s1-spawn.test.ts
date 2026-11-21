@@ -6,7 +6,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { mkdir, rm, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
-import { readOutcome } from "../src/outcome.ts";
+import { readOutcome } from "./final-line.ts";
 import {
 	editRecord,
 	git,
@@ -113,16 +113,17 @@ test("a detached job runs in its own worktree from the base with the exact task 
 	assert.ok(detail.includes("tokens 2 turns · input 2 · output 20 · cache read 200 · cache write 2,000"), detail);
 });
 
-test("a detached spawn ends with the golden final line, whose ids.job names the job folder it made", () => {
+test("a detached spawn says to end the turn, then ends with the golden final line, whose ids.job names its job folder", () => {
 	const before = new Set(readdirSync(join(p.root, ".limen/jobs")));
 	const run = limen(p, ["spawn", ...routed([]), "say golden"]);
 	assert.equal(run.status, 0, run.stderr);
 	const made = readdirSync(join(p.root, ".limen/jobs")).filter((name) => !before.has(name));
 	assert.equal(made.length, 1, made.join(", "));
 	assert.equal(readOutcome(run).ids?.job, made[0]);
-	// The raw line, not a re-serialised object, so the key order counts.
-	const golden = `{"class":"ok","code":0,"next":"End your turn; Limen wakes you when the job ends.","ids":{"job":"${made[0]}"}}`;
-	assert.equal(run.stdout.slice(run.stdout.trimEnd().lastIndexOf("\n") + 1), `${golden}\n`);
+	// The raw lines, not a re-serialised object, so the key order counts; the sentence is text before the line (D-046).
+	const golden = `{"class":"ok","code":null,"next":null,"ids":{"job":"${made[0]}"}}`;
+	const lines = run.stdout.trimEnd().split("\n").slice(-2);
+	assert.deepEqual(lines, ["End your turn; Limen wakes you when the job ends.", golden]);
 	assert.equal(waitJob(p, made[0] ?? ""), "done");
 });
 
