@@ -159,14 +159,19 @@ test("cleanup stops every wrapper the plant started, a queued one with no engine
 	const p = await newPlant();
 	const wrappers: Identity[] = [];
 	t.after(async () => {
-		// For a cleanup that misses one: only a live process that still has the recorded start time gets the signal.
+		// For a cleanup that misses one: only a live process that still has the recorded start time gets the signal. The
+		// platform adapter sends it, so a process that exits after the check is `missing` and the plant's cleanup still
+		// runs; a signal the system refuses fails the test once that cleanup has run.
+		const denied: number[] = [];
 		for (const { pid, born } of wrappers) {
 			const now = pid === null ? undefined : await platform.processInfo(pid);
-			if (pid !== null && now?.kind === "present" && now.process.born === born) {
-				process.kill(pid, "SIGKILL");
+			const live = pid !== null && now?.kind === "present" && now.process.born === born;
+			if (live && platform.signalProcess(pid, "SIGKILL") === "denied") {
+				denied.push(pid);
 			}
 		}
 		await p.cleanup();
+		assert.deepEqual(denied, [], "the test may signal every wrapper the plant started");
 	});
 	const running = spawnJob(p, "block");
 	await until(jobDir(p, running), () => existsSync(join(jobDir(p, running), "fake-blocked-1")));

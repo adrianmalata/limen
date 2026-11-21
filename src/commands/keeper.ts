@@ -8,7 +8,7 @@ import { transport } from "../config.ts";
 import { readRun } from "../job/group-cabinet.ts";
 import { isTerminal } from "../job/job.ts";
 import { type JobRecord, readRecord } from "../job/record.ts";
-import { type JobReference, jobArgument, referenceWord, resolveJob } from "../job/reference.ts";
+import { type JobReference, jobArgument, resolveJob } from "../job/reference.ts";
 import { startSpawn } from "../job/spawning.ts";
 import type { CommandText, Success } from "../outcome.ts";
 import type { Parsed } from "../parser.ts";
@@ -148,16 +148,18 @@ function keeperOptions(values: Parsed): KeeperOptions {
 
 /** The jobs the keeper reads. A group's keeper reads every member; the lead names the group, not each member. */
 async function finishedJobs(root: string, options: KeeperOptions): Promise<KeeperJob[]> {
-	// A job named twice is read once: by the word it was given, or the member's id.
-	const queries = new Map(options.jobs.map((query) => [referenceWord(query), query]));
+	const queries: JobReference[] = [...options.jobs];
 	if (options.group) {
-		for (const member of (await readRun(root, options.group)).members) {
-			queries.set(member.id, queries.get(member.id) ?? member.id);
-		}
+		queries.push(...(await readRun(root, options.group)).members.map((member) => member.id));
 	}
 	const jobs: KeeperJob[] = [];
-	for (const query of queries.values()) {
+	for (const query of queries) {
 		const { id, jobDir } = await resolveJob(root, query, "control");
+		// A job named twice, by two words or by a word and as a member of the group, is read once, by its resolved id, so
+		// it stands once in the keeper's task and counts once among the jobs that need one candidate.
+		if (jobs.some((job) => job.id === id)) {
+			continue;
+		}
 		const record = await readRecord(jobDir);
 		// The process the record names still finishes the job after its terminal record; it counts as live.
 		if (record && (!isTerminal(record.state) || (await ownerState(record.identity)) === "alive")) {

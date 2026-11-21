@@ -260,6 +260,31 @@ test("the report names a token two job ids share", async (t) => {
 	assert.ok(outputText(run).includes(line), outputText(run));
 });
 
+/** The report line of the token that the job `2026-11-16-done-1a2b3c4d` shares only with a folder it moves. */
+const SHARED_WITH_UNMIGRATED =
+	"token 1a2b3c4d names job 2026-11-16-done-1a2b3c4d; it also ends 2026-11-16-orphan-1a2b3c4d in .limen/unmigrated/, which no reference names until R-031\n";
+
+// R-022 (`review.md` → Round 3): the resolver counts a token's owners among .limen/jobs/ only, so a token that one job
+// shares with folders of .limen/unmigrated/ still names that job, and those folders have no reference until R-031.
+test("the report says that a token one job shares only with folders of .limen/unmigrated/ names that job", async (t) => {
+	const p = await project(t);
+	await oldFolder(p, "2026-11-16-done-1a2b3c4d", { state: "done\n", "task.md": "x\n", log: "" });
+	await oldFolder(p, "2026-11-16-orphan-1a2b3c4d", { label: "x\n" });
+	const run = limen(p, ["migrate"]);
+	assert.equal(run.status, 0, run.stderr);
+	assert.ok(outputText(run).includes(SHARED_WITH_UNMIGRATED), outputText(run));
+});
+
+// A dry run moves nothing, so its listing still holds the folder it would move below .limen/jobs/.
+test("--dry-run reports a token one job would share only with folders of .limen/unmigrated/ as the run does", async (t) => {
+	const p = await project(t);
+	await oldFolder(p, "2026-11-16-done-1a2b3c4d", { state: "done\n", "task.md": "x\n", log: "" });
+	await oldFolder(p, "2026-11-16-orphan-1a2b3c4d", { label: "x\n" });
+	const run = limen(p, ["migrate", "--dry-run"]);
+	assert.equal(run.status, 0, run.stderr);
+	assert.ok(outputText(run).includes(SHARED_WITH_UNMIGRATED), outputText(run));
+});
+
 // T-20 (6): the token and older-id reports count each folder once, also one the run moved to .limen/unmigrated/.
 test("the report of a run that moves folders names each older id once and no token a folder shares with itself", async (t) => {
 	const p = await project(t);

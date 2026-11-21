@@ -1,7 +1,7 @@
 // test/final-line.ts: the tests' reader checks every `next` by the rules of `main`, and every test reads through it.
 import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { join, normalize, relative } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { checkNext, shellWords } from "./final-line.ts";
@@ -59,19 +59,21 @@ const OWN_READERS = ["final-line.ts", "outcome.test.ts"];
 const READERS = ["readOutcome", "outputText"];
 
 /**
- * The file that the module path `module` in the code of `file` names, as Node resolves a relative path, an absolute
- * path or a `file:` URL: against the file, with its `.` and `..` segments applied and with no query or fragment,
- * since `outcome.ts?x` loads the same file. A bare name, which Node looks up in node_modules, and a URL of another
- * scheme, such as `node:fs`, name no file of the repository.
+ * The file that the module path `module` in the code of `file` names, as Node's resolver reads it: a relative or an
+ * absolute path against the file, and any other specifier that parses as a URL on its own by the URL rules alone, so a
+ * `file:` URL with no `//` names a path from the filesystem root. The query and the fragment are cut and the path is
+ * normalized, since Node loads src/outcome.ts from `outcome.ts?x` and from `../src//outcome.ts`. A bare name, which
+ * Node looks up in node_modules, and a URL of another scheme, such as `node:fs`, name no file of the repository.
  */
 function fileOf(module: string, file: string): string | undefined {
-	if (!/^\.{0,2}\//.test(module) && !URL.canParse(module)) {
+	const path = /^\.{0,2}\//.test(module);
+	if (!(path || URL.canParse(module))) {
 		return undefined;
 	}
-	const url = new URL(module, pathToFileURL(file));
+	const url = path ? new URL(module, pathToFileURL(file)) : new URL(module);
 	url.search = "";
 	url.hash = "";
-	return url.protocol === "file:" ? fileURLToPath(url) : undefined;
+	return url.protocol === "file:" ? normalize(fileURLToPath(url)) : undefined;
 }
 
 /**
@@ -106,6 +108,8 @@ const REFUSED = {
 	"a named import of readOutcome by its string name": 'import { "readOutcome" as read } from "../src/outcome.ts";',
 	"a named import whose path has a ./ segment": 'import { readOutcome } from "../src/./outcome.ts";',
 	"a named import whose path has a query": 'import { readOutcome } from "../src/outcome.ts?x";',
+	"a named import whose path has an empty segment": 'import { readOutcome } from "../src//outcome.ts";',
+	"a named import of a file: URL with no // that names src/outcome.ts from the filesystem root": `import { readOutcome } from "file:${OUTCOME.slice(1)}";`,
 	"an import() of a URL of a literal path against import.meta.url":
 		'const outcome = await import(new URL("../src/outcome.ts", import.meta.url).href);',
 };

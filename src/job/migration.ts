@@ -14,7 +14,7 @@ import { LimenError, type Success } from "../outcome.ts";
 import { platform } from "../platform/platform.ts";
 import { limenRoot } from "../project/git.ts";
 import { liveJob, STARTUP_GRACE_MS, startingJob } from "../runtime/reap.ts";
-import { hexEndOf, tokenOf } from "./id.ts";
+import { hexEndOf, TOKEN, tokenOf } from "./id.ts";
 import { SESSION_ID } from "./job.ts";
 import {
 	checkedRecord,
@@ -102,13 +102,21 @@ export type FolderStep =
 	| { readonly id: string; readonly kind: "current" }
 	| { readonly id: string; readonly kind: "move"; readonly reason: string };
 
-/** The whole report: every folder's step, the older id formats and the token collisions (T-20 (6)). */
+/**
+ * The whole report: every folder's step, the older id formats and the tokens several folders share (T-20 (6)): those
+ * that name none of their folders, and those that one job shares only with folders of `.limen/unmigrated/`.
+ */
 export type MigrationReport = {
 	readonly jobsRoot: string;
 	readonly dryRun: boolean;
 	readonly steps: readonly FolderStep[];
 	readonly olderIds: readonly string[];
 	readonly collisions: ReadonlyArray<{ readonly token: string; readonly ids: readonly string[] }>;
+	readonly unmigratedShares: ReadonlyArray<{
+		readonly token: string;
+		readonly job: string;
+		readonly unmigrated: readonly string[];
+	}>;
 };
 
 /** The refusal while a job of the project runs or starts (D-057 (7.6)): exit 4, and the plan again once it ended. */
@@ -149,9 +157,12 @@ export async function migrateProject(root: string, dryRun: boolean): Promise<Mig
 	for (const id of ids) {
 		steps.push(await migrateFolder(root, id, dryRun));
 	}
-	// The folders after the moves, each listed once: one this run moved is now only below `.limen/unmigrated/`.
-	const known = [...(await jobFolderNames(jobsRoot)), ...(await jobFolderNames(join(root, ".limen", "unmigrated")))];
-	return { jobsRoot, dryRun, steps, ...tokenReport(known) };
+	// The folders as the run leaves them, each listed once: one it moves, or with `dryRun` would move, is only below
+	// `.limen/unmigrated/`, so a dry run reports the tokens as the run would.
+	const moved = steps.flatMap((step) => (step.kind === "move" ? [step.id] : []));
+	const jobs = (await jobFolderNames(jobsRoot)).filter((id) => !moved.includes(id));
+	const unmigrated = [...new Set([...(await jobFolderNames(join(root, ".limen", "unmigrated"))), ...moved])];
+	return { jobsRoot, dryRun, steps, ...tokenReport(jobs, unmigrated) };
 }
 
 /** Whether the folder's job runs or starts now: by its record, or by the files of the older record. */
@@ -483,8 +494,18 @@ function queuedOf(text: string): Queued | undefined {
 	return read && ISO_TIME.test(read.since) ? read : undefined;
 }
 
-/** The ids of an older format and the tokens two ids share (T-20 (6)): their jobs take only the full id. */
-function tokenReport(ids: readonly string[]): Pick<MigrationReport, "olderIds" | "collisions"> {
+/**
+ * The ids of an older format, which take only the full id, and the tokens several folders share (T-20 (6)), told apart
+ * as the resolver (src/job/reference.ts) tells them: it counts a token's owners among the folders of `.limen/jobs/`
+ * only, so a token that one job shares only with folders of `.limen/unmigrated/` still names that job, and no reference
+ * names those folders until R-031 archives them. Every other shared token keeps the line that only full ids name its
+ * folders.
+ */
+function tokenReport(
+	jobs: readonly string[],
+	unmigrated: readonly string[],
+): Pick<MigrationReport, "olderIds" | "collisions" | "unmigratedShares"> {
+	const ids = [...jobs, ...unmigrated];
 	const olderIds = ids.filter((id) => tokenOf(id) === undefined);
 	const byToken = Map.groupBy(
 		ids.flatMap((id) => {
@@ -493,13 +514,24 @@ function tokenReport(ids: readonly string[]): Pick<MigrationReport, "olderIds" |
 		}),
 		(entry) => entry.token,
 	);
-	const collisions = [...byToken]
-		.filter(([, entries]) => entries.length > 1)
-		.map(([token, entries]) => ({ token, ids: entries.map((entry) => entry.id) }));
-	return { olderIds, collisions };
+	const collisions: Array<MigrationReport["collisions"][number]> = [];
+	const unmigratedShares: Array<MigrationReport["unmigratedShares"][number]> = [];
+	for (const [token, entries] of byToken) {
+		const shared = entries.map((entry) => entry.id);
+		if (shared.length < 2) {
+			continue;
+		}
+		const [job, ...others] = shared.filter((id) => jobs.includes(id));
+		if (job !== undefined && others.length === 0 && TOKEN.test(token)) {
+			unmigratedShares.push({ token, job, unmigrated: shared.filter((id) => id !== job) });
+		} else {
+			collisions.push({ token, ids: shared });
+		}
+	}
+	return { olderIds, collisions, unmigratedShares };
 }
 
-/** The report as lines for the owner: each folder, each removed file, each older id and each token collision. */
+/** The report as lines for the owner: each folder, each removed file, each older id and each shared token. */
 export function reportLines(report: MigrationReport): string[] {
 	const lines = [`limen migrate${report.dryRun ? " --dry-run (nothing written)" : ""}: ${report.jobsRoot}`];
 	const would = report.dryRun ? "would " : "";
@@ -514,6 +546,12 @@ export function reportLines(report: MigrationReport): string[] {
 	}
 	for (const { token, ids } of report.collisions) {
 		lines.push(`token ${token} is shared by ${ids.join(", ")}: only their full ids name them`);
+	}
+	for (const { token, job, unmigrated } of report.unmigratedShares) {
+		const folders = unmigrated.join(", ");
+		lines.push(
+			`token ${token} names job ${job}; it also ends ${folders} in .limen/unmigrated/, which no reference names until R-031`,
+		);
 	}
 	const count = (kind: FolderStep["kind"]) => report.steps.filter((step) => step.kind === kind).length;
 	const changed = count("migrate") + count("finish") + count("move");

@@ -60,7 +60,9 @@ limen-rebuild-15, która zaczyna R-023 w dzień; D-066: Q-14 jako punkt (f) R-09
 s3-finish-wake w bramce R-023 mierzona jak w D-063 (2), nowy ticket R-096 (przyczyna nadmiarowego wake'a), stara
 sesja limen-rebuild-9 zatrzymana; R-023 zamknięty (komendy jako cienkie adaptery nad modułami domeny, tekst
 komendy drukowany na końcu, jeden moduł uruchamiający CLI Limena, słowa komend tylko w parserze; bramka 588/588,
-runda 3 recenzji bez uwag). -->
+runda 3 recenzji bez uwag); R-095 zamknięty (raport migracji o tokenie wspólnym z .limen/unmigrated/, `keeper` czyta
+job raz, błąd sprawdzenia rekordu w kolejce z przyczyną w logu, `fileOf` jak Node; bramka 598/598; dwie uwagi
+o pliku testu czekają na pytanie Q-17). -->
 
 
 
@@ -1218,7 +1220,7 @@ Columns:
 | R-092 | A refusal leaves no trace: `validate` then `apply` | 2 | T-38, D-061 | R-021, R-023 | L | delegated | night | — | — | — | planned |
 | R-093 | The round-3 notes of R-019 and R-021: the migration keeps `born`, guarded hook reads | 2 | T-25, T-02, T-30, D-062, D-063 | R-019, R-021, R-022 | S | delegated | night | — | — | — | done |
 | R-094 | A queued wrapper ends when its job folder is gone; tests stop their wrappers | 2 | T-01, T-29, D-063 | R-093 | S | delegated | night | — | — | — | done |
-| R-095 | The round-3 notes of R-022 and R-094: the shared-token report, `keeper`'s de-duplication, the record check | 2 | T-01, T-29, T-30, D-065 | R-022, R-094 | S | delegated | night | — | — | — | planned |
+| R-095 | The round-3 notes of R-022 and R-094: the shared-token report, `keeper`'s de-duplication, the record check | 2 | T-01, T-29, T-30, D-065 | R-022, R-094 | S | delegated | night | — | — | — | done |
 | R-096 | One wake per event: the extra wake of the held-gate queue test, found and removed | 2 | T-29, D-067 | R-023, R-095 | S | delegated | night | — | — | — | planned |
 | R-024 | `limen stats` over records and transcripts | 2 | H-01, H-20, §2, T-33 | R-021, R-023 | M | delegated | night | — | pi | 2.3 | planned |
 | R-025 | Test coverage derived from the command registry | 2 | T-28, T-29, D-045, D-046 | R-014, R-023, R-092 | M | delegated | night | — | — | — | planned |
@@ -2635,20 +2637,51 @@ redundant, the terminal being active):
   findings. The main session's gate 586/586, 588/588 and 588/588; `fails-before.mjs` exit 0 (eleven files). Open
   points for gate 5.2 (`outcome.md`): the GitHub poller still reads Herdr's words for a failed `github deliver`
   (R-082, R-059); `hook/wake.ts` reads its own `/limen` word outside the parser scan.
+- R-023 committed and pushed as `0546c7c` (16:23); context 22 % at that safe point, so no handover.
+- R-095's `ticket.md` written at `0546c7c` from D-065 (1), D-066 and the three `review.md` → Round 3; AC-6 and AC-7
+  run there match one line each, both lines the ticket removes (D-025). The main session corrected R-022's
+  `## Migration` with a dated line (item (a)), committed with R-095. R-095 `active` (delegated, from 16:26).
+
+- R-095's implementer `DONE`; `compare --git` → exit 0; the main session's gate 596/596 and `fails-before.mjs`
+  exit 0 (five files). Review round 1 PASS with four notes: two fixed in the first round of fixes (the log append
+  must not replace `QUEUE_RECORD_UNREADABLE`; `docs/jobs.md`), one rejected and one accepted with reasons
+  (`review.md` → Round 1).
+
+- R-095 first round of fixes: the implementer's gate 597/597 (`DONE`); `compare --git` → exit 0; the main session's
+  gate 597/597 and `fails-before.mjs` exit 0. Review round 2 PASS with three notes, all to the second and last round
+  of fixes (the `waitForStart` comment, a guarded `rm` of the queue entry, `docs/jobs.md`).
+
+- R-095 `done` (delegated): `limen migrate`'s report says that a token one job shares only with folders of
+  `.limen/unmigrated/` names that job; `keeper` reads each job once, by its resolved id; `waitForStart` reads only
+  `ENOENT` as a gone record and ends on any other error with `QUEUE_RECORD_UNREADABLE`, its cause in the job's log,
+  which neither a failed log line nor a failed removal of the queue entry replaces; two in-process tests show both
+  "gone" checks; the plant test signals through the platform; `fileOf` resolves as Node does (D-066). Review: round 1
+  PASS with four notes (two fixed, one rejected, one accepted), round 2 PASS with three (all fixed in the second and
+  last round), round 3 PASS with three: the docs sentence fixed by the main session (D-053 (2)), two notes on
+  `test/runtime/start-queue.test.ts` (a diagnosis message, its header line) are Q-17. The main session's gate 596/596,
+  597/597 and 598/598; `fails-before.mjs` exit 0 (five files) each time. Open points for gate 5.2 (`outcome.md`): the
+  class and code of `QUEUE_RECORD_UNREADABLE` reach no reader (R-082); the other mixed shared-token lines (R-031).
 
 Active ticket: none.
 
 Next (autopilot until 13:00 on 2026-11-21, D-063 (4); then by day):
 0. Answers waiting: Q-14 (R-089's two round-3 notes on the import scan's path resolution; asked in the conversation
    on 2026-11-21 at about 14:25, with a push).
-1. R-095 (its `ticket.md` at the HEAD it starts from, with item (f) by D-066; `ready` once written), then R-096
-   (D-067; its `ticket.md` at the HEAD it starts from).
+1. R-096 (D-067; its `ticket.md` at the HEAD it starts from, with Q-17's two items if Adrian answers "1").
 2. Then R-092, R-024 and R-025, and the close: tag `a0.2.0`, gate 5.2 by phone, with the night defaults above.
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
    D-047 and D-054 were.
 
-Open questions for Adrian: none (Q-14 → D-066; Q-15 and Q-16 → D-067). Resolved:
+Open questions for Adrian (asked in the conversation on 2026-11-21, with a push):
+- Q-17 (R-095's round-3 notes 2 and 3, `R-095-round-3-notes-r022-r094/review.md` → Round 3): in
+  `test/runtime/start-queue.test.ts`, the helper `waitFailure` reports a wait that ends `"gone"` instead of rejecting
+  as "the wait ended with undefined" (diagnosis only), and the file's opening line does not name its third mechanism,
+  a record check that fails (T-29 (5)). Options: 1. two items of R-096, whose `ticket.md` is written next and whose
+  subject is the same area's tests (recommended: a few lines, no ticket of their own); 2. a separate S ticket; 3. no
+  ticket. A full answer: the option number.
+
+Resolved (Q-14 → D-066; Q-15 and Q-16 → D-067):
 - Q-14 (R-089's round-3 notes 1 and A, `R-089-final-line-null/review.md` → Round 3): the import scan's `fileOf`
   (`test/final-line.test.ts`) resolves paths unlike Node in two forms: `../src//outcome.ts` (an empty segment kept)
   and a `file:` URL with no `//` (resolved against the test file, while Node resolves it from the root; its comment

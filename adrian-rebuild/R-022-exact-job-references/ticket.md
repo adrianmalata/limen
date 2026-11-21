@@ -3,8 +3,8 @@ końcowy token 8 znaków hex, przez jeden resolver dla każdego argumentu typu j
 i krótki sufiks dają tylko podpowiedź w błędzie z kodem 2 i gotowym `next` (D-061). Token jest unikalny od powstania:
 spawn i continue losują go ponownie przy kolizji z rekordami i `.limen/unmigrated/` pod blokadą z R-019. Stan:
 napisany nocą 21.11 przy drzewie po R-021, z inwentarza `evidence/inventories/R-022-R-023.md`; zamknięty 21.11 rano
-(delegated, recenzja PASS w rundzie 3, bramka 504/504); decyzje rund i D-063 w `## Decisions`, dwie uwagi rundy 3
-czekają na pytanie Q-11. -->
+(delegated, recenzja PASS w rundzie 3, bramka 504/504); decyzje rund i D-063 w `## Decisions`; dwie uwagi rundy 3
+poszły do R-095 (D-065), który poprawił też `## Migration` o tokenie wspólnym z `.limen/unmigrated/`. -->
 
 # R-022 Exact job references through one resolver
 
@@ -140,6 +140,9 @@ No on-disk format changes: the resolver reads the folder names and records R-021
 a label prefix, a short suffix) are refused with exit 2, the candidate list and the ready command in `next`, which is
 the migration of a coordinator's habit; the coordinator manual (`templates/agents.md`) says the new forms. The tokens of
 existing jobs that R-021's migration reported as shared, and older 4-hex ids, take only the full id (T-20 (6)).
+Corrected on 2026-11-21 by R-095 (D-065 (1) (a); `review.md` → Round 3, finding 3): a token shared by one job of
+`.limen/jobs/` and folders of `.limen/unmigrated/` names that job, since the resolver counts a token's owners among
+`.limen/jobs/` only; the unmigrated folders have no reference until R-031.
 
 ## Risk
 

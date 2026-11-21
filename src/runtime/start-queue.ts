@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -21,6 +21,7 @@ import { platform } from "../platform/platform.ts";
 import { readOptional } from "../project/inherit.ts";
 import { seatDir } from "../project/seat.ts";
 import { activeRules, localTime, type SeatRule } from "../project/seat-rules.ts";
+import { hasCode } from "../system-error.ts";
 
 // The machine is shared by every plant, so one queue and one gate serve the whole seat. A detached job's own wrapper
 // waits in it after its handshake and before setup; no daemon runs it. Adam's decision 85 (a) set 25% and 20%.
@@ -174,7 +175,9 @@ export type QueueEnd = "started" | "stopped" | "gone";
  * settle interval since the last start has passed, and its reading passes the gate. Only the first job samples the
  * load. The gate and the rules are read again on each poll, so an edit or a rule's end reaches waiting jobs. A job that
  * waited leaves `start-notice` for its coordinator. A job whose folder or record is gone stops at its next poll and
- * writes nothing more into the folder, since no record is left to end and no engine can start (D-063 (3)).
+ * writes nothing more into the folder, since no record is left to end and no engine can start (D-063 (3)). A record
+ * check that fails for another reason ends the wait with that failure. Its cause is kept in the job's log, or, when the
+ * log cannot take the line, in the failure's message, which then names that error too (T-01).
  */
 export async function waitForStart(jobDir: string, stop: AbortSignal): Promise<QueueEnd> {
 	const id = basename(jobDir);
@@ -188,61 +191,142 @@ export async function waitForStart(jobDir: string, stop: AbortSignal): Promise<Q
 		queuedAt: Date.parse(since) || Date.now(),
 		pid: process.pid,
 	};
+	const checked: Checked = { gone: false, failure: undefined };
+	try {
+		return await pollQueue(entry, since, stop, checked);
+	} catch (error) {
+		const { failure } = checked;
+		throw failure !== undefined && error === failure ? await failureAfterCleanup(jobDir, failure) : error;
+	} finally {
+		await leaveQueue(jobDir, checked);
+	}
+}
+
+/** The polls of `waitForStart` for the job of `entry`, queued since `since`; `checked` notes what its checks found. */
+async function pollQueue(entry: Entry, since: string, stop: AbortSignal, checked: Checked): Promise<QueueEnd> {
+	const { jobDir } = entry;
 	let shown: { kind: string; ahead: number; at: number } | undefined;
-	let gone = false;
 	// Before the poll, after its decision and after a record change: the folder can go while the job sleeps or samples
 	// the load. The record, not only the folder: a folder removed while a change takes the job's lock comes back empty,
 	// since the lock creates its folder (src/lock.ts).
-	const recordGone = () => {
-		gone = !existsSync(recordPath(jobDir));
-		return gone;
-	};
-	try {
-		while (!(stop.aborted || recordGone())) {
-			await enqueue(entry);
-			const decision = await decide(entry, startGate().gate, stop).catch((error: unknown) => {
-				if (stop.aborted) {
-					return undefined;
-				}
-				throw error;
-			});
-			if (!decision) {
-				return "stopped";
+	const recordGone = () => recordGoneAt(jobDir, checked);
+	while (!(stop.aborted || recordGone())) {
+		await enqueue(entry);
+		const decision = await decide(entry, startGate().gate, stop).catch((error: unknown) => {
+			if (stop.aborted) {
+				return undefined;
 			}
+			throw error;
+		});
+		if (!decision) {
+			return "stopped";
+		}
+		if (recordGone()) {
+			return "gone";
+		}
+		if (decision.start) {
+			await started(jobDir, entry, decision.detail, shown !== undefined);
+			return "started";
+		}
+		if (
+			!shown ||
+			shown.kind !== decision.kind ||
+			shown.ahead !== decision.ahead ||
+			Date.now() - shown.at >= DETAIL_REFRESH_MS
+		) {
+			const queued: Queued = { since, detail: decision.detail, ahead: decision.ahead };
+			await transition(jobDir, { from: ["running"], set: { queued } });
 			if (recordGone()) {
 				return "gone";
 			}
-			if (decision.start) {
-				await started(jobDir, entry, decision.detail, shown !== undefined);
-				return "started";
+			if (!shown || (decision.kind !== shown.kind && decision.kind.startsWith("rules"))) {
+				await appendLimenLog(jobDir, `queued: ${decision.detail}, ${decision.ahead} ahead`);
 			}
-			if (
-				!shown ||
-				shown.kind !== decision.kind ||
-				shown.ahead !== decision.ahead ||
-				Date.now() - shown.at >= DETAIL_REFRESH_MS
-			) {
-				const queued: Queued = { since, detail: decision.detail, ahead: decision.ahead };
-				await transition(jobDir, { from: ["running"], set: { queued } });
-				if (recordGone()) {
-					return "gone";
-				}
-				if (!shown || (decision.kind !== shown.kind && decision.kind.startsWith("rules"))) {
-					await appendLimenLog(jobDir, `queued: ${decision.detail}, ${decision.ahead} ahead`);
-				}
-				shown = { kind: decision.kind, ahead: decision.ahead, at: Date.now() };
-			}
-			await delay(pollMs(), undefined, { signal: stop }).catch(() => {});
+			shown = { kind: decision.kind, ahead: decision.ahead, at: Date.now() };
 		}
-		return gone ? "gone" : "stopped";
-	} finally {
-		await rm(entryPath(id), { force: true });
-		// A job that ended while it waited has no queue left to clear: its terminal record holds none. A job whose record
-		// is gone has none either, and the lock of a transition that raced a removal would create the folder again.
-		if (!gone) {
-			await transition(jobDir, { from: ["running"], set: { queued: null } });
-		}
+		await delay(pollMs(), undefined, { signal: stop }).catch(() => {});
 	}
+	return checked.gone ? "gone" : "stopped";
+}
+
+/** What the record checks of one wait found: no record (`gone`), or a check that failed (`failure`). */
+type Checked = { gone: boolean; failure: LimenError | undefined };
+
+/**
+ * Ends a wait that no failed record check ended: its entry goes, and the queue is cleared from the record the checks
+ * found. A failed check is thrown the moment it is noted, so the wait ends on it, and `failureAfterCleanup` ends it.
+ */
+async function leaveQueue(jobDir: string, checked: Checked): Promise<void> {
+	if (checked.failure) {
+		return;
+	}
+	await rm(entryPath(basename(jobDir)), { force: true });
+	// A job that ended while it waited has no queue left to clear: its terminal record holds none. A job whose record is
+	// gone has none either, and the lock of a transition that raced a removal would create the folder again.
+	if (!checked.gone) {
+		await transition(jobDir, { from: ["running"], set: { queued: null } });
+	}
+}
+
+/**
+ * The failure of a record check once the wait has left the queue: its entry goes, and the job's log takes the
+ * failure's line, since the record cannot hold its cause (T-01). The queue is not cleared from the record: the change
+ * would fail on the record the check could not read. A step that fails does not replace the failure, as
+ * `releaseAfterFailure` (src/lock.ts) keeps an operation's error: the failure keeps its class, code, `next` and cause,
+ * and its message also names each step that failed, so no error is lost.
+ */
+async function failureAfterCleanup(jobDir: string, failure: LimenError): Promise<LimenError> {
+	const removal = () => rm(entryPath(basename(jobDir)), { force: true });
+	const line = () => appendLimenLog(jobDir, `start queue: ${failure.message}`);
+	const failed = [
+		await stepError(removal, "its queue entry could not be removed either"),
+		await stepError(line, "the job's log could not take this line either"),
+	].filter((text) => text !== undefined);
+	if (failed.length === 0) {
+		return failure;
+	}
+	return new LimenError({
+		class: failure.class,
+		code: failure.code,
+		message: [failure.message, ...failed].join("; "),
+		next: failure.next,
+		cause: failure.cause,
+	});
+}
+
+/** `what` with the error of `step` when the step fails, for the message of the failure it follows; else undefined. */
+async function stepError(step: () => Promise<void>, what: string): Promise<string | undefined> {
+	try {
+		await step();
+		return undefined;
+	} catch (error) {
+		return `${what}: ${error instanceof Error ? error.message : String(error)}`;
+	}
+}
+
+/**
+ * Whether the job's record is gone, noted in `checked`. Absence is ENOENT alone (T-01): any other error of the check,
+ * such as EACCES, EIO or ELOOP, leaves the job's state unknown, so it is noted and thrown as an environment failure
+ * (T-02) that names the record and the cause.
+ */
+function recordGoneAt(jobDir: string, checked: Checked): boolean {
+	try {
+		statSync(recordPath(jobDir));
+	} catch (error) {
+		if (!hasCode(error, "ENOENT")) {
+			const cause = error instanceof Error ? error.message : String(error);
+			checked.failure = new LimenError({
+				class: "environment",
+				code: "QUEUE_RECORD_UNREADABLE",
+				message: `the record ${recordPath(jobDir)} cannot be checked, so the queued job does not start: ${cause}`,
+				next: null,
+				cause: error,
+			});
+			throw checked.failure;
+		}
+		checked.gone = true;
+	}
+	return checked.gone;
 }
 /** Writes the job's entry, and writes it again if a reader removed it, so a live wrapper always holds its place. */
 async function enqueue(entry: Entry): Promise<void> {

@@ -2,7 +2,7 @@
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
-R-019, R-021, R-022, R-093, R-094, R-089, R-023. -->
+R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095. -->
 
 # Changes
 
@@ -253,3 +253,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-01, M-05)
 - Commit: R-023
 - Rollback: git revert $(git log --format=%H --grep='^R-023:' adrian-rebuild --)
+
+## 2026-11-21 R-095 The round-3 notes of R-022 and R-094: the shared-token report, `keeper`'s de-duplication, the record check
+- What: `src/job/migration.ts` (a token one job of `.limen/jobs/` shares only with folders of `.limen/unmigrated/` gets its own report line, the dry run counts the folders it would move), `src/commands/keeper.ts` (each job read once, by its resolved id), `src/runtime/start-queue.ts` (only `ENOENT` means a gone record; any other error ends the wait with `QUEUE_RECORD_UNREADABLE`, its cause in the job's log, and neither a failed log line nor a failed removal of the queue entry replaces it), `test/plant.test.ts` (the `after` hook signals through `platform.signalProcess`), `test/final-line.test.ts` (`fileOf` resolves as Node does); `docs/jobs.md`; the tests in `test/cli/migrate.test.ts`, the new `test/cli/keeper.test.ts`, `test/runtime/start-queue.test.ts`; R-022's `## Migration` corrected
+- Why: T-01, T-29, T-30, D-065, D-066
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (598/598); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (five test files, the tests that pass at HEAD named in `outcome.md`); `git grep -n 'existsSync(recordPath' -- src/runtime/start-queue.ts` → exit 1
+- Measurement: measured
+- Commit: R-095
+- Rollback: git revert $(git log --format=%H --grep='^R-095:' adrian-rebuild --)
