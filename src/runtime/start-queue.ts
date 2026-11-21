@@ -16,7 +16,7 @@ import {
 	textFile,
 	transition,
 } from "../job/record.ts";
-import { LimenError } from "../outcome.ts";
+import { LimenError, usageError } from "../outcome.ts";
 import { platform } from "../platform/platform.ts";
 import { readOptional } from "../project/inherit.ts";
 import { seatDir } from "../project/seat.ts";
@@ -479,7 +479,7 @@ export function parsePriority(value: string | undefined): number | undefined {
 	}
 	const priority = PRIORITIES.find((candidate) => String(candidate) === value.trim());
 	if (!priority) {
-		throw new Error("--priority must be 1, 2 or 3; 1 is the most urgent");
+		throw usageError("BAD_PRIORITY", "--priority must be 1, 2 or 3; 1 is the most urgent");
 	}
 	return priority;
 }

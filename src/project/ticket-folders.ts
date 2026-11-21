@@ -6,11 +6,12 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { atomicWriteSync } from "../atomic-write.ts";
 import { transport } from "../config.ts";
-import type { CommandText, Success } from "../outcome.ts";
+import { type Operation, runOperation } from "../operation.ts";
+import { type CommandText, refused, type Success, usageError } from "../outcome.ts";
 import { readPicture } from "../picture/picture-build.ts";
 import { ID_PATTERN } from "../picture/picture-model.ts";
 import { limenRoot, repoRoot } from "./git.ts";
-import { closeTickets } from "./lanes.ts";
+import { applyTicketClose, planTicketClose, type TicketClose } from "./lanes.ts";
 import { withNextTicketCode } from "./series.ts";
 
 const PLACE_ID = ID_PATTERN;
@@ -91,25 +92,57 @@ async function checkTouches(root: string, plant: string, touches: readonly strin
 }
 
 /**
- * `limen ticket done`: the close `limen land` makes, for work that landed by a hand merge or needed no code. Says each
- * closed ticket in `out`; a number with no active ticket refuses after the others closed.
+ * `limen ticket done`: the close `limen land` makes, for work that landed by a hand merge or needed no code, as an
+ * operation of T-38 (src/operation.ts). Its validate refuses a number with no active ticket, and a ticket or board with
+ * uncommitted changes, before any folder moves (D-061); its apply moves, commits and says each closed ticket in `out`,
+ * under the lock of the ticket lanes, once the tickets are still the ones validate read.
  */
 export async function closeDoneTickets(
 	codes: readonly string[],
 	on: string | undefined,
 	cwd: string,
 	out: CommandText,
+	again: string | null = null,
 ): Promise<void> {
-	if (on && !/^\d{4}-\d\d-\d\d$/.test(on)) {
-		throw new Error("--on takes the landed date as YYYY-MM-DD");
-	}
-	const root = limenRoot(cwd);
-	const closed = await (on ? closeTickets(root, codes, `landed ${on}`, on) : closeTickets(root, codes, "landed"));
-	const missing = codes.filter((code) => !closed.moved.some((path) => path.includes(`/${code.toUpperCase()}-`)));
+	const closed = await runOperation(ticketDoneOperation(codes, on, cwd, again));
 	for (const path of closed.moved) {
 		out.line(`closed ${path}${closed.commit ? ` in ${closed.commit}` : ""}`);
 	}
-	if (missing.length) {
-		throw new Error(`no active ticket for ${missing.join(", ")} in ${root}/spec/features/active/`);
-	}
+}
+
+/** The operation of `limen ticket done`; `again` is its command line, the `next` of a STATE_CHANGED. */
+export function ticketDoneOperation(
+	codes: readonly string[],
+	on: string | undefined,
+	cwd: string,
+	again: string | null,
+): Operation<TicketClose, Awaited<ReturnType<typeof applyTicketClose>>> {
+	return {
+		validate: async (view) => {
+			if (on && !/^\d{4}-\d\d-\d\d$/.test(on)) {
+				throw usageError("BAD_DATE", "--on takes the landed date as YYYY-MM-DD");
+			}
+			const root = limenRoot(cwd);
+			const reason = on ? `landed ${on}` : "landed";
+			const close = await view.hold(`the active tickets ${codes.join(", ")} in ${root}`, () =>
+				on ? planTicketClose(root, codes, reason, on) : planTicketClose(root, codes, reason),
+			);
+			const missing = codes.filter((code) => !close.tickets.some((ticket) => sameCode(ticket.code, code)));
+			if (missing.length) {
+				return refused(
+					"NO_ACTIVE_TICKET",
+					`no active ticket for ${missing.join(", ")} in ${root}/spec/features/active/`,
+				);
+			}
+			return close;
+		},
+		lock: (close) => ({ file: join(close.root, ".limen", "ticket-lanes") }),
+		apply: applyTicketClose,
+		again,
+	};
+}
+
+/** Whether two ticket numbers name one ticket, whatever their case. */
+function sameCode(left: string, right: string): boolean {
+	return left.toUpperCase() === right.toUpperCase();
 }

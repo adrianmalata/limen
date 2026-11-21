@@ -14,7 +14,7 @@ The architecture map is a Markdown dataset that Git ignores (default `.limen/pic
 
 ## Check the map and the tickets
 
-`limen picture build` reads the dataset with the project's tickets and board, and checks them. **Build never calls a model, and it writes no page.** Each diagnostic is one line on stderr; then one line on stdout counts the places and edges. `--json F` writes the model to `F`; without it, build writes nothing.
+`limen picture build` reads the dataset with the project's tickets and board, and checks them. **Build never calls a model, and it writes no page.** Each diagnostic is one line on stderr; then one line on stdout counts the places and edges. `--json F` writes the model to `F`; without it, build writes nothing, and a build that `--strict` refuses (`PICTURE_INVALID`) writes no file, `F` included.
 
 - **Source check:** Build warns (`source.missing`) for each cited source path that does not exist in the project root.
 - **Strict:** `--strict` exits 1 when a diagnostic is an error.

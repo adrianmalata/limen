@@ -1,12 +1,15 @@
 // `limen github poll`: a failure exits with the class of its cause; GitHub is the plant's fetch sink, with no network.
-// `limen github resolve`: the coordinator's no-job answer, as the poller reads it.
+// `limen github resolve`: the coordinator's no-job answer, as the poller reads it. `limen github review` and `work`:
+// a refusal comes before the claim's handoff gate, and a start that fails after it takes the gate away (T-38).
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
+import { withLock } from "../../src/lock.ts";
 import { outputText, readOutcome } from "../final-line.ts";
-import { git, limen, type Plant, plant, type Run, respond } from "../plant.ts";
+import { git, limen, type Plant, plant, type Run, respond, writeRecord } from "../plant.ts";
+import { snapshot } from "../snapshot.ts";
 
 const REPO = "acme/widget";
 
@@ -169,4 +172,91 @@ test("github resolve records the no-job answer under one name, and a second reso
 	assert.notEqual(second.status, 0, second.stdout);
 	assert.match(outputText(second), /inflight\/104/);
 	assert.equal(JSON.parse(await readFile(outcome, "utf8")).answer, "Already fixed on main");
+});
+
+const MODEL = ["--engine", "pi", "--provider", "p", "--model", "m", "--thinking", "high"];
+
+const WORK = ["github", "work"] as const;
+
+// Before R-092 the handoff gate was made before spawn's checks and never taken away.
+test("BAD_ENGINE: github work with an engine spawn refuses exits 2 before the claim's handoff gate exists", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const env = await coordinatorWithClaim(p);
+	const before = snapshot(p.root);
+	const route = ["--engine", "claude", "--provider", "p", "--model", "m", "--thinking", "high"];
+	const run = limen(p, [...WORK, p.root, "104", ...route, "--task", "Fix it"], { env });
+	assert.deepEqual([run.status, readOutcome(run).code, snapshot(p.root)], [2, "BAD_ENGINE", before], run.stderr);
+});
+
+test("GITHUB_ISSUE_REVIEW: github review of an issue claim exits 1 before the claim's handoff gate exists", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const env = await coordinatorWithClaim(p);
+	const issue = { repo: REPO, id: "issue-5", kind: "issue", pr: 5 };
+	await writeFile(join(p.root, ".limen/github/claims/issue-5.json"), JSON.stringify(issue));
+	const before = snapshot(p.root);
+	const run = limen(p, ["github", "review", p.root, "issue-5", ...MODEL], { env });
+	assert.deepEqual(
+		[run.status, readOutcome(run).code, snapshot(p.root)],
+		[1, "GITHUB_ISSUE_REVIEW", before],
+		run.stderr,
+	);
+});
+
+// A job record that carries the claim's marker but neither shape of its job conflicts: validate refuses it, before
+// the gate, so no refusal comes after a write (T-38 (1)).
+test("GITHUB_CONFLICT: github work on a claim that a job of another shape carries exits 1 before the claim's handoff gate exists", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const env = await coordinatorWithClaim(p);
+	const forged = join(p.root, ".limen/jobs/2026-11-21-forged-1a2b3c4d");
+	await writeRecord(forged, { state: "done", role: "reviewer" });
+	await writeFile(join(forged, "task.md"), "GitHub doorbell: acme/widget#104\nReview it.\n");
+	const before = snapshot(p.root);
+	const run = limen(p, [...WORK, p.root, "104", ...MODEL, "--task", "Fix it"], { env });
+	assert.deepEqual([run.status, readOutcome(run).code, snapshot(p.root)], [1, "GITHUB_CONFLICT", before], run.stderr);
+});
+
+// T-38 (2): the gate is the first write of the spawn's apply, after its re-check under the jobs lock, so a wait that
+// runs out on that lock ends the handoff before it writes anything.
+test("LOCK_TIMEOUT: github work whose spawn waits out the jobs lock exits 3 and leaves the snapshot identical", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const env = { ...(await coordinatorWithClaim(p)), LIMEN_LOCK_WAIT_MS: "100" };
+	const { before, run, after } = await withLock({ file: join(p.root, ".limen", "jobs") }, async () => {
+		const before = snapshot(p.root);
+		const run = limen(p, [...WORK, p.root, "104", ...MODEL, "--task", "Fix it"], { env });
+		return { before, run, after: snapshot(p.root) };
+	});
+	assert.deepEqual([run.status, readOutcome(run).code, after], [3, "LOCK_TIMEOUT", before], run.stderr);
+});
+
+// A start that fails after the gate and before a job record answers the claim takes the gate away, and the folder of
+// gates it made, so a rerun needs no recovery by hand. The record fails to land in a jobs folder the test makes
+// read-only; the folders a spawn's apply makes before the record (the worktree folder, the prune lock's) exist already.
+test("STEP_FAILED: github work whose job record cannot be published exits 4 and takes the claim's handoff gate away", async (t) => {
+	const p = await plant();
+	t.after(async () => {
+		await chmod(join(p.root, ".limen/jobs"), 0o755);
+		await p.cleanup();
+	});
+	const env = await coordinatorWithClaim(p);
+	await mkdir(join(p.parent, ".repo-limen-worktrees"));
+	await mkdir(join(p.root, ".limen/prune"), { recursive: true });
+	await chmod(join(p.root, ".limen/jobs"), 0o555);
+	const before = snapshot(p.root);
+	const run = limen(p, [...WORK, p.root, "104", ...MODEL, "--task", "Fix it"], { env });
+	assert.deepEqual([run.status, readOutcome(run).code, snapshot(p.root)], [4, "STEP_FAILED", before], run.stderr);
+});
+
+test("github work run again after a start that failed before its job record starts the job", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const env = { ...(await coordinatorWithClaim(p)), LIMEN_LOCK_WAIT_MS: "100" };
+	const held = await withLock({ file: join(p.root, ".limen", "jobs") }, async () =>
+		limen(p, [...WORK, p.root, "104", ...MODEL, "--task", "Fix it"], { env }),
+	);
+	const rerun = limen(p, [...WORK, p.root, "104", ...MODEL, "--task", "Fix it"], { env });
+	assert.deepEqual([held.status, rerun.status], [3, 0], rerun.stderr);
 });

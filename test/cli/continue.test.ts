@@ -1,13 +1,16 @@
 // `limen continue`: it finds the project from a subdirectory, its engine does not inherit the continue flag, and it
-// refuses a parent whose engine was removed.
+// refuses a parent whose engine was removed, or a group worker whose worktree and branch are gone, leaving the shared
+// snapshot identical (T-38 (4)).
 import assert from "node:assert/strict";
 import { chmodSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { isTerminal } from "../../src/job/job.ts";
 import { outputText, readOutcome } from "../final-line.ts";
 import {
 	editRecord,
+	git,
 	jobDir,
 	jobRecord,
 	jobState,
@@ -16,8 +19,12 @@ import {
 	plant,
 	spawnJob,
 	startedJob,
+	TICKET,
 	until,
+	waitJob,
+	writeRecord,
 } from "../plant.ts";
+import { snapshot } from "../snapshot.ts";
 
 /** A job id that names no job: a usage error comes before any record is read. */
 const NO_JOB = "2026-11-18-none-1a2b3c4d";
@@ -89,33 +96,34 @@ test("limen continue of a finished job recorded with the removed engine devin re
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const parent = spawnJob(p, "commit");
-	await ended(p, parent);
+	// Its wrapper has exited, after its last write to the job's folder, so the snapshot below holds still.
+	waitJob(p, parent);
 	// A Devin job's record names its engine and holds no session transcript, as the cut wrapper wrote it.
 	const dir = jobDir(p, parent);
 	await editRecord(dir, (record) => ({ route: { ...record.route, engine: "devin" } }));
 	for (const name of readdirSync(join(dir, "session"))) {
 		rmSync(join(dir, "session", name), { recursive: true });
 	}
+	const before = snapshot(p.root);
 	const run = limen(p, ["continue", parent, "say continued"]);
 	assert.notEqual(run.status, 0, run.stdout);
 	assert.equal(outputText(run), "engine devin was removed with Devin cloud jobs (R-003); use --engine pi\n");
 	// Read from a record, not given on the command line: a refusal, not a usage error.
-	assert.deepEqual(readOutcome(run), { class: "refused", code: "REMOVED", next: null });
-	assert.deepEqual(readdirSync(join(p.root, ".limen/jobs")), [parent]);
+	assert.deepEqual([readOutcome(run), snapshot(p.root)], [{ class: "refused", code: "REMOVED", next: null }, before]);
 });
 
 test("limen continue of a finished job recorded with the removed engine omp refuses with its line and starts no job", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const parent = spawnJob(p, "commit");
-	await ended(p, parent);
+	waitJob(p, parent);
 	// An OMP job's record names its engine and keeps the session transcript that OMP wrote.
 	await editRecord(jobDir(p, parent), (record) => ({ route: { ...record.route, engine: "omp" } }));
+	const before = snapshot(p.root);
 	const run = limen(p, ["continue", parent, "say continued"]);
 	assert.notEqual(run.status, 0, run.stdout);
 	assert.equal(outputText(run), "engine omp was removed with the OMP engine (R-004); use --engine pi\n");
-	assert.deepEqual(readOutcome(run), { class: "refused", code: "REMOVED", next: null });
-	assert.deepEqual(readdirSync(join(p.root, ".limen/jobs")), [parent]);
+	assert.deepEqual([readOutcome(run), snapshot(p.root)], [{ class: "refused", code: "REMOVED", next: null }, before]);
 });
 
 test("BAD_ARGUMENT: continue with --label given twice exits 2, as every value flag given twice does", async (t) => {
@@ -125,4 +133,135 @@ test("BAD_ARGUMENT: continue with --label given twice exits 2, as every value fl
 	assert.equal(run.status, 2, run.stderr);
 	assert.deepEqual(readOutcome(run), { class: "usage", code: "BAD_ARGUMENT", next: "limen continue --help" });
 	assert.equal(outputText(run).split("\n")[0], "limen continue: --label given twice");
+});
+
+const WORKER = "2026-11-21-f001-team-1-worker-1a2b3c4d";
+const ROUTE_FLAGS = ["--engine", "pi", "--provider", "p", "--model", "m", "--thinking", "high"];
+
+/**
+ * A run of one team whose finished worker `WORKER` the lead continues, written as group start and the worker's spawn
+ * left them: its record, its session transcript, and `fields` of the run. No process owns the job.
+ */
+async function finishedWorker(p: Plant, worker: Record<string, unknown>, fields: Record<string, unknown>) {
+	const now = Date.now();
+	const run = {
+		id: "gone-group",
+		root: p.root,
+		feature: dirname(TICKET),
+		lead: "gone-lead",
+		startedAt: now,
+		teams: ["team-1"],
+		routes: { "team-1": { engine: "pi", provider: "p", model: "m", thinking: "high" } },
+		workersPerTeam: 2,
+		rounds: ["draft"],
+		round: 0,
+		deadline: now + 60 * 60_000,
+		reserveMs: 60_000,
+		stopped: false,
+		closed: false,
+		members: [{ id: WORKER, team: "team-1", role: "worker", deadline: now + 60 * 60_000 }],
+		...fields,
+	};
+	await mkdir(join(p.root, ".limen/groups", run.id), { recursive: true });
+	await writeFile(join(p.root, ".limen/groups", run.id, "run.json"), `${JSON.stringify(run)}\n`);
+	const dir = jobDir(p, WORKER);
+	await writeRecord(dir, {
+		state: "done",
+		label: "team-1 worker",
+		role: "worker",
+		branch: "limen/gone",
+		worktree: join(p.parent, "gone"),
+		group: run.id,
+		team: "team-1",
+		...worker,
+	});
+	await mkdir(join(dir, "session"));
+	await writeFile(join(dir, "session", "s.jsonl"), "{}\n");
+	return { PI_SESSION_ID: run.lead };
+}
+
+// Before R-092 a worker's continuation took the group's launch lock (a folder that stays) and claimed its member slot in
+// run.json before it found the parent's worktree and branch gone.
+test("JOB_TREE_GONE: the lead's continuation of a group worker whose worktree and branch are gone exits 1 and leaves the snapshot identical", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const env = await finishedWorker(p, {}, {});
+	const before = snapshot(p.root);
+	const continued = limen(p, ["continue", WORKER, "go on", ...ROUTE_FLAGS], { env });
+	assert.deepEqual(
+		[continued.status, readOutcome(continued).code, snapshot(p.root)],
+		[1, "JOB_TREE_GONE", before],
+		continued.stderr,
+	);
+});
+
+// Before R-092 the allowance was checked when the slot was claimed, after the group's launch lock, a folder that stays.
+test("GROUP_ALLOWANCE: the lead's continuation of a worker past its team's worker allowance exits 1 and leaves the snapshot identical", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	git(p.root, "branch", "limen/gone");
+	const env = await finishedWorker(p, {}, { workersPerTeam: 1 });
+	const before = snapshot(p.root);
+	const continued = limen(p, ["continue", WORKER, "go on", ...ROUTE_FLAGS], { env });
+	assert.deepEqual(
+		[continued.status, readOutcome(continued).code, snapshot(p.root)],
+		[1, "GROUP_ALLOWANCE", before],
+		continued.stderr,
+	);
+});
+
+// Before R-092 continue read its wake route in its apply, after it had claimed a group worker's slot in run.json.
+test("UNSAFE_HERDR_PANE_ID: the lead's continuation of a group worker from an unsafe Herdr pane exits 4 and leaves the snapshot identical", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	git(p.root, "branch", "limen/gone");
+	const lead = await finishedWorker(p, {}, {});
+	const env = { ...lead, HERDR_ENV: "1", HERDR_PANE_ID: "pane; rm -rf" };
+	const before = snapshot(p.root);
+	const continued = limen(p, ["continue", WORKER, "go on", ...ROUTE_FLAGS], { env });
+	assert.deepEqual(
+		[continued.status, readOutcome(continued).code, snapshot(p.root)],
+		[4, "UNSAFE_HERDR_PANE_ID", before],
+		continued.stderr,
+	);
+});
+
+// T-02: the group id comes from the parent's record, not from the command line, so a run that is gone is a refusal.
+test("GROUP_GONE: continue of a job whose record names a group with no run exits 1 and leaves the snapshot identical", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const dir = jobDir(p, WORKER);
+	await writeRecord(dir, {
+		state: "done",
+		label: "w",
+		role: "worker",
+		branch: "limen/gone",
+		group: "gone-group",
+		team: "team-1",
+	});
+	const before = snapshot(p.root);
+	const continued = limen(p, ["continue", WORKER, "go on", ...ROUTE_FLAGS]);
+	assert.deepEqual(
+		[continued.status, readOutcome(continued).code, snapshot(p.root)],
+		[1, "GROUP_GONE", before],
+		continued.stderr,
+	);
+});
+
+// The parent's own recorded extensions differ from its team's: a refusal of a record, apart from the usage error of an
+// --extension that differs (GROUP_EXTENSIONS).
+test("GROUP_EXTENSIONS_PARENT: the continuation of a group worker whose extensions differ from its team's exits 1 and leaves the snapshot identical", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const extension = join(p.parent, "team.ts");
+	await writeFile(extension, "export default () => {};\n");
+	git(p.root, "branch", "limen/gone");
+	const env = await finishedWorker(p, { extensions: [] }, { teamExtensions: { "team-1": [extension] } });
+	const before = snapshot(p.root);
+	const continued = limen(p, ["continue", WORKER, "go on", ...ROUTE_FLAGS], { env });
+	assert.deepEqual(
+		[continued.status, readOutcome(continued).code, snapshot(p.root)],
+		[1, "GROUP_EXTENSIONS_PARENT", before],
+		continued.stderr,
+	);
 });

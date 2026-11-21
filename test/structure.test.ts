@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, posix, relative } from "node:path";
 import test, { type TestContext } from "node:test";
 import ts from "typescript";
+import { throughRunner } from "../src/operation.ts";
 import { templateHistoryText } from "../src/project/inherit.ts";
 import { REGISTRY } from "../src/registry.ts";
 import { importsOf } from "./imports.ts";
@@ -156,11 +157,46 @@ test("T-01: the catch-all sites in src/ and hook/ stay at most their baseline co
 });
 
 // The author's untyped refusals, which `failureOf` maps to UNTYPED (exit code 1) until R-082 types them. The count
-// measured at R-022, whose resolver replaced the untyped refusals of the job matcher; a change may only lower it.
-const UNTYPED_THROWS = 218;
+// measured at R-092, which typed the refusals on the paths of the nine change commands it moved onto the runner of
+// src/operation.ts and git's failures; a change may only lower it.
+const UNTYPED_THROWS = 106;
 test("T-01: the untyped throw new Error( sites in src/ and hook/ stay at most their baseline count, less the typed ones", async () => {
 	const [all] = await occurrences(["src", "hook"], "throw new Error(", "src/outcome.ts");
 	assert.ok(all <= UNTYPED_THROWS, `${all} sites of throw new Error(, at most ${UNTYPED_THROWS}`);
+});
+
+/**
+ * T-38's ratchet: the change commands without `movedBy` whose handler does not go through the runner of
+ * src/operation.ts yet. The list may only shrink; R-082 brings it to zero, and a ticket that rewrites one of these
+ * commands moves it onto the runner (D-070 (2)).
+ */
+const OUTSIDE_RUNNER = [
+	"board",
+	"github connect",
+	"github deliver",
+	"github disconnect",
+	"github poll",
+	"github resolve",
+	"group advance",
+	"group close",
+	"group publish",
+	"group status",
+	"init",
+	"land",
+	"migrate",
+	"steer",
+	"ticket new",
+	"unwatch",
+	"watch",
+	"workspace init",
+];
+// The mark is read from the code: a handler goes through the runner when `operationHandler` made it, and that handler
+// fails any run that returns without reaching the runner. Commands with `movedBy` are exempt (D-061).
+test("T-38: every change command without movedBy goes through the runner, except the listed ones, and no listed one does", () => {
+	const outside = REGISTRY.filter(
+		(entry) => entry.kind === "change" && entry.movedBy === undefined && !throughRunner(entry.handler),
+	).map((entry) => entry.name);
+	assert.deepEqual(outside.sort(), [...OUTSIDE_RUNNER].sort());
 });
 
 /** The folders whose code runs as Limen. */

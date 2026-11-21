@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { LimenError } from "../../src/outcome.ts";
-import { commitHasFile, isGitRepository } from "../../src/project/git.ts";
+import { commitHasFile, headCommit, isGitRepository } from "../../src/project/git.ts";
 
 test("MISSING_TOOL: a git on PATH that cannot start makes the central git runner throw an environment error naming git", async (t) => {
 	const folder = await realpath(await mkdtemp(join(tmpdir(), "limen-git-")));
@@ -37,5 +37,20 @@ test("a spawn error of the central git runner other than ENOENT or EACCES goes u
 		() => commitHasFile(folder, "HEAD", "x".repeat(200_000)),
 		(error: unknown) =>
 			!(error instanceof LimenError) && error instanceof Error && "code" in error && error.code === "E2BIG",
+	);
+});
+
+// T-02: a git failure is the environment's (exit 4); before R-092 a failed git call was a plain Error, which ended a
+// command UNTYPED with exit 1.
+test("GIT_FAILED: a git call that must succeed and fails throws an environment error with git's words", async (t) => {
+	const folder = await realpath(await mkdtemp(join(tmpdir(), "limen-git-")));
+	t.after(() => rm(folder, { recursive: true, force: true }));
+	assert.throws(
+		() => headCommit(folder),
+		(error: unknown) =>
+			error instanceof LimenError &&
+			error.class === "environment" &&
+			error.code === "GIT_FAILED" &&
+			/not a git repository/.test(error.message),
 	);
 });

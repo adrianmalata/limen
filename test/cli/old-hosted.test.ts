@@ -147,7 +147,10 @@ test("matchedGithubJob matches a GitHub job without a hosted file and an old hos
 		state: "done",
 		review: true,
 	});
-	await assert.rejects(matchedGithubJob(root, other), /^Error: conflicting job other for /);
+	await assert.rejects(matchedGithubJob(root, other), {
+		code: "GITHUB_CONFLICT",
+		message: /^conflicting job other for /,
+	});
 });
 
 test("limen group status reads a run.json that a group start with --tab wrote", async (t) => {

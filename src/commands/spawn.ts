@@ -1,9 +1,14 @@
 import { startSpawn } from "../job/spawning.ts";
+import { operationHandler } from "../operation.ts";
 import type { CommandText, Success } from "../outcome.ts";
 import type { Parsed } from "../parser.ts";
 
-/** `limen spawn`: starts one job from the command line. */
-export function spawnCommand(values: Parsed, cwd: string, out: CommandText): Promise<Success> {
+/** `limen spawn`: starts one job from the command line, through the runner of T-38. */
+export const spawnCommand = operationHandler(function spawnCommand(
+	values: Parsed,
+	cwd: string,
+	out: CommandText,
+): Promise<Success> {
 	return startSpawn(
 		{
 			task: values.list("task"),
@@ -26,5 +31,6 @@ export function spawnCommand(values: Parsed, cwd: string, out: CommandText): Pro
 		},
 		cwd,
 		out,
+		{ again: values.commandLine() },
 	);
-}
+});

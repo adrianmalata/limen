@@ -2,6 +2,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { transport } from "../config.ts";
+import { environmentError, refused, usageError } from "../outcome.ts";
 import { gitStartFailure } from "../platform/requirements.ts";
 export type GitWorktree = {
 	readonly path: string;
@@ -14,11 +15,12 @@ export function repoRoot(cwd: string): string {
 	const result = git(cwd, ["rev-parse", "--show-toplevel"]);
 	if (result.status !== 0) {
 		if (result.stderr.includes("not a git repository")) {
-			throw new Error(
+			throw refused(
+				"NOT_A_PROJECT",
 				`not inside a Limen project: ${cwd}; run this command from your project repository or Limen workspace.`,
 			);
 		}
-		throw new Error(result.stderr.trim() || result.stdout.trim() || "git rev-parse failed");
+		throw environmentError("GIT_FAILED", result.stderr.trim() || result.stdout.trim() || "git rev-parse failed");
 	}
 	return result.stdout.trim();
 }
@@ -31,7 +33,7 @@ export function limenRoot(cwd: string): string {
 	if (id) {
 		const root = transport("LIMEN_CONTEXT_ROOT");
 		if (!root || !/^[A-Za-z0-9-]+$/.test(id)) {
-			throw new Error("group routing context is incomplete");
+			throw refused("GROUP_CONTEXT", "group routing context is incomplete");
 		}
 		const run = JSON.parse(readFileSync(`${root}/.limen/groups/${id}/run.json`, "utf8")) as {
 			root: string;
@@ -43,7 +45,7 @@ export function limenRoot(cwd: string): string {
 				(member) => member.id === transport("LIMEN_JOB_ID") && member.team === transport("LIMEN_TEAM_ID"),
 			)
 		) {
-			throw new Error("group identity does not match the canonical cabinet");
+			throw refused("GROUP_CONTEXT", "group identity does not match the canonical cabinet");
 		}
 		return root;
 	}
@@ -59,13 +61,21 @@ export function gitCommonDir(cwd: string): string | undefined {
 }
 export function workspaceRepository(workspace: string, name: string): string {
 	if (!name || basename(name) !== name || name === "." || name === "..") {
-		throw new Error("--repo must name one immediate child repository");
+		throw usageError("BAD_REPO", "--repo must name one immediate child repository");
 	}
 	const repository = resolve(workspace, name);
 	if (repoRoot(repository) !== repository) {
-		throw new Error(`--repo ${JSON.stringify(name)} must be a Git repository directly below the workspace`);
+		throw usageError(
+			"BAD_REPO",
+			`--repo ${JSON.stringify(name)} must be a Git repository directly below the workspace`,
+		);
 	}
 	return repository;
+}
+/** Whether `branch` is a name git takes for a branch as it is written (`git check-ref-format --branch`). */
+export function isBranchName(cwd: string, branch: string): boolean {
+	const result = git(cwd, ["check-ref-format", "--branch", branch]);
+	return result.status === 0 && result.stdout.trim() === branch;
 }
 export function branchExists(cwd: string, branch: string): boolean {
 	requireGit(cwd, ["check-ref-format", "--branch", branch]);
@@ -208,8 +218,13 @@ export function listWorktrees(cwd: string): readonly GitWorktree[] {
 export function worktreeForBranch(cwd: string, branch: string): GitWorktree | undefined {
 	return listWorktrees(cwd).find((worktree) => worktree.branch === branch);
 }
-export function addNewWorktree(cwd: string, path: string, branch: string): void {
-	requireGit(cwd, ["worktree", "add", "-b", branch, path, "HEAD"]);
+/** A worktree at `path` on the new branch `branch`, made at `base`: the commit the job's record names as its base. */
+export function addNewWorktree(cwd: string, path: string, branch: string, base: string): void {
+	requireGit(cwd, ["worktree", "add", "-b", branch, path, base]);
+}
+/** The new local branch `branch` at `commit`, with no upstream; an existing branch of that name fails. */
+export function createBranch(cwd: string, branch: string, commit: string): void {
+	requireGit(cwd, ["branch", "--no-track", "--", branch, commit]);
 }
 export function addBranchWorktree(cwd: string, path: string, branch: string): void {
 	requireGit(cwd, ["worktree", "add", path, branch]);
@@ -234,7 +249,7 @@ export function resolveCommit(cwd: string, ref: string, option: string): string 
 	}
 	const result = ref.startsWith("-") ? undefined : git(cwd, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
 	if (result?.status !== 0) {
-		throw new Error(`${option} ${JSON.stringify(ref)} names no commit in ${cwd}`);
+		throw usageError("BAD_COMMIT", `${option} ${JSON.stringify(ref)} names no commit in ${cwd}`);
 	}
 	return result.stdout.trim();
 }
@@ -249,16 +264,24 @@ export function spawnBaseCommit(cwd: string): string {
 	}
 	const branch = git(cwd, ["symbolic-ref", "--quiet", "HEAD"]);
 	if (branch.status === 0 && git(cwd, ["show-ref", "--verify", "--quiet", branch.stdout.trim()]).status === 1) {
-		throw new Error(NO_COMMIT);
+		throw refused("NO_COMMIT", NO_COMMIT);
 	}
-	throw new Error(result.stderr.trim() || result.stdout.trim() || "git rev-parse failed");
+	throw environmentError("GIT_FAILED", result.stderr.trim() || result.stdout.trim() || "git rev-parse failed");
 }
 export function currentBranch(cwd: string): string {
 	return requireGit(cwd, ["symbolic-ref", "--short", "HEAD"]).stdout.trim();
 }
+/**
+ * Merges `branch` into the checkout. A merge git stops, as on a conflict, is land's refusal (exit 1, as before R-092),
+ * with git's own words; land is R-037's, which types it further.
+ */
 export function mergeBranch(cwd: string, branch: string): string {
 	requireGit(cwd, ["check-ref-format", "--branch", branch]);
-	return requireGit(cwd, ["merge", "--no-edit", branch]).stdout.trimEnd();
+	const result = git(cwd, ["merge", "--no-edit", branch]);
+	if (result.status !== 0) {
+		throw refused("MERGE_FAILED", result.stderr.trim() || result.stdout.trim() || "git merge failed");
+	}
+	return result.stdout.trimEnd();
 }
 /** Abort a merge that stopped half way; with no merge in progress it does nothing. */
 export function abortMerge(cwd: string): void {
@@ -334,10 +357,11 @@ export function liveDiffstat(cwd: string, branch: string): string {
 export function gitText(cwd: string, args: readonly string[]): string {
 	return execFileSync("git", args, { cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }).trim();
 }
+/** A git call that must succeed; its failure is the environment's (T-02, exit 4), with git's own words. */
 function requireGit(cwd: string, args: readonly string[], input?: string): GitResult {
 	const result = git(cwd, args, input);
 	if (result.status !== 0) {
-		throw new Error(result.stderr.trim() || result.stdout.trim() || `git ${args[0]} failed`);
+		throw environmentError("GIT_FAILED", result.stderr.trim() || result.stdout.trim() || `git ${args[0]} failed`);
 	}
 	return result;
 }

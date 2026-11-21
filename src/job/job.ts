@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { usageError } from "../outcome.ts";
 import { archiveRows } from "../project/series.ts";
 
 type JobIdentity = { readonly id: string; readonly label: string; readonly branch: string };
@@ -121,17 +122,17 @@ export function makeJobId(label: string, token = jobToken()): string {
 export function parseDuration(value: string): number {
 	const match = /^(\d+)(ms|s|m|h)$/.exec(value);
 	if (!match) {
-		throw new Error(`invalid timeout ${JSON.stringify(value)}; use 500ms, 90s, 20m, or 2h`);
+		throw usageError("BAD_DURATION", `invalid timeout ${JSON.stringify(value)}; use 500ms, 90s, 20m, or 2h`);
 	}
 	const amount = Number(match[1]);
 	const unit = match[2] as "ms" | "s" | "m" | "h";
 	const multipliers = { ms: 1, s: 1_000, m: 60_000, h: 3_600_000 } as const;
 	const milliseconds = amount * multipliers[unit];
 	if (!Number.isSafeInteger(amount) || amount <= 0 || !Number.isSafeInteger(milliseconds)) {
-		throw new Error("timeout must be a positive safe integer");
+		throw usageError("BAD_DURATION", "timeout must be a positive safe integer");
 	}
 	if (milliseconds > 2_147_483_647) {
-		throw new Error("timeout exceeds Node's maximum timer duration");
+		throw usageError("BAD_DURATION", "timeout exceeds Node's maximum timer duration");
 	}
 	return milliseconds;
 }

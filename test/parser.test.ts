@@ -9,6 +9,7 @@ import { LimenError } from "../src/outcome.ts";
 import { type Command, limenCommand, parse, usage } from "../src/parser.ts";
 import { outputText, readOutcome } from "./final-line.ts";
 import { limen as inPlant, jobDir, LIMEN, plant, writeRecord } from "./plant.ts";
+import { snapshot } from "./snapshot.ts";
 
 // A parse error happens before any command reads a project, so a folder outside every repository serves.
 const outside = mkdtempSync(join(tmpdir(), "limen-parser-"));
@@ -142,11 +143,13 @@ test("a --help that is the value of a flag asks for no help, so continue runs wi
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const id = "2026-11-21-help-1a2b3c4d";
+	// The running job is a written record that no process owns, so nothing writes beside the refused continue.
 	await writeRecord(jobDir(p, id), { state: "running", label: "demo" });
+	const before = snapshot(p.root);
 	const run = inPlant(p, ["continue", id, "x", "--label", "--help"]);
 	assert.deepEqual(
-		[run.status, readOutcome(run).code, run.stdout.includes("limen continue <job>")],
-		[1, "UNTYPED", false],
+		[run.status, readOutcome(run).code, run.stdout.includes("limen continue <job>"), snapshot(p.root)],
+		[1, "JOB_NOT_FINISHED", false, before],
 	);
 	assert.match(outputText(run), new RegExp(`job ${id} is running; continue needs a finished job`));
 });

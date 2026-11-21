@@ -1,11 +1,10 @@
 // The table of old names: a removed command, engine value, flag or role refuses with one line that names its replacement.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative } from "node:path";
+import { dirname, join } from "node:path";
 import { type TestContext, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { isTerminal } from "../../src/job/job.ts";
@@ -15,7 +14,6 @@ import { LimenError } from "../../src/outcome.ts";
 import { checkNext, outputText, readOutcome } from "../final-line.ts";
 import {
 	engineEvents,
-	git,
 	jobDir,
 	jobRecord,
 	jobState,
@@ -28,6 +26,7 @@ import {
 	until,
 	waitJob,
 } from "../plant.ts";
+import { snapshot } from "../snapshot.ts";
 
 const WAKE = fileURLToPath(new URL("../../hook/wake.ts", import.meta.url));
 const REFUSAL = "limen webhook was removed with finish webhooks (R-002); the coordinator gets a wake when a job ends";
@@ -87,24 +86,10 @@ async function settled(p: Plant, id: string): Promise<void> {
 	waitJob(p, id);
 }
 
-/** Every path under `dir` with a digest of its content, so a write, a new path or a removal shows as a difference. */
-function snapshot(dir: string): Record<string, string> {
-	const found: Record<string, string> = {};
-	for (const entry of readdirSync(dir, { recursive: true, withFileTypes: true })) {
-		const path = join(entry.parentPath, entry.name);
-		found[relative(dir, path)] = entry.isFile()
-			? createHash("sha256").update(readFileSync(path)).digest("hex")
-			: entry.isDirectory()
-				? "directory"
-				: "other";
-	}
-	return found;
-}
-
 test("limen webhook test and limen webhook deliver refuse with one removal line and leave .limen/ unchanged", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
-	const before = snapshot(join(p.root, ".limen"));
+	const before = snapshot(p.root);
 	// An old hook or supervisor still runs `limen webhook deliver <receipt folder>`; the folder need not exist.
 	for (const args of [
 		["webhook", "test"],
@@ -114,7 +99,7 @@ test("limen webhook test and limen webhook deliver refuse with one removal line 
 		assert.notEqual(run.status, 0, args.join(" "));
 		assert.equal(outputText(run), `${REFUSAL}\n`, args.join(" "));
 	}
-	assert.deepEqual(snapshot(join(p.root, ".limen")), before);
+	assert.deepEqual(snapshot(p.root), before);
 });
 
 test("limen linear status and limen linear off refuse with one removal line and leave .limen/ and spec/ unchanged", async (t) => {
@@ -122,7 +107,7 @@ test("limen linear status and limen linear off refuse with one removal line and 
 	t.after(() => p.cleanup());
 	// A project that still has its mirror config: the removed `off` renamed it to spec/linear.md.off.
 	writeFileSync(join(p.root, "spec/linear.md"), "# Linear mirror\nTeam: T\nProject: P\n");
-	const before = [snapshot(join(p.root, ".limen")), snapshot(join(p.root, "spec"))];
+	const before = snapshot(p.root);
 	for (const args of [
 		["linear", "status"],
 		["linear", "off"],
@@ -131,35 +116,28 @@ test("limen linear status and limen linear off refuse with one removal line and 
 		assert.notEqual(run.status, 0, args.join(" "));
 		assert.equal(outputText(run), `${LINEAR_REFUSAL}\n`, args.join(" "));
 	}
-	assert.deepEqual([snapshot(join(p.root, ".limen")), snapshot(join(p.root, "spec"))], before);
+	assert.deepEqual(snapshot(p.root), before);
 });
 
 test("spawn with a removed engine in --engine refuses with one removal line and makes no job", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
-	const before = snapshot(join(p.root, ".limen"));
+	const before = snapshot(p.root);
 	for (const [engine, refusal] of Object.entries(ENGINE_REFUSALS)) {
 		const run = limen(p, ["spawn", "--engine", engine, ...ROUTE.slice(2), "work"]);
 		assert.notEqual(run.status, 0, engine);
 		assert.equal(outputText(run), `${refusal}\n`, engine);
 	}
-	assert.deepEqual(snapshot(join(p.root, ".limen")), before);
+	assert.deepEqual(snapshot(p.root), before);
 });
 
 test("spawn, continue and group start refuse --tab with one removal line and leave no job, worktree, branch or group", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const parent = spawnJob(p, "commit");
-	await ended(p, parent);
-	// What a half-made start would leave: a job folder, a worktree, a branch, a group folder.
-	const groups = join(p.root, ".limen/groups");
-	const traces = () => [
-		readdirSync(join(p.root, ".limen/jobs")),
-		git(p.root, "worktree", "list", "--porcelain"),
-		git(p.root, "branch", "--list"),
-		existsSync(groups) ? readdirSync(groups) : [],
-	];
-	const before = traces();
+	await settled(p, parent);
+	// What a half-made start would leave (a job folder, a worktree, a branch, a group folder) changes the snapshot.
+	const before = snapshot(p.root);
 	const commands = {
 		spawn: ["spawn", "--tab", "work"],
 		continue: ["continue", parent, "--tab"],
@@ -173,7 +151,7 @@ test("spawn, continue and group start refuse --tab with one removal line and lea
 		refused,
 		Object.keys(commands).map((command) => [command, true, `${tabRefusal(command)}\n`]),
 	);
-	assert.deepEqual(traces(), before);
+	assert.deepEqual(snapshot(p.root), before);
 });
 
 test("spawn --label --tab reads --tab as the label and starts the job", async (t) => {
@@ -187,7 +165,7 @@ test("spawn --label --tab reads --tab as the label and starts the job", async (t
 test("limen planning, highlight, ticket-author and wait refuse with one removal line each and leave .limen/ unchanged", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
-	const before = snapshot(join(p.root, ".limen"));
+	const before = snapshot(p.root);
 	const commands = [
 		["planning", ["planning", "private"]],
 		["highlight", ["highlight", "on"]],
@@ -202,13 +180,13 @@ test("limen planning, highlight, ticket-author and wait refuse with one removal 
 		refused,
 		commands.map(([name]) => [name, true, `${R006_REFUSALS[name]}\n`]),
 	);
-	assert.deepEqual(snapshot(join(p.root, ".limen")), before);
+	assert.deepEqual(snapshot(p.root), before);
 });
 
 test("limen ticket series refuses with one removal line, with or without names, and leaves .limen/ unchanged", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
-	const before = snapshot(join(p.root, ".limen"));
+	const before = snapshot(p.root);
 	for (const args of [
 		["ticket", "series"],
 		["ticket", "series", "a", "b"],
@@ -217,7 +195,7 @@ test("limen ticket series refuses with one removal line, with or without names, 
 		assert.notEqual(run.status, 0, args.join(" "));
 		assert.equal(outputText(run), `${R006_REFUSALS["ticket series"]}\n`, args.join(" "));
 	}
-	assert.deepEqual(snapshot(join(p.root, ".limen")), before);
+	assert.deepEqual(snapshot(p.root), before);
 });
 
 test("limen continue --review refuses a finished job with one removal line and leaves .limen/ unchanged", async (t) => {
@@ -225,10 +203,10 @@ test("limen continue --review refuses a finished job with one removal line and l
 	t.after(() => p.cleanup());
 	const parent = spawnJob(p, "commit");
 	await settled(p, parent);
-	const before = snapshot(join(p.root, ".limen"));
+	const before = snapshot(p.root);
 	const run = limen(p, ["continue", parent, "--review", "x"]);
 	assert.deepEqual([run.status !== 0, outputText(run)], [true, `${R006_REFUSALS["continue --review"]}\n`]);
-	assert.deepEqual(snapshot(join(p.root, ".limen")), before);
+	assert.deepEqual(snapshot(p.root), before);
 });
 
 test("continue --label --review reads --review as the label and continues the job in its own role", async (t) => {
@@ -246,7 +224,7 @@ test("continue --label --review reads --review as the label and continues the jo
 test("limen group status --json refuses with one removal line before a group id is read and leaves .limen/ unchanged", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
-	const before = snapshot(join(p.root, ".limen"));
+	const before = snapshot(p.root);
 	// Without a group id the lead's first word would be read as the id, so `--json` alone must refuse too.
 	for (const args of [
 		["group", "status", "--json"],
@@ -256,7 +234,7 @@ test("limen group status --json refuses with one removal line before a group id 
 		assert.notEqual(run.status, 0, args.join(" "));
 		assert.equal(outputText(run), `${R006_REFUSALS["group status --json"]}\n`, args.join(" "));
 	}
-	assert.deepEqual(snapshot(join(p.root, ".limen")), before);
+	assert.deepEqual(snapshot(p.root), before);
 });
 
 test("limen picture tick and limen picture watch refuse with one removal line, whatever words follow, and leave .limen/ and .git/hooks/ unchanged", async (t) => {
@@ -264,7 +242,7 @@ test("limen picture tick and limen picture watch refuse with one removal line, w
 	t.after(() => p.cleanup());
 	// `picture watch on` wrote its hook here; a Git without hook templates makes no such folder at init.
 	mkdirSync(join(p.root, ".git/hooks"), { recursive: true });
-	const state = () => [snapshot(join(p.root, ".limen")), snapshot(join(p.root, ".git/hooks"))];
+	const state = () => snapshot(p.root, [".git/hooks"]);
 	const before = state();
 	const commands = [
 		["picture tick", ["picture", "tick", ...ROUTE]],
@@ -287,7 +265,7 @@ test("picture build --out and picture serve --dir refuse with one removal line b
 	const p = await plant();
 	t.after(() => p.cleanup());
 	mkdirSync(join(p.root, ".git/hooks"), { recursive: true });
-	const state = () => [snapshot(join(p.root, ".limen")), snapshot(join(p.root, ".git/hooks")), readdirSync(p.root)];
+	const state = () => snapshot(p.root, [".git/hooks"]);
 	const before = state();
 	// The serve's `--dir` names a folder with no map, so a serve that read it would fail with another line.
 	const commands = [
@@ -324,15 +302,10 @@ test("resolvePreamble returns the project's own .agents/limen/picture.md, so a p
 test("spawn --role picture refuses with the removal line and leaves no job, worktree or branch", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
-	const traces = () => [
-		snapshot(join(p.root, ".limen")),
-		git(p.root, "worktree", "list", "--porcelain"),
-		git(p.root, "branch", "--list"),
-	];
-	const before = traces();
+	const before = snapshot(p.root);
 	const run = limen(p, ["spawn", "--role", "picture", ...ROUTE, "work"]);
 	assert.deepEqual([run.status !== 0, outputText(run)], [true, `${R007_REFUSALS["role picture"]}\n`]);
-	assert.deepEqual(traces(), before);
+	assert.deepEqual(snapshot(p.root), before);
 });
 
 test("continue refuses a job of the role picture once the project's own role file is gone, and leaves .limen/ unchanged", async (t) => {
@@ -345,10 +318,10 @@ test("continue refuses a job of the role picture once the project's own role fil
 	const parent = spawnJob(p, "commit", ["--role", "picture"]);
 	await settled(p, parent);
 	rmSync(role);
-	const before = snapshot(join(p.root, ".limen"));
+	const before = snapshot(p.root);
 	const run = limen(p, ["continue", parent, "x"]);
 	assert.deepEqual([run.status !== 0, outputText(run)], [true, `${R007_REFUSALS["role picture"]}\n`]);
-	assert.deepEqual(snapshot(join(p.root, ".limen")), before);
+	assert.deepEqual(snapshot(p.root), before);
 });
 
 test("resolvePreamble throws the removal line of the role scout in a project without .agents/limen/scout.md", async (t) => {
@@ -370,15 +343,10 @@ test("resolvePreamble returns the project's own .agents/limen/scout.md, so a pro
 test("spawn --role scout refuses with the removal line and leaves no job, worktree or branch", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
-	const traces = () => [
-		snapshot(join(p.root, ".limen")),
-		git(p.root, "worktree", "list", "--porcelain"),
-		git(p.root, "branch", "--list"),
-	];
-	const before = traces();
+	const before = snapshot(p.root);
 	const run = limen(p, ["spawn", "--role", "scout", ...ROUTE, "work"]);
 	assert.deepEqual([run.status !== 0, outputText(run)], [true, `${SCOUT_REFUSAL}\n`]);
-	assert.deepEqual(traces(), before);
+	assert.deepEqual(snapshot(p.root), before);
 });
 
 test("continue refuses a job of the role scout once the project's own role file is gone, and leaves .limen/ unchanged", async (t) => {
@@ -391,10 +359,10 @@ test("continue refuses a job of the role scout once the project's own role file 
 	const parent = spawnJob(p, "commit", ["--role", "scout"]);
 	await settled(p, parent);
 	rmSync(role);
-	const before = snapshot(join(p.root, ".limen"));
+	const before = snapshot(p.root);
 	const run = limen(p, ["continue", parent, "x"]);
 	assert.deepEqual([run.status !== 0, outputText(run)], [true, `${SCOUT_REFUSAL}\n`]);
-	assert.deepEqual(snapshot(join(p.root, ".limen")), before);
+	assert.deepEqual(snapshot(p.root), before);
 });
 
 test("/limen highlight on in a coordinator session notifies the removal line and leaves the wake mute state unchanged", async (t) => {

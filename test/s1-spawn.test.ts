@@ -1,6 +1,6 @@
 // S1 · Spawn, detached. A job gets its own worktree and branch from the base commit, the exact task bytes and an
 // engine environment without the caller's Herdr pane or Pi session; reading a running job leaves its index alone;
-// a workspace job works in one child repository; each refusal leaves no job, worktree or branch behind.
+// a workspace job works in one child repository; each refusal leaves the shared snapshot identical (T-38 (4)).
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { mkdir, rm, utimes, writeFile } from "node:fs/promises";
@@ -23,6 +23,7 @@ import {
 	TICKET,
 	waitJob,
 } from "./plant.ts";
+import { snapshot } from "./snapshot.ts";
 
 let p: Plant;
 before(async () => {
@@ -31,33 +32,28 @@ before(async () => {
 after(() => p.cleanup());
 
 const json = (path: string) => JSON.parse(readFileSync(path, "utf8"));
-// What a half-made job would leave: a job dir, a worktree, a branch.
-const traces = () => [
-	readdirSync(join(p.root, ".limen/jobs")),
-	git(p.root, "worktree", "list", "--porcelain"),
-	git(p.root, "branch", "--list"),
-];
 
-test("each spawn refusal exits 1, names its cause and leaves no job, worktree or branch", async (context) => {
+// The plant has no job yet, so the folder of job worktrees does not exist: a spawn that made it before its ticket
+// check (before R-092) changed the snapshot.
+test("each spawn refusal exits with its class's code, names its cause and its own code, and leaves the snapshot identical", async (context) => {
 	const draft = "spec/features/active/F002-draft/ticket.md";
 	await mkdir(join(p.root, "spec/features/active/F002-draft"));
 	context.after(() => rm(join(p.root, "spec/features/active/F002-draft"), { recursive: true }));
 	await writeFile(join(p.root, draft), "# F002 · Not committed yet\n");
-	const clean = traces();
-	const refusals: ReadonlyArray<readonly [readonly string[], string, Record<string, string>?]> = [
-		[[`Implement F002. Ticket: ${draft}`], draft],
-		[["--role", "coordinator", "work"], "coordinator"],
-		[["--engine", "claude", "work"], "--engine"],
-		[["--engine", "pi", "work"], "PATH", { PATH: "/usr/bin:/bin" }],
-		[["--engine", "pi", "--extension", "missing.ts", "work"], "missing.ts"],
-		[["--provider", "pi-claude", "--model", "claude-opus-5-5", "work"], "pi install"],
+	const clean = snapshot(p.root);
+	const refusals: ReadonlyArray<readonly [readonly string[], string, number, string, Record<string, string>?]> = [
+		[[`Implement F002. Ticket: ${draft}`], draft, 1, "TICKET_NOT_AT_BASE"],
+		[["--role", "coordinator", "work"], "coordinator", 1, "SPAWN_LEAD_ROLE"],
+		[["--engine", "claude", "work"], "--engine", 2, "BAD_ENGINE"],
+		[["--engine", "pi", "work"], "PATH", 4, "ENGINE_MISSING", { PATH: "/usr/bin:/bin" }],
+		[["--engine", "pi", "--extension", "missing.ts", "work"], "missing.ts", 2, "BAD_EXTENSION"],
+		[["--provider", "pi-claude", "--model", "claude-opus-5-5", "work"], "pi install", 4, "BRIDGE_MISSING"],
 	];
-	for (const [args, cause, env] of refusals) {
+	for (const [args, cause, status, code, env] of refusals) {
 		const run = limen(p, ["spawn", ...routed(args)], env ? { env } : {});
-		assert.equal(run.status, 1, args.join(" "));
+		assert.deepEqual([run.status, readOutcome(run).code, snapshot(p.root)], [status, code, clean], args.join(" "));
 		assert.ok(run.stderr.includes(cause), `${args.join(" ")}: ${run.stderr}`);
 	}
-	assert.deepEqual(traces(), clean);
 });
 
 test("a detached job runs in its own worktree from the base with the exact task and a clean engine environment", async () => {
@@ -77,7 +73,8 @@ test("a detached job runs in its own worktree from the base with the exact task 
 	// `show` below reads the picture's link to the spawner job, `spawnedBy`, alone.
 	await editRecord(dir, () => ({ spawner: null }));
 
-	// Plain `git status` on stale stat data rewrites the index under the worker's own `git add` (43c01cf).
+	// Plain `git status` on stale stat data rewrites the index under the worker's own `git add`.
+	// regression: 43c01cf
 	const index = join(git(tree, "rev-parse", "--absolute-git-dir"), "index");
 	await utimes(join(tree, "README.md"), new Date(0), new Date(0));
 	const bytes = readFileSync(index);

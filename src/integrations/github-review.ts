@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { jobFolders, readJobFile, readRecord } from "../job/record.ts";
+import { refused } from "../outcome.ts";
 
 /** The longest no-job answer that `github resolve` writes and the poller posts. */
 export const GITHUB_ANSWER_MAX = 1600;
@@ -23,13 +24,13 @@ export function originRepository(root: string, foreign = false): string {
 		{ cwd: root, encoding: "utf8" },
 	);
 	if (result.status !== 0) {
-		throw new Error("github connect requires an origin remote");
+		throw refused("GITHUB_ORIGIN", "github connect requires an origin remote");
 	}
 	const match = /^(?:https:\/\/github\.com\/|git@github\.com:)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?\/?$/.exec(
 		result.stdout.trim(),
 	);
 	if (!match) {
-		throw new Error("github connect requires a github.com origin (HTTPS or SSH)");
+		throw refused("GITHUB_ORIGIN", "github connect requires a github.com origin (HTTPS or SSH)");
 	}
 	return match[1] as string;
 }
@@ -38,7 +39,7 @@ export async function readBinding(root: string): Promise<GithubBinding | undefin
 	try {
 		const value = JSON.parse(await readFile(bindingPath(root), "utf8")) as GithubBinding;
 		if (!/^[\w.-]+\/[\w.-]+$/.test(value.repo) || !value.coordinator || !value.user || !value.connectedAt) {
-			throw new Error("invalid GitHub binding");
+			throw refused("GITHUB_BINDING", "invalid GitHub binding");
 		}
 		return value;
 	} catch (error) {
@@ -115,7 +116,11 @@ export async function matchedGithubJob(
 		const isWork =
 			!candidate && /^[0-9a-f]{40}$/.test(base ?? "") && role === "worker" && branch === githubBranch(claim);
 		if (!isReview && !isWork) {
-			throw new Error(`conflicting job ${id} for ${githubMarker(claim)}; inspect it before retrying`);
+			throw refused(
+				"GITHUB_CONFLICT",
+				`conflicting job ${id} for ${githubMarker(claim)}; inspect it before retrying`,
+				`limen show ${id}`,
+			);
 		}
 		return { id, branch: branch ?? "", state: record.state, review: isReview };
 	}

@@ -1,4 +1,5 @@
-// `limen ticket`: check refuses a failing ticket through the final line, and new takes its number under the lock.
+// `limen ticket`: check refuses a failing ticket through the final line, new takes its number under the lock, and done
+// closes a ticket with its board in one commit or refuses before anything moves (T-38).
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -7,6 +8,7 @@ import { test } from "node:test";
 import { lockPath, withLock } from "../../src/lock.ts";
 import { outputText, readOutcome } from "../final-line.ts";
 import { git, limen, type Plant, plant, TICKET } from "../plant.ts";
+import { snapshot } from "../snapshot.ts";
 
 const BAD = TICKET.replace("F001-demo", "F002-bad");
 
@@ -68,4 +70,77 @@ test("LOCK_TIMEOUT: ticket new exits 3 and writes no ticket while the ticket-num
 	const free = limen(p, ["ticket", "new", title], { env });
 	assert.equal(free.status, 0, free.stderr);
 	assert.deepEqual([readOutcome(free).ids, existsSync(folder)], [{ ticket: "F002" }, true]);
+});
+
+/** The lines of the board section `heading`, without the heading itself, up to the next section. */
+function section(board: string, heading: string): string[] {
+	const lines = board.split("\n");
+	const start = lines.indexOf(`## ${heading}`);
+	const end = lines.findIndex((line, index) => index > start && line.startsWith("## "));
+	return lines.slice(start + 1, end < 0 ? undefined : end).filter((line) => line.trim() !== "");
+}
+
+// Gate 2 §6: a close leaves the board true. NOW drops the ticket and PROVEN names it with its date and its month.
+test("ticket done moves the ticket to its month with its landed date and commits it with a board whose NOW and PROVEN follow", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const board = join(p.root, "spec/build.md");
+	const run = limen(p, ["ticket", "done", "F001", "--on", "2026-11-21"]);
+	assert.equal(run.status, 0, run.stderr);
+	const done = "spec/features/done/2026-11/F001-demo/ticket.md";
+	const text = await readFile(board, "utf8");
+	assert.deepEqual(
+		[section(text, "NOW").some((line) => line.includes("F001")), section(text, "PROVEN").slice(1)],
+		[
+			false,
+			[
+				"- `F001-demo` (🟢 PROVEN): The demo plant has one ticket; landed 2026-11-21",
+				"- 2026-11: 1 landed. spec/features/done/2026-11/",
+			],
+		],
+	);
+	assert.match(await readFile(join(p.root, done), "utf8"), /^---\n[\s\S]*\nlanded: 2026-11-21\n---\n/);
+	assert.deepEqual(
+		[git(p.root, "log", "-1", "--format=%s"), git(p.root, "status", "--porcelain"), existsSync(join(p.root, TICKET))],
+		["Close F001: landed 2026-11-21", "", false],
+	);
+});
+
+// Before R-092 ticket done moved and committed the tickets it found before it refused the number with none (D-061).
+test("NO_ACTIVE_TICKET: ticket done of an active ticket and a number with none exits 1 and moves nothing", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const before = snapshot(p.root);
+	const run = limen(p, ["ticket", "done", "F001", "F999"]);
+	assert.deepEqual(
+		[run.status, readOutcome(run), snapshot(p.root)],
+		[1, { class: "refused", code: "NO_ACTIVE_TICKET", next: null }, before],
+		run.stderr,
+	);
+	assert.match(outputText(run), /no active ticket for F999/);
+});
+
+test("TICKETS_UNCOMMITTED: ticket done of a ticket whose folder has uncommitted changes exits 1 and moves nothing", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	await writeFile(join(p.root, dirname(TICKET), "notes.md"), "a note in progress\n");
+	const before = snapshot(p.root);
+	const run = limen(p, ["ticket", "done", "F001"]);
+	assert.deepEqual(
+		[run.status, readOutcome(run), snapshot(p.root)],
+		[1, { class: "refused", code: "TICKETS_UNCOMMITTED", next: "limen ticket done F001" }, before],
+		run.stderr,
+	);
+});
+
+test("BAD_DATE: ticket done with --on not in the form YYYY-MM-DD exits 2 and moves nothing", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const before = snapshot(p.root);
+	const run = limen(p, ["ticket", "done", "F001", "--on", "21.11.2026"]);
+	assert.deepEqual(
+		[run.status, readOutcome(run), snapshot(p.root)],
+		[2, { class: "usage", code: "BAD_DATE", next: null }, before],
+		run.stderr,
+	);
 });

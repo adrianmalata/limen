@@ -1,3 +1,4 @@
+import { operationHandler } from "../operation.ts";
 import type { CommandText, Success } from "../outcome.ts";
 import type { Parsed } from "../parser.ts";
 import { checkBranchTickets } from "../project/ticket-check.ts";
@@ -13,10 +14,17 @@ export function ticketNewCommand(values: Parsed, cwd: string): Promise<Success> 
 	return newTicket(request, cwd);
 }
 
-/** `limen ticket done`: the close `limen land` makes, for work that landed by a hand merge or needed no code. */
-export async function ticketDoneCommand(values: Parsed, cwd: string, out: CommandText): Promise<undefined> {
-	await closeDoneTickets(values.list("tickets"), values.get("on"), cwd, out);
-}
+/**
+ * `limen ticket done`: the close `limen land` makes, for work that landed by a hand merge or needed no code, through
+ * the runner of T-38.
+ */
+export const ticketDoneCommand = operationHandler(async function ticketDoneCommand(
+	values: Parsed,
+	cwd: string,
+	out: CommandText,
+): Promise<undefined> {
+	await closeDoneTickets(values.list("tickets"), values.get("on"), cwd, out, values.commandLine());
+});
 
 /** `limen ticket check`: the land gate on demand, for the tickets a branch changes. */
 export async function ticketCheckCommand(values: Parsed, cwd: string, out: CommandText): Promise<undefined> {

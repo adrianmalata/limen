@@ -23,12 +23,8 @@ export async function readPicture(dir: string, root?: string): Promise<PictureMo
 	});
 }
 
-/** The model of the map in `dir` with the tickets and board of `root`; written to `json` only when that is given. */
-export async function buildPicture(dir: string, json: string | undefined, root: string): Promise<PictureModel> {
-	const model = await readPicture(dir, root);
-	if (json !== undefined) {
-		await mkdir(dirname(json), { recursive: true });
-		await atomicWrite(json, `${JSON.stringify(model, null, 2)}\n`);
-	}
-	return model;
+/** Writes `model` to the file `json`, whole or not at all (src/atomic-write.ts), with its folder. */
+export async function writePictureModel(json: string, model: PictureModel): Promise<void> {
+	await mkdir(dirname(json), { recursive: true });
+	await atomicWrite(json, `${JSON.stringify(model, null, 2)}\n`);
 }

@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { atomicRename, atomicWrite } from "../atomic-write.ts";
+import { refused } from "../outcome.ts";
 import { readTickets, type TicketRecord } from "../picture/tickets.ts";
 import { commitPaths, dirtyPaths, isGitRepository } from "./git.ts";
 import { ARCHIVE, type ArchiveRow, archiveRows } from "./series.ts";
@@ -94,35 +95,61 @@ export async function writeBoard(root: string): Promise<boolean> {
 	return true;
 }
 
+/** A close of active tickets as its checks decided it, before anything moves (T-38 (1)). */
+export type TicketClose = {
+	readonly root: string;
+	/** The active tickets the codes name, in the order of the lane. */
+	readonly tickets: readonly TicketRecord[];
+	/** Whether the project is a Git repository, where the close is one commit. */
+	readonly committed: boolean;
+	readonly reason: string;
+	readonly today: string;
+};
+
 /**
- * Moves each named active ticket to `done/<month>/` with a `landed` date and rebuilds the board. In a Git repository
- * the move and the board are one commit, `Close FNNN: <reason>`; a board or ticket another session is editing stops the
- * close before anything moves.
+ * The close of each named active ticket, decided and not yet made: the tickets, and a refusal when the board or one of
+ * their folders has uncommitted changes, since another session is editing it. It writes nothing.
  */
-export async function closeTickets(
+export async function planTicketClose(
 	root: string,
 	codes: readonly string[],
 	reason: string,
 	today = localDate(),
-): Promise<{ readonly moved: readonly string[]; readonly commit?: string }> {
+): Promise<TicketClose> {
 	const wanted = new Set(codes.map((code) => code.toUpperCase()));
 	const tickets = (await readTickets(root)).tickets.filter(
 		(ticket) => ticket.lane === "active" && wanted.has(ticket.code.toUpperCase()),
 	);
-	if (tickets.length === 0) {
-		return { moved: [] };
-	}
-	const committed = isGitRepository(root);
-	const folders = tickets.map((ticket) => dirname(ticket.path));
+	const committed = tickets.length > 0 && isGitRepository(root);
 	if (committed) {
+		const folders = tickets.map((ticket) => dirname(ticket.path));
 		const busy = dirtyPaths(root).paths.filter(
 			(path) => path === BOARD || folders.some((from) => path.startsWith(`${from}/`)),
 		);
 		if (busy.length) {
 			const named = tickets.map((ticket) => ticket.code).join(" ");
-			throw new Error(`uncommitted changes in ${busy.join(", ")}; commit them, then run limen ticket done ${named}`);
+			throw refused(
+				"TICKETS_UNCOMMITTED",
+				`uncommitted changes in ${busy.join(", ")}; commit them, then run limen ticket done ${named}`,
+				`limen ticket done ${named}`,
+			);
 		}
 	}
+	return { root, tickets, committed, reason, today };
+}
+
+/**
+ * The writes of `close`: each folder to `done/<month>/` with a `landed` date, then the board. In a Git repository the
+ * moves and the board are one commit, `Close FNNN: <reason>`. Returns the folders it moved and the commit.
+ */
+export async function applyTicketClose(
+	close: TicketClose,
+): Promise<{ readonly moved: readonly string[]; readonly commit?: string }> {
+	const { root, tickets, today } = close;
+	if (tickets.length === 0) {
+		return { moved: [] };
+	}
+	const folders = tickets.map((ticket) => dirname(ticket.path));
 	const moved: string[] = [];
 	for (const from of folders) {
 		const to = `spec/features/done/${today.slice(0, 7)}/${basename(from)}`;
@@ -133,11 +160,24 @@ export async function closeTickets(
 		moved.push(to);
 	}
 	const board = (await writeBoard(root)) ? [BOARD] : [];
-	if (!committed) {
+	if (!close.committed) {
 		return { moved };
 	}
-	const message = `Close ${tickets.map((ticket) => ticket.code).join(", ")}: ${reason}`;
+	const message = `Close ${tickets.map((ticket) => ticket.code).join(", ")}: ${close.reason}`;
 	return { moved, commit: commitPaths(root, [...folders, ...moved, ...board], message) };
+}
+
+/**
+ * Moves each named active ticket to `done/<month>/` with a `landed` date and rebuilds the board, as `limen land`
+ * closes its tickets: `planTicketClose`, then `applyTicketClose`.
+ */
+export async function closeTickets(
+	root: string,
+	codes: readonly string[],
+	reason: string,
+	today = localDate(),
+): Promise<{ readonly moved: readonly string[]; readonly commit?: string }> {
+	return applyTicketClose(await planTicketClose(root, codes, reason, today));
 }
 
 function replaceSection(text: string, heading: string, body: readonly string[], before: readonly string[]): string {

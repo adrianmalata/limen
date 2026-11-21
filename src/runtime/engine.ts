@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { exception } from "../config.ts";
 import type { JobRecord } from "../job/record.ts";
 import { refuseRemovedEngine } from "../old-names.ts";
+import { environmentError, refused, usageError } from "../outcome.ts";
 
 export type EngineId = "pi";
 export type EngineProfile = {
@@ -42,7 +43,7 @@ export function engineProfile(id: string): EngineProfile {
 		return ENGINES[id];
 	}
 	refuseRemovedEngine(id, "record");
-	throw new Error(`unknown engine ${id}`);
+	throw refused("ENGINE_UNKNOWN", `unknown engine ${id}`);
 }
 /**
  * The engine a command line names; a removed one is a usage error with its line (exit code 2, T-18). Spawn requires
@@ -54,7 +55,7 @@ export function resolveSpawnEngine(flag: string): EngineProfile {
 		return ENGINES[raw];
 	}
 	refuseRemovedEngine(raw, "argument");
-	throw new Error("--engine must be pi");
+	throw usageError("BAD_ENGINE", "--engine must be pi");
 }
 /** The engine of the job's recorded route; a record without one ran on pi. */
 export function jobProfile(record: JobRecord | undefined): EngineProfile {
@@ -74,12 +75,13 @@ export function defaultModel(): string {
 export function preflightEngine(profile: EngineProfile, model?: string, provider?: string): void {
 	const route = engineRoute(provider, model);
 	if (route.bridged && !bridgePath()) {
-		throw new Error(
+		throw environmentError(
+			"BRIDGE_MISSING",
 			`--model ${route.model} needs a pi-claude-bridge package (pi install) under ~/.pi/agent/npm, which is missing`,
 		);
 	}
 	if (!(process.env.PATH ?? "").split(":").some((dir) => dir && existsSync(`${dir}/${profile.binary}`))) {
-		throw new Error(`${profile.binary} is not on PATH; install it`);
+		throw environmentError("ENGINE_MISSING", `${profile.binary} is not on PATH; install it`);
 	}
 }
 

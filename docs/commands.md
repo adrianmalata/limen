@@ -13,13 +13,15 @@ Every command ends with one line of JSON, its final line, after the text for peo
 | Exit code | `class` | Meaning |
 |---|---|---|
 | 0 | `ok` | success, also "nothing to do"; `group wait` at its time limit, with the same call in `next` |
-| 1 | `refused` | a condition that Limen checks is not met; a removed engine or role that a job record names (`REMOVED`) |
-| 2 | `usage` | an unknown command (`UNKNOWN_COMMAND`); words that the shared parser refuses (`BAD_ARGUMENT`): an unknown flag, a flag without its value or given twice, a missing required flag, a missing or an extra argument; a removed command, flag, engine or role on the command line (`REMOVED`) |
-| 3 | `transient` | safe to retry: `github poll` after a failed request, HTTP 429, a 5xx, or a 403 that is a rate limit (`x-ratelimit-remaining: 0` or a `retry-after` header), with `limen github poll` in `next` and, when GitHub gives one, the time of a retry on the project's line (from `retry-after`, else from `x-ratelimit-reset` when no request remains); a lock still held after its 60-second wait (`LOCK_TIMEOUT`), whose message names the lock file and its owner |
-| 4 | `environment` | `github poll` with a missing or invalid setting, projects file or credential, HTTP 401 or any other 403; a Node.js older than 24; a lock that something outside Limen removed or replaced while a command held it (`LOCK_LOST`) |
+| 1 | `refused` | a condition that Limen checks is not met, each with its own code, such as `TICKET_NOT_AT_BASE`, `BRANCH_LIVE_JOB` or `NO_ACTIVE_TICKET`; a removed engine or role that a job record names (`REMOVED`) |
+| 2 | `usage` | an unknown command (`UNKNOWN_COMMAND`); words that the shared parser refuses (`BAD_ARGUMENT`): an unknown flag, a flag without its value or given twice, a missing required flag, a missing or an extra argument; a removed command, flag, engine or role on the command line (`REMOVED`); a value a command cannot take, each with its own code, such as `BAD_ENGINE`, `BAD_DURATION` or `REVIEW_NEEDS_BRANCH` |
+| 3 | `transient` | safe to retry: `github poll` after a failed request, HTTP 429, a 5xx, or a 403 that is a rate limit (`x-ratelimit-remaining: 0` or a `retry-after` header), with `limen github poll` in `next` and, when GitHub gives one, the time of a retry on the project's line (from `retry-after`, else from `x-ratelimit-reset` when no request remains); a lock still held after its 60-second wait (`LOCK_TIMEOUT`), whose message names the lock file and its owner; a fact a command checked that another process changed before the command's first write (`STATE_CHANGED`); a group start that started only part of its roster (`GROUP_PARTIAL_START`) and a group stop that could not confirm every member stopped (`GROUP_STOP_INCOMPLETE`), each with the same command in `next` |
+| 4 | `environment` | `github poll` with a missing or invalid setting, projects file or credential, HTTP 401 or any other 403; a Node.js older than 24; an engine or its bridge package that spawn does not find (`ENGINE_MISSING`, `BRIDGE_MISSING`); a git call that fails (`GIT_FAILED`); a `PI_SESSION_ID` or `HERDR_PANE_ID` that is not safe to route a wake by (`UNSAFE_PI_SESSION_ID`, `UNSAFE_HERDR_PANE_ID`); a lock that something outside Limen removed or replaced while a command held it (`LOCK_LOST`) |
 | 5 | `internal` | an unexpected exception, whose stack comes before the final line; a command that returns an `ids` key its registry entry does not declare (`UNDECLARED_IDS`) |
 
-A failure that has no class of its own, a missing tool such as git among them, exits 1 with the code `UNTYPED`.
+A failure that has no class of its own exits 1 with the code `UNTYPED`.
+
+Nine change commands share one shape (`src/operation.ts`): `spawn`, `continue`, `stop`, `ticket done`, `picture build`, `group start`, `group stop`, `github review` and `github work`. Each makes all its checks before it writes anything, so a refusal (1) or a usage error (2) leaves the project as it was. A read of its checks that the file system fails is the environment's failure (`CHECK_FAILED`, exit 4), never `UNTYPED`. Before its first write it reads again, under a lock, the facts its checks relied on; when another process changed one in between, it writes nothing and exits 3 with `STATE_CHANGED`, with the same command in `next`, and running it again checks anew. A failure after its first write is never a refusal: it exits 3, 4 (git or the file system failed, `STEP_FAILED`) or 5 (`REFUSED_AFTER_VALIDATE`, a check that belongs before the first write). The other change commands move to this shape in later tickets.
 
 The line has the fields `class`, `code` and `next` in this order, then `ids` when the command names what it created:
 
@@ -236,7 +238,7 @@ limen ticket done FNNN [FNNN ...] [--on YYYY-MM-DD]
 limen board [--write]
 ```
 
-NOW and PROVEN in `spec/build.md` are generated from the feature lanes: NOW lists `active/`, PROVEN the last ten landed tickets and one count line per month folder. An archived done ticket counts in PROVEN by its close month, and a month line names `spec/features/archive.tsv` when the register holds some of that month's tickets. TRACK, NEXT, PARKED and DROPPED stay as the coordinator wrote them. `limen board` prints the board with each active ticket's running job, or its last job when none runs: failed, done but not landed, or landed. It lists running jobs that name no active ticket below NOW. `--write` rewrites NOW and PROVEN in the file.
+`ticket done` refuses before any folder moves: a number with no active ticket (`NO_ACTIVE_TICKET`), or a ticket folder or the board with uncommitted changes (`TICKETS_UNCOMMITTED`). NOW and PROVEN in `spec/build.md` are generated from the feature lanes: NOW lists `active/`, PROVEN the last ten landed tickets and one count line per month folder. An archived done ticket counts in PROVEN by its close month, and a month line names `spec/features/archive.tsv` when the register holds some of that month's tickets. TRACK, NEXT, PARKED and DROPPED stay as the coordinator wrote them. `limen board` prints the board with each active ticket's running job, or its last job when none runs: failed, done but not landed, or landed. It lists running jobs that name no active ticket below NOW. `--write` rewrites NOW and PROVEN in the file.
 
 **Ticket numbers.** `limen ticket new` takes one more than the highest F number in use. A number is in use when one of these names it: a ticket folder in any lane (`spec/features/<lane>/` or `spec/features/<lane>/<month>/`, `cancelled/` included), a row of `spec/features/archive.tsv`, a local `limen/*` branch, or a job label.
 
@@ -262,6 +264,8 @@ Check the architecture map with its tickets and board, or serve this project's j
 limen picture build [--dir D] [--json F] [--strict]
 limen picture serve [--port N]
 ```
+
+A build that `--strict` refuses writes no `--json` file.
 
 ### Team groups
 

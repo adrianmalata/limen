@@ -8,7 +8,7 @@
 // and `.limen/unmigrated/` (D-061, until R-031 adds the archive).
 import { join } from "node:path";
 import { transport } from "../config.ts";
-import { withLock } from "../lock.ts";
+import { type Guarded, withLock } from "../lock.ts";
 import { LimenError } from "../outcome.ts";
 import type { Parsed } from "../parser.ts";
 import { limenRoot } from "../project/git.ts";
@@ -74,9 +74,37 @@ export async function resolveJob(
 }
 
 /**
- * Names a new job of the project at `root`: draws its token until no folder of `.limen/jobs/` or `.limen/unmigrated/`
- * ends in it, then runs `create` with the id, which must make the job's folder. The lock is held until `create`
- * returns, so two jobs never take the same token. `draw` is the tests' source of tokens; Limen's callers never pass it.
+ * The lock under which a new job of the project at `root` gets its token and its folder (T-20 (1)). Spawn and continue
+ * hold it as the lock of their operation's `apply` (src/operation.ts), so their re-check and their publication share it.
+ */
+export function jobsLock(root: string): Guarded {
+	return { file: join(root, ".limen", "jobs") };
+}
+
+/**
+ * Names a new job of the project at `root` for a caller that holds `jobsLock(root)` until the job's folder exists: draws
+ * its token until no folder of `.limen/jobs/` or `.limen/unmigrated/` ends in it. `draw` is the tests' source of tokens;
+ * Limen's callers never pass it.
+ */
+export async function newJobId(
+	root: string,
+	label: string,
+	options: { readonly draw?: () => string } = {},
+): Promise<string> {
+	const jobs = join(root, ".limen", "jobs");
+	const names = [...(await jobFolderNames(jobs)), ...(await jobFolderNames(join(root, ".limen", "unmigrated")))];
+	const taken = new Set(names.flatMap((name) => tokenOf(name) ?? []));
+	const draw = options.draw ?? jobToken;
+	let token = draw();
+	while (taken.has(token)) {
+		token = draw();
+	}
+	return makeJobId(label, token);
+}
+
+/**
+ * Names a new job of the project at `root` under `jobsLock(root)` and runs `create` with the id, which must make the
+ * job's folder before the lock is released, so two jobs never take the same token.
  */
 export async function withNewJobId<T>(
 	root: string,
@@ -84,17 +112,7 @@ export async function withNewJobId<T>(
 	create: (id: string) => Promise<T>,
 	options: { readonly draw?: () => string } = {},
 ): Promise<T> {
-	const jobs = join(root, ".limen", "jobs");
-	return withLock({ file: jobs }, async () => {
-		const names = [...(await jobFolderNames(jobs)), ...(await jobFolderNames(join(root, ".limen", "unmigrated")))];
-		const taken = new Set(names.flatMap((name) => tokenOf(name) ?? []));
-		const draw = options.draw ?? jobToken;
-		let token = draw();
-		while (taken.has(token)) {
-			token = draw();
-		}
-		return create(makeJobId(label, token));
-	});
+	return withLock(jobsLock(root), async () => create(await newJobId(root, label, options)));
 }
 
 /** The usage error for `word`, which names no job exactly, with the jobs an approximate match would have found. */

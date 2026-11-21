@@ -1,10 +1,15 @@
 import { startContinue } from "../job/continuation.ts";
 import { jobArgument } from "../job/reference.ts";
+import { operationHandler } from "../operation.ts";
 import type { CommandText, Success } from "../outcome.ts";
 import type { Parsed } from "../parser.ts";
 
-/** `limen continue`: resumes a finished job from the command line. */
-export function continueCommand(values: Parsed, cwd: string, out: CommandText): Promise<Success> {
+/** `limen continue`: resumes a finished job from the command line, through the runner of T-38. */
+export const continueCommand = operationHandler(function continueCommand(
+	values: Parsed,
+	cwd: string,
+	out: CommandText,
+): Promise<Success> {
 	return startContinue(
 		{
 			query: jobArgument(values),
@@ -20,5 +25,7 @@ export function continueCommand(values: Parsed, cwd: string, out: CommandText): 
 		},
 		cwd,
 		out,
+		undefined,
+		values.commandLine(),
 	);
-}
+});

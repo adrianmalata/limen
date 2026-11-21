@@ -1,10 +1,13 @@
 // The continuation of a finished job in its own session and worktree (T-26 (2)): `limen continue` and the group round
-// driver start one through `startContinue`. Its text goes to `out`, which the shared wrapper prints at the end.
+// driver start one through `startContinue`. It is an operation of T-38 (src/operation.ts), as a spawn is: its validate
+// makes every check, its apply names and publishes the job under the jobs lock after the re-check, and the restored
+// worktree and the wrapper follow. Its text goes to `out`, which the shared wrapper prints at the end.
 import { existsSync } from "node:fs";
 import { readdir, rm } from "node:fs/promises";
 import type { TransportName } from "../config.ts";
 import { openWatchTab } from "../integrations/herdr.ts";
-import { type CommandText, JOB_STARTED, type Success } from "../outcome.ts";
+import { type Checked, cleanedUp, type StateView, stepFailure, validated } from "../operation.ts";
+import { type CommandText, JOB_STARTED, refused, type Success, usageError } from "../outcome.ts";
 import {
 	addBranchWorktree,
 	branchCommit,
@@ -37,13 +40,15 @@ import {
 	groupLock,
 	groupPath,
 	jobMembership,
+	memberSlotProblem,
+	readRun,
 	teamRoute,
 } from "./group-cabinet.ts";
 import { syncLifecycle } from "./group-events.ts";
 import { isTerminal, parseDuration } from "./job.ts";
 import { publishJob } from "./publication.ts";
-import { type JobRecord, jobFolders, readRecord } from "./record.ts";
-import { type JobReference, referenceWord, resolveJob, withNewJobId } from "./reference.ts";
+import { type JobRecord, readRecord } from "./record.ts";
+import { type JobReference, jobsLock, newJobId, referenceWord, resolveJob } from "./reference.ts";
 import { normalizeLabel, recordVersions, resolvePreamble, waitForHandshake } from "./spawning.ts";
 import { currentNotificationSession, herdrWakePane } from "./watching.ts";
 
@@ -72,8 +77,26 @@ export async function startContinue(
 	cwd: string,
 	out: CommandText,
 	round?: number,
+	again: string | null = null,
 ): Promise<Success> {
-	const id = await continueJob(request, cwd, out, round !== undefined, round);
+	const checked = await validated({
+		validate: (view: StateView) => validateContinue(view, request, cwd, out, round),
+		lock: (plan: ContinuePlan) => jobsLock(plan.root),
+		apply: publishContinue,
+		again,
+	});
+	const { membership } = checked.plan;
+	// A worker's continuation takes the group's launch lock, which a group stop waits for; the round driver holds it.
+	let id: string;
+	try {
+		id =
+			membership && round === undefined
+				? await groupLock(`${groupPath(membership.run)}/launch`, () => launchContinued(checked), "wait")
+				: await launchContinued(checked);
+	} catch (error) {
+		// After validate every failure is a step's (T-38 (3)): the launch lock's file is a write too.
+		throw stepFailure(error);
+	}
 	return { next: null, ids: { job: id }, text: JOB_STARTED };
 }
 type ContinueOptions = {
@@ -93,7 +116,7 @@ function continueOptions(request: ContinueRequest): ContinueOptions {
 	const label = request.label === undefined ? undefined : normalizeLabel(request.label);
 	const instruction = request.instruction.join(" ").trim();
 	if (!referenceWord(request.query) || !instruction) {
-		throw new Error('continue requires <id|token> "follow-up instruction"');
+		throw usageError("NO_INSTRUCTION", 'continue requires <id|token> "follow-up instruction"');
 	}
 	return {
 		label,
@@ -134,6 +157,7 @@ type ContinuationRecord = {
 	readonly priority: number;
 	readonly membership: GroupIdentity | undefined;
 	readonly group: ContinuationGroup | undefined;
+	readonly route: WakeRouting;
 };
 /** A published continuation, ready to start as a detached wrapper. */
 type Continuation = {
@@ -152,16 +176,44 @@ type Continuation = {
 	readonly group: ContinuationGroup | undefined;
 	readonly timeoutMs: number | undefined;
 };
-/** Publishes and starts the continuation; returns its job id. */
-async function continueJob(
+/** What continue's validate decided (T-38 (1)): every input of its apply, checked. */
+type ContinuePlan = {
+	readonly root: string;
+	readonly out: CommandText;
+	readonly options: ContinueOptions;
+	readonly parent: ParentJob;
+	readonly membership: GroupIdentity | undefined;
+	readonly round: number | undefined;
+	readonly profile: EngineProfile;
+	readonly model: string;
+	readonly extensions: readonly string[];
+	readonly label: string;
+	readonly role: string;
+	readonly preamble: string;
+	readonly repository: string;
+	readonly route: WakeRouting;
+};
+/**
+ * Where the continuation's finish is reported, read in validate (T-38 (1)): an unsafe `PI_SESSION_ID` or
+ * `HERDR_PANE_ID` refuses before any write, a group member's slot included.
+ */
+type WakeRouting = {
+	readonly notificationSession: string | undefined;
+	readonly coordinatorTab: string;
+	readonly coordinatorPane: string | undefined;
+};
+/** What continue's apply published: the job's id and folder, and its place in a group. */
+type ContinuedRecord = { readonly id: string; readonly jobDir: string; readonly group: ContinuationGroup | undefined };
+/** Every check of a continuation, in the order the author's continue made them; it writes nothing (T-38 (1)). */
+async function validateContinue(
+	view: StateView,
 	request: ContinueRequest,
 	cwd: string,
 	out: CommandText,
-	locked = false,
-	round?: number,
-): Promise<string> {
+	round: number | undefined,
+): Promise<ContinuePlan> {
 	const options = continueOptions(request);
-	const { label, model, provider, thinking } = options;
+	const { label, model, provider } = options;
 	const chosenModel = model ?? defaultModel();
 
 	// A job that continues from its own worktree resolves jobs in its canonical root.
@@ -171,11 +223,8 @@ async function continueJob(
 	const membership = await jobMembership(parentDir);
 	if (membership) {
 		await checkGroupContinuation(membership, cwd, options, round);
-		if (!locked) {
-			return groupLock(`${groupPath(membership.run)}/launch`, () => continueJob(request, cwd, out, true), "wait");
-		}
 	}
-	const parent = await readParentJob(root, parentId, parentDir, membership, options.engine);
+	const parent = await readParentJob(view, root, parentId, parentDir, membership, options.engine);
 	const profile = engineProfile(parent.engine);
 	const extensions = await continuationExtensions(parent, membership, options.selected, cwd);
 	preflightEngine(profile, chosenModel, provider);
@@ -183,56 +232,121 @@ async function continueJob(
 	const role = parent.record.role || "worker";
 	const preamble = resolvePreamble(root, role, "record");
 	const repository = parent.repo ? workspaceRepository(root, parent.repo) : root;
-	// The new token stays unique while its lock is held, until publication has made the job's folder (T-20 (1)).
-	const { id, jobDir, group } = await withNewJobId(root, finalLabel, async (id) => {
-		const jobDir = `${root}/.limen/jobs/${id}`;
-		const slot = round === undefined ? "worker" : "coordinator";
-		const member = membership?.member
-			? await claimMember(membership.run, membership.member.team, slot, id, parentId, round)
-			: undefined;
+	await view.hold(`the worktree ${parent.worktree} or branch ${parent.branch} of job ${parentId}`, () => {
 		if (!existsSync(parent.worktree) && !branchExists(repository, parent.branch)) {
-			throw new Error(
+			throw refused(
+				"JOB_TREE_GONE",
 				`parent worktree ${parent.worktree} is gone and branch ${parent.branch} is missing in ${repository}; restore that branch before continuing`,
 			);
 		}
-		const group =
-			membership && member ? { id: membership.run.id, team: member.team, deadline: member.deadline } : undefined;
-		await publishContinuation({
-			jobDir,
-			parent,
-			repository,
-			task: options.instruction,
-			label: finalLabel,
-			role,
-			engine: profile.id,
-			model: chosenModel,
-			provider,
-			thinking,
-			extensions,
-			// A continuation keeps its parent's place in the start-queue order unless it names its own.
-			priority: options.priority ?? jobPriority(parent.record),
-			membership,
-			group,
-		});
-		return { id, jobDir, group };
+		return "present";
 	});
-	await restoreParentWorktree(jobDir, repository, parent.worktree, parent.branch, out);
+	if (membership?.member) {
+		const { run, member } = membership;
+		const slot = round === undefined ? "worker" : "coordinator";
+		await view.hold(`the launch slots of group ${run.feature} (${run.id})`, async () => {
+			const problem = memberSlotProblem(await readRun(run.root, run.id), member.team, slot, round);
+			if (problem) {
+				throw problem;
+			}
+			return "free";
+		});
+	}
+	return {
+		root,
+		out,
+		options,
+		parent,
+		membership,
+		round,
+		profile,
+		model: chosenModel,
+		extensions,
+		label: finalLabel,
+		role,
+		preamble,
+		repository,
+		route: wakeRouting(parent, membership),
+	};
+}
+/**
+ * The continuation's wake route. A continuation started from a shell with no wake route (a remote executor, a plain
+ * terminal) keeps the parent's coordinator; otherwise its finish reaches nobody.
+ */
+function wakeRouting(parent: ParentJob, membership: GroupIdentity | undefined): WakeRouting {
+	const callerSession = currentNotificationSession();
+	const callerPane = herdrWakePane(membership ? undefined : callerSession);
+	const routed = Boolean(callerSession || callerPane);
+	const { origin } = parent.record;
+	const coordinatorTab = process.env.HERDR_TAB_ID?.trim() || (routed ? "" : (origin.tab ?? ""));
+	const coordinatorPane = routed ? callerPane : (origin.pane ?? "");
+	const notificationSession = routed ? callerSession : coordinatorPane ? undefined : origin.session || undefined;
+	return { notificationSession, coordinatorTab, coordinatorPane };
+}
+/**
+ * The apply of a continuation, under the jobs lock after the re-check (T-38 (2)): the job's id, its member slot in a
+ * group, then the published record.
+ */
+async function publishContinue(plan: ContinuePlan): Promise<ContinuedRecord> {
+	const { root, parent, membership, round } = plan;
+	// The new token stays unique while the jobs lock is held, until publication has made the job's folder (T-20 (1)).
+	const id = await newJobId(root, plan.label);
+	const jobDir = `${root}/.limen/jobs/${id}`;
+	const slot = round === undefined ? "worker" : "coordinator";
+	const member = membership?.member
+		? await claimMember(membership.run, membership.member.team, slot, id, parent.id, round)
+		: undefined;
+	const group =
+		membership && member ? { id: membership.run.id, team: member.team, deadline: member.deadline } : undefined;
+	await publishContinuation({
+		jobDir,
+		parent,
+		repository: plan.repository,
+		task: plan.options.instruction,
+		label: plan.label,
+		role: plan.role,
+		engine: plan.profile.id,
+		model: plan.model,
+		provider: plan.options.provider,
+		thinking: plan.options.thinking,
+		extensions: plan.extensions,
+		// A continuation keeps its parent's place in the start-queue order unless it names its own.
+		priority: plan.options.priority ?? jobPriority(parent.record),
+		membership,
+		group,
+		route: plan.route,
+	});
+	return { id, jobDir, group };
+}
+/** The steps after continue's apply: the parent's worktree restored when a prune took it, then the wrapper. */
+async function launchContinued(checked: Checked<ContinuePlan, ContinuedRecord>): Promise<string> {
+	const { plan } = checked;
+	const record = await checked.apply();
+	try {
+		return await startContinued(plan, record);
+	} catch (error) {
+		throw stepFailure(error);
+	}
+}
+/** The restored worktree and the wrapper of a published continuation; returns its job id. */
+async function startContinued(plan: ContinuePlan, { id, jobDir, group }: ContinuedRecord): Promise<string> {
+	await restoreParentWorktree(jobDir, plan.repository, plan.parent.worktree, plan.parent.branch, plan.out);
 	const continuation = {
 		id,
 		jobDir,
-		root,
-		worktree: parent.worktree,
-		label: finalLabel,
-		preamble,
-		role,
-		parentId,
-		model: chosenModel,
-		provider,
-		thinking,
+		root: plan.root,
+		worktree: plan.parent.worktree,
+		label: plan.label,
+		preamble: plan.preamble,
+		role: plan.role,
+		parentId: plan.parent.id,
+		model: plan.model,
+		provider: plan.options.provider,
+		thinking: plan.options.thinking,
 		group,
-		timeoutMs: options.timeoutMs,
+		timeoutMs: plan.options.timeoutMs,
 	};
-	await launchContinuation(continuation, profile, membership?.run, out);
+	await launchContinuation(continuation, plan.profile, plan.membership?.run, plan.out);
 	return id;
 }
 /** Starts the published job as a detached wrapper, which moves it to running (src/runtime/wrapper.ts). */
@@ -253,12 +367,13 @@ async function checkGroupContinuation(
 	round: number | undefined,
 ): Promise<void> {
 	if ((membership.member?.role === "coordinator") !== (round !== undefined)) {
-		throw new Error(
+		throw refused(
+			"GROUP_TEAM_JOB",
 			"a team's own job continues only into its next group round, which Limen starts; continue a worker instead",
 		);
 	}
 	if (options.timeoutMs) {
-		throw new Error("group continuations keep the recorded deadline; omit --timeout");
+		throw usageError("GROUP_LAUNCH_FLAGS", "group continuations keep the recorded deadline; omit --timeout");
 	}
 	if (round === undefined) {
 		const caller = await groupIdentity(cwd, membership.run.id);
@@ -266,7 +381,7 @@ async function checkGroupContinuation(
 			!caller ||
 			(caller.member && (caller.member.role !== "coordinator" || caller.member.team !== membership.member?.team))
 		) {
-			throw new Error("only this team's coordinator or the recorded lead may continue its worker");
+			throw refused("GROUP_NOT_ALLOWED", "only this team's coordinator or the recorded lead may continue its worker");
 		}
 	}
 	const route = teamRoute(membership.run, membership.member?.team ?? "");
@@ -276,58 +391,71 @@ async function checkGroupContinuation(
 		options.provider !== route.provider ||
 		options.thinking !== route.thinking
 	) {
-		throw new Error("group continuation requires recorded engine/provider/model/reasoning explicitly");
+		throw usageError("GROUP_ROUTE", "group continuation requires recorded engine/provider/model/reasoning explicitly");
 	}
 }
 /** The finished parent job: worktree, branch, repo, engine, newest session transcript and `--engine`, in that order. */
 async function readParentJob(
+	view: StateView,
 	root: string,
 	parentId: string,
 	parentDir: string,
 	membership: GroupIdentity | undefined,
 	engine: string | undefined,
 ): Promise<ParentJob> {
-	const record = await readRecord(parentDir);
+	// A terminal state is final (nothing writes after it), so the parent's state needs no re-check.
+	const record = await view.record(parentDir);
 	if (!(record && isTerminal(record.state))) {
-		throw new Error(`job ${parentId} is ${record?.state ?? "stateless"}; continue needs a finished job`);
+		throw refused(
+			"JOB_NOT_FINISHED",
+			`job ${parentId} is ${record?.state ?? "stateless"}; continue needs a finished job`,
+		);
 	}
 	const worktree = record.worktree;
 	if (!worktree) {
-		throw new Error(`parent record ${parentId} has no worktree path`);
+		throw refused("JOB_NO_WORKTREE", `parent record ${parentId} has no worktree path`);
 	}
 	if (membership) {
-		await assertNoLiveContinuation(root, parentId, worktree);
+		await view.hold(`the live jobs on worktree ${worktree}`, () =>
+			assertNoLiveContinuation(view, root, parentId, worktree),
+		);
 	}
 	const branch = record.branch;
 	if (!branch) {
-		throw new Error(`parent record ${parentId} has no branch`);
+		throw refused("JOB_NO_BRANCH", `parent record ${parentId} has no branch`);
 	}
 	const repo = record.repo ?? "";
 	// Checked before the transcript: a record of a removed engine may hold none, and it refuses with its own line.
 	const parentEngine = engineProfile(record.route.engine || "pi").id;
 	const sessions = (await readdir(`${parentDir}/session`).catch(() => [])).filter((name) => name.endsWith(".jsonl"));
 	if (sessions.length === 0) {
-		throw new Error(`parent record ${parentId} has no session transcript to continue`);
+		throw refused("JOB_NO_SESSION", `parent record ${parentId} has no session transcript to continue`);
 	}
 	const session = sessions.sort().at(-1);
 	if (engine) {
 		const requested = resolveSpawnEngine(engine);
 		if (requested.id !== parentEngine) {
-			throw new Error(`continue --engine ${engine} does not match parent engine ${parentEngine}`);
+			throw usageError("ENGINE_MISMATCH", `continue --engine ${engine} does not match parent engine ${parentEngine}`);
 		}
 	}
 	return { id: parentId, dir: parentDir, record, worktree, branch, repo, session, engine: parentEngine };
 }
-async function assertNoLiveContinuation(root: string, parentId: string, worktree: string): Promise<void> {
-	for (const existing of await jobFolders(`${root}/.limen/jobs`)) {
+async function assertNoLiveContinuation(
+	view: StateView,
+	root: string,
+	parentId: string,
+	worktree: string,
+): Promise<string> {
+	for (const existing of await view.jobs(`${root}/.limen/jobs`)) {
 		if (existing === parentId) {
 			continue;
 		}
-		const record = await readRecord(`${root}/.limen/jobs/${existing}`);
+		const record = await view.record(`${root}/.limen/jobs/${existing}`);
 		if (record?.state === "running" && record.worktree === worktree) {
-			throw new Error("group worker worktree already has a live continuation");
+			throw refused("LIVE_CONTINUATION", "group worker worktree already has a live continuation");
 		}
 	}
+	return "none";
 }
 /** A group worker keeps its team's recorded extensions; any other job takes --extension or inherits its parent's. */
 async function continuationExtensions(
@@ -338,19 +466,22 @@ async function continuationExtensions(
 ): Promise<string[]> {
 	const recorded = membership?.run.teamExtensions?.[membership.member?.team ?? ""];
 	const extensions = recorded
-		? await normalizeWorkerExtensions(recorded, cwd)
+		? await normalizeWorkerExtensions(recorded, cwd, "record")
 		: selected.length
 			? await normalizeWorkerExtensions(selected, cwd)
 			: await readWorkerExtensions(parent.dir, parent.record);
 	if (recorded) {
 		if (JSON.stringify(await readWorkerExtensions(parent.dir, parent.record)) !== JSON.stringify(extensions)) {
-			throw new Error("group continuation parent does not match the recorded team extensions");
+			throw refused("GROUP_EXTENSIONS_PARENT", "group continuation parent does not match the recorded team extensions");
 		}
 		if (
 			selected.length &&
 			JSON.stringify(await normalizeWorkerExtensions(selected, cwd)) !== JSON.stringify(extensions)
 		) {
-			throw new Error("group continuation requires the recorded team extensions; omit --extension to inherit them");
+			throw usageError(
+				"GROUP_EXTENSIONS",
+				"group continuation requires the recorded team extensions; omit --extension to inherit them",
+			);
 		}
 	}
 	return extensions;
@@ -358,14 +489,7 @@ async function continuationExtensions(
 /** Writes the starting record: the parent's session, branch and worktree, and where its finish is reported. */
 async function publishContinuation(record: ContinuationRecord): Promise<void> {
 	const { jobDir, parent, repository, membership } = record;
-	// A continuation started from a shell with no wake route (a remote executor, a plain terminal) keeps the parent's coordinator; otherwise its finish reaches nobody.
-	const callerSession = currentNotificationSession();
-	const callerPane = herdrWakePane(membership ? undefined : callerSession);
-	const routed = Boolean(callerSession || callerPane);
-	const { origin } = parent.record;
-	const coordinatorTab = process.env.HERDR_TAB_ID?.trim() || (routed ? "" : (origin.tab ?? ""));
-	const coordinatorPane = routed ? callerPane : (origin.pane ?? "");
-	const notificationSession = routed ? callerSession : coordinatorPane ? undefined : origin.session || undefined;
+	const { notificationSession, coordinatorTab, coordinatorPane } = record.route;
 	const carried: Record<string, string> = {};
 	for (const name of ["note.md", "note.first.md"]) {
 		const body = readOptional(`${parent.dir}/${name}`)?.trim();
@@ -411,8 +535,7 @@ async function restoreParentWorktree(
 			out.line(`restored ${worktree} from ${branch}; only committed branch contents were recovered`);
 		}
 	} catch (error) {
-		await rm(jobDir, { recursive: true, force: true });
-		throw error;
+		throw await cleanedUp(error, () => rm(jobDir, { recursive: true, force: true }));
 	}
 }
 async function startDetachedContinuation(
@@ -450,9 +573,10 @@ async function startDetachedContinuation(
 		wrapperPid = await launchWrapper(environment);
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
-		await versions.catch(() => {});
-		await finalizeJob(jobDir, "failed", `failed to launch wrapper: ${message}`);
-		throw error;
+		throw await cleanedUp(error, async () => {
+			await versions.catch(() => {});
+			await finalizeJob(jobDir, "failed", `failed to launch wrapper: ${message}`);
+		});
 	}
 	await waitForHandshake(jobDir, wrapperPid);
 	if (run) {

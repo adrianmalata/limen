@@ -1,17 +1,30 @@
 // The GitHub module's operations on this seat (T-26 (2)): the binding of a project's origin to its Herdr coordinator,
 // the handoff of one claim to that coordinator, the job it starts for a claim, and its answer without a job. The
-// poller (src/integrations/github-poller.ts) runs the CLI for the handoff; the coordinator runs the rest.
+// poller (src/integrations/github-poller.ts) runs the CLI for the handoff; the coordinator runs the rest. The job of a
+// claim (`github review`, `github work`) is an operation of T-38 (src/operation.ts): its validate makes the claim's
+// checks and the spawn's before the claim's handoff gate exists, and a start that fails before a job record answers
+// the claim takes the gate and the review's branch away again, so nothing needs recovery by hand.
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { chmod, chown, mkdir, readdir, readFile, rm } from "node:fs/promises";
+import { chmod, chown, mkdir, readdir, readFile, rm, rmdir } from "node:fs/promises";
 import { userInfo } from "node:os";
 import { join } from "node:path";
 import { inspect } from "node:util";
 import { atomicWrite } from "../atomic-write.ts";
 import { exception } from "../config.ts";
-import { startSpawn } from "../job/spawning.ts";
-import { type CommandText, JOB_STARTED, type Success } from "../outcome.ts";
+import { checkedSpawn, type SpawnedRecord, type SpawnPlan, startChecked } from "../job/spawning.ts";
+import { type Checked, cleanedUp, runOperation, type StateView, stateChanged } from "../operation.ts";
+import {
+	type CommandText,
+	environmentError,
+	failureOf,
+	JOB_STARTED,
+	refused,
+	type Success,
+	usageError,
+} from "../outcome.ts";
 import { repoRoot } from "../project/git.ts";
+import { hasCode } from "../system-error.ts";
 import { withPollLock } from "./github-poller.ts";
 import {
 	bindingPath,
@@ -44,15 +57,18 @@ export type GithubJobRoute = {
 // A worker shares its Unix identity with its coordinator. Neither may be able to sudo into the App user.
 export function assertUnprivileged(): void {
 	if (process.getuid?.() === 0) {
-		throw new Error("GitHub doorbell refuses a root coordinator");
+		throw refused("GITHUB_PRIVILEGED", "GitHub doorbell refuses a root coordinator");
 	}
 	const groups = spawnSync("id", ["-nG"], { encoding: "utf8" });
 	if (groups.status !== 0 || /\b(?:sudo|wheel|admin)\b/.test(groups.stdout)) {
-		throw new Error("GitHub doorbell requires a worker account outside sudo, wheel and admin groups");
+		throw refused(
+			"GITHUB_PRIVILEGED",
+			"GitHub doorbell requires a worker account outside sudo, wheel and admin groups",
+		);
 	}
 	const sudo = spawnSync("sudo", ["-n", "-l"], { encoding: "utf8", timeout: 2000 });
 	if (!sudo.error && sudo.status === 0) {
-		throw new Error("GitHub doorbell refuses an account with noninteractive sudo access");
+		throw refused("GITHUB_PRIVILEGED", "GitHub doorbell refuses an account with noninteractive sudo access");
 	}
 }
 
@@ -135,7 +151,7 @@ export async function recordNoJobAnswer(
 		throw new Error("GitHub claim has a job or does not match binding");
 	}
 	// A no-job decision and a job are mutually exclusive for this claim: the gate's `mkdir` decides, once.
-	const gate = join(githubDir(root), "inflight", String(claim.id));
+	const gate = handoffGate(root, claim);
 	await mkdir(join(githubDir(root), "inflight"), { recursive: true });
 	await mkdir(gate);
 	await mkdir(join(githubDir(root), "outcomes"), { recursive: true });
@@ -151,54 +167,247 @@ export async function recordNoJobAnswer(
 }
 
 /**
- * `github deliver|review|work <registered-root> <claim-id> ...`: the poller rings the coordinator, or the coordinator
- * starts a job, whose id the success names in `ids.job` (D-028). The text goes to `out`.
+ * `github deliver <registered-root> <claim-id> <nonce>`: the poller rings the coordinator with one claim. Its text
+ * goes to `out`.
  */
 export async function handOffClaim(
-	mode: "deliver" | "review" | "work",
 	registered: string,
 	claimWord: string,
-	detail: {
-		readonly nonce?: string;
-		readonly job?: { model: GithubJobRoute; task?: string } | undefined;
-	},
+	nonce: string,
 	out: CommandText,
 ): Promise<Success | undefined> {
 	const id = claimId(claimWord);
 	if (id === undefined) {
-		throw new Error(`github ${mode} requires <registered-root> <claim-id>`);
+		throw new Error("github deliver requires <registered-root> <claim-id>");
 	}
-	const { job } = detail;
-	if (mode === "deliver" ? !HANDOFF_NONCE.test(detail.nonce ?? "") : !job) {
-		throw new Error(
-			mode === "deliver"
-				? "github deliver requires <registered-root> <claim-id> <handoff nonce>"
-				: "github work requires a --task <coordinator instruction> that is not blank",
-		);
+	if (!HANDOFF_NONCE.test(nonce)) {
+		throw new Error("github deliver requires <registered-root> <claim-id> <handoff nonce>");
 	}
 	const root = repoRoot(registered);
 	if (root !== registered) {
 		throw new Error("GitHub handoff requires the exact registered repository root");
 	}
 	assertUnprivileged();
-	const binding = mode === "deliver" ? await ensureGithubCoordinator(root) : await readBinding(root);
+	const binding = await ensureGithubCoordinator(root);
 	if (!binding || originRepository(root).toLowerCase() !== binding.repo.toLowerCase()) {
 		throw new Error("GitHub registration is disconnected or no longer matches origin");
 	}
-	const claim = JSON.parse(await readFile(claimPath(root, id), "utf8")) as GithubClaim;
+	const claim = claimOf(await readFile(claimPath(root, id), "utf8"));
 	if (claim.repo.toLowerCase() !== binding.repo.toLowerCase() || claim.id !== id) {
 		throw new Error("GitHub claim does not match binding");
 	}
+	await promptCoordinator(root, binding, claim, nonce, out);
+	return undefined;
+}
+
+/** What the job of a claim needs from the coordinator: the route of its four flags, and a work job's own task. */
+export type ClaimJob = { readonly model: GithubJobRoute; readonly task?: string };
+
+/** What validate decided for the job of a claim: the job that already answers it, or the checked spawn of a new one. */
+type ClaimPlan =
+	| { readonly kind: "answered"; readonly id: string }
+	| {
+			readonly kind: "start";
+			readonly root: string;
+			readonly claim: GithubClaim;
+			readonly gate: HandoffGate;
+			readonly spawn: Checked<SpawnPlan, SpawnedRecord>;
+	  };
+
+/**
+ * `github review|work <registered-root> <claim-id> ...`: the coordinator starts the job of a claim, whose id the
+ * success names in `ids.job` (D-028). `job` is undefined for a work request without a task. The text goes to `out`;
+ * `again` is the same command line, the `next` of a STATE_CHANGED.
+ */
+export async function startClaimJob(
+	mode: "review" | "work",
+	registered: string,
+	claimWord: string,
+	job: ClaimJob | undefined,
+	out: CommandText,
+	again: string | null = null,
+): Promise<Success> {
+	const plan = await runOperation<ClaimPlan, ClaimPlan>({
+		validate: (view) => validateClaimJob(view, mode, registered, claimWord, job, out, again),
+		apply: async (plan) => plan,
+		again,
+	});
+	const id = plan.kind === "answered" ? plan.id : await startAtGate(plan);
+	out.line(id);
+	return { next: null, ids: { job: id }, text: JOB_STARTED };
+}
+
+/** Every check of a claim's job, the spawn's own included, before the claim's handoff gate exists (T-38 (1)). */
+async function validateClaimJob(
+	view: StateView,
+	mode: "review" | "work",
+	registered: string,
+	claimWord: string,
+	job: ClaimJob | undefined,
+	out: CommandText,
+	again: string | null,
+): Promise<ClaimPlan> {
+	const id = claimId(claimWord);
+	if (id === undefined) {
+		throw usageError("BAD_CLAIM", `github ${mode} requires <registered-root> <claim-id>`);
+	}
 	if (!job) {
-		await promptCoordinator(root, binding, claim, detail.nonce ?? "", out);
-		return;
+		throw usageError("NO_TASK", "github work requires a --task <coordinator instruction> that is not blank");
+	}
+	const root = repoRoot(registered);
+	if (root !== registered) {
+		throw usageError("BAD_ROOT", "GitHub handoff requires the exact registered repository root");
+	}
+	assertUnprivileged();
+	const binding = await readBinding(root);
+	if (!binding || originRepository(root).toLowerCase() !== binding.repo.toLowerCase()) {
+		throw refused("GITHUB_DISCONNECTED", "GitHub registration is disconnected or no longer matches origin");
+	}
+	const text = await view.text(claimPath(root, id));
+	if (text === undefined) {
+		throw refused(
+			"GITHUB_NO_CLAIM",
+			`no claim ${id} in ${claimPath(root, id)}; the poller writes it when it claims a request`,
+		);
+	}
+	const claim = claimOf(text);
+	if (claim.repo.toLowerCase() !== binding.repo.toLowerCase() || claim.id !== id) {
+		throw refused("GITHUB_CLAIM_MISMATCH", "GitHub claim does not match binding");
 	}
 	if (!insideCoordinator(binding)) {
-		throw new Error("GitHub job must start inside the registered Herdr coordinator");
+		throw refused("GITHUB_NOT_COORDINATOR", "GitHub job must start inside the registered Herdr coordinator");
 	}
-	const started = await startGithubJob(root, claim, job.model, out, job.task);
-	out.line(started);
-	return { next: null, ids: { job: started }, text: JOB_STARTED };
+	if (!job.task && claim.kind === "issue") {
+		throw refused(
+			"GITHUB_ISSUE_REVIEW",
+			`github review needs a pull request head; claim ${claim.id} is for ${githubSubject(claim)}. Use github work or github resolve`,
+		);
+	}
+	const found = await matchedGithubJob(root, claim);
+	if (found) {
+		return { kind: "answered", id: found.id };
+	}
+	if (view.exists(handoffGate(root, claim))) {
+		throw refused(
+			"GITHUB_HANDOFF_GATE",
+			`claim ${claim.id} already entered a handoff with no job that answers it yet; run limen status --all and look for the job of this claim`,
+			"limen status --all",
+		);
+	}
+	// Do not move a branch already used by a job. GitHub exposes the fork's PR head through refs/pull/N/head.
+	const review = job.task || claim.kind === "issue" ? undefined : claim;
+	if (review) {
+		fetchPinnedReview(root, review);
+	}
+	// Spawn names a durable job id; the poller independently reconciles the record before posting a start receipt.
+	const gate = new HandoffGate(root, claim);
+	const spawn = await checkedSpawn(
+		{
+			task: [githubJobInstruction(claim, job.task)],
+			...job.model,
+			branch: githubBranch(claim),
+			review: review !== undefined,
+			...(review ? { base: review.base, head: review.head, branchAt: review.head } : {}),
+			label: `${claim.kind === "issue" ? "issue" : "PR"} ${claim.pr} ${job.task ? "task" : "review"} · ${claim.id}`,
+		},
+		root,
+		out,
+		{ firstWrite: () => gate.enter(), again },
+	);
+	return { kind: "start", root, claim, gate, spawn };
+}
+
+/**
+ * The writes of a claim's job: the spawn's apply, whose first write, after its re-check under the jobs lock, is the
+ * claim's handoff gate (`HandoffGate`), so a changed state ends the handoff before it writes anything (T-38 (2)). A
+ * failure after the gate and before a job record answers the claim takes the gate away again, and the spawn's apply has
+ * removed the review's branch it made, so a rerun starts over; once a record answers the claim, the gate stays, and a
+ * rerun names that job. A cleanup that fails is added to the failure (`cleanedUp`). Returns the job's id.
+ */
+async function startAtGate(plan: Extract<ClaimPlan, { kind: "start" }>): Promise<string> {
+	const { root, claim, gate } = plan;
+	try {
+		const started = await startChecked(plan.spawn);
+		return started.ids?.job ?? "";
+	} catch (error) {
+		throw await cleanedUp(error, async () => {
+			if (gate.entered && !(await claimAnswered(root, claim))) {
+				await gate.leave();
+			}
+		});
+	}
+}
+
+/**
+ * The claim's handoff gate: a folder whose `mkdir` lets one job or one no-job answer through. A handoff that entered it
+ * and fails before a job answers the claim leaves it, and the folder of gates too when this handoff made it.
+ */
+class HandoffGate {
+	readonly #root: string;
+	readonly #claim: GithubClaim;
+	#entered = false;
+	#madeFolder = false;
+	constructor(root: string, claim: GithubClaim) {
+		this.#root = root;
+		this.#claim = claim;
+	}
+	/** Whether this handoff entered the gate. */
+	get entered(): boolean {
+		return this.#entered;
+	}
+	/** Enters the gate; one another handoff or a no-job answer entered since validate is a change (STATE_CHANGED). */
+	async enter(): Promise<void> {
+		this.#madeFolder = (await mkdir(join(githubDir(this.#root), "inflight"), { recursive: true })) !== undefined;
+		try {
+			await mkdir(handoffGate(this.#root, this.#claim));
+		} catch (error) {
+			if (hasCode(error, "EEXIST")) {
+				throw stateChanged(`the handoff gate of claim ${this.#claim.id}`);
+			}
+			throw error;
+		}
+		this.#entered = true;
+	}
+	/** Leaves the gate, and removes the folder of gates when this handoff made it and it holds no other gate. */
+	async leave(): Promise<void> {
+		await rm(handoffGate(this.#root, this.#claim), { recursive: true, force: true });
+		if (this.#madeFolder) {
+			await removeEmptyFolder(join(githubDir(this.#root), "inflight"));
+		}
+	}
+}
+
+/** Removes the folder `path` when it is empty; one that holds another entry stays. */
+async function removeEmptyFolder(path: string): Promise<void> {
+	try {
+		await rmdir(path);
+	} catch (error) {
+		if (!hasCode(error, "ENOTEMPTY") && !hasCode(error, "EEXIST")) {
+			throw error;
+		}
+	}
+}
+
+/** Whether a job record answers `claim`: one that matches it, or one that conflicts with it, which a person reads. */
+async function claimAnswered(root: string, claim: GithubClaim): Promise<boolean> {
+	try {
+		return (await matchedGithubJob(root, claim)) !== undefined;
+	} catch (error) {
+		if (failureOf(error).code === "GITHUB_CONFLICT") {
+			return true;
+		}
+		throw error;
+	}
+}
+
+/** The claim in the checkout's status copy `text`, as the poller wrote it. */
+function claimOf(text: string): GithubClaim {
+	return JSON.parse(text) as GithubClaim;
+}
+
+/** The claim's handoff gate: a folder whose `mkdir` lets one job or one no-job answer through. */
+function handoffGate(root: string, claim: GithubClaim): string {
+	return join(githubDir(root), "inflight", `${claim.id}`);
 }
 
 /** Rings the coordinator's Herdr pane with the claim, unless a job already answers it. */
@@ -316,87 +525,32 @@ export async function connectDoorbell(root: string): Promise<string> {
 function git(root: string, args: string[]): string {
 	const result = spawnSync("git", args, { cwd: root, encoding: "utf8", timeout: 60_000 });
 	if (result.status !== 0) {
-		throw new Error(`git ${args[0]} failed: ${(result.stderr || result.error?.message || "unavailable").trim()}`);
+		const reason = (result.stderr || result.error?.message || "unavailable").trim();
+		throw environmentError("GITHUB_GIT", `git ${args[0]} failed: ${reason}`);
 	}
 	return result.stdout.trim();
 }
 
-/** Starts the job of one claim, or names the one that already answers it; its spawn's text goes to `out`. */
-export async function startGithubJob(
-	root: string,
-	claim: GithubClaim,
-	model: GithubJobRoute,
-	out: CommandText,
-	task?: string,
-): Promise<string> {
-	if (!task && claim.kind === "issue") {
-		throw new Error(
-			`github review needs a pull request head; claim ${claim.id} is for ${githubSubject(claim)}. Use github work or github resolve`,
-		);
-	}
-	const found = await matchedGithubJob(root, claim);
-	if (found) {
-		return found.id;
-	}
-	await enterHandoffGate(root, claim);
-	// Do not move a branch already used by a job. GitHub exposes the fork's PR head through refs/pull/N/head.
-	const localBranch = githubBranch(claim);
-	const review = task || claim.kind === "issue" ? undefined : claim;
-	if (review) {
-		pinReviewBranch(root, review, localBranch);
-	}
-	const instruction = githubJobInstruction(claim, task);
-	// Spawn names a durable job id; the poller independently reconciles the record before posting a start receipt.
-	await startSpawn(
-		{
-			task: [instruction],
-			...model,
-			branch: localBranch,
-			review: review !== undefined,
-			...(review ? { base: review.base, head: review.head } : {}),
-			label: `${claim.kind === "issue" ? "issue" : "PR"} ${claim.pr} ${task ? "task" : "review"} · ${claim.id}`,
-		},
-		root,
-		out,
-	);
-	const started = await matchedGithubJob(root, claim);
-	if (!started) {
-		throw new Error("spawn returned without a matching job record");
-	}
-	return started.id;
-}
-
-/** Marks the claim as in a handoff; a second handoff for the same claim fails until someone recovers it by hand. */
-async function enterHandoffGate(root: string, claim: GithubClaim): Promise<void> {
-	const gate = join(githubDir(root), "inflight", `${claim.id}`);
-	await mkdir(join(githubDir(root), "inflight"), { recursive: true });
-	try {
-		await mkdir(gate);
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-			throw new Error(
-				`claim ${claim.id} already entered a handoff; inspect jobs and .limen/github/inflight before manual recovery`,
-			);
-		}
-		throw error;
-	}
-}
-
-/** Fetches the PR base and head, checks both still match the command, and branches the review worktree at the head. */
-function pinReviewBranch(
+/**
+ * Checks that the PR's base and head on GitHub are still the claim's, then fetches both commits with no ref and no
+ * FETCH_HEAD, so a refusal after it leaves no ref: commits with no ref are no state a snapshot or a person sees, and
+ * the review's branch is made only by the spawn's apply.
+ */
+export function fetchPinnedReview(
 	root: string,
 	review: { readonly pr: number; readonly base: string; readonly baseRef: string; readonly head: string },
-	localBranch: string,
 ): void {
-	git(root, ["fetch", "--no-tags", "origin", `refs/heads/${review.baseRef}`]);
-	if (git(root, ["rev-parse", "FETCH_HEAD"]) !== review.base) {
-		throw new Error("PR base moved since command; request a new /limen review");
+	const base = `refs/heads/${review.baseRef}`;
+	const head = `refs/pull/${review.pr}/head`;
+	const listed = git(root, ["ls-remote", "origin", base, head]).split("\n");
+	const at = (ref: string) => listed.find((line) => line.endsWith(`\t${ref}`))?.split("\t")[0];
+	if (at(base) !== review.base) {
+		throw refused("GITHUB_BASE_MOVED", "PR base moved since command; request a new /limen review");
 	}
-	git(root, ["fetch", "--no-tags", "origin", `refs/pull/${review.pr}/head`]);
-	if (git(root, ["rev-parse", "FETCH_HEAD"]) !== review.head) {
-		throw new Error("PR head moved since command; request a new /limen review");
+	if (at(head) !== review.head) {
+		throw refused("GITHUB_HEAD_MOVED", "PR head moved since command; request a new /limen review");
 	}
-	git(root, ["branch", "--no-track", localBranch, review.head]);
+	git(root, ["fetch", "--no-tags", "--no-write-fetch-head", "--refmap=", "origin", base, head]);
 }
 
 /** The job's task: the doorbell marker, the coordinator's task or the pinned review, then the untrusted GitHub text. */

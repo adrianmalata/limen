@@ -3,11 +3,13 @@ import { dirname, isAbsolute } from "node:path";
 import { atomicWrite, TEMPORARY_NAME } from "../atomic-write.ts";
 import { groupAdvanceEnvironment, transport } from "../config.ts";
 import { withLock } from "../lock.ts";
+import { stateChanged } from "../operation.ts";
+import { type LimenError, refused, usageError } from "../outcome.ts";
 import { platform } from "../platform/platform.ts";
 import { limenRoot } from "../project/git.ts";
 import { startLimen } from "../runtime/launcher.ts";
 import { ownerState } from "../runtime/reap.ts";
-import { SESSION_ID } from "./job.ts";
+import { isTerminal, SESSION_ID } from "./job.ts";
 import { readRecord } from "./record.ts";
 
 export type GroupMember = {
@@ -44,14 +46,21 @@ export type GroupRun = {
 	closed: boolean;
 	members: GroupMember[];
 	teamExtensions?: Record<string, string[]>;
+	/**
+	 * The team whose first-round job a group start could not start, with why and when: the start's failed step, until
+	 * the same start run again starts every team (src/job/group-control.ts). A run written before R-092 has none.
+	 */
+	startFailure?: { team: string; message: string; at: number };
 };
 export type GroupIdentity = { run: GroupRun; member?: GroupMember; recipient: string };
 export const groupPath = (run: Pick<GroupRun, "root" | "id">): string => `${run.root}/.limen/groups/${run.id}`;
 export function teamRoute(run: GroupRun, team: string): TeamRoute {
 	const route = run.routes?.[team];
 	if (!route) {
-		throw new Error(
+		throw refused(
+			"GROUP_NO_ROUTE",
 			`group ${run.feature} (${run.id}) has no recorded route for ${team}; it predates per-team routes, so stop it and start a new run`,
+			`limen group stop ${run.id}`,
 		);
 	}
 	return route;
@@ -59,9 +68,16 @@ export function teamRoute(run: GroupRun, team: string): TeamRoute {
 /** The team's own jobs in one round, newest last. */
 export const roundJobs = (run: GroupRun, round: number): GroupMember[] =>
 	run.members.filter((member) => member.role === "coordinator" && (member.round ?? 0) === round);
-export async function readRun(root: string, id: string): Promise<GroupRun> {
+/**
+ * The run `id` of the project at `root`. `source` says where the id comes from: the command line or a member's own
+ * environment, whose id that names no run is a usage error (exit 2), or a job's record, whose group is gone or
+ * malformed: a refusal (exit 1), since the command itself was well formed (T-02).
+ */
+export async function readRun(root: string, id: string, source: "argument" | "record" = "argument"): Promise<GroupRun> {
+	const fromRecord = source === "record";
 	if (!/^[a-zA-Z0-9-]+$/.test(id)) {
-		throw new Error(`invalid group ID ${JSON.stringify(id)}; run limen group start FEATURE with the group settings`);
+		const message = `invalid group ID ${JSON.stringify(id)}; run limen group start FEATURE with the group settings`;
+		throw fromRecord ? refused("RECORD_GROUP_ID", message) : usageError("BAD_GROUP_ID", message);
 	}
 	let record: string;
 	try {
@@ -70,7 +86,8 @@ export async function readRun(root: string, id: string): Promise<GroupRun> {
 		if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
 			throw error;
 		}
-		throw new Error(`no group record for ${id}; run limen group start FEATURE with the group settings`);
+		const message = `no group record for ${id}; run limen group start FEATURE with the group settings`;
+		throw fromRecord ? refused("GROUP_GONE", message) : usageError("GROUP_NOT_FOUND", message);
 	}
 	const run = JSON.parse(record) as GroupRun;
 	// A run recorded before rounds had one round of team jobs; without routes it never advances.
@@ -90,7 +107,10 @@ export async function readRun(root: string, id: string): Promise<GroupRun> {
 					selections[team]?.every((path) => typeof path === "string" && isAbsolute(path)),
 			)
 		) {
-			throw new Error(`invalid teamExtensions in group ${id}: expected complete team lists of absolute local paths`);
+			throw refused(
+				"GROUP_RECORD",
+				`invalid teamExtensions in group ${id}: expected complete team lists of absolute local paths`,
+			);
 		}
 	}
 	return run;
@@ -130,12 +150,19 @@ export async function groupIdentity(cwd: string, explicitId?: string): Promise<G
 	if (groupId) {
 		const root = transport("LIMEN_CONTEXT_ROOT");
 		if (!root || !memberId) {
-			throw new Error("this job has incomplete group membership; run limen status --all to inspect its job record");
+			throw refused(
+				"GROUP_CONTEXT",
+				"this job has incomplete group membership; run limen status --all to inspect its job record",
+				"limen status --all",
+			);
 		}
 		const run = await readRun(root, groupId);
 		const member = run.members.find((entry) => entry.id === memberId);
 		if (!member || member.team !== transport("LIMEN_TEAM_ID") || (explicitId && explicitId !== run.id)) {
-			throw new Error(`this job does not match group ${run.feature} (${run.id})'s roster; run limen show ${memberId}`);
+			throw refused(
+				"GROUP_ROSTER",
+				`this job does not match group ${run.feature} (${run.id})'s roster; run limen show ${memberId}`,
+			);
 		}
 		return { run, member, recipient: member.id };
 	}
@@ -144,7 +171,8 @@ export async function groupIdentity(cwd: string, explicitId?: string): Promise<G
 	}
 	const run = await readRun(limenRoot(cwd), explicitId);
 	if (!run.lead || run.lead !== (await leadSession(run.root))) {
-		throw new Error(
+		throw refused(
+			"GROUP_OTHER_LEAD",
 			`group ${run.feature} (${run.id}) belongs to another lead pane; return to that pane and run limen group status ${run.id}`,
 		);
 	}
@@ -200,7 +228,82 @@ export async function leadHookLive(root: string, session: string, now = Date.now
 export async function commandRoot(cwd: string): Promise<string> {
 	return (await groupIdentity(cwd))?.run.root ?? limenRoot(cwd);
 }
-/** Claims a launch slot: one team job per round, and the recorded number of workers per team. */
+/**
+ * Why `run` has no launch slot for a `role` job of `team` in `round`, or undefined when it has one: one team job per
+ * round, the recorded number of workers per team, before the deadline and, for a worker, before the team's wrap-up
+ * reserve. Validate refuses with it (T-38 (1)); the claim reads it again under the cabinet lock.
+ */
+export function memberSlotProblem(
+	run: GroupRun,
+	team: string,
+	role: GroupMember["role"],
+	round = 0,
+	now = Date.now(),
+	givenBack: readonly string[] = [],
+): LimenError | undefined {
+	const status = `limen group status ${run.id}`;
+	if (run.stopped || run.closed || now >= run.deadline) {
+		return refused(
+			"GROUP_CLOSED",
+			`group ${run.feature} (${run.id}) is stopped, closed, or past its deadline; run limen group status ${run.id}`,
+			status,
+		);
+	}
+	if (!run.teams.includes(team)) {
+		return refused(
+			"GROUP_TEAM_UNKNOWN",
+			`${team} is not in group ${run.feature} (${run.id})'s roster; run limen group status ${run.id}`,
+			status,
+		);
+	}
+	const used = run.members.filter(
+		(entry) =>
+			entry.team === team &&
+			entry.role === role &&
+			(role === "worker" || (entry.round ?? 0) === round) &&
+			!givenBack.includes(entry.id),
+	).length;
+	if (used >= (role === "coordinator" ? 1 : run.workersPerTeam)) {
+		return refused(
+			"GROUP_ALLOWANCE",
+			`${team} has used its ${role === "coordinator" ? `round ${round + 1} job` : "worker"} allowance; run limen group status ${run.id} before asking the lead`,
+			status,
+		);
+	}
+	if (memberDeadline(run, role) <= now) {
+		return refused(
+			"GROUP_NO_TIME",
+			`group ${run.feature} (${run.id}) has no worker time left before the team wraps up; run limen group status ${run.id}`,
+			status,
+		);
+	}
+	return undefined;
+}
+
+/** The deadline of a `role` job of `run`: the run's own, or for a worker its wrap-up reserve earlier. */
+function memberDeadline(run: GroupRun, role: GroupMember["role"]): number {
+	return role === "coordinator" ? run.deadline : run.deadline - run.reserveMs;
+}
+
+/**
+ * Whether the job of `member` never ran: it has no record, or its record ended without ever running, as a launch that
+ * failed after its member was claimed leaves it (T-38 (3)). Such a member gives its slot back to the start that runs
+ * again (src/job/group-control.ts).
+ */
+export async function neverRan(run: Pick<GroupRun, "root">, member: GroupMember): Promise<boolean> {
+	const record = await readRecord(`${run.root}/.limen/jobs/${member.id}`);
+	return (
+		record === undefined ||
+		(isTerminal(record.state) && !record.transitions.some((transition) => transition.to === "running"))
+	);
+}
+
+/**
+ * Claims a launch slot under the cabinet lock: the first write of a launch's `apply` (src/operation.ts). The launch's
+ * validate found the slot free (`memberSlotProblem`), so a slot gone by now is a group that changed since then,
+ * STATE_CHANGED (T-38 (2)), with nothing written. `replaces` names members whose jobs never ran (`neverRan`), whose
+ * slots this claim takes; one that has run since then is a change as well.
+ */
 export async function claimMember(
 	run: GroupRun,
 	team: string,
@@ -208,40 +311,26 @@ export async function claimMember(
 	id: string,
 	parent?: string,
 	round = 0,
+	replaces: readonly string[] = [],
 ): Promise<GroupMember> {
 	return groupLock(
 		groupPath(run),
 		async () => {
 			const current = await readRun(run.root, run.id);
-			if (current.stopped || current.closed || Date.now() >= current.deadline) {
-				throw new Error(
-					`group ${current.feature} (${current.id}) is stopped, closed, or past its deadline; run limen group status ${current.id}`,
-				);
+			for (const replaced of current.members.filter((member) => replaces.includes(member.id))) {
+				if (!(await neverRan(current, replaced))) {
+					throw stateChanged(`the job ${replaced.id} of ${team} in group ${current.feature} (${current.id})`);
+				}
 			}
-			if (!current.teams.includes(team)) {
-				throw new Error(
-					`${team} is not in group ${current.feature} (${current.id})'s roster; run limen group status ${current.id}`,
-				);
-			}
-			const used = current.members.filter(
-				(entry) => entry.team === team && entry.role === role && (role === "worker" || (entry.round ?? 0) === round),
-			).length;
-			if (used >= (role === "coordinator" ? 1 : current.workersPerTeam)) {
-				throw new Error(
-					`${team} has used its ${role === "coordinator" ? `round ${round + 1} job` : "worker"} allowance; run limen group status ${current.id} before asking the lead`,
-				);
-			}
-			const deadline = role === "coordinator" ? current.deadline : current.deadline - current.reserveMs;
-			if (deadline <= Date.now()) {
-				throw new Error(
-					`group ${current.feature} (${current.id}) has no worker time left before the team wraps up; run limen group status ${current.id}`,
-				);
+			const problem = memberSlotProblem(current, team, role, round, Date.now(), replaces);
+			if (problem) {
+				throw stateChanged(`the launch slots of group ${current.feature} (${current.id}): ${problem.message}`);
 			}
 			const member: GroupMember = {
 				id,
 				team,
 				role,
-				deadline,
+				deadline: memberDeadline(current, role),
 				...(parent ? { parent } : {}),
 				...(role === "coordinator" ? { round } : {}),
 			};
@@ -265,11 +354,13 @@ export async function jobMembership(jobDir: string): Promise<GroupIdentity | und
 		return;
 	}
 	const root = dirname(dirname(dirname(jobDir)));
-	const run = await readRun(root, id);
+	const run = await readRun(root, id, "record");
 	const member = run.members.find((entry) => `${root}/.limen/jobs/${entry.id}` === jobDir);
 	if (!member) {
-		throw new Error(
+		throw refused(
+			"GROUP_ROSTER",
 			`job ${jobDir.split("/").at(-1)} is absent from group ${run.feature} (${run.id})'s roster; run limen group status ${run.id}`,
+			`limen group status ${run.id}`,
 		);
 	}
 	return { run, member, recipient: member.id };

@@ -269,3 +269,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: measured
 - Commit: R-096
 - Rollback: git revert $(git log --format=%H --grep='^R-096:' adrian-rebuild --)
+
+## 2026-11-22 R-092 A refusal leaves no trace: `validate` then `apply`
+- What: the new `src/operation.ts` (a domain operation's `validate` gets a read view with no write method and returns a plan or a typed refusal; the runner's `apply` re-reads the held facts under the lock and ends with `STATE_CHANGED`, exit 3, before its first write; a failure after the first write is a step's, never a refusal; `CHECK_FAILED` for a plain `Error` in `validate`; `cleanedUp` keeps the first error); spawn, continue, stop, ticket done, picture build, group start, group stop, github review and github work go through it (`src/commands/{spawn,continue,stop,ticket,picture,group,github}.ts`, `src/job/{spawning,continuation,stopping,group-control,group-cabinet,reference,job,watching}.ts`, `src/project/{git,lanes,ticket-folders}.ts`, `src/picture/{picture-build,picture-check,dataset}.ts`, `src/runtime/{engine,start-queue,worker-extensions}.ts`, `src/integrations/{github-claims,github-review}.ts`, `src/outcome.ts`); their refusals and usage errors typed with their own codes, `requireGit` as `GIT_FAILED`; group start's teams as recorded steps a rerun continues (`startFailure` in `run.json`, `activation-error.json` gone); the GitHub handoff gate as spawn's first write; `docs/commands.md`, `docs/groups.md`, `docs/remote.md`, `docs/picture.md`; the shared `test/snapshot.ts` with `test/snapshot.test.ts`, the type, race and rerun tests in the new `test/operation.test.ts` and `test/integrations/github-claims.test.ts`, the T-38 ratchet and `UNTYPED_THROWS` 218 → 106 in `test/structure.test.ts`, and the refusal tests of 16 test files on the shared snapshot
+- Why: T-38, T-01, T-02, D-061, D-070
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (676/676); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (18 test files, the tests that pass at HEAD named in `outcome.md`); `npx tsc --noEmit` → exit 0
+- Measurement: measured
+- Commit: R-092
+- Rollback: git revert $(git log --format=%H --grep='^R-092:' adrian-rebuild --)

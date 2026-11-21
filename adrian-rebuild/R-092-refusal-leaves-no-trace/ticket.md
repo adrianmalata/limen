@@ -2,7 +2,7 @@
 dostaje tylko odczyt stanu i zwraca plan albo odmowę, `apply` sprawdza warunki ponownie pod blokadą i przy zmienionym
 stanie kończy się kodem 3 przed pierwszym zapisem; jedną migawkę stanu do testów odmów, test typu i test wyścigu.
 Przestawia dziewięć poleceń, które dziś zapisują przed odmową, typuje ich odmowy, a pozostałe polecenia zmieniające
-stan trafiają na zapadkę, którą R-082 sprowadza do zera. Stan: napisany 21.11 w dzień przy 07ec41b; gotowy (ready). -->
+stan trafiają na zapadkę, którą R-082 sprowadza do zera. Stan: napisany 21.11 w dzień przy 07ec41b; zamknięty (done) 22.11 po trzech rundach recenzji. -->
 
 # R-092 A refusal leaves no trace: `validate` then `apply`
 
@@ -191,3 +191,28 @@ reads a `group start` run written by this ticket (the step record is additive), 
 ## Decisions
 
 - 2026-11-21 D-061 and D-070 (Adrian): quoted in `## Problem`.
+- 2026-11-21 (main session, review round 1, `review.md` → Round 1; the first round of fixes, for the resumed
+  `rebuild-implementer`): findings 1–11 and the T-29 question, as decided there: (1) spawn's invalid `--branch` name
+  and a `--task-file` that is a folder or unreadable are typed with their own codes in `validate`, a malformed name a
+  usage error (T-02); (2) a group start refusal after a write at HEAD (a team whose spawn `validate` refuses) has a
+  refusal test with the shared snapshot that fails at HEAD; (3) the refusal tests of converted commands named there
+  move onto the shared snapshot, those beside live jobs after settling them or on a written record no process owns,
+  and any that cannot is named in `outcome.md` with the reason; (4) a test fixes the exact key set of `StateView`;
+  (5) refusal tests assert the code and the snapshot in one assertion; (6) `github review` and `github work` end a
+  changed state before their first write, leaving no `.limen/github/inflight/` folder, their test compares the full
+  snapshot, and the docs say the review fetch leaves objects but no ref; (7) after the first write the first error
+  stays the command's error, a cleanup failure is added to it, and no refusal is thrown after a write; (8) an
+  extension path from a record that no longer exists is refused with its own code, the usage error stays for the
+  command line, and the test asserts the status; (9) a rerun of `group start` continues a team whose member job failed
+  after its `apply`, with a rerun test; (10) no commit SHA outside `// regression: <sha>` in the test files the diff
+  touches (T-30 (3)); (11) the shared snapshot holds the project's folders outside `.git`, with a case in
+  `test/snapshot.test.ts`; (T-29) the tests at `test/cli/group.test.ts:221` and `:299` are each split in two. Finding
+  12 is rejected: `land` is R-037's and took no ticket-lanes lock at HEAD.
+- 2026-11-21 (main session, review round 2, `review.md` → Round 2; the second and last round of fixes, for the
+  resumed `rebuild-implementer`): findings 1–6: (1) the wake-route reads (`currentNotificationSession`,
+  `herdrWakePane`) and picture build's dataset read throw typed errors with their own codes and T-02's class, and
+  continue reads its wake route in `validate`, before any write; (2) a group id from a record that names no run is
+  refused with its own code, the usage error stays for the command line; (3) `requireGit` throws a typed environment
+  error, exit 4; (4) `STATE_CHANGED` and `JOB_PID_PENDING` carry the same command as `next`, with its concrete
+  values; (5) `GROUP_EXTENSIONS` becomes two codes, one per condition and class; (6) the `GROUP_PARTIAL_START` test is
+  split in two. Each with a test; the refusals with the shared snapshot.

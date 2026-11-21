@@ -2,7 +2,7 @@
 // continue and steer read the same routes.
 import { access, mkdir, rm } from "node:fs/promises";
 import { atomicWrite } from "../atomic-write.ts";
-import type { CommandText } from "../outcome.ts";
+import { type CommandText, environmentError } from "../outcome.ts";
 import { limenRoot } from "../project/git.ts";
 import { isTerminal, SESSION_ID } from "./job.ts";
 import { jobFolders, readRecord, transition } from "./record.ts";
@@ -14,11 +14,14 @@ import { type JobArgument, resolveJob } from "./reference.ts";
  */
 export type WakeRoute = { readonly session: string } | { readonly pane: string };
 
-/** This shell's Pi session, which a job's wake subscribes; refused when it is not safe to route by. */
+/**
+ * This shell's Pi session, which a job's wake subscribes. A value that is not safe to route by is the environment's
+ * failure (T-02, exit 4): Pi sets it, not the command line.
+ */
 export function currentNotificationSession(): string | undefined {
 	const value = process.env.PI_SESSION_ID?.trim();
 	if (value && !SESSION_ID.test(value)) {
-		throw new Error("PI_SESSION_ID is not safe for notification routing");
+		throw environmentError("UNSAFE_PI_SESSION_ID", "PI_SESSION_ID is not safe for notification routing");
 	}
 	return value || undefined;
 }
@@ -32,7 +35,8 @@ export function herdrWakePane(notificationSession: string | undefined): string |
 		return undefined;
 	}
 	if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(pane)) {
-		throw new Error("HERDR_PANE_ID is not safe for wake routing");
+		// Herdr sets it, so an unsafe value is the environment's failure, as for PI_SESSION_ID.
+		throw environmentError("UNSAFE_HERDR_PANE_ID", "HERDR_PANE_ID is not safe for wake routing");
 	}
 	return pane;
 }

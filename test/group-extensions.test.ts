@@ -4,6 +4,7 @@ import { mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { type GroupRun, readRun } from "../src/job/group-cabinet.ts";
+import { readOutcome } from "./final-line.ts";
 import {
 	editRecord,
 	git,
@@ -17,6 +18,7 @@ import {
 	TICKET,
 	waitJob,
 } from "./plant.ts";
+import { snapshot } from "./snapshot.ts";
 
 const lead = { PI_SESSION_ID: "extension-lead" };
 const route = ["--engine", "pi", "--provider", "fixture", "--model", "fixture", "--thinking", "high"];
@@ -107,7 +109,7 @@ test("Pi teams keep common and private selections through workers, reviews and c
 		const expected = run.teamExtensions?.[coordinator.team] ?? [];
 		await f.checkJob(coordinator.id, expected);
 		const refused = f.launch(run, coordinator.team, "--extension", f.privatePath);
-		assert.match(`${refused.status} ${refused.stderr}`, /^1 .*recorded team extensions/s);
+		assert.match(`${refused.status} ${refused.stderr}`, /^2 .*recorded team extensions/s);
 		const child = f.launch(
 			run,
 			coordinator.team,
@@ -117,7 +119,7 @@ test("Pi teams keep common and private selections through workers, reviews and c
 		const id = startedJob(child);
 		await f.checkJob(id, expected);
 		const bad = f.resume(id, "--extension", f.privatePath);
-		assert.match(`${bad.status} ${bad.stderr}`, /^1 .*recorded team extensions/s);
+		assert.match(`${bad.status} ${bad.stderr}`, /^2 .*recorded team extensions/s);
 		await editRecord(jobDir(f, id), () => ({ extensions: [] }));
 		assert.match(f.resume(id).stderr, /parent does not match/);
 		await editRecord(jobDir(f, id), () => ({ extensions: expected }));
@@ -129,10 +131,13 @@ test("Pi teams keep common and private selections through workers, reviews and c
 		assert.deepEqual([entry?.parent, entry?.team], [id, coordinator.team]);
 		assert.ok(entry && entry.deadline <= run.deadline - run.reserveMs);
 		const branch = jobRecord(f, id)?.branch ?? "";
+		// Jobs of the group and its round driver write in .limen/ here, so this status is the check; GROUP_REVIEW_BRANCH
+		// of test/cli/spawn.test.ts compares the snapshot on a written run.
 		assert.equal(f.launch(run, coordinator.team, "--review", "--branch", "main").status, 1);
 		const review = f.launch(run, coordinator.team, "--review", "--branch", branch);
 		assert.equal(review.status, 0, review.stderr);
 		await f.checkJob(startedJob(review), expected);
+		// As above: GROUP_ALLOWANCE of test/cli/continue.test.ts compares the snapshot on a written run.
 		assert.equal(f.resume(continuedId).status, 1, "continuation uses the total launch allowance");
 		assert.match(f.resume(coordinator.id).stderr, /next group round/);
 	}
@@ -156,22 +161,21 @@ test("a group started inside Herdr with no mode flag runs each team job detached
 test("invalid group selections never activate or consume jobs, including later teams", async (context) => {
 	const f = await fixture();
 	context.after(f.cleanup);
-	const trees = git(f.root, "worktree", "list", "--porcelain");
-	// A flag without its value is a usage error (exit 2); the other selections are refusals (exit 1).
+	// No job runs in the plant, and its lead is a written registration that no process refreshes.
+	const before = snapshot(f.root);
+	// Each is an argument the command cannot take, a usage error (exit 2, T-02): a flag without its value, which the
+	// parser refuses, and every selection the start checks before it writes (T-38 (1)).
 	for (const [status, extra] of [
-		[1, ["--team-extension", "team-2=missing.ts"]],
-		[1, ["--team-extension", `team-9=${f.common}`]],
-		[1, ["--team-extension", "team-2="]],
-		[1, ["--team-extension", "wrong"]],
+		[2, ["--team-extension", "team-2=missing.ts"]],
+		[2, ["--team-extension", `team-9=${f.common}`]],
+		[2, ["--team-extension", "team-2="]],
+		[2, ["--team-extension", "wrong"]],
 		[2, ["--extension"]],
-		[1, ["--extension", "npm:package"]],
+		[2, ["--extension", "npm:package"]],
 	] as const) {
 		const result = f.start("--extension", f.common, ...extra);
-		assert.equal(result.status, status, `${extra.join(" ")}: ${result.stderr}`);
+		assert.deepEqual([result.status, snapshot(f.root)], [status, before], `${extra.join(" ")}: ${result.stderr}`);
 	}
-	assert.deepEqual(await readdir(join(f.root, ".limen/groups")).catch(() => []), []);
-	assert.deepEqual(await readdir(join(f.root, ".limen/jobs")).catch(() => []), []);
-	assert.equal(git(f.root, "worktree", "list", "--porcelain"), trees);
 });
 
 // Two concurrent starts ending in one run is s8's first test; here a repeated start must keep the first selections.
@@ -192,6 +196,9 @@ test("a repeated start keeps the original selections, even after a path disappea
 	assert.equal((await onlyGroup(f.root)).id, run.id);
 	assert.deepEqual((await readRun(f.root, run.id)).teamExtensions, run.teamExtensions);
 	assert.equal((await readdir(join(f.root, ".limen/jobs"))).length, 2);
-	assert.match(f.launch(run, "team-2").stderr, /cannot use extension/);
+	// The path comes from the run's record, not from the command line, so the launch is refused, not misused (T-02).
+	const gone = f.launch(run, "team-2");
+	assert.deepEqual([gone.status, readOutcome(gone).code], [1, "EXTENSION_GONE"], gone.stderr);
+	assert.match(gone.stderr, /cannot use extension/);
 	assert.equal((await readRun(f.root, run.id)).members.length, 2);
 });

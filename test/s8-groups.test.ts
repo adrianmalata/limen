@@ -8,6 +8,7 @@ import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { readOutcome } from "./final-line.ts";
 import {
 	engineEvents,
 	FINAL,
@@ -25,6 +26,7 @@ import {
 	until,
 	waitJob,
 } from "./plant.ts";
+import { snapshot } from "./snapshot.ts";
 
 const PEER = fileURLToPath(new URL("../hook/group-peer.ts", import.meta.url));
 const FEATURE = dirname(TICKET);
@@ -86,16 +88,22 @@ test("a stale lead registration starts nothing; two concurrent activations by th
 	// A registration no running hook refreshes is not a lead: no update would reach it.
 	await writeFile(join(p.root, ".limen/group-leads/stale-pane"), `${process.pid}\n`);
 	await utimes(join(p.root, ".limen/group-leads/stale-pane"), new Date(0), new Date(0));
-	assert.equal(limen(p, ["group", "start", FEATURE, ...SETTINGS], { env: { PI_SESSION_ID: "stale-pane" } }).status, 1);
+	// No job runs yet; the lead's hook only touches its registration's time, which the snapshot does not hold.
+	const quiet = snapshot(p.root);
+	const stale = limen(p, ["group", "start", FEATURE, ...SETTINGS], { env: { PI_SESSION_ID: "stale-pane" } });
+	assert.deepEqual([stale.status, readOutcome(stale).code, snapshot(p.root)], [1, "GROUP_LEAD_HOOK", quiet]);
 	assert.ok(!existsSync(join(p.root, ".limen/groups")));
 	const started = await Promise.all([
 		run(["group", "start", FEATURE, ...SETTINGS], LEAD),
 		run(["group", "start", FEATURE, ...SETTINGS], LEAD),
 	]);
-	for (const result of started) {
-		assert.equal(result.status, 0, result.stderr);
-	}
-	// Both starts succeeded and the groups folder holds one group: they started the same one.
+	// T-38 (2): a start that found no run, while the other wrote one first, writes nothing and exits 3; a start that
+	// found the run goes on with it. Either way one start succeeded, and the groups folder holds one group.
+	const outcomes = started.map((result) => (result.status === 0 ? "ok" : readOutcome(result).code));
+	assert.ok(
+		outcomes.includes("ok") && outcomes.every((code) => code === "ok" || code === "STATE_CHANGED"),
+		outcomes.join(", "),
+	);
 	const groups = readdirSync(join(p.root, ".limen/groups"));
 	assert.deepEqual(groupsOn(FEATURE), groups);
 	assert.equal(groups.length, 1, groups.join(", "));
@@ -126,13 +134,16 @@ test("launches queued behind a slow sibling wait past the old 10-second lock dea
 	await until(p.parent, () => existsSync(entered));
 	// Team 2 has one worker slot and asks for it twice at once.
 	const racing = [0, 1].map(() => run(["spawn", ...ROUTE, "say team two"], as(roster.coordinator2, "team-2")));
-	// The one real hold: past the 10 seconds after which a queued launch used to fail (b62b837).
+	// The one real hold: past the 10 seconds after which a queued launch used to fail.
+	// regression: b62b837
 	await delay(12_000);
 	await writeFile(gate, "go\n");
 	const first = await slow;
 	const raced = await Promise.all(racing);
 	assert.equal(first.status, 0, first.stderr);
-	assert.deepEqual(raced.map((r) => r.status).sort(), [0, 1], raced.map((r) => r.stdout + r.stderr).join("\n"));
+	// Both found the slot free in their validate; the one that reached its apply second found it taken (T-38 (2)).
+	const outcomes = raced.map((r) => (r.status === 0 ? "ok" : readOutcome(r).code)).sort();
+	assert.deepEqual(outcomes, ["STATE_CHANGED", "ok"], raced.map((r) => r.stdout + r.stderr).join("\n"));
 	const [winner] = raced.filter((result) => result.status === 0);
 	assert.ok(winner);
 	roster.worker1 = startedJob(first);
@@ -141,10 +152,8 @@ test("launches queued behind a slow sibling wait past the old 10-second lock dea
 	assert.deepEqual(roles(), ["team-1 coordinator", "team-2 coordinator", "team-1 worker", "team-2 worker"]);
 	assert.deepEqual(new Set(readdirSync(join(p.root, ".limen/jobs"))), new Set(members().map((member) => member.id)));
 	assert.equal(waitJob(p, roster.worker2), "done");
-
-	const worker = as(roster.worker1, "team-1");
-	assert.equal(limen(p, ["spawn", ...ROUTE, "say nested"], { env: worker }).status, 1, "a worker cannot launch");
-	assert.equal(readdirSync(join(p.root, ".limen/jobs")).length, 4);
+	// A worker's own launch refusal (GROUP_WORKER_SPAWN) is tested on a written run in test/cli/spawn.test.ts: here
+	// worker1's wrapper still writes in .limen/, so a snapshot would race it.
 });
 
 test("a member's finish completes while another process holds the cabinet; its lifecycle event follows once the lock frees", async () => {

@@ -66,7 +66,9 @@ o pliku testu czekają na pytanie Q-17); limen-rebuild-16: Q-17 → D-068 (dwa p
 nadmiarowego wake'a w fałszywym silniku testów, który emitował agent_settled po każdej turze; Pi robi to raz na
 przebieg) i R-096 zamknięty (jeden agent_settled na przebieg w test/fake-engine.mjs, nowy test deterministyczny,
 bramka 599/599); Q-19 → D-070 (R-092 przestawia dziewięć poleceń zapisujących przed odmową, reszta na zapadce do
-R-082), ticket.md R-092 napisany i przekazanie do limen-rebuild-17. -->
+R-082), ticket.md R-092 napisany i przekazanie do limen-rebuild-17; limen-rebuild-17: R-092 zamknięty (wspólny kształt
+validate/apply w src/operation.ts, dziewięć poleceń przez runner, odmowy z własnymi kodami, UNTYPED 218 → 106,
+wspólna migawka stanu w testach; bramka 676/676 po trzech rundach recenzji; cztery uwagi rundy 3 czekają na Q-26). -->
 
 
 
@@ -1247,7 +1249,7 @@ Columns:
 | R-021 | One `record.json` per job, written only by the transition function | 2 | S1+, A-019, A-053, A-056, T-20, T-25, D-057 | R-016, R-018, R-019 | L | delegated | night | yes | — | — | done |
 | R-022 | Exact job references through one resolver | 2 | T-20, D-061 | R-014, R-021 | M | delegated | night | yes | — | — | done |
 | R-023 | Commands are thin adapters over domain operations | 2 | T-26, D-044, D-045, D-046, D-061 | R-014, R-021, R-089 | M | delegated | night | — | — | — | done |
-| R-092 | A refusal leaves no trace: `validate` then `apply` | 2 | T-38, D-061 | R-021, R-023 | L | delegated | night | — | — | — | ready |
+| R-092 | A refusal leaves no trace: `validate` then `apply` | 2 | T-38, D-061, D-070 | R-021, R-023 | L | delegated | night | — | — | — | done |
 | R-093 | The round-3 notes of R-019 and R-021: the migration keeps `born`, guarded hook reads | 2 | T-25, T-02, T-30, D-062, D-063 | R-019, R-021, R-022 | S | delegated | night | — | — | — | done |
 | R-094 | A queued wrapper ends when its job folder is gone; tests stop their wrappers | 2 | T-01, T-29, D-063 | R-093 | S | delegated | night | — | — | — | done |
 | R-095 | The round-3 notes of R-022 and R-094: the shared-token report, `keeper`'s de-duplication, the record check | 2 | T-01, T-29, T-30, D-065 | R-022, R-094 | S | delegated | night | — | — | — | done |
@@ -1429,6 +1431,8 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   `knownFiles`, so an ignored file (an editor's swap file) cannot change a scan.
 - R-082 (D-070): it brings the ratchet of T-38's shape to zero: every change command without `movedBy` follows
   `validate` then `apply`, and its refusals are typed.
+- R-037 (R-092 review round 1, finding 12): only `ticket done` takes the ticket-lanes lock; `land`'s `closeTickets`
+  runs its plan and apply without it, so its re-check does not exclude a concurrent `ticket done`.
 - R-025 (R-018 review round 2, note 5; T-29 (5)): `test/cli/github.test.ts` opens with two header lines, and the
   header of `test/cli/continue.test.ts` does not name its transcript-mode test.
 - R-059: no shell scripts (D-010): `docs/seat/bell.sh` and `docs/seat/github-setup.sh` become TypeScript in `seat/`,
@@ -1916,10 +1920,10 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-21, day session `limen-rebuild-16`, rebuild stage 5 in plan stage 2: stage 1 is closed at `a0.1.1`
-(deployed on 2026-11-20, with B.2 closed by D-050); stage 2 has R-015–R-023, R-089 and R-093–R-096 done, and
-R-092, R-024 and R-025 left before the tag `a0.2.0`. The newest entries are at the end of this section, from "Day
-session of 2026-11-21, continued (`limen-rebuild-16`".
+Updated 2026-11-21, day session `limen-rebuild-17`, rebuild stage 5 in plan stage 2: stage 1 is closed at `a0.1.1`
+(deployed on 2026-11-20, with B.2 closed by D-050); stage 2 has R-015–R-023, R-089 and R-093–R-096 done, R-092
+`active`, and R-024 and R-025 left before the tag `a0.2.0`. The newest entries are at the end of this section, from
+"Day session of 2026-11-21, continued (`limen-rebuild-16`".
 
 Handover of 2026-11-19 (D-033, at 37 % context, after the commit `R-014:`): `limen-rebuild-5` started
 `limen-rebuild-6` in `tmux` in remote-control mode (14:10) and ended. WSL booted at 10:34 on 2026-11-19, after the
@@ -2752,7 +2756,42 @@ again, as for D-061). Settled by the documents, not asked (the session's reading
 - R-092's `ticket.md` written at `07ec41b` from T-38, D-061 and D-070; it has no grep criteria (D-025). R-092
   `ready` (delegated); context 34 % before its implementer, so the session hands over first (D-047).
 
+Day session of 2026-11-21, continued (`limen-rebuild-17`, by day; its `close-previous` printed `handover: closed tmux
+session limen-rebuild-16` and one `handover: stopped claude …` line and exited 0; its takeover push was skipped as
+redundant, the terminal being active; context 7 % at the start):
+- R-092 `active` (delegated, from 20:43).
+- Q-20 (may a night cross from stage 2 into stage 3?), Q-21 (R-024's inventory found that `failureKind` calls the
+  subscription-limit failures `engine-error`), Q-22 and Q-23 (R-024's scope and output), Q-24 and Q-25 (R-025's
+  declarations and success tests) asked in the conversation with pushes; Adrian answered all as recommended, Q-20 with
+  option 2 (tonight stays in stage 2, until 09:00) and Q-23's last line corrected; they become D-071–D-076 in the commit
+  that makes the night's tickets `ready`.
+- R-092's implementer `DONE` at about 21:58; `compare --git` → exit 0; the main session's first gate 645/646: the new
+  `BRANCH_LIVE_JOB` test raced a live wrapper's `progress.json` in `test/snapshot.ts` (ENOENT); resumed with the output
+  (step 4), the implementer made that job a written record owned by a sleeping process (deviation 10); gate 646/646,
+  `fails-before.mjs` exit 0 (17 files).
+- R-092's review: round 1 FAIL (three blocking findings, nine notes; eleven fixes and the T-29 splits in the first
+  round, finding 12 on `land`'s lock rejected and noted for R-037); round 2 FAIL (one blocking finding, five notes; the
+  second and last round, which also typed `requireGit` as `GIT_FAILED` and found two defects of round 1, fixed at their
+  cause); round 3 PASS with six notes, after one reply rejected by `review-verdict.mjs` for its form and given again
+  by the same reviewer with the tree unchanged. The main session fixed notes 3 (`docs/picture.md`) and 5 (`outcome.md`
+  → deviation 23); note 4 and the T-29 question with no change; notes 1, 2, 6 and the template line of note 3 asked as
+  Q-26 (`review.md` → Round 3).
+- R-092 `done` (delegated): the shape of T-38 in `src/operation.ts` (a read view with no write method, `apply` re-reads
+  the held facts under the lock and ends with `STATE_CHANGED`, exit 3, before its first write; a failure after it is
+  never a refusal); spawn, continue, stop, ticket done, picture build, group start, group stop, github review and
+  github work go through it, their refusals typed; `UNTYPED_THROWS` 218 → 106; the shared `test/snapshot.ts`; the
+  T-38 ratchet of 18 commands for R-082. The main session's gate 676/676 after the last round; `fails-before.mjs` exit 0
+  (18 files). Open point (`outcome.md`): a test plant under the gate's cache that a stopped run left, which the
+  sessions may not remove.
+
 Active ticket: none.
+
+Open (Q-26, asked in the conversation with a push): R-092's round-3 notes 1, 2, 6 and the template line of note 3.
+Options: 1. a new fix ticket R-099 (S, stage 2, delegated, night, after R-092): a rerun under the jobs lock removes a
+GitHub handoff gate with no job record; `GROUP_STOP_INCOMPLETE` takes its cause's class (T-02); the template's
+sentence on a refused `--strict` build; the snapshot's `git()` reports a git failure except `symbolic-ref` on a
+detached HEAD; each with a test that fails before (recommended; as D-062, D-065, D-067); 2. notes for the tickets that rewrite those parts;
+3. the fix ticket by day tomorrow.
 
 Resolved (Q-19 → D-070), asked in the conversation with a push, then again after Adrian had the session read the
 documents:
@@ -2760,9 +2799,10 @@ documents:
   (recommended); 2. also only spawn, continue and stop; 3. every change command without `movedBy` now.
 
 Next (by day):
-1. R-092 (L, delegated; `ready`, its `ticket.md` written at `07ec41b`): status `active`, `review-guard.mjs snapshot
-   --git --out node_modules/.rebuild-review/R-092.git`, then `rebuild-implementer` with the ticket folder.
-2. Then R-024 and R-025, and the close: tag `a0.2.0`, gate 5.2 by phone, with the night defaults above.
+1. The night's tickets: D-071–D-076 into `## Decisions`, the `ticket.md` of R-097, R-024 and R-025 (`ready`), R-098
+   in stage 3, `## Deployment` B.3 and B.4; then the night preflight (D-024) and `night.mjs --until 09:00` (D-074).
+2. In the morning: Q-26; the night's tickets; the close: tag `a0.2.0`, gate 5.2 by phone, with the night defaults
+   above; then the tickets of stage 3 `ready` by day (D-074).
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
    D-047 and D-054 were.

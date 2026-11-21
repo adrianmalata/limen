@@ -106,6 +106,37 @@ export class LimenError extends Error {
 	}
 }
 
+/** A refusal or a usage error: the failures a change command's validate gives (T-38 (1), src/operation.ts). */
+export type Refusal = LimenError & { readonly class: "refused" | "usage" };
+
+/** Whether `value` is a refusal or a usage error. */
+export function isRefusal(value: unknown): value is Refusal {
+	return value instanceof LimenError && (value.class === "refused" || value.class === "usage");
+}
+
+/** A refusal (T-02, exit code 1): a condition the code checks does not hold; `code` names that condition (T-01). */
+export function refused(code: string, message: string, next: string | null = null): Refusal {
+	return asRefusal(new LimenError({ class: "refused", code, message, next }));
+}
+
+/** A usage error (T-02, exit code 2): a flag or an argument the command cannot take; `code` names the mistake. */
+export function usageError(code: string, message: string, next: string | null = null): Refusal {
+	return asRefusal(new LimenError({ class: "usage", code, message, next }));
+}
+
+/** `error` as the refusal its class makes it; the two constructors above give no other class. */
+function asRefusal(error: LimenError): Refusal {
+	if (isRefusal(error)) {
+		return error;
+	}
+	throw new TypeError(`${error.code} has class ${error.class}, which is no refusal`);
+}
+
+/** An environment failure (T-02, exit code 4): a tool, git or the file system is missing or fails. */
+export function environmentError(code: string, message: string, next: string | null = null): LimenError {
+	return new LimenError({ class: "environment", code, message, next });
+}
+
 /**
  * The failure a thrown value stands for: a `LimenError` as it is; a plain `Error` (the author's untyped refusals) a
  * refusal `UNTYPED`, which keeps exit code 1; anything else an internal error. Both keep the value as the cause.

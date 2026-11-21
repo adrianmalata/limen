@@ -1,6 +1,9 @@
 // The spawn of a job (T-26 (2)): `limen spawn`, keeper, group start and the GitHub jobs start one through
-// `startSpawn`, and continue shares its preamble, handshake and versions. The text a spawn reports goes to `out`, and
-// the shared wrapper prints it when the command ends (D-061 (3)).
+// `startSpawn`, and continue shares its preamble, handshake and versions. A spawn is an operation of T-38
+// (src/operation.ts): its validate makes every check and writes nothing, its apply names and publishes the job under
+// the jobs lock after reading again what the checks relied on, and only then are its worktree made and its wrapper
+// started, a failure of which ends the published job `failed`, so its record names what happened (T-38 (3)). The text
+// a spawn reports goes to `out`, and the shared wrapper prints it when the command ends (D-061 (3)).
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
@@ -10,7 +13,8 @@ import type { TransportName } from "../config.ts";
 import { herdrBinary, openWatchTab } from "../integrations/herdr.ts";
 import { hunkBinary } from "../integrations/hunk.ts";
 import { type NameSource, refuseRemovedRole } from "../old-names.ts";
-import { type CommandText, JOB_STARTED, type Success } from "../outcome.ts";
+import { type Checked, cleanedUp, type Operation, type StateView, stepFailure, validated } from "../operation.ts";
+import { type CommandText, environmentError, JOB_STARTED, refused, type Success, usageError } from "../outcome.ts";
 import { platform } from "../platform/platform.ts";
 import {
 	addBranchWorktree,
@@ -19,6 +23,9 @@ import {
 	branchCommit,
 	branchExists,
 	commitHasFile,
+	createBranch,
+	deleteBranch,
+	isBranchName,
 	repoRoot,
 	resolveCommit,
 	spawnBaseCommit,
@@ -34,20 +41,30 @@ import { launchWrapper } from "../runtime/launcher.ts";
 import { liveJob } from "../runtime/reap.ts";
 import { DEFAULT_PRIORITY, parsePriority, queuedLine } from "../runtime/start-queue.ts";
 import { normalizeWorkerExtensions } from "../runtime/worker-extensions.ts";
+import { hasCode } from "../system-error.ts";
 import { finalizeJob } from "./finalize.ts";
 import type { GroupMember, GroupRun } from "./group-cabinet.ts";
-import { claimMember, groupIdentity, groupLock, groupPath, teamRoute } from "./group-cabinet.ts";
+import {
+	claimMember,
+	groupIdentity,
+	groupLock,
+	groupPath,
+	memberSlotProblem,
+	readRun,
+	teamRoute,
+} from "./group-cabinet.ts";
 import { syncLifecycle } from "./group-events.ts";
 import { memberPacket, routeFlags } from "./group-packet.ts";
 import { parseDuration } from "./job.ts";
 import { publishJob } from "./publication.ts";
-import { jobFolders, readRecord, transition } from "./record.ts";
-import { withNewJobId } from "./reference.ts";
+import { readRecord, transition } from "./record.ts";
+import { jobsLock, newJobId } from "./reference.ts";
 import { currentNotificationSession, herdrWakePane } from "./watching.ts";
 
 /**
  * A spawn as its flags give it, before any check: the handler reads it from the command line, and keeper, group start
- * and the GitHub jobs build it themselves (T-26). The four route fields are required (D-043).
+ * and the GitHub jobs build it themselves (T-26). The four route fields are required (D-043). `branchAt`, which no flag
+ * gives, is the GitHub review's: `branch` does not exist yet, and the spawn's apply creates it at that commit.
  */
 export type SpawnRequest = {
 	readonly task: readonly string[];
@@ -57,6 +74,7 @@ export type SpawnRequest = {
 	readonly thinking: string;
 	readonly label?: string | undefined;
 	readonly branch?: string | undefined;
+	readonly branchAt?: string | undefined;
 	readonly repo?: string | undefined;
 	readonly role?: string | undefined;
 	readonly review?: boolean | undefined;
@@ -91,7 +109,7 @@ const PACKAGE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 /**
  * The project's own `.agents/limen/<role>.md`, else the package's template. With neither, a role a cut removed refuses
  * with its line from `src/old-names.ts`, by `source`: spawn's `--role`, or continue's parent record. Spawn and continue
- * call this before the job id and the job folder.
+ * call this in their validate.
  */
 export function resolvePreamble(root: string, role: string, source: NameSource = "argument"): string {
 	const places = [`${root}/.agents/limen/${role}.md`, resolve(PACKAGE_ROOT, "templates", `${role}.md`)];
@@ -101,18 +119,50 @@ export function resolvePreamble(root: string, role: string, source: NameSource =
 		}
 	}
 	refuseRemovedRole(role, source);
-	throw new Error(
-		`no preamble for role ${role} in ${places.join(" or ")}; write .agents/limen/${role}.md to add the role`,
-	);
+	const message = `no preamble for role ${role} in ${places.join(" or ")}; write .agents/limen/${role}.md to add the role`;
+	throw source === "argument" ? usageError("ROLE_UNKNOWN", message) : refused("ROLE_UNKNOWN", message);
 }
+/**
+ * The worktree a spawn's validate chose, before the job has an id: the id names the new worktree's folder, and, with
+ * no `--branch`, the job's own branch `limen/<id>`, so its apply places it (`worktreePlan`).
+ */
+type WorktreeChoice =
+	| { readonly kind: "detach"; readonly ref: string }
+	| { readonly kind: "reuse"; readonly path: string; readonly branch: string }
+	| { readonly kind: "add-branch"; readonly branch: string }
+	| { readonly kind: "add-new"; readonly branch: string | undefined };
 type WorktreePlan =
 	| { readonly kind: "detach"; readonly path: string; readonly ref: string }
 	| { readonly kind: "reuse"; readonly path: string; readonly branch: string }
 	| { readonly kind: "add-branch"; readonly path: string; readonly branch: string }
-	| { readonly kind: "add-new"; readonly path: string; readonly branch: string };
+	| { readonly kind: "add-new"; readonly path: string; readonly branch: string; readonly base: string };
 const HANDSHAKE_POLL_MS = 20;
 /** How long spawn and continue wait for the wrapper's handshake; a constant, as no setting chooses it (R-015). */
 const HANDSHAKE_MS = 10_000;
+/** A team's own job, or a worker of a team, with the run it belongs to. */
+type SpawnGroup = {
+	run: GroupRun;
+	team: string;
+	role: "coordinator" | "worker";
+	/** Members of the team whose jobs never ran, whose slots a start run again takes (`neverRan`). */
+	replaces: readonly string[];
+};
+/** A team's first-round job that group start launches, and the members whose slots it takes back. */
+export type TeamLaunch = { readonly run: GroupRun; readonly team: string; readonly replaces?: readonly string[] };
+/**
+ * The first write of a spawn's apply that its caller adds, after the re-check under the jobs lock and before the job's
+ * own writes: the GitHub handoff's gate, so that a changed state ends the handoff before it writes anything.
+ */
+export type FirstWrite = () => Promise<void>;
+/**
+ * What a caller adds to a spawn: the team job a group start launches, a first write of its own (`FirstWrite`), and
+ * `again`, the command line that runs it again, the `next` of its STATE_CHANGED (T-37).
+ */
+export type SpawnCall = {
+	readonly team?: TeamLaunch;
+	readonly firstWrite?: FirstWrite;
+	readonly again?: string | null;
+};
 /**
  * Starts one job; its success names the job in `ids.job` (D-022), and its text goes to `out`. A group's in-process
  * launch ignores the result.
@@ -121,23 +171,40 @@ export async function startSpawn(
 	request: SpawnRequest,
 	cwd: string,
 	out: CommandText,
-	coordinator?: { run: GroupRun; team: string },
+	call: SpawnCall = {},
 ): Promise<Success> {
-	const identity = coordinator ? undefined : await groupIdentity(cwd);
-	const group = coordinator
-		? { run: coordinator.run, team: coordinator.team, role: "coordinator" as const }
-		: identity?.member
-			? { run: identity.run, team: identity.member.team, role: "worker" as const }
-			: undefined;
-	if (identity?.member?.role === "worker") {
-		throw new Error("group workers cannot launch jobs; ask their team coordinator");
+	return startChecked(await checkedSpawn(request, cwd, out, call));
+}
+/**
+ * The validate of one spawn (T-38 (1)): every check, and nothing written. A caller that has more to do between the
+ * checks and the job, such as group start, which writes its run first, or the GitHub handoff, which takes its gate,
+ * calls this, then `startChecked`.
+ */
+export function checkedSpawn(
+	request: SpawnRequest,
+	cwd: string,
+	out: CommandText,
+	call: SpawnCall = {},
+): Promise<Checked<SpawnPlan, SpawnedRecord>> {
+	return validated(spawnOperation(request, cwd, out, call));
+}
+/**
+ * The writes of a validated spawn: in a group under the group's launch lock, which a group stop waits for, the apply
+ * under the jobs lock, then the worktree and the wrapper.
+ */
+export async function startChecked(checked: Checked<SpawnPlan, SpawnedRecord>): Promise<Success> {
+	const { group } = checked.plan;
+	let id: string;
+	try {
+		id = group
+			? await groupLock(`${groupPath(group.run)}/launch`, () => launchChecked(checked), "wait")
+			: await launchChecked(checked);
+	} catch (error) {
+		// After validate every failure is a step's (T-38 (3)): the launch lock's file is a write too.
+		throw stepFailure(error);
 	}
-	const id = group
-		? await groupLock(`${groupPath(group.run)}/launch`, () => spawnJob(request, cwd, out, group), "wait")
-		: await spawnJob(request, cwd, out);
 	return { next: null, ids: { job: id }, text: JOB_STARTED };
 }
-type SpawnGroup = { run: GroupRun; team: string; role: "coordinator" | "worker" };
 type SpawnTask = { text: string; bytes: Buffer; raw: boolean };
 /** Where the job is recorded and which repository its worktree comes from. */
 type SpawnPlace = {
@@ -147,8 +214,8 @@ type SpawnPlace = {
 	readonly repository: string;
 	readonly repo: string | undefined;
 };
-/** What the checks decided before any job record exists. */
-type SpawnLaunch = {
+/** What spawn's validate decided (T-38 (1)): every input of its apply, checked. */
+export type SpawnPlan = {
 	readonly cwd: string;
 	readonly out: CommandText;
 	readonly options: SpawnOptions & { readonly task: string; readonly label: string };
@@ -162,6 +229,23 @@ type SpawnLaunch = {
 	readonly coordinatorPane: string | undefined;
 	readonly place: SpawnPlace;
 	readonly task: string;
+	readonly role: string;
+	readonly preamble: string;
+	readonly jobsRoot: string;
+	readonly worktree: WorktreeChoice;
+	/** The commit the job's work starts from, which the ticket check read and a new worktree is made at. */
+	readonly baseCommit: string;
+	/** The base the record names: `--base` when given, else `baseCommit`. */
+	readonly base: string;
+	readonly candidate: string | undefined;
+	readonly branchAt: string | undefined;
+};
+/** A job spawn's apply published: its id and folder, the worktree to make, and its member slot in a group. */
+export type SpawnedRecord = {
+	readonly id: string;
+	readonly jobDir: string;
+	readonly worktree: WorktreePlan;
+	readonly member: GroupMember | undefined;
 };
 type SpawnRecord = {
 	readonly jobDir: string;
@@ -186,8 +270,29 @@ type SpawnedJob = {
 	/** What the wrapper runs after its handshake: prune keeping the spawner's checkout, then --prepare. */
 	readonly setup: { readonly LIMEN_SETUP_KEEP: string; readonly LIMEN_SETUP_PREPARE: string };
 };
-/** Checks, records and starts the job; returns its id. */
-async function spawnJob(request: SpawnRequest, cwd: string, out: CommandText, group?: SpawnGroup): Promise<string> {
+/** The operation of one spawn (T-38): validate decides, and apply names and publishes the job under the jobs lock. */
+function spawnOperation(
+	request: SpawnRequest,
+	cwd: string,
+	out: CommandText,
+	{ team, firstWrite, again = null }: SpawnCall,
+): Operation<SpawnPlan, SpawnedRecord> {
+	return {
+		validate: (view) => validateSpawn(view, request, cwd, out, team),
+		lock: (plan) => jobsLock(plan.place.root),
+		apply: (plan) => (firstWrite ? firstWrite().then(() => publishSpawn(plan)) : publishSpawn(plan)),
+		again,
+	};
+}
+/** Every check of a spawn, in the order the author's spawn made them; it writes nothing (T-38 (1)). */
+async function validateSpawn(
+	view: StateView,
+	request: SpawnRequest,
+	cwd: string,
+	out: CommandText,
+	coordinator: TeamLaunch | undefined,
+): Promise<SpawnPlan> {
+	const group = await spawnGroup(cwd, coordinator);
 	const parsed = spawnOptions(request);
 	const profile = resolveSpawnEngine(parsed.engine);
 	await checkLaunchAuthority(parsed, group);
@@ -197,37 +302,183 @@ async function spawnJob(request: SpawnRequest, cwd: string, out: CommandText, gr
 		task: loaded.text,
 		label: parsed.label ?? (loaded.text.trim().split(/\r?\n/, 1)[0]?.trim().slice(0, 80) || "job"),
 	};
-	const model = options.model;
 	const extensions = await launchExtensions(group, options.extensions, cwd);
-	preflightEngine(profile, model, options.provider);
+	preflightEngine(profile, options.model, options.provider);
 	const notificationSession = currentNotificationSession();
-	const coordinatorTab = process.env.HERDR_TAB_ID?.trim();
-	// A group member never subscribes a session, so its pane stays recorded even under Pi: it is the lead's route when the group hook is not running.
-	const coordinatorPane = herdrWakePane(group ? undefined : notificationSession);
 	const place = resolveSpawnPlace(cwd, group, options.repo);
+	const { root, repository } = place;
+	const role = options.review ? "reviewer" : (group?.role ?? options.role ?? "worker");
+	const pinnedBase = options.base ? resolveCommit(repository, options.base, "--base") : undefined;
+	const pinnedHead = options.head ? resolveCommit(repository, options.head, "--head") : undefined;
+	const preamble = resolvePreamble(root, role, "argument");
+	const jobsRoot = `${root}/.limen/jobs`;
+	// A project an older Limen recorded refuses here, before any write (T-38).
+	await view.jobs(jobsRoot);
+	const branchAt = request.branchAt;
+	const worktree = await chooseWorktree(view, {
+		root: repository,
+		review: options.review,
+		jobsRoot,
+		branchAt,
+		...(place.repo ? { repo: place.repo } : {}),
+		...(options.branch ? { requestedBranch: options.branch } : {}),
+	});
+	const branch = options.branch ?? "";
+	// The base the ticket check reads is the one apply records and makes the worktree at; a moved base is a change.
+	const baseCommit = await view.hold(
+		`the base commit of a new job in ${repository}`,
+		() => branchAt ?? (worktree.kind === "add-new" ? spawnBaseCommit(repository) : branchCommit(repository, branch)),
+	);
+	if (pinnedHead && baseCommit !== pinnedHead) {
+		throw refused("REVIEW_HEAD_MOVED", `pinned review head moved before spawn: ${branch} is not at ${pinnedHead}`);
+	}
 	const task = spawnTaskText(loaded, options.repo, place);
-	return recordSpawnedJob({
+	assertTicketsAtBase(repository, baseCommit, task);
+	await checkMemberSlot(view, group);
+	await noteRunningJobs(view, jobsRoot, options.label, out);
+	return {
 		cwd,
 		out,
 		options,
 		loaded,
 		group,
 		profile,
-		model,
+		model: options.model,
 		extensions,
 		notificationSession,
-		coordinatorTab,
-		coordinatorPane,
+		coordinatorTab: process.env.HERDR_TAB_ID?.trim(),
+		// A group member never subscribes a session, so its pane stays recorded even under Pi: it is the lead's route when the group hook is not running.
+		coordinatorPane: herdrWakePane(group ? undefined : notificationSession),
 		place,
 		task,
+		role,
+		preamble,
+		jobsRoot,
+		worktree,
+		baseCommit,
+		base: pinnedBase ?? baseCommit,
+		candidate: options.review ? baseCommit : undefined,
+		branchAt,
+	};
+}
+/** The group a spawn launches in: the team job a group start or round names, or the caller's own membership. */
+async function spawnGroup(cwd: string, coordinator: TeamLaunch | undefined): Promise<SpawnGroup | undefined> {
+	if (coordinator) {
+		return { run: coordinator.run, team: coordinator.team, role: "coordinator", replaces: coordinator.replaces ?? [] };
+	}
+	const identity = await groupIdentity(cwd);
+	if (identity?.member?.role === "worker") {
+		throw refused("GROUP_WORKER_SPAWN", "group workers cannot launch jobs; ask their team coordinator");
+	}
+	return identity?.member ? { run: identity.run, team: identity.member.team, role: "worker", replaces: [] } : undefined;
+}
+/**
+ * A worker launch needs a free slot of its team (`memberSlotProblem`): validate refuses without one, and holds the
+ * fact, so a run.json that a group stop or another launch changed in between ends the spawn in STATE_CHANGED. A team's
+ * own job is launched by group start or a round, from a run that its caller holds; its claim reads it under the cabinet
+ * lock.
+ */
+async function checkMemberSlot(view: StateView, group: SpawnGroup | undefined): Promise<void> {
+	if (!group) {
+		return;
+	}
+	if (group.role === "coordinator") {
+		const problem = memberSlotProblem(group.run, group.team, group.role, 0, Date.now(), group.replaces);
+		if (problem) {
+			throw problem;
+		}
+		return;
+	}
+	await view.hold(`the launch slots of group ${group.run.feature} (${group.run.id})`, async () => {
+		const problem = memberSlotProblem(await readRun(group.run.root, group.run.id), group.team, group.role);
+		if (problem) {
+			throw problem;
+		}
+		return "free";
 	});
+}
+/**
+ * The apply of a spawn, under the jobs lock after the re-check (T-38 (2)): the jobs folder, the job's id, its member
+ * slot, the folder of job worktrees, the GitHub review's branch, then the published record. A failure after the branch
+ * exists removes it, since no record names it yet.
+ */
+async function publishSpawn(plan: SpawnPlan): Promise<SpawnedRecord> {
+	const { options, group, place, jobsRoot } = plan;
+	const { root, repository } = place;
+	await mkdir(jobsRoot, { recursive: true });
+	// The new token stays unique while the jobs lock is held, until publication has made the job's folder (T-20 (1)).
+	const id = await newJobId(root, options.label);
+	const member = group
+		? await claimMember(group.run, group.team, group.role, id, undefined, 0, group.replaces)
+		: undefined;
+	const branch = options.branch ?? `limen/${id}`;
+	const worktreeRoot = `${dirname(repository)}/.${basename(repository)}-limen-worktrees`;
+	await mkdir(worktreeRoot, { recursive: true });
+	const worktree = worktreePlan(plan.worktree, `${worktreeRoot}/${id}`, branch, plan.baseCommit);
+	if (plan.branchAt) {
+		createBranch(repository, branch, plan.branchAt);
+	}
+	const jobDir = `${jobsRoot}/${id}`;
+	try {
+		const taskBody = await jobTaskBody(plan, plan.candidate, member);
+		await publishSpawnedJob(plan, {
+			jobDir,
+			id,
+			taskBody,
+			branch,
+			worktree: worktree.path,
+			base: plan.base,
+			role: plan.role,
+			member,
+			candidate: plan.candidate,
+		});
+	} catch (error) {
+		throw await cleanedUp(error, async () => {
+			if (plan.branchAt) {
+				deleteBranch(repository, branch);
+			}
+		});
+	}
+	return { id, jobDir, worktree, member };
+}
+/**
+ * The steps after a spawn's apply: the job's record exists, so a failure to make its worktree or start its wrapper
+ * ends it `failed` with the reason (T-38 (3)). Returns the job's id.
+ */
+async function launchChecked(checked: Checked<SpawnPlan, SpawnedRecord>): Promise<string> {
+	const { plan } = checked;
+	const { options, group, place } = plan;
+	const { jobDir, id, worktree: planned, member } = await checked.apply();
+	try {
+		const worktree = executeWorktree(place.repository, planned);
+		const setup = {
+			LIMEN_SETUP_KEEP: place.currentRoot,
+			LIMEN_SETUP_PREPARE: options.prepare ?? "",
+		};
+		const memberDeadline = member?.deadline;
+		await launchSpawnedJob(plan, {
+			jobDir,
+			id,
+			root: place.root,
+			worktree,
+			preamble: plan.preamble,
+			role: plan.role,
+			memberDeadline,
+			setup,
+		});
+	} catch (error) {
+		throw await cleanedUp(error, async () => {
+			await finalizeJob(jobDir, "failed", `${group ? "group launch" : "spawn"} failed: ${String(error)}`);
+		});
+	}
+	return id;
 }
 /** Outside a group no job may claim the owner-facing lead; a group launch keeps its recorded route and branches. */
 async function checkLaunchAuthority(parsed: SpawnOptions, group: SpawnGroup | undefined): Promise<void> {
 	if (!group) {
 		const roleClaim = claimsOwnerFacingLead(parsed.role);
 		if (roleClaim) {
-			throw new Error(roleClaim);
+			throw refused("SPAWN_LEAD_ROLE", roleClaim);
 		}
 		return;
 	}
@@ -239,7 +490,7 @@ async function checkLaunchAuthority(parsed: SpawnOptions, group: SpawnGroup | un
 		parsed.model !== route.model ||
 		parsed.thinking !== route.thinking
 	) {
-		throw new Error(`group launches require the team route explicitly: ${routeFlags(route)}`);
+		throw usageError("GROUP_ROUTE", `group launches require the team route explicitly: ${routeFlags(route)}`);
 	}
 	if (
 		parsed.repo ||
@@ -247,7 +498,8 @@ async function checkLaunchAuthority(parsed: SpawnOptions, group: SpawnGroup | un
 		(parsed.role && parsed.role !== group.role) ||
 		parsed.timeoutMs
 	) {
-		throw new Error(
+		throw usageError(
+			"GROUP_LAUNCH_FLAGS",
 			"group launches use isolated new branches, recorded roles and deadlines; omit --repo, ordinary --branch and --timeout",
 		);
 	}
@@ -258,7 +510,7 @@ async function checkLaunchAuthority(parsed: SpawnOptions, group: SpawnGroup | un
 				.map(async (member) => (await readRecord(`${run.root}/.limen/jobs/${member.id}`))?.branch ?? ""),
 		);
 		if (!teamBranches.includes(parsed.branch ?? "")) {
-			throw new Error("group review requires a candidate branch owned by this team");
+			throw refused("GROUP_REVIEW_BRANCH", "group review requires a candidate branch owned by this team");
 		}
 	}
 }
@@ -269,13 +521,18 @@ async function launchExtensions(
 	cwd: string,
 ): Promise<string[]> {
 	const recorded = group?.run.teamExtensions?.[group.team];
-	const extensions = await normalizeWorkerExtensions(recorded ?? requested, cwd);
+	const extensions = await (recorded
+		? normalizeWorkerExtensions(recorded, cwd, "record")
+		: normalizeWorkerExtensions(requested, cwd));
 	if (
 		recorded &&
 		requested.length &&
 		JSON.stringify(await normalizeWorkerExtensions(requested, cwd)) !== JSON.stringify(extensions)
 	) {
-		throw new Error("group launches require the recorded team extensions; omit --extension to inherit them");
+		throw usageError(
+			"GROUP_EXTENSIONS",
+			"group launches require the recorded team extensions; omit --extension to inherit them",
+		);
 	}
 	return extensions;
 }
@@ -286,10 +543,10 @@ function resolveSpawnPlace(cwd: string, group: SpawnGroup | undefined, repoFlag:
 	const inherited = group || workspace ? undefined : inheritedPlanning(currentRoot);
 	const root = group?.run.root ?? inherited?.root ?? currentRoot;
 	if (workspace && !repoFlag) {
-		throw new Error("workspace spawn requires --repo <immediate-child>");
+		throw usageError("REPO_REQUIRED", "workspace spawn requires --repo <immediate-child>");
 	}
 	if (!workspace && repoFlag) {
-		throw new Error("--repo is available only from a non-Git workspace coordinator");
+		throw usageError("REPO_OUTSIDE_WORKSPACE", "--repo is available only from a non-Git workspace coordinator");
 	}
 	let repository = currentRoot;
 	if (workspace) {
@@ -305,93 +562,32 @@ function spawnTaskText(loaded: SpawnTask, repoFlag: string | undefined, place: S
 	}
 	return loaded.text;
 }
-/**
- * Names the job and publishes its record, then creates the worktree and starts the job; returns the ID. A failure after
- * the record exists ends the job `failed`, so its record names what happened.
- */
-async function recordSpawnedJob(launch: SpawnLaunch): Promise<string> {
-	const { options, group, place } = launch;
-	const { root, repository } = place;
-	const role = options.review ? "reviewer" : (group?.role ?? options.role ?? "worker");
-	const pinnedBase = options.base ? resolveCommit(repository, options.base, "--base") : undefined;
-	const pinnedHead = options.head ? resolveCommit(repository, options.head, "--head") : undefined;
-	const preamble = resolvePreamble(root, role, "argument");
-	const jobsRoot = `${root}/.limen/jobs`;
-	// A project an older Limen recorded is refused before the first write: no worktree root, no member slot (T-38).
-	await jobFolders(jobsRoot);
-	await mkdir(jobsRoot, { recursive: true });
-	// The new token stays unique while its lock is held, until publication has made the job's folder (T-20 (1)).
-	const { id, jobDir, plan, member } = await withNewJobId(root, options.label, (id) =>
-		publishNewJob(launch, { id, jobsRoot, role, pinnedBase, pinnedHead }),
-	);
-	try {
-		const worktree = executeWorktree(place.repository, plan);
-		const setup = {
-			LIMEN_SETUP_KEEP: place.currentRoot,
-			LIMEN_SETUP_PREPARE: options.prepare ?? "",
-		};
-		const memberDeadline = member?.deadline;
-		await launchSpawnedJob(launch, { jobDir, id, root, worktree, preamble, role, memberDeadline, setup });
-	} catch (error) {
-		await finalizeJob(jobDir, "failed", `${group ? "group launch" : "spawn"} failed: ${String(error)}`);
-		throw error;
+/** The worktree `choice` with the job's id: the folder of a new worktree and, with no `--branch`, the job's branch. */
+function worktreePlan(choice: WorktreeChoice, path: string, branch: string, base: string): WorktreePlan {
+	if (choice.kind === "detach") {
+		return { kind: "detach", path, ref: choice.ref };
 	}
-	return id;
-}
-/** Plans the worktree, claims the member slot and publishes the job's record under the id `id`. */
-async function publishNewJob(
-	launch: SpawnLaunch,
-	named: {
-		readonly id: string;
-		readonly jobsRoot: string;
-		readonly role: string;
-		readonly pinnedBase: string | undefined;
-		readonly pinnedHead: string | undefined;
-	},
-) {
-	const { options, group, place, task } = launch;
-	const { repository } = place;
-	const { id, jobsRoot, role, pinnedBase, pinnedHead } = named;
-	const branch = options.branch ?? `limen/${id}`;
-	const worktreeRoot = `${dirname(repository)}/.${basename(repository)}-limen-worktrees`;
-	const requestedPath = `${worktreeRoot}/${id}`;
-	await mkdir(worktreeRoot, { recursive: true });
-	const plan = await planWorktree({
-		root: repository,
-		requestedPath,
-		branch,
-		review: options.review,
-		jobsRoot,
-		...(place.repo ? { repo: place.repo } : {}),
-		...(options.branch ? { requestedBranch: options.branch } : {}),
-	});
-	if (pinnedHead && branchCommit(repository, branch) !== pinnedHead) {
-		throw new Error(`pinned review head moved before spawn: ${branch} is not at ${pinnedHead}`);
+	if (choice.kind === "reuse") {
+		return choice;
 	}
-	const baseCommit = plan.kind === "add-new" ? spawnBaseCommit(repository) : branchCommit(repository, branch);
-	assertTicketsAtBase(repository, baseCommit, task);
-	const member = group ? await claimMember(group.run, group.team, group.role, id) : undefined;
-	await noteRunningJobs(jobsRoot, options.label, launch.out);
-	const jobDir = `${jobsRoot}/${id}`;
-	const candidate = options.review ? branchCommit(repository, branch) : undefined;
-	const base = pinnedBase ?? baseCommit;
-	const taskBody = await jobTaskBody(launch, candidate, member);
-	await publishSpawnedJob(launch, { jobDir, id, taskBody, branch, worktree: plan.path, base, role, member, candidate });
-	return { id, jobDir, plan, member };
+	if (choice.kind === "add-branch") {
+		return { kind: "add-branch", path, branch: choice.branch };
+	}
+	return { kind: "add-new", path, branch: choice.branch ?? branch, base };
 }
 function assertTicketsAtBase(repository: string, baseCommit: string, task: string): void {
 	for (const { path } of ticketPointers(task)) {
 		if (path.startsWith("spec/") && !commitHasFile(repository, baseCommit, path)) {
-			throw new Error(`ticket ${path} is missing from the base commit`);
+			throw refused("TICKET_NOT_AT_BASE", `ticket ${path} is missing from the base commit`);
 		}
 	}
 }
 /** Says how many jobs already run, and warns about a bare feature-number label or a label a live job holds. */
-async function noteRunningJobs(jobsRoot: string, label: string, out: CommandText): Promise<void> {
+async function noteRunningJobs(view: StateView, jobsRoot: string, label: string, out: CommandText): Promise<void> {
 	let running = 0;
 	let held = false;
-	for (const id of await jobFolders(jobsRoot)) {
-		const record = await readRecord(`${jobsRoot}/${id}`);
+	for (const id of await view.jobs(jobsRoot)) {
+		const record = await view.record(`${jobsRoot}/${id}`);
 		if (!(await liveJob(record))) {
 			continue;
 		}
@@ -411,11 +607,11 @@ async function noteRunningJobs(jobsRoot: string, label: string, out: CommandText
 	}
 }
 async function jobTaskBody(
-	launch: SpawnLaunch,
+	plan: SpawnPlan,
 	candidate: string | undefined,
 	member: GroupMember | undefined,
 ): Promise<string | Uint8Array> {
-	const { task, loaded, group } = launch;
+	const { task, loaded, group } = plan;
 	let taskBody: string | Uint8Array = `${task.trim()}\n`;
 	if (loaded.raw) {
 		taskBody = loaded.bytes;
@@ -427,22 +623,22 @@ async function jobTaskBody(
 	}
 	return taskBody;
 }
-async function publishSpawnedJob(launch: SpawnLaunch, record: SpawnRecord): Promise<void> {
-	const { group, place, notificationSession, coordinatorTab, coordinatorPane } = launch;
+async function publishSpawnedJob(plan: SpawnPlan, record: SpawnRecord): Promise<void> {
+	const { group, place, notificationSession, coordinatorTab, coordinatorPane } = plan;
 	const { member, candidate } = record;
 	await publishJob(record.jobDir, {
 		task: record.taskBody,
-		label: launch.options.label,
+		label: plan.options.label,
 		branch: record.branch,
 		worktree: record.worktree,
 		base: record.base,
 		role: record.role,
-		engine: launch.profile.id,
-		priority: launch.options.priority ?? DEFAULT_PRIORITY,
-		...(launch.model ? { model: launch.model } : {}),
-		provider: launch.options.provider,
-		thinking: launch.options.thinking,
-		extensions: launch.extensions,
+		engine: plan.profile.id,
+		priority: plan.options.priority ?? DEFAULT_PRIORITY,
+		...(plan.model ? { model: plan.model } : {}),
+		provider: plan.options.provider,
+		thinking: plan.options.thinking,
+		extensions: plan.extensions,
 		...(place.repo ? { repo: place.repo } : {}),
 		...(!group && notificationSession ? { notificationSession } : {}),
 		...(coordinatorTab ? { originTab: coordinatorTab } : {}),
@@ -452,8 +648,8 @@ async function publishSpawnedJob(launch: SpawnLaunch, record: SpawnRecord): Prom
 	});
 }
 /** Starts the published job as a detached wrapper, which moves it to running (src/runtime/wrapper.ts). */
-async function launchSpawnedJob(launch: SpawnLaunch, job: SpawnedJob): Promise<void> {
-	await startDetachedJob(launch, job, recordVersions(job.jobDir, launch.profile));
+async function launchSpawnedJob(plan: SpawnPlan, job: SpawnedJob): Promise<void> {
+	await startDetachedJob(plan, job, recordVersions(job.jobDir, plan.profile));
 }
 /**
  * Records the versions of the engine and the tools while the job starts or runs; a job that ended before the probes
@@ -463,8 +659,8 @@ export async function recordVersions(jobDir: string, profile: EngineProfile): Pr
 	const versions = await capturedVersions(profile);
 	await transition(jobDir, { from: ["starting", "running"], set: { versions } });
 }
-async function startDetachedJob(launch: SpawnLaunch, job: SpawnedJob, versions: Promise<void>): Promise<void> {
-	const { options, model, group, out } = launch;
+async function startDetachedJob(plan: SpawnPlan, job: SpawnedJob, versions: Promise<void>): Promise<void> {
+	const { options, model, group, out } = plan;
 	const { jobDir, id, root } = job;
 	await openWatchTab({ jobDir, label: options.label, cwd: root, logPath: `${jobDir}/log`, role: job.role });
 	const environment: Partial<Record<TransportName, string>> = {
@@ -495,9 +691,10 @@ async function startDetachedJob(launch: SpawnLaunch, job: SpawnedJob, versions: 
 		wrapperPid = await launchWrapper(environment);
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
-		await versions.catch(() => {});
-		await finalizeJob(jobDir, "failed", `failed to launch wrapper: ${message}`);
-		throw error;
+		throw await cleanedUp(error, async () => {
+			await versions.catch(() => {});
+			await finalizeJob(jobDir, "failed", `failed to launch wrapper: ${message}`);
+		});
 	}
 	await waitForHandshake(jobDir, wrapperPid);
 	if (group) {
@@ -516,38 +713,69 @@ async function startDetachedJob(launch: SpawnLaunch, job: SpawnedJob, versions: 
 	out.line(queued ?? `started ${options.label}`);
 	out.line(id);
 }
-async function planWorktree(input: {
-	readonly root: string;
-	readonly requestedPath: string;
-	readonly branch: string;
-	readonly review: boolean;
-	readonly requestedBranch?: string;
-	readonly repo?: string;
-	readonly jobsRoot: string;
-}): Promise<WorktreePlan> {
-	const { root, requestedPath: path, branch } = input;
-	if (input.review) {
-		if (!input.requestedBranch) {
-			throw new Error("--review requires --branch <candidate-branch>");
+/**
+ * The worktree a spawn takes, chosen before the job has an id. A `--branch`'s choice is held: a branch that gains a
+ * live job, a worktree or a commit in between ends the spawn in STATE_CHANGED. Without `--branch` the job makes its own
+ * new branch, which needs no fact.
+ */
+async function chooseWorktree(
+	view: StateView,
+	input: {
+		readonly root: string;
+		readonly review: boolean;
+		readonly requestedBranch?: string;
+		readonly branchAt: string | undefined;
+		readonly repo?: string;
+		readonly jobsRoot: string;
+	},
+): Promise<WorktreeChoice> {
+	const { root, requestedBranch: branch } = input;
+	if (input.review && !branch) {
+		throw usageError("REVIEW_NEEDS_BRANCH", "--review requires --branch <candidate-branch>");
+	}
+	if (branch === undefined) {
+		return { kind: "add-new", branch: undefined };
+	}
+	if (!isBranchName(root, branch)) {
+		throw usageError("BAD_BRANCH", `--branch ${JSON.stringify(branch)} is no name git takes for a branch`);
+	}
+	if (input.branchAt !== undefined) {
+		// The GitHub review's branch: apply creates it, so it must not exist yet.
+		await view.hold(`branch ${branch} in ${root}`, () => {
+			if (branchExists(root, branch)) {
+				throw refused(
+					"BRANCH_EXISTS",
+					`branch ${branch} already exists in ${root}, so a review cannot pin a new one there`,
+				);
+			}
+			return "absent";
+		});
+		return { kind: "detach", ref: branch };
+	}
+	return view.hold(`branch ${branch} in ${root}`, async () => {
+		if (input.review) {
+			if (!branchExists(root, branch)) {
+				throw refused("BRANCH_MISSING", `candidate branch ${branch} does not exist`);
+			}
+			return { kind: "detach", ref: branch } as const;
 		}
 		if (!branchExists(root, branch)) {
-			throw new Error(`candidate branch ${branch} does not exist`);
+			return { kind: "add-new", branch } as const;
 		}
-		return { kind: "detach", path, ref: branch };
-	}
-	if (!branchExists(root, branch)) {
-		return { kind: "add-new", path, branch };
-	}
-	const existing = worktreeForBranch(root, branch);
-	if (existing && resolve(existing.path) === resolve(root)) {
-		throw new Error(
-			`branch ${branch} is checked out in the primary worktree, so the job cannot get its own worktree; switch the primary worktree to another branch, or omit --branch`,
-		);
-	}
-	if (await liveJobUsesBranch(input.jobsRoot, branch, input.repo)) {
-		throw new Error(`branch ${branch} already has a live job`);
-	}
-	return existing ? { kind: "reuse", path: existing.path, branch } : { kind: "add-branch", path, branch };
+		const existing = worktreeForBranch(root, branch);
+		if (existing && resolve(existing.path) === resolve(root)) {
+			throw refused(
+				"BRANCH_IN_PRIMARY",
+				`branch ${branch} is checked out in the primary worktree, so the job cannot get its own worktree; switch the primary worktree to another branch, or omit --branch`,
+			);
+		}
+		if (await liveJobUsesBranch(view, input.jobsRoot, branch, input.repo)) {
+			throw refused("BRANCH_LIVE_JOB", `branch ${branch} already has a live job`);
+		}
+		return existing
+			? ({ kind: "reuse", path: existing.path, branch } as const)
+			: ({ kind: "add-branch", branch } as const);
+	});
 }
 function executeWorktree(root: string, plan: WorktreePlan): string {
 	if (plan.kind === "detach") {
@@ -558,7 +786,7 @@ function executeWorktree(root: string, plan: WorktreePlan): string {
 		addBranchWorktree(root, plan.path, plan.branch);
 	}
 	if (plan.kind === "add-new") {
-		addNewWorktree(root, plan.path, plan.branch);
+		addNewWorktree(root, plan.path, plan.branch, plan.base);
 	}
 	return plan.path;
 }
@@ -568,16 +796,16 @@ function claimsOwnerFacingLead(role: string | undefined): string | undefined {
 	}
 }
 
-/** The checked options of a spawn; a value that does not hold refuses before any job record exists. */
+/** The checked options of a spawn; a value that does not hold is a usage error, in validate. */
 function spawnOptions(request: SpawnRequest): SpawnOptions {
 	const role = request.role?.trim();
 	if (role !== undefined && !/^[a-z][a-z0-9-]*$/.test(role)) {
-		throw new Error("--role must be a lowercase name");
+		throw usageError("BAD_ROLE", "--role must be a lowercase name");
 	}
 	const timeoutMs = request.timeout === undefined ? undefined : parseDuration(request.timeout);
 	const priority = parsePriority(request.priority);
 	if (request.review && role) {
-		throw new Error("--role and --review cannot be combined");
+		throw usageError("REVIEW_WITH_ROLE", "--role and --review cannot be combined");
 	}
 	// The drop of empty words and lone `--` words happens in the shared parser, on the command line only (`dropsDashes`
 	// of the task in src/registry.ts); an in-process caller of `startSpawn` passes a task without them.
@@ -608,18 +836,18 @@ function spawnOptions(request: SpawnRequest): SpawnOptions {
 /** Check the task against its flags; the label, which positional words give with --task-file. */
 function spawnLabel(values: SpawnRequest, task: readonly string[]): string | undefined {
 	if ((values.base || values.head) && !values.review) {
-		throw new Error("--base and --head require --review");
+		throw usageError("PIN_WITHOUT_REVIEW", "--base and --head require --review");
 	}
 	const label = values.label === undefined ? undefined : normalizeLabel(values.label);
 	// With --task-file the file is the task, so positional words can only be its title.
 	if (values.taskFile && task.length) {
 		if (label) {
-			throw new Error("with --task-file, give the title positionally or as --label, not both");
+			throw usageError("TITLE_TWICE", "with --task-file, give the title positionally or as --label, not both");
 		}
 		return normalizeLabel(task.join(" "));
 	}
 	if (!values.taskFile && !task.join(" ").trim()) {
-		throw new Error("spawn requires task text");
+		throw usageError("NO_TASK", "spawn requires task text");
 	}
 	return label;
 }
@@ -636,12 +864,30 @@ async function readSpawnTask(
 		}
 		return { text: task, bytes: Buffer.from(task), raw: false };
 	}
-	const bytes = source === "-" ? readFileSync(0) : await readFile(resolve(cwd, source));
+	const bytes = source === "-" ? readFileSync(0) : await taskFileBytes(resolve(cwd, source));
 	const text = bytes.toString("utf8");
 	if (!text.trim()) {
-		throw new Error("spawn requires task text");
+		throw usageError("NO_TASK", "spawn requires task text");
 	}
 	return { text, bytes, raw: true };
+}
+/**
+ * The bytes of `--task-file`: a path that names no file, or a folder, is a usage error (T-02); a file the system does
+ * not let Limen read is the environment's failure.
+ */
+async function taskFileBytes(path: string): Promise<Buffer> {
+	try {
+		return await readFile(path);
+	} catch (error) {
+		if (hasCode(error, "ENOENT")) {
+			throw usageError("BAD_TASK_FILE", `--task-file ${path} does not exist`);
+		}
+		if (hasCode(error, "EISDIR")) {
+			throw usageError("BAD_TASK_FILE", `--task-file ${path} is a folder; name the file that holds the task`);
+		}
+		const reason = error instanceof Error ? error.message : String(error);
+		throw environmentError("TASK_FILE_UNREADABLE", `--task-file ${path} cannot be read: ${reason}`);
+	}
 }
 function probeVersion(command: string): Promise<string> {
 	return new Promise((resolve) => {
@@ -678,13 +924,13 @@ function workspaceTask(task: string, root: string, repo: string): string {
 export function normalizeLabel(value: string): string {
 	const label = value.trim();
 	if (!label || /[\r\n]/.test(label)) {
-		throw new Error("--label must be one non-empty line");
+		throw usageError("BAD_LABEL", "--label must be one non-empty line");
 	}
 	return label;
 }
-async function liveJobUsesBranch(jobsRoot: string, branch: string, repo?: string): Promise<boolean> {
-	for (const id of await jobFolders(jobsRoot)) {
-		const record = await readRecord(`${jobsRoot}/${id}`);
+async function liveJobUsesBranch(view: StateView, jobsRoot: string, branch: string, repo?: string): Promise<boolean> {
+	for (const id of await view.jobs(jobsRoot)) {
+		const record = await view.record(`${jobsRoot}/${id}`);
 		if (record?.branch === branch && (!repo || record.repo === repo) && (await liveJob(record))) {
 			return true;
 		}
@@ -712,6 +958,10 @@ export async function waitForHandshake(jobDir: string, wrapperPid: number): Prom
 		platform.signalProcessGroup(wrapperPid, "SIGKILL");
 		await waitForProcessGroup(wrapperPid, 1_000);
 	}
-	await finalizeJob(jobDir, "failed", "detached wrapper did not become ready");
-	throw new Error("detached wrapper did not start; inspect the job record");
+	throw await cleanedUp(
+		environmentError("WRAPPER_NOT_READY", "detached wrapper did not start; inspect the job record"),
+		async () => {
+			await finalizeJob(jobDir, "failed", "detached wrapper did not become ready");
+		},
+	);
 }
