@@ -65,7 +65,8 @@ job raz, błąd sprawdzenia rekordu w kolejce z przyczyną w logu, `fileOf` jak 
 o pliku testu czekają na pytanie Q-17); limen-rebuild-16: Q-17 → D-068 (dwa punkty R-096), Q-18 → D-069 (przyczyna
 nadmiarowego wake'a w fałszywym silniku testów, który emitował agent_settled po każdej turze; Pi robi to raz na
 przebieg) i R-096 zamknięty (jeden agent_settled na przebieg w test/fake-engine.mjs, nowy test deterministyczny,
-bramka 599/599). -->
+bramka 599/599); Q-19 → D-070 (R-092 przestawia dziewięć poleceń zapisujących przed odmową, reszta na zapadce do
+R-082), ticket.md R-092 napisany i przekazanie do limen-rebuild-17. -->
 
 
 
@@ -864,6 +865,19 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   runs as `node adrian-rebuild/tools/fails-before.mjs test/fake-engine.test.ts`; AC-7's load evidence is the runs
   of (a) with no failure, repeated after the change. This departs from D-067's "a reproduction under the gate's
   load" by the deterministic test. Check: R-096's criteria.
+- 2026-11-21 D-070 (Adrian: "1"; Q-19, asked again after he had the session read `plan.md`, `gate-2-decisions.md`,
+  `taste.md` and the harness principles, as for D-061; inventory: `evidence/inventories/R-092.md`): R-092's scope.
+  (1) Option 1: R-092 builds the mechanism of T-38 (1)–(4) and converts the nine change commands that write before a
+  refusal today and have no `movedBy`, except `github poll`, whose state R-057 rewrites: spawn, continue, stop,
+  ticket done, picture build, group start, group stop, github review and github work. R-092 stays size L.
+  (2) Settled by the documents, not asked (the session's reading): `ticket done`, `picture build` and the group
+  roster are D-061's; a converted refusal carries its own code, so the `UNTYPED` ratchet of `test/structure.test.ts`
+  falls and R-082 types the rest; argument errors of a converted command are usage, exit 2 (T-02); a state changed
+  since `validate` ends with exit 3 before the first write (T-38 (2)); commands with `movedBy` are exempt (D-061);
+  the wrapper's `endDueRules` goes with seat rules (A-010, R-034) and T-04's housekeeping with R-032; the shape check
+  over the other 18 change commands without `movedBy` starts as a ratchet, a list that may only shrink, which R-082
+  brings to zero (`## Stages` → conventions), and a ticket that rewrites such a command converts it (the reviewer
+  question of T-38). Check: R-092's criteria; R-082's note in `## Tickets`.
 
 ### Gate 2 §2, copied
 
@@ -1233,7 +1247,7 @@ Columns:
 | R-021 | One `record.json` per job, written only by the transition function | 2 | S1+, A-019, A-053, A-056, T-20, T-25, D-057 | R-016, R-018, R-019 | L | delegated | night | yes | — | — | done |
 | R-022 | Exact job references through one resolver | 2 | T-20, D-061 | R-014, R-021 | M | delegated | night | yes | — | — | done |
 | R-023 | Commands are thin adapters over domain operations | 2 | T-26, D-044, D-045, D-046, D-061 | R-014, R-021, R-089 | M | delegated | night | — | — | — | done |
-| R-092 | A refusal leaves no trace: `validate` then `apply` | 2 | T-38, D-061 | R-021, R-023 | L | delegated | night | — | — | — | planned |
+| R-092 | A refusal leaves no trace: `validate` then `apply` | 2 | T-38, D-061 | R-021, R-023 | L | delegated | night | — | — | — | ready |
 | R-093 | The round-3 notes of R-019 and R-021: the migration keeps `born`, guarded hook reads | 2 | T-25, T-02, T-30, D-062, D-063 | R-019, R-021, R-022 | S | delegated | night | — | — | — | done |
 | R-094 | A queued wrapper ends when its job folder is gone; tests stop their wrappers | 2 | T-01, T-29, D-063 | R-093 | S | delegated | night | — | — | — | done |
 | R-095 | The round-3 notes of R-022 and R-094: the shared-token report, `keeper`'s de-duplication, the record check | 2 | T-01, T-29, T-30, D-065 | R-022, R-094 | S | delegated | night | — | — | — | done |
@@ -1413,6 +1427,8 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
 - R-025 (R-090 → `outcome.md` → Open points 1): the other scans of `test/structure.test.ts` (`filesIn` for `seat/`,
   `bin/`, `src/`, `hook/`, and `sources`) still walk ignored files; they read only the files git knows, through R-090's
   `knownFiles`, so an ignored file (an editor's swap file) cannot change a scan.
+- R-082 (D-070): it brings the ratchet of T-38's shape to zero: every change command without `movedBy` follows
+  `validate` then `apply`, and its refusals are typed.
 - R-025 (R-018 review round 2, note 5; T-29 (5)): `test/cli/github.test.ts` opens with two header lines, and the
   header of `test/cli/continue.test.ts` does not name its transcript-mode test.
 - R-059: no shell scripts (D-010): `docs/seat/bell.sh` and `docs/seat/github-setup.sh` become TypeScript in `seat/`,
@@ -2712,11 +2728,40 @@ redundant, the terminal being active; Q-17 asked again in the conversation, with
   test/fake-engine.test.ts` exit 0 twice. Open point for gate 5.2 (`outcome.md`): a message a hook sends while
   `agent_settled` is emitted starts a new run of the fake engine, with no test of its own.
 
+- R-096 committed and pushed as `07ec41b`; context 22 % at that safe point, so no handover.
+- R-092's read-only inventory at `07ec41b`: `evidence/inventories/R-092.md` (24 of the 35 change commands refuse
+  before their first write, 11 write before a refusal; many are rewritten by tickets of stages 3–8). Its scope
+  asked as Q-19.
+
+Q-19 asked again (Adrian: read `plan.md`, `gate-2-decisions.md`, `taste.md` and the harness principles, then ask
+again, as for D-061). Settled by the documents, not asked (the session's reading, for D-070):
+- R-092 builds the mechanism of T-38 (1)–(4) and converts `ticket done`, `picture build` and the group roster of
+  `group start` (D-061); a converted refusal carries its own code (D-061), so the `UNTYPED` ratchet of
+  `test/structure.test.ts` (218) falls, and R-082 types the rest (its comment there); argument errors of a converted
+  command are usage, exit 2 (T-02); a state changed since `validate` ends with exit 3 before the first write
+  (T-38 (2)).
+- Commands with `movedBy` are exempt (D-061): prune, sweep, close, keeper, rule set, end and timer, group wait.
+- The wrapper's `endDueRules` before every handler goes with seat rules (A-010, R-034) and T-04's housekeeping with
+  R-032, not with R-092.
+- The shape check over the change commands not converted yet starts as a ratchet, a list that may only shrink, and
+  R-082 brings it to zero (`## Stages` → conventions: a scan that cannot hold at once over the author's code starts
+  as a ratchet; R-082 and R-083 bring the counts to zero); a ticket that rewrites such a command converts it, by the
+  reviewer question of T-38.
+
+- Q-19 → D-070 (Adrian: "1"): R-092 converts nine commands; the settled points above are D-070 (2).
+- R-092's `ticket.md` written at `07ec41b` from T-38, D-061 and D-070; it has no grep criteria (D-025). R-092
+  `ready` (delegated); context 34 % before its implementer, so the session hands over first (D-047).
+
 Active ticket: none.
 
+Resolved (Q-19 → D-070), asked in the conversation with a push, then again after Adrian had the session read the
+documents:
+- Q-19 (R-092's scope beyond D-061's three): 1. also spawn, continue, stop, group stop, github review and github work
+  (recommended); 2. also only spawn, continue and stop; 3. every change command without `movedBy` now.
+
 Next (by day):
-1. R-092 (L, delegated; its dependencies R-021 and R-023 are done): its `ticket.md` at the HEAD it starts from, from
-   T-38 and D-061.
+1. R-092 (L, delegated; `ready`, its `ticket.md` written at `07ec41b`): status `active`, `review-guard.mjs snapshot
+   --git --out node_modules/.rebuild-review/R-092.git`, then `rebuild-implementer` with the ticket folder.
 2. Then R-024 and R-025, and the close: tag `a0.2.0`, gate 5.2 by phone, with the night defaults above.
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
@@ -2791,3 +2836,10 @@ adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into this sect
 `ticket.md` (D-067; written at `f2ed1f6`, with Q-17's two items if Adrian answers "1"; its grep criteria run at HEAD
 first, D-025). Q-17's answer goes into D-068. The night defaults and open points of R-019, R-021, R-022, R-023 and
 R-095 wait for gate 5.2. The handover after it is `limen-rebuild-17`.
+
+Handover of 2026-11-21 (D-047, at 34 % context, after the commit of R-092's `ticket.md` and D-070):
+`limen-rebuild-16` starts `limen-rebuild-17` with `node adrian-rebuild/tools/handover.mjs start 17` and ends its turn.
+By day: the next session's first acts are a push notification to Adrian that it takes over at R-092, then `node
+adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into this section, then `Next` 1 (R-092 `ready`
+with its `ticket.md`, D-070). The night defaults and open points of R-019, R-021, R-022, R-023, R-095 and R-096 wait
+for gate 5.2. The handover after it is `limen-rebuild-18`.
