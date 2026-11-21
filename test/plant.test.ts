@@ -3,35 +3,34 @@
 import assert from "node:assert/strict";
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { plant as newPlant, type Plant, waitJob } from "./plant.ts";
+import { plant as newPlant, type Plant, waitJob, writeRecord } from "./plant.ts";
 
 const JOB = "2026-11-18-waited-1a2b3c4d";
 /**
- * How long the stand-in wrapper keeps `pid` after `state` is terminal. A helper that returns at the state returns well
- * inside it, so the test fails every time without the wait for `pid`.
+ * How long the stand-in wrapper lives after its record is terminal. A helper that returns at the state returns well
+ * inside it, so the test fails every time without the wait for the process.
  */
 const WRAPPER_TAIL_MS = 1_000;
-/** Removes `pid` after the tail, as `finalizeJob` does once the state is written; `born` stays, as `recordBorn` can leave it. */
-const WRAPPER_TAIL = `
-import { rmSync } from "node:fs";
-import { join } from "node:path";
-const dir = process.argv[1];
-setTimeout(() => rmSync(join(dir, "pid")), ${WRAPPER_TAIL_MS});
-`;
+
+/** Whether the process `pid` has exited: gone, or a zombie its blocked parent has not reaped yet. */
+function exited(pid: number): boolean {
+	try {
+		const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+		return stat[stat.lastIndexOf(") ") + 2] === "Z";
+	} catch {
+		return true;
+	}
+}
 
 test("A-088: waitJob returns only after the job's state is terminal and its pid is gone, whatever born holds", async (t) => {
 	const root = mkdtempSync(join(tmpdir(), "limen-wait-"));
 	const dir = join(root, ".limen", "jobs", JOB);
-	mkdirSync(dir, { recursive: true });
-	writeFileSync(join(dir, "state"), "done\n");
-	writeFileSync(join(dir, "pid"), "4242\n");
-	writeFileSync(join(dir, "born"), "Wed Nov 18 10:00:00 2026\n");
 	// Another process plays the wrapper's tail, since `waitJob` blocks this one until it returns.
-	const tail: ChildProcess = spawn(process.execPath, ["--input-type=module", "--eval", WRAPPER_TAIL, dir], {
+	const tail: ChildProcess = spawn(process.execPath, ["--eval", `setTimeout(() => {}, ${WRAPPER_TAIL_MS})`], {
 		stdio: "ignore",
 	});
 	t.after(async () => {
@@ -40,10 +39,13 @@ test("A-088: waitJob returns only after the job's state is terminal and its pid 
 		}
 		rmSync(root, { recursive: true, force: true });
 	});
+	const pid = tail.pid ?? 0;
+	// The record names the tail's process without its start time, as a record whose start time is unknown does.
+	await writeRecord(dir, { state: "done", identity: { pid, born: null, bootId: null } });
 	// `waitJob` reads only the plant's root; the other fields are never used here.
 	const plant = { parent: root, root, bin: root, env: {}, cleanup: async () => {} } satisfies Plant;
 	const state = waitJob(plant, JOB);
-	assert.deepEqual([state, existsSync(join(dir, "pid")), existsSync(join(dir, "born"))], ["done", false, true]);
+	assert.deepEqual([state, exited(pid)], ["done", true]);
 });
 
 // D-060: the laptop's first git is not the system's, and a plant's PATH is fixed, so without the link a plant would

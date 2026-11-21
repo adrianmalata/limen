@@ -1,32 +1,31 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { TEMPORARY_NAME } from "../atomic-write.ts";
+import { readOptional } from "../project/inherit.ts";
 import { ticketPointers } from "../project/planning.ts";
 import { producedNothing } from "./job.ts";
+import { type JobRecord, readProgressSync, readRecordSync } from "./record.ts";
 import { openChecks } from "./task-note.ts";
 import { claimSlots, deliveryExists } from "./wake-delivery.ts";
 
+/** A content file of the job (`task.md`, `result`, `start-notice`), trimmed; "" when it is missing. */
 function text(path: string): string {
-	try {
-		return readFileSync(path, "utf8").trim();
-	} catch {
-		return "";
-	}
+	return readOptional(path)?.trim() ?? "";
 }
 /**
  * How the job ended: stop reason, bounded commits, the whole final message, and undelivered steers. The coordinator
- * decides the next step from this, so the final message is never cut. A part whose file is absent is omitted; that
- * absence is information.
+ * decides the next step from this, so the final message is never cut. A part the record or the folder does not hold
+ * is omitted; that absence is information.
  */
-export function jobEnding(job: string): string {
+export function jobEnding(job: string, record = readRecordSync(job)): string {
 	const sections: string[] = [];
-	const stop = text(join(job, "stop-reason"));
+	const stop = record?.stopReason;
 	if (stop) {
 		sections.push(`Stop reason: ${stop}`);
 	}
-	const commits = existsSync(join(job, "commits")) ? text(join(job, "commits")) : undefined;
-	if (commits !== undefined) {
-		const lines = commits.split("\n").filter(Boolean);
+	const commits = record?.commits;
+	if (commits) {
+		const lines = commits.filter(Boolean);
 		sections.push(
 			lines.length
 				? `Commits:\n${lines.slice(0, 10).join("\n")}${lines.length > 10 ? `\n… ${lines.length - 10} more` : ""}`
@@ -63,10 +62,11 @@ export function completionWake(
 	route: CompletionRoute = {},
 ): string {
 	const { fallback = false, instruction: routeInstruction } = route;
+	const record = readRecordSync(job);
 	const location = repo ? ` in repository ${repo}` : "";
 	const task = firstSentence(text(join(job, "task.md")));
 	// A done job whose final "Note check" left items open is not a plain done; the lead says so and lists them.
-	const open = state === "done" ? openChecks(job) : [];
+	const open = state === "done" ? openChecks(record) : [];
 	const shown = open.length ? "done with open checks" : state;
 	const said = task
 		? `Limen job ${JSON.stringify(label)}: ${task}\nis ${shown} (${id}) on branch ${branch}${location}.`
@@ -74,7 +74,7 @@ export function completionWake(
 	const waited = missedStartNotice(job, route.session);
 	// A start notice the session never got is its own paragraph after the lead, word for word.
 	const lead = [said, waited, open.length ? `Open checks:\n${open.join("\n")}` : ""].filter(Boolean).join("\n\n");
-	const empty = jobProducedNothing(job);
+	const empty = jobProducedNothing(job, record);
 	const facts = empty ? "It produced nothing (0 tool calls, no commits)." : "";
 	let handoff = "The job failed or stopped; inspect the failure before deciding whether to resume work.";
 	if (state === "done") {
@@ -96,7 +96,7 @@ export function completionWake(
 		// instruction.
 		instruction =
 			routeInstruction ??
-			`Inspect the job record, branch diff and commits, log/session, and relevant checks. ${land} If a check blocks landing, name that check and resume a focused fix. ${keeperHint(job, id)} After it lands, continue with the next item on the board. Keep the user informed; ask only when genuine product ambiguity, a scope or risk tradeoff, or an irreversible action needs a human decision.`;
+			`Inspect the job record, branch diff and commits, log/session, and relevant checks. ${land} If a check blocks landing, name that check and resume a focused fix. ${keeperHint(job, id, record)} After it lands, continue with the next item on the board. Keep the user informed; ask only when genuine product ambiguity, a scope or risk tradeoff, or an irreversible action needs a human decision.`;
 	}
 	if (empty) {
 		instruction =
@@ -106,7 +106,7 @@ export function completionWake(
 		instruction =
 			"The subscribed coordinator is busy. Do not spawn, stop, steer, or land on behalf of another coordinator unless the human asks.";
 	}
-	return joinWake(lead, jobEnding(job), [facts, handoff].filter(Boolean).join("\n\n"), instruction);
+	return joinWake(lead, jobEnding(job, record), [facts, handoff].filter(Boolean).join("\n\n"), instruction);
 }
 /**
  * The first line of the job's start notice, when the job waited in the start queue and `session` never got that
@@ -121,9 +121,9 @@ function missedStartNotice(job: string, session: string | undefined): string {
 	return text(join(job, "start-notice")).split("\n", 1)[0] ?? "";
 }
 /** The done-wake sentence that sends spec work to the keeper; the ticket comes from the job task's first `Ticket:` pointer (keeper follows a moved one). */
-export function keeperHint(job: string, id: string): string {
+export function keeperHint(job: string, id: string, record = readRecordSync(job)): string {
 	// A keeper always changes a ticket; sending it to another keeper would loop.
-	if (text(join(job, "role")) === "keeper") {
+	if (record?.role === "keeper") {
 		return "This is the spec keeper: land it, since it carries the work and the spec fixes. If it made no commit, land the original job.";
 	}
 	const ticket = ticketPointers(text(join(job, "task.md")))[0]?.path ?? "<ticket>";
@@ -168,15 +168,7 @@ function firstSentence(body: string): string {
 	const sentence = (cut === -1 ? paragraph : paragraph.slice(0, cut + 1)).trim();
 	return sentence.length > 240 ? `${sentence.slice(0, 239)}…` : sentence;
 }
-function jobProducedNothing(job: string): boolean {
-	const commits = existsSync(join(job, "commits")) ? text(join(job, "commits")) : undefined;
-	return producedNothing(recordedToolCalls(job), commits);
-}
-function recordedToolCalls(job: string): number | undefined {
-	const value = text(join(job, "tool-calls"));
-	if (!value) {
-		return undefined;
-	}
-	const count = Number(value);
-	return Number.isSafeInteger(count) && count >= 0 ? count : undefined;
+function jobProducedNothing(job: string, record: JobRecord | undefined): boolean {
+	const commits = record?.commits ? record.commits.join("\n") : undefined;
+	return producedNothing(readProgressSync(job)?.toolCalls ?? undefined, commits);
 }

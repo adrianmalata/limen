@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { atomicWrite } from "../atomic-write.ts";
 import { herdrPrompt } from "../integrations/coordinator-wake.ts";
@@ -18,8 +18,8 @@ import {
 import { publishResult } from "../job/group-events.ts";
 import { roundInstruction, routeName } from "../job/group-packet.ts";
 import { isTerminal } from "../job/job.ts";
-import { textFile } from "../job/record.ts";
-import { platform } from "../platform/platform.ts";
+import { type JobRecord, readRecord, textFile } from "../job/record.ts";
+import { ownerState } from "../runtime/reap.ts";
 import { startContinue } from "./continue.ts";
 
 const PROMPT_MS = 15_000;
@@ -32,8 +32,16 @@ export function teamJobLabel(run: GroupRun, team: string, round: number): string
 }
 const roundFolder = (run: GroupRun, round: number): string =>
 	`${groupPath(run)}/rounds/${round + 1}-${run.rounds[round]}`;
-const jobText = (run: GroupRun, member: GroupMember, file: string): Promise<string> =>
-	textFile(`${run.root}/.limen/jobs/${member.id}/${file}`);
+const memberDir = (run: GroupRun, member: GroupMember): string => `${run.root}/.limen/jobs/${member.id}`;
+/** The member job's record. */
+const memberRecord = (run: GroupRun, member: GroupMember): Promise<JobRecord | undefined> =>
+	readRecord(memberDir(run, member));
+/** The state of the member job's record; "" without one. */
+const memberState = async (run: GroupRun, member: GroupMember): Promise<string> =>
+	(await memberRecord(run, member))?.state ?? "";
+/** A content file of the member job: its final message or its log. */
+const jobText = (run: GroupRun, member: GroupMember, file: "result" | "log"): Promise<string> =>
+	textFile(`${memberDir(run, member)}/${file}`);
 const lastJob = (run: GroupRun, round: number, team: string): GroupMember | undefined =>
 	roundJobs(run, round).findLast((member) => member.team === team);
 
@@ -45,7 +53,7 @@ async function roundTeams(run: GroupRun, round: number): Promise<string[]> {
 	const done: string[] = [];
 	for (const team of run.teams) {
 		const job = lastJob(run, round - 1, team);
-		if (job && (await jobText(run, job, "state")) === "done") {
+		if (job && (await memberState(run, job)) === "done") {
 			done.push(team);
 		}
 	}
@@ -69,23 +77,19 @@ export async function advanceGroup(root: string, id: string): Promise<void> {
 	);
 }
 const OWNER_EXIT_MS = 30_000;
-/** A job's finish runs in the process that ran it; give each ended job of the round half a minute to exit, unlocked. */
+/**
+ * A job's finish runs in the process that ran it, which its record names; give each ended job of the round half a
+ * minute to exit, unlocked.
+ */
 async function ownersExited(run: GroupRun): Promise<void> {
 	const until = Date.now() + OWNER_EXIT_MS;
 	for (const member of roundJobs(run, run.round)) {
-		if (!isTerminal(await jobText(run, member, "state"))) {
+		const record = await memberRecord(run, member);
+		if (!(record && isTerminal(record.state))) {
 			continue;
 		}
-		const owner = `${run.root}/.limen/jobs/${member.id}/group-owner.json`;
-		for (; Date.now() < until; await delay(200)) {
-			const recorded = JSON.parse(await readFile(owner, "utf8").catch(() => "null")) as {
-				pid: number;
-				born: string;
-			} | null;
-			const info = recorded ? await platform.processInfo(recorded.pid) : undefined;
-			if (!recorded || info?.kind === "absent" || (info?.kind === "present" && info.process.born !== recorded.born)) {
-				break;
-			}
+		while (Date.now() < until && (await ownerState(record.identity)) === "alive") {
+			await delay(200);
 		}
 	}
 }
@@ -98,9 +102,7 @@ async function advanceOnce(root: string, id: string): Promise<boolean> {
 	for (const team of teams) {
 		const job = lastJob(run, run.round, team);
 		// No job and no recorded launch failure: the launch has not happened yet.
-		if (
-			job ? !isTerminal(await jobText(run, job, "state")) : !existsSync(`${roundFolder(run, run.round)}/${team}.md`)
-		) {
+		if (job ? !isTerminal(await memberState(run, job)) : !existsSync(`${roundFolder(run, run.round)}/${team}.md`)) {
 			return false;
 		}
 	}
@@ -132,7 +134,7 @@ async function saveRoundResults(run: GroupRun, teams: readonly string[]): Promis
 			continue;
 		}
 		const result = await jobText(run, job, "result");
-		const state = await jobText(run, job, "state");
+		const state = await memberState(run, job);
 		const reason = state === "done" ? "" : await endReason(run, job);
 		await atomicWrite(
 			`${roundFolder(run, run.round)}/${team}.md`,
@@ -144,7 +146,7 @@ async function saveRoundResults(run: GroupRun, teams: readonly string[]): Promis
 async function endReason(run: GroupRun, member: GroupMember): Promise<string> {
 	const terminal = /^\[limen [^\]]*\] (failed|stopped): /;
 	const ended = (await jobText(run, member, "log")).split("\n").findLast((line) => terminal.test(line));
-	return ended?.replace(terminal, "") || jobText(run, member, "stop-reason");
+	return ended?.replace(terminal, "") || ((await memberRecord(run, member))?.stopReason ?? "");
 }
 /** Continues the team's last job in its own session and worktree, or records why it could not. */
 async function startRound(run: GroupRun, team: string, round: number): Promise<void> {
@@ -182,9 +184,8 @@ async function roundPrompt(run: GroupRun, team: string, round: number): Promise<
 				continue;
 			}
 			const owner = peer === team ? "yours" : routeName(teamRoute(run, peer));
-			const branch = await jobText(run, job, "branch");
-			const worktree = await jobText(run, job, "worktree");
-			lines.push(`- ${peer} (${owner}): ${path}; branch ${branch}; worktree ${worktree}`);
+			const record = await memberRecord(run, job);
+			lines.push(`- ${peer} (${owner}): ${path}; branch ${record?.branch ?? ""}; worktree ${record?.worktree ?? ""}`);
 		}
 	}
 	lines.push("", `Your final message is your round ${round + 1} result; Limen saves it for the next round.`);
@@ -227,8 +228,9 @@ async function groupResult(run: GroupRun): Promise<string> {
 	lines.push("Teams:");
 	for (const team of run.teams) {
 		const job = run.members.findLast((member) => member.team === team && member.role === "coordinator");
-		const state = job ? await jobText(run, job, "state") : "not started";
-		const branch = job ? await jobText(run, job, "branch") : "";
+		const record = job ? await memberRecord(run, job) : undefined;
+		const state = job ? (record?.state ?? "") : "not started";
+		const branch = record?.branch ?? "";
 		// A team that did not finish reaches the lead once, here, with its reason.
 		const reason = job && state !== "done" ? (await endReason(run, job)).split("\n")[0] : "";
 		const ended = `${state} after round ${(job?.round ?? 0) + 1}${reason ? ` (${reason.slice(0, 240)})` : ""}`;

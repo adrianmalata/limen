@@ -176,8 +176,9 @@ async function knownSources(folders: readonly string[]): Promise<ReadonlyArray<{
 
 // T-27 (2): data from outside becomes a typed value only in src/boundary.ts. A ratchet until R-082 brings the count to
 // zero: the 41 sites at R-015's commit, the parent of R-016, less the 3 that R-016 moved into src/boundary.ts (the
-// readers of src/outcome.ts, src/project/limits.ts and `startGate` in src/runtime/start-queue.ts).
-const JSON_PARSE = 41 - 3;
+// readers of src/outcome.ts, src/project/limits.ts and `startGate` in src/runtime/start-queue.ts), less the 4 sites of
+// job files that R-021 moved into the record's validators (src/job/record.ts).
+const JSON_PARSE = 41 - 3 - 4;
 test("T-27: JSON.parse appears in src/, hook/, bin/ and seat/ outside src/boundary.ts at most its baseline count", async () => {
 	let all = 0;
 	for (const { path, text } of await knownSources(RUNTIME)) {
@@ -255,8 +256,9 @@ test("the cast scan finds as T, an angle-bracket assertion and as unknown as, an
 
 // T-27 (2): only `as const` is free. A ratchet until R-082 brings both counts to zero: the casts this scan finds at
 // R-015's commit, the parent of R-016, less the casts R-016 removed: 75 - 0 in src/, hook/, bin/ and seat/ and 7 - 0
-// in test/ (R-016 moved no reader that held a cast). Test fixtures use `satisfies`.
-const CASTS = { runtime: 75, test: 7 } as const;
+// in test/ (R-016 moved no reader that held a cast), then 15 fewer in src/, hook/, bin/ and seat/ once R-021 read the
+// job records through the record module's validators. Test fixtures use `satisfies`.
+const CASTS = { runtime: 75 - 15, test: 7 } as const;
 test("T-27: the casts in src/, hook/, bin/ and seat/ other than as const stay at most their baseline count", async () => {
 	const casts = counted(await castsBelow(RUNTIME));
 	assert.ok(casts.length <= CASTS.runtime, `${casts.length} casts, at most ${CASTS.runtime}`);
@@ -624,6 +626,179 @@ test("the lock-name scan finds a string and template literals ending in .lock, a
 		`hook/folder.ts:2: \`\${dir}/.lock\``,
 		`seat/file.mjs:1: \`\${file}.lock\``,
 		'src/named.ts:1: "poll.lock"',
+	]);
+});
+
+/** The record module and the migration: the only code that names a file of the job record (T-25 (1), D-057 (5)). */
+const RECORD_MODULES: ReadonlySet<string> = new Set(["src/job/record.ts", "src/job/migration.ts"]);
+/** The folders whose code reads job records only through the record module. */
+const RECORD_READERS = ["src", "hook", "seat", "docs/seat"] as const;
+/** `record.json`, `progress.json`, and every one-value file of the older record (R-021, D-057). */
+const JOB_FILE_NAMES: ReadonlySet<string> = new Set([
+	"record.json",
+	"progress.json",
+	"state",
+	"pid",
+	"born",
+	"group-owner.json",
+	"starting",
+	"started-at",
+	"finished-at",
+	"label",
+	"branch",
+	"worktree",
+	"base",
+	"role",
+	"repo",
+	"candidate",
+	"parent",
+	"group",
+	"team",
+	"deadline",
+	"origin-tab",
+	"origin-pane",
+	"origin-session",
+	"spawner",
+	"spawned-by",
+	"priority",
+	"engine",
+	"model",
+	"extensions.json",
+	"tool-calls",
+	"last-tool",
+	"activity",
+	"queued",
+	"stop-requested",
+	"advisory",
+	"stop-reason",
+	"open-checks",
+	"commits",
+	"tip",
+	"versions",
+	"hosted",
+	"agent-name",
+	"engine-binding",
+	"ownership-uncertainty",
+]);
+/**
+ * Names of a job file outside the record modules that stay, each with its file, its literal and the reason it names
+ * no job's file.
+ */
+const JOB_NAME_EXCEPTIONS: ReadonlyArray<{ readonly path: string; readonly name: string; readonly reason: string }> = [
+	{ path: "src/integrations/coordinator-registration.ts", name: "pid", reason: "a coordinator's registration folder" },
+	{ path: "src/integrations/coordinator-registration.ts", name: "born", reason: "a coordinator's registration folder" },
+	{
+		path: "src/integrations/coordinator-registration.ts",
+		name: "started-at",
+		reason: "a coordinator's registration folder",
+	},
+	{ path: "src/commands/github-doctor.ts", name: "state", reason: "the GitHub poller's state folder" },
+	{ path: "docs/seat/github-setup.sh", name: "state", reason: "the GitHub poller's state folder" },
+	{ path: "docs/seat/quota-resume.ts", name: "state", reason: "the folder ~/.local/state of the XDG layout" },
+];
+/** Whether `JOB_NAME_EXCEPTIONS` keeps the name `name` in the file `path`. */
+const keptJobName = (path: string, name: string) =>
+	JOB_NAME_EXCEPTIONS.some((entry) => entry.path === path && entry.name === name);
+
+/** The job file a path literal ends in: the name after its last slash, when it is one of `JOB_FILE_NAMES`. */
+function namedJobFile(literal: string): string | undefined {
+	const name = literal.slice(literal.lastIndexOf("/") + 1);
+	return literal.includes("/") && JOB_FILE_NAMES.has(name) ? name : undefined;
+}
+
+/**
+ * Each place the code `text` at `path` names a job file in a path, as `<path>:<line>: <name>`: a string or template
+ * literal that ends in `/<name>`, and a `join` or `resolve` call whose last argument is the literal `<name>`. A shell
+ * script is read as text: `/<name>` before a quote, a space or the end of a line.
+ */
+function jobFileNames(path: string, text: string): string[] {
+	if (!/\.(?:ts|mts|js|mjs)$/.test(path)) {
+		return text
+			.split("\n")
+			.flatMap((line, index) =>
+				[...line.matchAll(/\/([a-z][a-z.-]*)(?=["'\s]|$)/g)].flatMap((match) =>
+					match[1] && JOB_FILE_NAMES.has(match[1]) && !keptJobName(path, match[1])
+						? [`${path}:${index + 1}: ${match[1]}`]
+						: [],
+				),
+			);
+	}
+	const kind = path.endsWith(".ts") ? ts.ScriptKind.TS : ts.ScriptKind.JS;
+	const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, kind);
+	const found: string[] = [];
+	const add = (node: ts.Node, name: string | undefined) => {
+		if (name && !keptJobName(path, name)) {
+			found.push(`${path}:${source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1}: ${name}`);
+		}
+	};
+	const visit = (node: ts.Node): void => {
+		if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+			add(node, namedJobFile(node.text));
+		} else if (ts.isTemplateExpression(node)) {
+			add(node, namedJobFile(node.templateSpans.at(-1)?.literal.text ?? ""));
+		} else if (ts.isCallExpression(node) && ["join", "resolve"].includes(calledName(node) ?? "")) {
+			const last = node.arguments.at(-1);
+			if (last && node.arguments.length > 1 && (ts.isStringLiteral(last) || ts.isNoSubstitutionTemplateLiteral(last))) {
+				add(last, JOB_FILE_NAMES.has(last.text) ? last.text : undefined);
+			}
+		}
+		ts.forEachChild(node, visit);
+	};
+	visit(source);
+	return found;
+}
+
+/** Each name of a job file outside the record modules, in the files git knows below `RECORD_READERS` of `repo`. */
+async function jobFileScan(repo: string): Promise<string[]> {
+	const findings: string[] = [];
+	for (const path of await knownFiles(repo)) {
+		const file = relative(repo, path);
+		const code = /\.(?:ts|mts|js|mjs|sh)$/.test(file) && RECORD_READERS.some((folder) => file.startsWith(`${folder}/`));
+		if (code && !RECORD_MODULES.has(file)) {
+			findings.push(...jobFileNames(file, await readFile(path, "utf8")));
+		}
+	}
+	return findings;
+}
+
+// T-25 (1), D-057 (5): a reader left on an older job file shows a job as missing once the migration removed the file,
+// so outside the record module and the migration no code names a file of the job record.
+test("T-25: outside the record module and the migration no file of src/, hook/, seat/ or docs/seat/ names a job record file", async () => {
+	assert.deepEqual(await jobFileScan(root), []);
+});
+
+test("the job-file scan finds a path literal, a template and a join that end in a job file, and skips other names, the record modules and other folders", async (t) => {
+	const repo = await realpath(await mkdtemp(join(tmpdir(), "limen-job-file-scan-")));
+	t.after(() => rm(repo, { recursive: true, force: true }));
+	execFileSync("git", ["init", "-q"], { cwd: repo });
+	/** The template literal of a path below a job folder that ends in `name`, as code writes it. */
+	const below = (name: string) => `\`\${jobDir}/${name}\``;
+	const files = {
+		"src/job/record.ts": 'const record = join(jobDir, "record.json");\n',
+		"src/job/migration.ts": `const old = ${below("state")};\n`,
+		"src/reader.ts": [
+			`const state = ${below("state")};`,
+			'const pid = join(dir, "pid");',
+			'const fixed = ".limen/jobs/x/record.json";',
+			'const flag = { flag: "label", about: "the state" };',
+			`const log = ${below("log")};`,
+			'const tab = join(dir, "herdr", "tab");',
+		].join("\n"),
+		"hook/progress.ts": 'const progress = resolve(job, "progress.json");\n',
+		"docs/seat/bell.sh": '#!/bin/sh\nstate=$(cat "$job/state")\nexec node "$here/bell.ts"\n',
+		"src/integrations/coordinator-registration.ts": 'const pid = join(dir, "pid");\n',
+		"test/outside.ts": `const state = ${below("state")};\n`,
+	};
+	for (const [path, text] of Object.entries(files)) {
+		await mkdir(dirname(join(repo, path)), { recursive: true });
+		await writeFile(join(repo, path), text);
+	}
+	assert.deepEqual((await jobFileScan(repo)).sort(), [
+		"docs/seat/bell.sh:2: state",
+		"hook/progress.ts:1: progress.json",
+		"src/reader.ts:1: state",
+		"src/reader.ts:2: pid",
+		"src/reader.ts:3: record.json",
 	]);
 });
 

@@ -7,7 +7,7 @@ import { type BadData, duration, eachField, either, numberIn, object, oneOf, par
 import { testKnob } from "../config.ts";
 import { groupLock } from "../job/group-cabinet.ts";
 import { formatDuration } from "../job/job.ts";
-import { appendLimenLog, textFile } from "../job/record.ts";
+import { appendLimenLog, type JobRecord, type Queued, readRecord, textFile, transition } from "../job/record.ts";
 import { LimenError } from "../outcome.ts";
 import { platform } from "../platform/platform.ts";
 import { readOptional } from "../project/inherit.ts";
@@ -28,8 +28,6 @@ type Entry = {
 	readonly queuedAt: number;
 	readonly pid: number;
 };
-/** The job's `queued` file: present from the wrapper's first moment until the job leaves the queue. */
-type Queued = { readonly since: string; readonly detail?: string; readonly ahead?: number };
 type Decision =
 	| { readonly start: true; readonly detail: string }
 	| { readonly start: false; readonly kind: string; readonly detail: string; readonly ahead: number };
@@ -148,19 +146,16 @@ const heldDecision = (rules: readonly SeatRule[], ahead: number): Decision => ({
 });
 
 /**
- * Marks a job queued before its handshake, so no reader sees it running as started; logs gate values it ignored. A job
- * queues while the gate is on or a rule holds its priority.
+ * Whether the job queues: while the gate is on or a rule holds its priority. The wrapper writes the result into the
+ * record with its handshake, so no reader sees a queued job running as started; logs gate values it ignored.
  */
-export async function enterStartQueue(jobDir: string): Promise<boolean> {
+export async function enterStartQueue(jobDir: string, record: JobRecord | undefined): Promise<Queued | undefined> {
 	const { gate, ignored } = startGate();
 	if (ignored.length > 0) {
 		await appendLimenLog(jobDir, `start gate: ignored ${ignoredText(ignored)}`);
 	}
-	const queued = gate !== undefined || holdingRules(await jobPriority(jobDir)).length > 0;
-	if (queued) {
-		await atomicWrite(`${jobDir}/queued`, `${JSON.stringify({ since: new Date().toISOString() })}\n`);
-	}
-	return queued;
+	const queues = gate !== undefined || holdingRules(jobPriority(record)).length > 0;
+	return queues ? { since: new Date().toISOString(), detail: null, ahead: null } : undefined;
 }
 
 /**
@@ -171,12 +166,13 @@ export async function enterStartQueue(jobDir: string): Promise<boolean> {
  */
 export async function waitForStart(jobDir: string, stop: AbortSignal): Promise<boolean> {
 	const id = basename(jobDir);
-	const since = readQueued(jobDir)?.since ?? new Date().toISOString();
+	const record = await readRecord(jobDir);
+	const since = record?.queued?.since ?? new Date().toISOString();
 	const entry: Entry = {
 		id,
 		jobDir,
-		label: (await textFile(`${jobDir}/label`)) || id,
-		priority: await jobPriority(jobDir),
+		label: record?.label || id,
+		priority: jobPriority(record),
 		queuedAt: Date.parse(since) || Date.now(),
 		pid: process.pid,
 	};
@@ -204,7 +200,7 @@ export async function waitForStart(jobDir: string, stop: AbortSignal): Promise<b
 				Date.now() - shown.at >= DETAIL_REFRESH_MS
 			) {
 				const queued: Queued = { since, detail: decision.detail, ahead: decision.ahead };
-				await atomicWrite(`${jobDir}/queued`, `${JSON.stringify(queued)}\n`);
+				await transition(jobDir, { from: ["running"], set: { queued } });
 				if (!shown || (decision.kind !== shown.kind && decision.kind.startsWith("rules"))) {
 					await appendLimenLog(jobDir, `queued: ${decision.detail}, ${decision.ahead} ahead`);
 				}
@@ -215,7 +211,8 @@ export async function waitForStart(jobDir: string, stop: AbortSignal): Promise<b
 		return false;
 	} finally {
 		await rm(entryPath(id), { force: true });
-		await rm(`${jobDir}/queued`, { force: true });
+		// A job that ended while it waited has no queue left to clear: its terminal record holds none.
+		await transition(jobDir, { from: ["running"], set: { queued: null } });
 	}
 }
 /** Writes the job's entry, and writes it again if a reader removed it, so a live wrapper always holds its place. */
@@ -315,7 +312,7 @@ async function liveEntries(): Promise<Entry[]> {
 		}
 		const entry = parseEntry(body);
 		// A recycled pid can keep a dead entry until the reaper ends its job; the state check then removes it.
-		if (entry && platform.processAlive(entry.pid) && (await textFile(`${entry.jobDir}/state`)) === "running") {
+		if (entry && platform.processAlive(entry.pid) && (await entryState(entry.jobDir)) === "running") {
 			entries.push(entry);
 		} else {
 			await rm(join(folder, name), { force: true });
@@ -344,9 +341,24 @@ function parseEntry(body: string): Entry | undefined {
 	return undefined;
 }
 
-export async function jobPriority(jobDir: string): Promise<number> {
-	const value = Number(await textFile(`${jobDir}/priority`));
-	return PRIORITIES.find((priority) => priority === value) ?? DEFAULT_PRIORITY;
+/**
+ * The state of the job an entry names. The queue is the seat's, so the job may belong to any project: a record this
+ * Limen cannot read (damaged, or not migrated) ends the entry as a dead job's does, and the job's own commands report
+ * the record.
+ */
+async function entryState(jobDir: string): Promise<string | undefined> {
+	const record = await readRecord(jobDir).catch((error: unknown) => {
+		if (error instanceof LimenError) {
+			return undefined;
+		}
+		throw error;
+	});
+	return record?.state;
+}
+
+/** The job's start-queue priority, from its record; a record without one has the default. */
+export function jobPriority(record: JobRecord | undefined): number {
+	return PRIORITIES.find((priority) => priority === record?.priority) ?? DEFAULT_PRIORITY;
 }
 export function parsePriority(value: string | undefined): number | undefined {
 	if (value === undefined) {
@@ -359,19 +371,6 @@ export function parsePriority(value: string | undefined): number | undefined {
 	return priority;
 }
 
-/** What the job's `queued` file says, or undefined when the job is not in the start queue. */
-export function readQueued(jobDir: string): Queued | undefined {
-	const body = readOptional(`${jobDir}/queued`);
-	if (body === undefined) {
-		return undefined;
-	}
-	try {
-		const value = JSON.parse(body) as Partial<Queued>;
-		return typeof value.since === "string" ? (value as Queued) : { since: "" };
-	} catch {
-		return { since: "" };
-	}
-}
 /** The wait and the reason a queued job shows in `limen status` and `limen show`. */
 export function queuedText(queued: Queued): string {
 	const since = Date.parse(queued.since);
@@ -386,14 +385,15 @@ export function queuedText(queued: Queued): string {
 export async function queuedLine(jobDir: string, label: string): Promise<string | undefined> {
 	const deadline = Date.now() + 10_000;
 	for (;;) {
-		const queued = readQueued(jobDir);
+		const record = await readRecord(jobDir);
+		const queued = record?.queued;
 		if (!queued) {
 			return undefined;
 		}
 		if (queued.detail) {
 			return `queued ${label}: ${queued.detail}, ${queued.ahead ?? 0} ahead`;
 		}
-		if (Date.now() >= deadline || (await textFile(`${jobDir}/state`)) !== "running") {
+		if (Date.now() >= deadline || record.state !== "running") {
 			return `queued ${label}`;
 		}
 		await delay(20);

@@ -6,13 +6,16 @@ import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import ts from "typescript";
 import {
+	arrayOf,
 	at,
 	type BadData,
+	boolean,
 	checkValue,
 	duration,
 	eachField,
 	either,
 	matching,
+	nullOr,
 	numberIn,
 	object,
 	oneOf,
@@ -86,6 +89,32 @@ test("optional accepts a field that is not there and checks one that is", () => 
 	assert.equal(checkValue(FILE, undefined, optional(string)), undefined);
 	assert.equal(checkValue(FILE, "x", optional(string)), "x");
 	assert.equal(refusal(null, optional(string)).expected, "a string");
+});
+
+test("nullOr accepts null and checks any other value with its validator", () => {
+	assert.equal(checkValue(FILE, null, nullOr(string)), null);
+	assert.equal(checkValue(FILE, "x", nullOr(string)), "x");
+	assert.deepEqual(
+		[refusal(3, nullOr(string)).expected, refusal(undefined, nullOr(string)).expected],
+		["null or a string", "null or a string"],
+	);
+});
+
+test("boolean accepts true and false and refuses any other value", () => {
+	assert.deepEqual([checkValue(FILE, true, boolean), checkValue(FILE, false, boolean)], [true, false]);
+	for (const value of [0, "true", null, undefined]) {
+		assert.equal(refusal(value, boolean).expected, "true or false", String(value));
+	}
+});
+
+test("arrayOf gives the items its validator accepts and names the index of the first item it refuses", () => {
+	assert.deepEqual(checkValue(FILE, ["a", "b"], arrayOf(string)), ["a", "b"]);
+	assert.deepEqual(checkValue(FILE, [], arrayOf(string)), []);
+	const list: Validator<string[]> = (value, field) =>
+		arrayOf(string)(object(["list"])(value, field).get("list"), at(field, "list"));
+	const error = refusal({ list: ["a", 2] }, list);
+	assert.deepEqual([error.field, error.expected], ["list.1", "a string"]);
+	assert.equal(refusal("a", arrayOf(string)).expected, "an array");
 });
 
 test("object gives an object's fields by name and refuses null, an array and a value of another kind", () => {
@@ -196,6 +225,50 @@ test("T-27: a text that is not JSON gives the typed error with the file, an empt
 		'fixture.json: expected JSON, got "{ prepare: 20m }"',
 	]);
 	assert.ok(read.cause instanceof SyntaxError, String(read.cause));
+});
+
+// R-016 review round 3, notes 1-3: the comment says which characters each step escapes, the cut keeps every escape
+// and every surrogate pair whole, and a format character such as U+202E cannot turn a log line around in a terminal.
+test("the comment above RAW says that JSON.stringify escapes C0 and leaves DEL, C1, U+2028 and U+2029 to escaped", async () => {
+	const lines = (await readFile(new URL("../src/boundary.ts", import.meta.url), "utf8")).split("\n");
+	const raw = lines.findIndex((line) => line.startsWith("const RAW ="));
+	const above = lines.slice(0, raw).reverse();
+	const end = above.findIndex((line) => !/^\s*(?:\/\*\*|\*)/.test(line));
+	const comment = above
+		.slice(0, end === -1 ? above.length : end)
+		.reverse()
+		.join(" ");
+	for (const said of ["JSON.stringify", "C0", "DEL", "C1", "U+2028", "U+2029", "Cf", "escaped"]) {
+		assert.ok(comment.includes(said), `the comment above RAW does not name ${said}: ${comment}`);
+	}
+	assert.doesNotMatch(comment, /leaves raw: every control character/);
+});
+
+test("the 40-character cut of a shown value never splits an escape", () => {
+	const control = `${"x".repeat(36)}\u0085yz`;
+	assert.equal(refusal(control, numberIn({})).message, `fixture.json: expected a number, got "${"x".repeat(36)}…`);
+	const quoted = `${"x".repeat(38)}"y`;
+	assert.equal(refusal(quoted, numberIn({})).message, `fixture.json: expected a number, got "${"x".repeat(38)}…`);
+});
+
+test("the 40-character cut of a shown value never splits a surrogate pair", () => {
+	const shown = refusal(`${"x".repeat(38)}🦀yz`, numberIn({})).message.split("got ")[1] ?? "";
+	assert.equal(shown, `"${"x".repeat(38)}…`);
+	assert.ok(shown.isWellFormed(), shown);
+});
+
+// The quote and 33 characters leave room for the first escape of U+E0001 (`\udb40`), not for the second.
+test("the 40-character cut of a shown value keeps the two escapes of one character beyond U+FFFF together", () => {
+	const value = `${"x".repeat(33)}${String.fromCodePoint(0xe0001)}yz`;
+	assert.equal(refusal(value, numberIn({})).message, `fixture.json: expected a number, got "${"x".repeat(33)}…`);
+});
+
+test("a format character such as U+202E is escaped in the field and the value of a message", () => {
+	const raw = String.fromCodePoint(0x202e, 0x200b, 0xfeff, 0xe0001);
+	const shown = "\\u202e\\u200b\\ufeff\\udb40\\udc01";
+	const error = refusal({ [`k${raw}`]: `v${raw}` }, object(["k"]));
+	assert.equal(error.message, `fixture.json: k${shown}: expected one of the fields k, got "v${shown}"`);
+	assert.doesNotMatch(error.message, /\p{Cf}/u);
 });
 
 test("the message shows at most 40 characters of the value it got, and a missing value as nothing", () => {

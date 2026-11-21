@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { constants } from "node:fs";
-import { open, readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { jobFolders, readJobFile, readRecord } from "../job/record.ts";
 
 /** The longest no-job answer that `github resolve` writes and the poller posts. */
 export const GITHUB_ANSWER_MAX = 1600;
@@ -32,31 +32,6 @@ export function originRepository(root: string, foreign = false): string {
 		throw new Error("github connect requires a github.com origin (HTTPS or SSH)");
 	}
 	return match[1] as string;
-}
-
-/**
- * Reads a job file from the worker-owned checkout for the poller, which posts what it reads. Only a regular file with
- * one name counts: a symlink, a second name of another file, or a pipe reads as empty. At most `limit` bytes are read,
- * from the end when `tail` is set.
- */
-export async function readJobFile(path: string, limit = 65_536, tail = false): Promise<string> {
-	const flags = constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK;
-	const handle = await open(path, flags).catch(() => undefined);
-	if (!handle) {
-		return "";
-	}
-	try {
-		const info = await handle.stat();
-		if (!info.isFile() || info.nlink !== 1) {
-			return "";
-		}
-		const length = Math.min(info.size, limit);
-		const buffer = Buffer.alloc(length);
-		const { bytesRead } = await handle.read(buffer, 0, length, tail ? info.size - length : 0);
-		return buffer.subarray(0, bytesRead).toString("utf8");
-	} finally {
-		await handle.close();
-	}
 }
 
 export async function readBinding(root: string): Promise<GithubBinding | undefined> {
@@ -124,31 +99,25 @@ export async function matchedGithubJob(
 	root: string,
 	claim: GithubClaim,
 ): Promise<{ id: string; branch: string; state: string; review: boolean } | undefined> {
-	const jobs = await readdir(join(root, ".limen/jobs"), { withFileTypes: true }).catch(() => []);
-	for (const job of jobs) {
-		if (!job.isDirectory()) {
+	const jobsRoot = join(root, ".limen/jobs");
+	for (const id of await jobFolders(jobsRoot)) {
+		const dir = join(jobsRoot, id);
+		if (!(await readJobFile(join(dir, "task.md"), 4096)).startsWith(`${githubMarker(claim)}\n`)) {
 			continue;
 		}
-		const dir = join(root, ".limen/jobs", job.name);
-		const [task, candidate, base, branch, state, role] = await Promise.all(
-			["task.md", "candidate", "base", "branch", "state", "role"].map((name) => readJobFile(join(dir, name), 4096)),
-		);
-		if (!(task ?? "").startsWith(`${githubMarker(claim)}\n`)) {
-			continue;
+		// The record is read under the poller's rule: a regular file with one name, through its validators.
+		const record = await readRecord(dir);
+		if (!record || record.state === "starting") {
+			return undefined; // the wrapper has not run the job yet
 		}
-		if (!state?.trim()) {
-			return undefined; // spawn publishes the job directory before its fields are complete
-		}
-		const isReview = claim.kind !== "issue" && candidate?.trim() === claim.head && base?.trim() === claim.base;
+		const { candidate, base, branch, role } = record;
+		const isReview = claim.kind !== "issue" && candidate === claim.head && base === claim.base;
 		const isWork =
-			!candidate?.trim() &&
-			/^[0-9a-f]{40}$/.test(base?.trim() ?? "") &&
-			role?.trim() === "worker" &&
-			branch?.trim() === githubBranch(claim);
+			!candidate && /^[0-9a-f]{40}$/.test(base ?? "") && role === "worker" && branch === githubBranch(claim);
 		if (!isReview && !isWork) {
-			throw new Error(`conflicting job ${job.name} for ${githubMarker(claim)}; inspect it before retrying`);
+			throw new Error(`conflicting job ${id} for ${githubMarker(claim)}; inspect it before retrying`);
 		}
-		return { id: job.name, branch: branch?.trim() ?? "", state: state?.trim() ?? "", review: isReview };
+		return { id, branch: branch ?? "", state: record.state, review: isReview };
 	}
 	return undefined;
 }

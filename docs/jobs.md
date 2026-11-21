@@ -27,7 +27,7 @@ The type of coordinator controls how the wake comes:
 | Coordinator | How the wake comes |
 |---|---|
 | **Pi** | The coordinator subscribes its session at spawn. The wake hook then puts the completion into that session. |
-| **Herdr, without a Pi session** | The job records the coordinator pane as `origin-pane`. When the job ends, Limen runs `herdr agent prompt` on that pane. Then Limen waits until Herdr sees the pane at work. |
+| **Herdr, without a Pi session** | The job's record holds the coordinator pane in `origin.pane`. When the job ends, Limen runs `herdr agent prompt` on that pane. Then Limen waits until Herdr sees the pane at work. |
 | **Group lead** | A team coordinator's finish reaches the lead as a group event through `hook/group-peer.ts`. When that hook is not live for the lead session, Limen prompts the lead pane through Herdr instead, with the group status and the reload hint. Workers inside a team never wake the lead. |
 
 For a Herdr wake, `limen show <id>` shows the result as `herdr-wake`: `turn observed`, `delivered …, turn not seen` (Herdr sent the text; a busy pane may queue it), `may have reached …; not resent` (Herdr timed out after it may have sent the text), or `not sent …` (Herdr refused before it sent input). Limen sends the wake again only after `not sent`, and stops after two attempts; text that may have reached the pane is never sent twice. A wake up to 96 KiB goes as one `herdr agent prompt` argument, below Linux's 128 KiB limit for one argument. A longer wake goes whole as the same `agent.prompt` request on the Herdr socket that `herdr status --json` names. Herdr 0.9.5 reads at most 1 MiB in one request, and only while the request arrives within 5 seconds. No Herdr request can carry a longer wake, so it is `not sent …: prompt_too_large`; the job record keeps the whole final message.
@@ -43,9 +43,15 @@ Both routes carry the same completion facts: the task, branch and repository, st
 | `done` | The run ended cleanly. The selected engine exited 0, and the last stop reason was not `error` or `aborted`. |
 | `failed` | The run had a provider error, and Limen records the reason. A limit also records `failed` (see [Limits](#limits)). A failed job keeps its worktree and transcript. |
 
-A `done` job whose final "Note check" leaves an item open is `done with open checks`. Limen keeps the `done` state and writes one line for each open item to `open-checks` in the job record: an item marked not proven, changed, dropped or broken, a proven item with no proof that its command ran in the session and no such file, or a check that was sent and not answered. A command counts only when one recorded bash call ended with exit 0 and joined its simple commands with `&&` alone, and no pipe follows the command; any other call may have skipped it or hidden its failure, and the open line names the reason. The wake lists these lines and asks the coordinator to continue the job, start a review, or accept each item with a reason before it lands. `limen show` and `limen status` show the same state.
+A `done` job whose final "Note check" leaves an item open is `done with open checks`. Limen keeps the `done` state and writes one line for each open item to `openChecks` in the job's record: an item marked not proven, changed, dropped or broken, a proven item with no proof that its command ran in the session and no such file, or a check that was sent and not answered. A command counts only when one recorded bash call ended with exit 0 and joined its simple commands with `&&` alone, and no pipe follows the command; any other call may have skipped it or hidden its failure, and the open line names the reason. The wake lists these lines and asks the coordinator to continue the job, start a review, or accept each item with a reason before it lands. `limen show` and `limen status` show the same state.
 
-Failed rows use the recorded `stop-reason`, not a later tab-close log line. Rate-limit rows show the HTTP status and approximate retry minutes; `limen show <id>` retains the full provider reason. Older records without `stop-reason` use the last `failed:` or `stopped:` log entry.
+Failed rows use the record's `stopReason`, not a later tab-close log line. Rate-limit rows show the HTTP status and approximate retry minutes; `limen show <id>` retains the full provider reason. Records without a stop reason use the last `failed:` or `stopped:` log entry.
+
+### The job record
+
+Each job folder `.limen/jobs/<id>/` holds one `record.json` (schema version 1): the state and its transitions, the process that runs the job (pid, start time and boot id, each `null` when unknown), the start and finish times, the failure with its kind, the facts its spawn published (label, branch, worktree, base, role, origin, group, route and the like), and the start queue's place. Only Limen writes it, under the job's lock, from the state it expects; nothing changes it after a terminal state, and the first finisher wins. `progress.json` beside it holds the wrapper's last activity, last tool and tool count. The content stays in plain files: `task.md`, `log`, `result`, the notes, `start-notice`, `session/`, and the receipt folders `notify/`, `steer/` and `recovery/`. Read a job through `limen show <id>`, never by hand; do not edit the record.
+
+A project whose job folders an older Limen wrote (one plain file per value, such as `state`) is migrated once: `limen migrate --dry-run` prints what would happen, then `limen migrate` does it, with no job running or starting. Until then every command that reads jobs exits 4 and names `limen migrate --dry-run`, and the coordinator's wake hook stays off and says why. Each folder with a known state becomes a record marked `migrated`, history that `status` and `show` read and that no wake or bell answers; the one-value files it moved, and the files of removed features, go; the content files stay. A folder without a known state moves unchanged to `.limen/unmigrated/<id>/`. The report lists every job, every folder moved with its reason, every file removed, every id of the older 4-hex format and every token two ids share; those jobs are named by their full id. A second run has nothing to do. The rollback is the snapshot taken before the migration.
 
 **Neither state is approval.** Neither state means that the ticket is finished or that the branch is safe to merge, because `done` only means that the run exited cleanly. The coordinator reads the record, the diff, and the checks. Then, under the review policy of the project, it merges, or resumes a repair, or asks you.
 
@@ -125,7 +131,7 @@ Use these steps in this order:
 
 ### Finished jobs
 
-Finished jobs keep their files in `.limen/jobs/`, but not their worktrees. The next job removes finished worktrees before its engine starts and logs one line per removal: path, job, reason. A resume with `--branch` keeps that worktree.
+Finished jobs keep their records and files in `.limen/jobs/`, but not their worktrees. The next job removes finished worktrees before its engine starts and logs one line per removal: path, job, reason. A resume with `--branch` keeps that worktree.
 
 | Command | Effect |
 |---|---|
@@ -159,7 +165,7 @@ Every plant on the seat shares one machine, so detached jobs wait in one queue f
 - **Gate.** Only the first job in the queue reads the load: CPU idle across all cores over about two seconds, and free memory: MemAvailable over MemTotal in `/proc/meminfo`. The job starts when CPU is at least 25% idle and memory at least 20% free. A value the machine cannot report does not hold a job back.
 - **Settle.** After one start, the next start waits a settle interval of 60 seconds, so the new job's load shows in the next reading.
 - **Values.** The seat's file `~/.limen/start-gate.json` of the agents' account changes them for the whole seat: `{ "cpuIdle": 25, "memoryFree": 20, "settle": "60s" }`, and the JSON string `"off"` turns the gate off. The file is the only source: `LIMEN_START_GATE` is no longer read, and `limen status` names it when its environment holds it. A waiting job reads the file again on each poll, so an edit reaches jobs already in the queue. The job log names each value that Limen ignores. `LIMEN_START_READING` names a file that holds the reading instead of the machine (`{ "cpuIdle": 10, "memoryFree": 80 }`); tests and manual checks use it.
-- **What a coordinator sees.** A job that the gate admits at once and that has nobody ahead starts as before; its log says `start gate: open`. A job that must wait makes spawn print `queued`, shows the pulse `queued` in `limen status` and `limen show`, and logs `queued: …`. When it starts, its log says `start queue: started after …`, and its coordinator gets one start notice on the route its finish uses: the Pi wake hook for a subscribed session, or `herdr agent prompt` to the recorded `origin-pane`. The notice says no action is needed. Its receipt is its own (`notify/delivered/_start.<session>`, `notify/herdr-start`) and never counts as the completion wake. The Pi "started" toast waits until the job leaves the queue. A start notice is news only while the job runs: when the job ends before the Pi hook delivers it, no late notice follows, and the session's completion wake carries the notice's line instead. The Herdr route starts its notice as the job leaves the queue, before prune, `--prepare` and the engine; the job does not wait for the pane's answer.
+- **What a coordinator sees.** A job that the gate admits at once and that has nobody ahead starts as before; its log says `start gate: open`. A job that must wait makes spawn print `queued`, shows the pulse `queued` in `limen status` and `limen show`, and logs `queued: …`. When it starts, its log says `start queue: started after …`, and its coordinator gets one start notice on the route its finish uses: the Pi wake hook for a subscribed session, or `herdr agent prompt` to the origin pane in the job's record. The notice says no action is needed. Its receipt is its own (`notify/delivered/_start.<session>`, `notify/herdr-start`) and never counts as the completion wake. The Pi "started" toast waits until the job leaves the queue. A start notice is news only while the job runs: when the job ends before the Pi hook delivers it, no late notice follows, and the session's completion wake carries the notice's line instead. The Herdr route starts its notice as the job leaves the queue, before prune, `--prepare` and the engine; the job does not wait for the pane's answer.
 - **Stop and loss.** `limen stop` ends a queued job `stopped` with the stop reason. A queue entry whose wrapper is gone, or whose job ended, is removed and does not block the queue. A recycled pid can keep a lost entry until the reaper ends its job.
 - **Limits.** The job timeout and a group deadline count from engine start; time in the queue never counts against them. Group launches start at once.
 
@@ -190,7 +196,7 @@ A prepare command that runs out of time is stopped, and the job log records `pre
 - The job log names each entry that Limen ignores, such as an unknown key or a value without a unit.
 - The file does not change the job time limit.
 
-**Job notes.** A running job's wrapper writes the file `advisory` when it cannot observe a tool for the stalled-tool rule, for example `tool stall observation uncertain: CPU or process identity unavailable`. A running row in `limen status` and `limen show` names that note `advisory`. A healthy running job shows no note. Each coordinator that follows the job gets one wake about the note. The note clears when the wrapper can observe the tool again or no tool runs.
+**Job notes.** A running job's wrapper sets the record's `advisory` when it cannot observe a tool for the stalled-tool rule, for example `tool stall observation uncertain: CPU or process identity unavailable`. A running row in `limen status` and `limen show` names that note `advisory`. A healthy running job shows no note. Each coordinator that follows the job gets one wake about the note. The note clears when the wrapper can observe the tool again or no tool runs.
 
 ### Seat notifications
 
@@ -206,12 +212,12 @@ The coordinator does this. You need it only if you look at a stuck tab yourself.
 |---|---|
 | The job is quiet or repeats itself | Read `limen show <id>`, the log, and the worktree. Stop only on evidence. Then resume with a narrower task. |
 | The worker has a real question | Read its durable note. Answer it. Resume the branch. |
-| The wrapper is dead, but the state says `running` | Check the recorded PID. Correct the plain `state` file. Then resume. |
-| A completion wake did not come | Read `.limen/jobs/` and Git. The job files stay the source of truth when a notification does not come. |
+| The wrapper is dead, but the state says `running` | Run `limen show <id>`: it ends a job whose recorded process is gone as `failed`. Then resume. |
+| A completion wake did not come | Run `limen show <id>` and read Git. The job's record stays the source of truth when a notification does not come. |
 
 ## How it works
 
 You do not need these mechanics to run jobs. They explain the notes and records above.
 
 - **Publication:** how spawn and continue create a job. Limen writes the complete starting record in a hidden directory, then publishes it with one rename. A publication failure removes the hidden record and leaves the parent record and saved session unchanged.
-- **Seat receipt:** the job file `notify/seat`. The sweep writes it before it sends a notification, so one event rings once, also across restarts and concurrent sweeps.
+- **Seat receipt:** the job folder's `notify/seat`. The sweep writes it before it sends a notification, so one event rings once, also across restarts and concurrent sweeps.

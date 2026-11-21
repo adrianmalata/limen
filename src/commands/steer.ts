@@ -1,6 +1,6 @@
-import { readdir, readFile } from "node:fs/promises";
 import { transport } from "../config.ts";
 import { resolveJob } from "../job/lookup.ts";
+import { jobFolders, readRecord, textFile } from "../job/record.ts";
 import { enqueueSteer } from "../job/steer-inbox.ts";
 import type { Parsed } from "../parser.ts";
 import { platform } from "../platform/platform.ts";
@@ -38,12 +38,12 @@ export async function steerCommand(values: Parsed, cwd: string): Promise<undefin
 
 async function deliver(target: { readonly id: string; readonly jobDir: string }, message: string): Promise<string> {
 	const { id, jobDir } = target;
-	const state = (await text(`${jobDir}/state`)) || "missing";
-	if (state !== "running") {
-		throw new Error(`${id} is already ${state}; not steered`);
+	const record = await readRecord(jobDir);
+	if (record?.state !== "running") {
+		throw new Error(`${id} is already ${record?.state ?? "missing"}; not steered`);
 	}
-	const pid = Number(await text(`${jobDir}/pid`));
-	if (!Number.isSafeInteger(pid) || pid <= 0 || !platform.processGroupAlive(pid)) {
+	const pid = record.identity?.pid;
+	if (!pid || !platform.processGroupAlive(pid)) {
 		throw new Error(`${id} is not running; not steered`);
 	}
 	if (!(await waitForReady(jobDir))) {
@@ -56,13 +56,10 @@ async function watchedRunning(cwd: string): Promise<ReadonlyArray<{ readonly id:
 	const route = coordinatorWakeRoute("steer --running", 'name the job instead: limen steer <id> "correction"');
 	const jobsRoot = `${limenRoot(cwd)}/.limen/jobs`;
 	const selected: Array<{ id: string; jobDir: string }> = [];
-	for (const entry of await readdir(jobsRoot, { withFileTypes: true }).catch(() => [])) {
-		if (!entry.isDirectory()) {
-			continue;
-		}
-		const jobDir = `${jobsRoot}/${entry.name}`;
-		if ((await text(`${jobDir}/state`)) === "running" && (await watches(jobDir, route))) {
-			selected.push({ id: entry.name, jobDir });
+	for (const id of await jobFolders(jobsRoot)) {
+		const jobDir = `${jobsRoot}/${id}`;
+		if ((await readRecord(jobDir))?.state === "running" && (await watches(jobDir, route))) {
+			selected.push({ id, jobDir });
 		}
 	}
 	return selected;
@@ -71,17 +68,11 @@ async function watchedRunning(cwd: string): Promise<ReadonlyArray<{ readonly id:
 async function waitForReady(jobDir: string): Promise<boolean> {
 	const deadline = Date.now() + READY_WAIT_MS;
 	while (Date.now() <= deadline) {
-		if (await text(`${jobDir}/steer/ready`)) {
+		// The steering hook marks its inbox ready (hook/steering.ts), a receipt folder of the job.
+		if (await textFile(`${jobDir}/steer/ready`)) {
 			return true;
 		}
 		await new Promise((resolve) => setTimeout(resolve, 20));
 	}
 	return false;
-}
-
-function text(path: string): Promise<string> {
-	return readFile(path, "utf8").then(
-		(value) => value.trim(),
-		() => "",
-	);
 }

@@ -10,7 +10,8 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { inspect } from "node:util";
-import { textFile } from "../src/job/record.ts";
+import { oldJobLive, oldLabel } from "../src/job/migration.ts";
+import { readRecord, unmigratedFolder } from "../src/job/record.ts";
 import { liveJob, startingJob } from "../src/runtime/reap.ts";
 
 const BRANCH = "adrian-rebuild";
@@ -281,14 +282,26 @@ async function rootKind(root: string, retry: string): Promise<LineKind> {
 	}
 }
 
-/** The jobs of one project for which `liveJob` or `startingJob` holds; a project without `.limen/jobs/` has none. */
+/**
+ * The jobs of one project that run or start, by their records (src/job/record.ts); a project without `.limen/jobs/`
+ * has none. A folder an older Limen wrote is read as that Limen read it (src/job/migration.ts), since the migration
+ * runs after this deployment (D-057 (1)).
+ */
 async function runningJobs(root: string, now: number, retry: string): Promise<readonly RunningJob[]> {
 	const jobs = join(root, ".limen", "jobs");
 	const running: RunningJob[] = [];
 	for (const id of await jobFolders(jobs, retry)) {
 		const dir = join(jobs, id);
-		if ((await liveJob(dir, now)) || (await startingJob(dir))) {
-			running.push({ root, id, label: await textFile(join(dir, "label")) });
+		// A folder without a record is an older one, or one whose spawner an older Limen still sets up.
+		const record = unmigratedFolder(dir) ? undefined : await readRecord(dir);
+		if (record === undefined) {
+			if (await oldJobLive(dir, now)) {
+				running.push({ root, id, label: await oldLabel(dir) });
+			}
+			continue;
+		}
+		if ((await liveJob(record, now)) || startingJob(record)) {
+			running.push({ root, id, label: record.label ?? "" });
 		}
 	}
 	return running;

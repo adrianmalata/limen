@@ -1,9 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { atomicWrite } from "../atomic-write.ts";
 import { transport } from "../config.ts";
 import type { GroupIdentity, GroupMember, GroupRun, TeamRoute } from "../job/group-cabinet.ts";
 import {
@@ -22,6 +21,7 @@ import {
 import { acceptBatch, acceptTransport, publishEvent, syncLifecycle } from "../job/group-events.ts";
 import { roundNames } from "../job/group-packet.ts";
 import { parseDuration, SESSION_ID } from "../job/job.ts";
+import { readRecord, transition } from "../job/record.ts";
 import { LimenError } from "../outcome.ts";
 import type { Parsed } from "../parser.ts";
 import { commitHasFile, headCommit, limenRoot, repoRoot, worktreeState } from "../project/git.ts";
@@ -473,10 +473,7 @@ async function printGroupStatus(identity: GroupIdentity, rest: readonly string[]
 	const members = await Promise.all(
 		run.members.map(async (member) => ({
 			...member,
-			state:
-				(
-					await readFile(`${run.root}/.limen/jobs/${member.id}/state`, "utf8").catch(() => "no job record yet")
-				).trim() || "no job record yet",
+			state: (await readRecord(`${run.root}/.limen/jobs/${member.id}`))?.state ?? "no job record yet",
 		})),
 	);
 	const round = run.rounds[run.round] ?? "";
@@ -525,17 +522,16 @@ async function stopGroup(identity: GroupIdentity): Promise<void> {
 	}
 	console.log("group stopped; recovery work and unread events retained until close");
 }
+/**
+ * The launch lock has drained: a reserved slot whose job never started cannot launch later. A slot without a record
+ * gets one, stopped, in a folder the transition makes, with no task or log; a published job that never ran stops.
+ */
 async function stopReservedSlot(run: GroupRun, member: GroupMember): Promise<void> {
-	const dir = `${run.root}/.limen/jobs/${member.id}`;
-	if (await readFile(`${dir}/state`, "utf8").catch(() => "")) {
-		return;
-	}
-	// The launch lock has drained: a reserved slot without a published state cannot launch later.
-	await mkdir(dir, { recursive: true });
-	await atomicWrite(`${dir}/group`, `${run.id}\n`);
-	await atomicWrite(`${dir}/team`, `${member.team}\n`);
-	await atomicWrite(`${dir}/state`, "stopped\n");
-	await atomicWrite(`${dir}/finished-at`, `${new Date().toISOString()}\n`);
+	await transition(`${run.root}/.limen/jobs/${member.id}`, {
+		from: ["absent", "starting"],
+		to: "stopped",
+		set: (record) => ({ group: record.group ?? run.id, team: record.team ?? member.team }),
+	});
 }
 /** Stops a live member job and waits up to 6 s for it to end. Returns why it is not confirmed stopped. */
 async function stopMemberJob(run: GroupRun, member: GroupMember): Promise<string | undefined> {
@@ -573,7 +569,7 @@ async function closeGroup(identity: GroupIdentity): Promise<void> {
 						`cannot close group ${run.feature} (${run.id}): ${name} is not over (${live}); run limen group stop ${run.id}`,
 					);
 				}
-				const tree = (await readFile(`${run.root}/.limen/jobs/${member.id}/worktree`, "utf8").catch(() => "")).trim();
+				const tree = (await readRecord(`${run.root}/.limen/jobs/${member.id}`))?.worktree ?? "";
 				const state = tree ? worktreeState(tree) : "none";
 				if (state === "dirty") {
 					throw new Error(

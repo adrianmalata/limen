@@ -1,0 +1,69 @@
+// src/commands/stop.ts: `limen stop` on a job whose wrapper moves it from starting to running while the stop runs.
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { existsSync, readFileSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import { stopJob } from "../../src/commands/stop.ts";
+import { readRecord } from "../../src/job/record.ts";
+import { withLock } from "../../src/lock.ts";
+import { platform } from "../../src/platform/platform.ts";
+import { repository, until, writeRecord } from "../plant.ts";
+
+const ID = "2026-11-21-stop-1a2b3c4d";
+
+test("a stop that read a starting job, whose wrapper then won the race to running, signals the wrapper as for a running job", async (t) => {
+	const root = await mkdtemp(join(tmpdir(), "limen-stop-"));
+	t.after(() => rm(root, { recursive: true, force: true }));
+	await repository(root);
+	const job = join(root, ".limen", "jobs", ID);
+	await writeRecord(job, { state: "starting", label: "demo", spawnerPid: process.pid });
+	// The wrapper stands in as a sleeping child in its own process group, which the stop signals.
+	const wrapper = spawn(process.execPath, ["-e", "Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0)"], {
+		detached: true,
+		stdio: "ignore",
+	});
+	t.after(() => wrapper.kill("SIGKILL"));
+	const exited = once(wrapper, "exit");
+	const info = await platform.processInfo(wrapper.pid ?? 0);
+	assert.ok(info.kind === "present", "the wrapper is present");
+	// The test holds the job's lock, so the stop's terminal transition waits until the wrapper has moved to running.
+	let locked!: () => void;
+	let free!: () => void;
+	const held = new Promise<void>((resolve) => {
+		locked = resolve;
+	});
+	const lock = withLock({ folder: job }, async () => {
+		locked();
+		await new Promise<void>((resolve) => {
+			free = resolve;
+		});
+	});
+	await held;
+	const stopping = stopJob(ID, "", root);
+	await until(
+		job,
+		() => existsSync(join(job, "log")) && readFileSync(join(job, "log"), "utf8").includes("stop requested"),
+	);
+	await writeRecord(job, {
+		state: "running",
+		label: "demo",
+		identity: { pid: info.process.pid, born: info.process.born, bootId: platform.bootId() ?? null },
+		startedAt: new Date().toISOString(),
+	});
+	free();
+	await lock;
+	await stopping;
+	let timer: NodeJS.Timeout | undefined;
+	const signal = await Promise.race([
+		exited.then(([, code]) => String(code)),
+		new Promise<string>((resolve) => {
+			timer = setTimeout(() => resolve("still running"), 3_000);
+		}),
+	]);
+	clearTimeout(timer);
+	assert.deepEqual([signal, (await readRecord(job))?.state], ["SIGTERM", "stopped"]);
+});

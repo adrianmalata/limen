@@ -12,6 +12,7 @@ import {
 	git,
 	jobDir,
 	jobFile,
+	jobRecord,
 	limen,
 	type Plant,
 	plant,
@@ -127,7 +128,7 @@ test("a worker prompt carries register and styleguide once, vision and board poi
 });
 
 test("continue resumes the parent's session, linked, with its extensions or a replacement", () => {
-	const parentRecord = jobFile(p, parent, "extensions.json");
+	const parentRecord = jobRecord(p, parent)?.extensions;
 	const transcript = readFileSync(join(jobDir(p, parent), "session/fake.jsonl"), "utf8");
 	const continued = (flags: readonly string[]) => {
 		const run = limen(p, ["continue", parent, "say next", "--detached", ...flags]);
@@ -137,7 +138,7 @@ test("continue resumes the parent's session, linked, with its extensions or a re
 	};
 	writeFileSync(join(jobDir(p, parent), "note.md"), "- Done means: now.\n");
 	const inherited = continued([]);
-	assert.equal(jobFile(p, inherited, "parent"), parent);
+	assert.equal(jobRecord(p, inherited)?.parent, parent);
 	// The child carries the task note, and its first prompt names the note in its own folder.
 	assert.equal(jobFile(p, inherited, "note.md"), "- Done means: now.");
 	assert.ok(jobFile(p, inherited, "fake-context.txt").includes(`/jobs/${inherited}/note.md, or write it`));
@@ -146,7 +147,7 @@ test("continue resumes the parent's session, linked, with its extensions or a re
 	assert.deepEqual(extensions(inherited).slice(-1), [first]);
 	const replaced = continued(["--extension", second, "--timeout", "10m", "--priority", "1"]);
 	assert.deepEqual(extensions(replaced).slice(-1), [second]);
-	assert.equal([parent, inherited, replaced].map((id) => jobFile(p, id, "priority")).join(), "3,3,1");
+	assert.equal([parent, inherited, replaced].map((id) => jobRecord(p, id)?.priority).join(), "3,3,1");
 	assert.equal(extensions(replaced).includes(first), false);
-	assert.equal(jobFile(p, parent, "extensions.json"), parentRecord);
+	assert.deepEqual(jobRecord(p, parent)?.extensions, parentRecord);
 });

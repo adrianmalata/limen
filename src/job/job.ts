@@ -27,7 +27,8 @@ export const isTerminal = (state: string): state is TerminalState =>
 	(TERMINAL_STATES as readonly string[]).includes(state);
 /** A session ID that is safe as one path segment, for example under `notify/delivered/`. */
 export const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
-export type Pulse = "starting" | "queued" | "think" | "tool" | "wait" | "dead";
+/** A running job's pulse; `unknown` when its record does not say which process runs it (A-056). */
+export type Pulse = "starting" | "queued" | "think" | "tool" | "wait" | "dead" | "unknown";
 export type JobView = {
 	readonly elapsedMs: number;
 	readonly silentMs: number;
@@ -77,16 +78,17 @@ export function parseJob(input: JobInput): Job {
 	}
 }
 export function derivePulse(input: {
-	readonly pid?: number;
-	readonly alive: boolean;
+	/** The job is published and its wrapper has not run it yet. */
+	readonly starting: boolean;
+	readonly owner: "alive" | "dead" | "unknown";
 	readonly queued?: boolean;
 	readonly activity?: string;
 }): Pulse {
-	if (input.pid === undefined) {
+	if (input.starting) {
 		return "starting";
 	}
-	if (!input.alive) {
-		return "dead";
+	if (input.owner !== "alive") {
+		return input.owner;
 	}
 	if (input.queued) {
 		return "queued";

@@ -8,9 +8,10 @@ import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { readOutcome } from "../src/outcome.ts";
 import {
+	editRecord,
 	git,
 	jobDir,
-	jobFile,
+	jobRecord,
 	limen,
 	type Plant,
 	plant,
@@ -70,9 +71,10 @@ test("a detached job runs in its own worktree from the base with the exact task 
 	};
 	const id = spawnJob(p, task, ["--detached", "--label", "F001 demo"], { env: caller });
 	const dir = jobDir(p, id);
-	const tree = jobFile(p, id, "worktree");
+	const tree = jobRecord(p, id)?.worktree ?? "";
 	assert.deepEqual([git(tree, "branch", "--show-current"), git(tree, "rev-parse", "HEAD")], [`limen/${id}`, base]);
-	await rm(join(dir, "spawner")); // `show` below reads the picture's link to the spawner job, `spawned-by`, alone.
+	// `show` below reads the picture's link to the spawner job, `spawnedBy`, alone.
+	await editRecord(dir, () => ({ spawner: null }));
 
 	// Plain `git status` on stale stat data rewrites the index under the worker's own `git add` (43c01cf).
 	const index = join(git(tree, "rev-parse", "--absolute-git-dir"), "index");
@@ -107,7 +109,7 @@ test("a detached job runs in its own worktree from the base with the exact task 
 	const turns = [turn("2020-01-01T00:00:00.000Z", "parent"), turn(now, "other"), turn(now, "other")];
 	await writeFile(join(dir, "session", "turns.jsonl"), `${turns.join("\n")}\n`);
 	const detail = limen(p, ["show", id]).stdout;
-	assert.ok(detail.includes(`model served p/other · requested ${jobFile(p, id, "model")}`), detail);
+	assert.ok(detail.includes(`model served p/other · requested ${jobRecord(p, id)?.route.model}`), detail);
 	assert.ok(detail.includes("tokens 2 turns · input 2 · output 20 · cache read 200 · cache write 2,000"), detail);
 });
 
@@ -130,8 +132,7 @@ test("a workspace job works in one child repository", async () => {
 	assert.equal(limen(p, ["workspace", "init"], { cwd: workspace }).status, 0);
 	const id = spawnJob(p, "commit", ["--repo", "api", "--engine", "pi"], { cwd: workspace });
 	assert.equal(waitJob(p, id, { cwd: workspace }), "done");
-	const dir = join(workspace, ".limen/jobs", id);
-	assert.equal(readFileSync(join(dir, "repo"), "utf8"), "api\n");
+	assert.equal(jobRecord(p, id, { cwd: workspace })?.repo, "api");
 	assert.match(limen(p, ["show", id], { cwd: workspace }).stdout, /\n {2}spawned-by user \S+, parent .+ \(pid \d+\)\n/);
 	assert.equal(git(join(workspace, "api"), "rev-list", "--count", `main..limen/${id}`), "1");
 	assert.equal(git(join(workspace, "web"), "branch", "--list", `limen/${id}`), "");

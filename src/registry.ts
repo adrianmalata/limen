@@ -30,6 +30,7 @@ import {
 import { initCommand, workspaceInitCommand } from "./commands/init.ts";
 import { keeperCommand } from "./commands/keeper.ts";
 import { landCommand } from "./commands/land.ts";
+import { migrateCommand } from "./commands/migrate.ts";
 import { openCommand } from "./commands/open.ts";
 import { pictureBuildCommand, pictureServeCommand } from "./commands/picture.ts";
 import { pruneCommand } from "./commands/prune.ts";
@@ -61,7 +62,8 @@ export type CommandObject =
 export type Handler = (values: Parsed, cwd: string) => Promise<Success | undefined>;
 /**
  * One command. An internal one names its `caller` and stays out of `limen --help`. `movedBy` names the ticket that
- * moves or cuts it (D-039, D-042); the help does not show it.
+ * moves or cuts it (D-039, D-042); the help does not show it. `irreversible` marks a command whose change cannot be
+ * undone or that moves data, which has tests of running it again and of losing nothing (T-28 (3)).
  */
 export type Entry = Command & {
 	readonly object: CommandObject;
@@ -72,6 +74,7 @@ export type Entry = Command & {
 	readonly ids: readonly IdKey[];
 	readonly example: string;
 	readonly movedBy?: string;
+	readonly irreversible?: true;
 	readonly handler: Handler;
 };
 /** A group of the general help: a header over its lines, or a module, one line with its summary under "Modules". */
@@ -425,6 +428,18 @@ const PROJECT: readonly Entry[] = [
 		example: "limen prune --retire --dry-run",
 		movedBy: "R-032",
 		handler: pruneCommand,
+	},
+	{
+		name: "migrate",
+		object: "project",
+		kind: "change",
+		visibility: "public",
+		summary: "move job records an older Limen wrote into record.json; --dry-run writes nothing",
+		schema: [{ flag: "dry-run", about: "print the report of what the migration would do, and write nothing" }],
+		ids: [],
+		example: "limen migrate --dry-run",
+		irreversible: true,
+		handler: migrateCommand,
 	},
 ];
 

@@ -1,6 +1,7 @@
-import { readFile, realpath, stat } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
+import type { JobRecord } from "../job/record.ts";
 
 /** Resolve only local paths. Pi, not Limen, interprets the selected module or package. */
 export async function normalizeWorkerExtensions(paths: readonly string[], cwd: string): Promise<string[]> {
@@ -31,26 +32,14 @@ export async function normalizeWorkerExtensions(paths: readonly string[], cwd: s
 	return selected;
 }
 
-/** Missing records belong to legacy jobs; all other record errors must reach launch failure handling. */
-export async function readWorkerExtensions(jobDir: string): Promise<string[]> {
-	const record = `${jobDir}/extensions.json`;
-	let body: string;
-	try {
-		body = await readFile(record, "utf8");
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-			return [];
-		}
-		throw new Error(`cannot read ${record}: ${String(error)}`);
-	}
-	let paths: unknown;
-	try {
-		paths = JSON.parse(body);
-	} catch {
-		throw new Error(`invalid ${record}: expected a JSON array of absolute local paths`);
-	}
-	if (!Array.isArray(paths) || !paths.every((path) => typeof path === "string" && isAbsolute(path))) {
-		throw new Error(`invalid ${record}: expected a JSON array of absolute local paths`);
+/**
+ * The extensions the job's record names, resolved again; a record without them (an older job) has none. A path that
+ * is not absolute must reach launch failure handling.
+ */
+export async function readWorkerExtensions(jobDir: string, record: JobRecord | undefined): Promise<string[]> {
+	const paths = record?.extensions ?? [];
+	if (!paths.every((path) => isAbsolute(path))) {
+		throw new Error(`invalid extensions in the record of ${jobDir}: expected absolute local paths`);
 	}
 	return normalizeWorkerExtensions(paths, jobDir);
 }

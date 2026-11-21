@@ -7,6 +7,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { type JobRecord, type Progress, writeProgress } from "../src/job/record.ts";
 import {
 	activityReader,
 	CHECK_QUIET_MS,
@@ -15,6 +16,8 @@ import {
 	jobActivity,
 	QUIET_MS,
 } from "../src/picture/activity.ts";
+import { processIdentity } from "../src/runtime/reap.ts";
+import { writeRecord } from "./plant.ts";
 
 const NOW = Date.parse("2026-10-08T12:00:00Z");
 const job = (over: Partial<JobFiles>): JobFiles => ({
@@ -43,13 +46,24 @@ const seen = (over: Partial<JobFiles>) => {
 	const live = jobActivity(job(over), NOW);
 	return live && [live.state, live.doing, live.detail];
 };
-const gone = spawnSync(process.execPath, ["-e", "process.stdout.write(String(process.pid))"]).stdout.toString();
-const folder = async (jobs: string, id: string, files: Record<string, string>) => {
-	await mkdir(join(jobs, id, "session"), { recursive: true });
+const gone = Number(spawnSync(process.execPath, ["-e", "process.stdout.write(String(process.pid))"]).stdout.toString());
+/** A planted job: its record's fields, its progress, and its content files by name. */
+type Planted = {
+	readonly record: Partial<JobRecord>;
+	readonly progress: Progress;
+	readonly files?: Record<string, string>;
+};
+const folder = async (jobs: string, id: string, { record, progress, files = {} }: Planted) => {
+	const dir = join(jobs, id);
+	await writeRecord(dir, record);
+	await writeProgress(dir, progress);
+	await mkdir(join(dir, "session"), { recursive: true });
 	for (const [name, body] of Object.entries(files)) {
-		await writeFile(join(jobs, id, name), body);
+		await writeFile(join(dir, name), body);
 	}
 };
+/** The identity of a process that has exited. */
+const goneIdentity = { pid: gone, born: "1", bootId: null };
 
 test("a running record reads by its owner and its last event, never as working when either is stale", () => {
 	assert.deepEqual(seen({}), ["working", "running tests and checks", "npm test"]);
@@ -83,15 +97,18 @@ test("a finished job shows its end for an hour, then leaves the page", () => {
 
 test("the reader reads a job folder by its owner, its log and its session", async () => {
 	const jobs = await mkdtemp(join(tmpdir(), "limen-live-"));
-	const running = { state: "running\n", pid: `${process.pid}\n`, activity: "tool\n", "last-tool": "bash\n" };
+	const running = { state: "running", identity: await processIdentity() } as const;
+	const progress = { activity: "tool", lastTool: "bash", toolCalls: 0 };
 	const session = "session/2026-10-08T11-59-00Z_a.jsonl";
 	await folder(jobs, "2026-10-08-f932-detached-00000001", {
-		...running,
-		engine: "pi\n",
-		log: "think\nbash npm test\n",
-		[session]: '{"type":"session"}\n{"type":"model_change","provider":"openai-codex","modelId":"gpt-6-sol"}\n',
+		record: { ...running, route: { engine: "pi", model: null, provider: null, thinking: null } },
+		progress,
+		files: {
+			log: "think\nbash npm test\n",
+			[session]: '{"type":"session"}\n{"type":"model_change","provider":"openai-codex","modelId":"gpt-6-sol"}\n',
+		},
 	});
-	await folder(jobs, "2026-10-08-f932-gone-00000003", { ...running, pid: `${gone}\n` });
+	await folder(jobs, "2026-10-08-f932-gone-00000003", { record: { ...running, identity: goneIdentity }, progress });
 	const snapshot = await activityReader(jobs)();
 	const rows = snapshot.jobs.map((live) => [live.id.slice(16, -9), live.state, live.doing, live.detail, live.model]);
 	assert.deepEqual(rows.sort(), [
@@ -103,16 +120,22 @@ test("the reader reads a job folder by its owner, its log and its session", asyn
 test("a coordinator's workers and a group's teams nest as one tree with their states counted", async () => {
 	const root = await mkdtemp(join(tmpdir(), "limen-tree-"));
 	const jobs = join(root, "jobs");
-	const running = { state: "running\n", pid: `${process.pid}\n`, activity: "think\n", role: "worker\n" };
-	const member = (team: string, files: Record<string, string> = {}) => ({ ...running, group: "g1\n", team, ...files });
-	await folder(jobs, "c1", member("team-1", { role: "coordinator\n" }));
+	const running = { state: "running", identity: await processIdentity(), role: "worker" } as const;
+	const think = { activity: "think", lastTool: "", toolCalls: 0 };
+	const planted = (record: Partial<JobRecord>, progress = think): Planted => ({
+		record: { ...running, ...record },
+		progress,
+	});
+	const member = (team: string, record: Partial<JobRecord> = {}, progress = think) =>
+		planted({ group: "g1", team, ...record }, progress);
+	await folder(jobs, "c1", member("team-1", { role: "coordinator" }));
 	// An older group worker records no spawn link: it goes under its team's coordinator.
-	await folder(jobs, "w1", member("team-1", { activity: "wait\n" }));
+	await folder(jobs, "w1", member("team-1", {}, { ...think, activity: "wait" }));
 	// Its coordinator is not on the page, so it stays at the top.
-	await folder(jobs, "w2", member("team-2", { pid: `${gone}\n` }));
-	await folder(jobs, "boss", { ...running, role: "coordinator\n" });
-	await folder(jobs, "helper", { ...running, "spawned-by": "boss\n" });
-	await folder(jobs, "orphan", { ...running, "spawned-by": "2026-01-01-long-gone-00000000\n" });
+	await folder(jobs, "w2", member("team-2", { identity: goneIdentity }));
+	await folder(jobs, "boss", planted({ role: "coordinator" }));
+	await folder(jobs, "helper", planted({ spawnedBy: "boss" }));
+	await folder(jobs, "orphan", planted({ spawnedBy: "2026-01-01-long-gone-00000000" }));
 	await mkdir(join(root, "groups", "g1"), { recursive: true });
 	const roster = [
 		{ id: "w1", team: "team-1", role: "worker" },

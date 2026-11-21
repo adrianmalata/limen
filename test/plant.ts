@@ -5,45 +5,61 @@ import { type ChildProcess, execFileSync, spawn, spawnSync } from "node:child_pr
 import { existsSync, readFileSync, watch } from "node:fs";
 import { mkdir, mkdtemp, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { TERMINAL_STATES } from "../src/job/job.ts";
+import { emptyRecord, type JobRecord, readRecordSync, serialized } from "../src/job/record.ts";
 import { readOutcome } from "../src/outcome.ts";
 
 export const LIMEN = fileURLToPath(new URL("../bin/limen", import.meta.url));
 const FAKE_ENGINE = fileURLToPath(new URL("./fake-engine.mjs", import.meta.url));
 /**
  * The child `waitJob` runs, so its caller stays synchronous. It watches the job folder (argument 1) and prints the
- * job's state once it is one of the terminal states (argument 2, JSON) and the wrapper has removed `pid`: the wrapper
- * writes the state first, and while `pid` names its live process a command such as `limen keeper` refuses the job
- * (A-088). It does not wait for `born`: `recordBorn` reads the state and then writes that file, so a job that ends in
- * between keeps it for good. A missing state, or one that is neither running nor terminal, fails it. The one-second re-check closes the
- * gap of a watch that starts late, as in `until`.
+ * state of the job's record once it is one of the terminal states (argument 2, JSON) and the process the record names
+ * has exited: the wrapper writes the terminal record first and then finishes, and while that process lives a command
+ * such as `limen keeper` refuses the job (A-088). A process's exit raises no file event, so the waiter reads the
+ * process again every 50 ms once the record is terminal; a zombie counts as exited. A missing record, or a state that
+ * is neither starting, running nor terminal, fails it. The one-second re-check closes the gap of a watch that starts
+ * late, as in `until`.
  */
 const WAITER = `
-import { existsSync, readFileSync, watch } from "node:fs";
+import { readFileSync, watch } from "node:fs";
 import { join } from "node:path";
 const [dir, terminal] = [process.argv[1], JSON.parse(process.argv[2])];
 let done = false;
+let poll;
 const watcher = watch(dir, () => settle());
 const recheck = setInterval(() => settle(), 1000);
+function exited(pid) {
+	try {
+		const stat = readFileSync("/proc/" + pid + "/stat", "utf8");
+		return stat[stat.lastIndexOf(") ") + 2] === "Z";
+	} catch {
+		return true;
+	}
+}
 function settle() {
 	if (done) {
 		return;
 	}
-	const state = readFileSync(join(dir, "state"), "utf8").trim();
-	const ended = terminal.includes(state);
-	if (state === "running" || (ended && existsSync(join(dir, "pid")))) {
+	const record = JSON.parse(readFileSync(join(dir, "record.json"), "utf8"));
+	const ended = terminal.includes(record.state);
+	if (record.state === "starting" || record.state === "running") {
+		return;
+	}
+	if (ended && record.identity?.pid && !exited(record.identity.pid)) {
+		poll ??= setInterval(() => settle(), 50);
 		return;
 	}
 	done = true;
 	watcher.close();
 	clearInterval(recheck);
+	clearInterval(poll);
 	if (ended) {
-		process.stdout.write(state);
+		process.stdout.write(record.state);
 		return;
 	}
-	console.error("job state", JSON.stringify(state), "is neither running nor terminal");
+	console.error("job state", JSON.stringify(record.state), "is neither running nor terminal");
 	process.exitCode = 1;
 }
 settle();
@@ -224,8 +240,8 @@ export function startedJob(run: Run): string {
 }
 
 /**
- * Blocks until the job's `state` is terminal and its wrapper removed `pid`, then returns the state, so the caller acts
- * on a job no process owns any more; a leftover `born` does not hold it (see `WAITER`). The job folder is under
+ * Blocks until the job's record is terminal and the wrapper it names has exited, then returns the state, so the caller
+ * acts on a job no process owns any more (see `WAITER`). The job folder is under
  * `options.cwd` when given, as for a job of a workspace or of another checkout, otherwise under the plant root;
  * `options.env` plays no part. A child node process watches the folder, so the caller needs no `await` and nothing
  * sleeps; the wait ends with an error after `WAIT_MS`.
@@ -251,10 +267,38 @@ export function jobDir(plant: Plant, id: string): string {
 	return join(plant.root, ".limen", "jobs", id);
 }
 
-/** A job file's text, trimmed; "" when it does not exist. */
+/** A content file of a job (`log`, `result`, `task.md`, …) as trimmed text; "" when it does not exist. */
 export function jobFile(plant: Plant, id: string, name: string): string {
 	const path = join(jobDir(plant, id), name);
 	return existsSync(path) ? readFileSync(path, "utf8").trim() : "";
+}
+
+/** The job's record, read through the record module; undefined when the folder holds none. */
+export function jobRecord(plant: Plant, id: string, options: RunOptions = {}): JobRecord | undefined {
+	return readRecordSync(join(options.cwd ?? plant.root, ".limen", "jobs", id));
+}
+
+/**
+ * Writes the record of the job folder `dir` by hand, as a test that plants a job without a wrapper needs: the empty
+ * record of the folder's name (src/job/record.ts) with `fields`.
+ */
+export async function writeRecord(dir: string, fields: Partial<JobRecord> = {}): Promise<void> {
+	await mkdir(dir, { recursive: true });
+	await writeFile(join(dir, "record.json"), serialized({ ...emptyRecord(basename(dir)), ...fields }));
+}
+
+/** Changes fields of the record of the job folder `dir` by hand, as a test that plants an older or odd record does. */
+export async function editRecord(dir: string, fields: (record: JobRecord) => Partial<JobRecord>): Promise<void> {
+	const record = readRecordSync(dir);
+	if (!record) {
+		throw new Error(`${dir} holds no record to edit`);
+	}
+	await writeFile(join(dir, "record.json"), serialized({ ...record, ...fields(record) }));
+}
+
+/** The state of the job's record, or "" while it has none. */
+export function jobState(plant: Plant, id: string, options: RunOptions = {}): string {
+	return jobRecord(plant, id, options)?.state ?? "";
 }
 
 /**

@@ -7,6 +7,7 @@ import { createInterface } from "node:readline/promises";
 import { transport } from "../config.ts";
 import { jobFeatures } from "../job/job.ts";
 import { resolveJob } from "../job/lookup.ts";
+import { readRecord } from "../job/record.ts";
 import type { Parsed } from "../parser.ts";
 import { readPicture } from "../picture/picture-build.ts";
 import { checkTickets, readTickets } from "../picture/tickets.ts";
@@ -90,16 +91,14 @@ async function readDoneJob(
 	query: string,
 ): Promise<{ id: string; branch: string; base: string; repo: string; label: string; task: string }> {
 	const { id, jobDir } = await resolveJob(cwd, query, "control");
-	const [state, branch, base, repo, label, task] = await Promise.all([
-		text(`${jobDir}/state`),
-		text(`${jobDir}/branch`),
-		text(`${jobDir}/base`),
-		text(`${jobDir}/repo`),
-		text(`${jobDir}/label`),
-		text(`${jobDir}/task.md`),
-	]);
-	if (state !== "done") {
-		throw new Error(`job ${id} is ${state || "missing"}; land requires a done job`);
+	const record = await readRecord(jobDir);
+	const branch = record?.branch ?? "";
+	const base = record?.base ?? "";
+	const repo = record?.repo ?? "";
+	const label = record?.label ?? "";
+	const task = (await readFile(`${jobDir}/task.md`, "utf8").catch(() => "")).trim();
+	if (record?.state !== "done") {
+		throw new Error(`job ${id} is ${record?.state || "missing"}; land requires a done job`);
 	}
 	if (!branch || !base) {
 		throw new Error(`job ${id} has no recorded ${branch ? "base" : "branch"}`);
@@ -363,11 +362,4 @@ async function confirm(question: string): Promise<boolean> {
 	} finally {
 		rl.close();
 	}
-}
-
-function text(path: string): Promise<string> {
-	return readFile(path, "utf8").then(
-		(value) => value.trim(),
-		() => "",
-	);
 }

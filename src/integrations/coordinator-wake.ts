@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { connect } from "node:net";
 import { atomicWrite } from "../atomic-write.ts";
 import { jobMembership } from "../job/group-cabinet.ts";
-import { appendLimenLog, textFile } from "../job/record.ts";
+import { appendLimenLog, readRecord } from "../job/record.ts";
 import { completionWake, keeperHint } from "../job/wake-text.ts";
 import { herdrBinary } from "./herdr.ts";
 
@@ -44,7 +44,7 @@ async function promptOriginPane(
 	route: PaneRoute,
 	deadline: number,
 ): Promise<void> {
-	const pane = await textFile(`${jobDir}/origin-pane`);
+	const pane = (await readRecord(jobDir))?.origin.pane;
 	const herdr = herdrBinary();
 	if (!message || !pane || !herdr || deadline - Date.now() < 1_000) {
 		return;
@@ -117,10 +117,16 @@ export async function promptPane(
 	return ok;
 }
 
+/** The completion wake of the job; none for a record the migration wrote, whose Limen owed its wakes (D-057 (4)). */
 async function wakeMessage(jobDir: string): Promise<string | undefined> {
-	const [label = "", state = "", branch = "", repo = ""] = await Promise.all(
-		["label", "state", "branch", "repo"].map((name) => textFile(`${jobDir}/${name}`)),
-	);
+	const record = await readRecord(jobDir);
+	if (record?.migrated) {
+		return undefined;
+	}
+	const label = record?.label ?? "";
+	const state = record?.state ?? "";
+	const branch = record?.branch ?? "";
+	const repo = record?.repo ?? "";
 	const id = jobDir.split("/").at(-1) ?? "";
 	const membership = await jobMembership(jobDir);
 	if (!membership) {

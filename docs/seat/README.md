@@ -29,7 +29,7 @@ Prefer **Moshi** if the phone already gets Herdr pings: pair `moshi-hook` on the
 ntfy is the fallback when Moshi is not in play:
 
 1. On the phone: ntfy app, subscribe to a long random topic. From the Mac: `curl -d test https://ntfy.sh/$topic` — phone must buzz **before** you move the coordinator.
-2. Copy `bell.sh` onto the box. `chmod +x`.
+2. Use `bell.sh` in the Limen checkout on the box, not a copy: it runs `bell.ts` beside it with `node`, which reads the job records through Limen's record module, so `node` must be on the service's `PATH`.
 3. Drop-in for `limen-bell.service`: `User`, `LIMEN_ROOT` (the project that contains `.limen`), `NTFY_TOPIC`, `ExecStart` → that script.
 4. `systemctl enable --now limen-bell.timer`
 5. `limen spawn --detached --engine pi --provider <provider> --model <model> --thinking <level> "echo seat-smoke && exit"` from the project. Close the SSH session. Phone should ring. `cat .limen/jobs/<id>/notify/bell` exists. Re-run the script: no second ping.
@@ -63,7 +63,7 @@ Preview: on the seat, bind the app to `127.0.0.1`, then `tailscale serve 3000`. 
 
 ## Prove, in this order
 
-1. Detached job finishes with the lid closed; phone rings; `state` on the box is `done`.
+1. Detached job finishes with the lid closed; phone rings; `limen show <id>` on the box says `done`.
 2. `herdr --remote` → `limen status` shows that same id.
 3. Preview URL opens on the Mac. No `git pull`.
 

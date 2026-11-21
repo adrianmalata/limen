@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile } from "node:fs/promises";
 import { platform } from "../platform/platform.ts";
 import type { GroupIdentity, GroupRun } from "./group-cabinet.ts";
 import { groupLock, groupPath, readRun, saveJson } from "./group-cabinet.ts";
+import { type JobRecord, readRecord } from "./record.ts";
 
 const PUBLICATION_CHARACTERS = 4_000;
 const DELIVERY_ATTEMPTS = 2;
@@ -103,19 +104,29 @@ export async function syncLifecycle(run: GroupRun, mode: "skip" | "wait" = "wait
 	}
 }
 
+/**
+ * The member fields the group mirrors (`<member>-state.json`, `<member>-advisory.json`), as the member's record holds
+ * them: the state, "" while the job only starts, and the advisory's text. An uncertain stall observation stays in the
+ * job record for the operator; peers only hear real lifecycle changes.
+ */
+function mirrored(record: JobRecord | undefined): { readonly state: string; readonly advisory: string } {
+	const advisory = record?.advisory?.text ?? "";
+	return {
+		state: !record || record.state === "starting" ? "" : record.state,
+		advisory: advisory.startsWith("tool stall observation uncertain") ? "" : advisory,
+	};
+}
 async function lifecycleChanges(run: GroupRun) {
 	const changes = [];
 	for (const member of run.members) {
-		const job = `${run.root}/.limen/jobs/${member.id}`;
-		for (const field of ["state", "advisory"]) {
+		const observed = mirrored(await readRecord(`${run.root}/.limen/jobs/${member.id}`));
+		for (const field of ["state", "advisory"] as const) {
 			const marker = `${groupPath(run)}/${member.id}-${field}.json`;
 			const saved = JSON.parse(await readFile(marker, "utf8").catch(() => '""')) as
 				| string
 				| { value: string; event?: GroupEvent };
 			const previous = typeof saved === "string" ? { value: saved } : saved;
-			const observed = (await readFile(`${job}/${field}`, "utf8").catch(() => "")).trim();
-			// An uncertain stall observation stays in the job record for the operator; peers only hear real lifecycle changes.
-			const value = field === "advisory" && observed.startsWith("tool stall observation uncertain") ? "" : observed;
+			const value = observed[field];
 			if (previous.event || previous.value !== value) {
 				changes.push({ member, field, marker, previous, value });
 			}

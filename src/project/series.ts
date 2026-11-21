@@ -3,8 +3,8 @@
 import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync, realpathSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
+import { jobFoldersSync, readRecordSync } from "../job/record.ts";
 import { withLock } from "../lock.ts";
-import { readOptional } from "./inherit.ts";
 
 /** One row of the register of tickets a plant moved out of its lanes. */
 export type ArchiveRow = {
@@ -111,7 +111,7 @@ function highestTaken(plants: readonly string[]): number {
 			encoding: "utf8",
 		});
 		const jobs = join(plant, ".limen", "jobs");
-		const labels = subdirectories(jobs).map((id) => `${id}\n${readOptional(join(jobs, id, "label")) ?? ""}`);
+		const labels = jobFoldersSync(jobs).map((id) => `${id}\n${readRecordSync(join(jobs, id))?.label ?? ""}`);
 		const named = `${branches.stdout ?? ""}\n${labels.join("\n")}`.matchAll(/\bf(\d{3,4})\b/gi);
 		for (const number of [
 			...ticketFolders(plant).map((folder) => folder.code.slice(1)),

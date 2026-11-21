@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { readdir, readFile, realpath, rm } from "node:fs/promises";
+import { readdir, realpath, rm } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { atomicRename } from "../atomic-write.ts";
 import { retainedGroupJob } from "../job/group-cabinet.ts";
 import { isTerminal } from "../job/job.ts";
 import { worktreeLock } from "../job/publication.ts";
-import { appendLimenLog } from "../job/record.ts";
+import { appendLimenLog, type JobRecord, jobFolders, readRecord } from "../job/record.ts";
 import type { Parsed } from "../parser.ts";
 import {
 	branchExists,
@@ -51,25 +51,19 @@ export async function pruneCommand(values: Parsed, cwd: string): Promise<undefin
 	}
 }
 
-async function retireFinishedJobs(
-	root: string,
-	dryRun: boolean,
-): Promise<{ readonly ids: readonly string[]; readonly branches: number }> {
-	const jobsRoot = `${root}/.limen/jobs`,
-		retired: { id: string; repository: string; branch: string }[] = [],
-		finished: { id: string; repository: string; branch: string }[] = [],
-		repositories = new Map<string, string>();
-	for (const id of (await jobIds(jobsRoot)).sort()) {
+type FinishedJob = { id: string; repository: string; branch: string };
+/** The terminal jobs outside an open group, each with the repository of its branch; one whose repository is gone is left out. */
+async function finishedJobs(root: string, jobsRoot: string): Promise<FinishedJob[]> {
+	const finished: FinishedJob[] = [];
+	const repositories = new Map<string, string>();
+	for (const id of await jobFolders(jobsRoot)) {
 		const jobDir = `${jobsRoot}/${id}`;
 		if (await retainedGroupJob(jobDir)) {
 			continue;
 		}
-		const [state, branch, repo] = await Promise.all([
-			text(`${jobDir}/state`),
-			text(`${jobDir}/branch`),
-			text(`${jobDir}/repo`),
-		]);
-		if (!isTerminal(state)) {
+		const record = await readRecord(jobDir);
+		const [branch, repo] = [record?.branch ?? "", record?.repo ?? ""];
+		if (!(record && isTerminal(record.state))) {
 			continue;
 		}
 		try {
@@ -80,6 +74,16 @@ async function retireFinishedJobs(
 			finished.push({ id, repository, branch });
 		} catch {}
 	}
+	return finished;
+}
+
+async function retireFinishedJobs(
+	root: string,
+	dryRun: boolean,
+): Promise<{ readonly ids: readonly string[]; readonly branches: number }> {
+	const jobsRoot = `${root}/.limen/jobs`,
+		retired: FinishedJob[] = [],
+		finished = await finishedJobs(root, jobsRoot);
 	const unlanded = new Map<string, ReadonlySet<string> | undefined>();
 	for (const repository of new Set(finished.map((job) => job.repository))) {
 		try {
@@ -145,18 +149,22 @@ export async function pruneFinishedWorktrees(root: string, keep: readonly string
 }
 /**
  * The one rule every removal obeys: a job keeps its record and its worktree while it is starting, running, or in an
- * open group. Starting is a record with no state whose spawner lives or whose startup grace runs. Prune does not ask
- * whether a running job's process lives; the sweep finalizes a dead job first.
+ * open group. Starting is a record its wrapper has not run yet whose spawner lives or whose startup grace runs. Prune
+ * does not ask whether a running job's process lives; the sweep finalizes a dead job first.
  */
-async function jobKeeps(jobDir: string, state: string): Promise<boolean> {
-	if (state) {
-		return !isTerminal(state) || retainedGroupJob(jobDir);
+async function jobKeeps(jobDir: string, record: JobRecord | undefined): Promise<boolean> {
+	if (record && record.state !== "starting") {
+		return !isTerminal(record.state) || retainedGroupJob(jobDir);
 	}
-	const startedAt = Date.parse(await text(`${jobDir}/started-at`));
-	if ((Number.isFinite(startedAt) && Date.now() - startedAt < STARTUP_GRACE_MS) || (await startingJob(jobDir))) {
+	const startedAt = Date.parse(record?.startedAt ?? "");
+	if ((Number.isFinite(startedAt) && Date.now() - startedAt < STARTUP_GRACE_MS) || startingJob(record)) {
 		return true;
 	}
 	return retainedGroupJob(jobDir);
+}
+/** Whether the record's job ever ran: a record past `starting`. A folder without a record never did. */
+function started(record: JobRecord | undefined): boolean {
+	return record !== undefined && record.state !== "starting";
 }
 type LandedBranch = { readonly repository: string; readonly branch: string };
 type BranchUse = { busy?: string; worktrees: Set<string> };
@@ -219,19 +227,16 @@ async function deleteLandedBranch(
 /** For each recorded branch: a job that keeps it, and the worktrees its other jobs left. */
 async function branchUses(jobsRoot: string): Promise<Map<string, BranchUse>> {
 	const uses = new Map<string, BranchUse>();
-	for (const id of await jobIds(jobsRoot)) {
+	for (const id of await jobFolders(jobsRoot)) {
 		const jobDir = `${jobsRoot}/${id}`;
-		const [branch, state, worktree] = await Promise.all([
-			text(`${jobDir}/branch`),
-			text(`${jobDir}/state`),
-			text(`${jobDir}/worktree`),
-		]);
+		const record = await readRecord(jobDir);
+		const [branch, worktree] = [record?.branch ?? "", record?.worktree ?? ""];
 		if (!branch) {
 			continue;
 		}
 		const use = uses.get(branch) ?? { worktrees: new Set<string>() };
 		uses.set(branch, use);
-		if (await jobKeeps(jobDir, state)) {
+		if (await jobKeeps(jobDir, record)) {
 			use.busy ??= id;
 		} else if (worktree) {
 			use.worktrees.add(await resolved(worktree));
@@ -240,8 +245,9 @@ async function branchUses(jobsRoot: string): Promise<Map<string, BranchUse>> {
 	return uses;
 }
 /**
- * Removes each record that never got a state and no longer starts, and says why the worktree it named goes. Names the
- * repositories whose worktrees the prune visits: those of jobs with a state, else the root.
+ * Removes each record that never started and no longer starts, and a folder without a record, and says why the
+ * worktree it named goes. Names the repositories whose worktrees the prune visits: those of jobs that started, else
+ * the root.
  */
 async function removeUnstartedRecords(
 	root: string,
@@ -250,23 +256,22 @@ async function removeUnstartedRecords(
 	const repositories = new Set<string>();
 	const removals: PruneRemoval[] = [];
 	const owners: PruneOwners = new Map();
-	for (const id of await jobIds(jobsRoot)) {
+	for (const id of await jobFolders(jobsRoot)) {
 		const jobDir = `${jobsRoot}/${id}`;
-		const state = await text(`${jobDir}/state`);
-		if (state) {
-			const repo = await text(`${jobDir}/repo`);
-			repositories.add(repo ? workspaceRepository(root, repo) : root);
+		const record = await readRecord(jobDir);
+		if (started(record)) {
+			repositories.add(record?.repo ? workspaceRepository(root, record.repo) : root);
 			continue;
 		}
-		if (await jobKeeps(jobDir, state)) {
+		if (await jobKeeps(jobDir, record)) {
 			continue;
 		}
-		const tree = await text(`${jobDir}/worktree`);
+		const tree = record?.worktree;
 		if (tree) {
-			owners.set(await resolved(tree), { jobDir, reason: "its record never got a state and was removed" });
+			owners.set(await resolved(tree), { jobDir, reason: "its record never started and was removed" });
 		}
 		await rm(jobDir, { recursive: true, force: true });
-		removals.push({ path: jobDir, jobDir, reason: "record never got a state and its spawner is gone" });
+		removals.push({ path: jobDir, jobDir, reason: "record never started and its spawner is gone" });
 	}
 	if (repositories.size === 0) {
 		repositories.add(root);
@@ -337,18 +342,18 @@ async function worktreeClaims(
 ): Promise<{ kept: Set<string>; owners: PruneOwners }> {
 	const kept = new Set(keepPaths);
 	const owners: PruneOwners = new Map();
-	for (const id of (await jobIds(jobsRoot)).sort()) {
+	for (const id of await jobFolders(jobsRoot)) {
 		const jobDir = `${jobsRoot}/${id}`;
-		const recorded = await text(`${jobDir}/worktree`);
+		const record = await readRecord(jobDir);
+		const recorded = record?.worktree;
 		if (!recorded) {
 			continue;
 		}
 		const path = await resolved(recorded);
-		const state = await text(`${jobDir}/state`);
-		if (await jobKeeps(jobDir, state)) {
+		if (await jobKeeps(jobDir, record)) {
 			kept.add(path);
 		} else {
-			owners.set(path, { jobDir, reason: `job ${state || "has no state"}` });
+			owners.set(path, { jobDir, reason: `job ${started(record) ? record?.state : "never started"}` });
 		}
 	}
 	return { kept, owners };
@@ -370,24 +375,9 @@ async function emptyTrash(folder: string): Promise<void> {
 	}
 }
 
-async function jobIds(jobsRoot: string): Promise<string[]> {
-	const entries = await readdir(jobsRoot, { withFileTypes: true }).catch((error: unknown) => {
-		if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
-			return [];
-		}
-		throw error;
-	});
-	return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
-}
 function resolved(path: string): Promise<string> {
 	return realpath(path).then(
 		(value) => value,
 		() => resolve(path),
-	);
-}
-function text(path: string): Promise<string> {
-	return readFile(path, "utf8").then(
-		(value) => value.trim(),
-		() => "",
 	);
 }

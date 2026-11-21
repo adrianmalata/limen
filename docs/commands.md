@@ -58,6 +58,8 @@ This project
       the board with NOW and PROVEN; --write rewrites them in spec/build.md
   limen prune [--retire] [--dry-run]
       remove finished worktrees; --retire deletes records of landed jobs
+  limen migrate [--dry-run]
+      move job records an older Limen wrote into record.json; --dry-run writes nothing
 
 Tickets: files under spec/features/
   limen ticket new "what becomes true" [--lane planned|active] [--touches <ids>]
@@ -144,7 +146,7 @@ limen continue <id|suffix|label> "follow-up instruction" [--label L] [--engine p
 
 **Detached.** Every job runs detached, under a wrapper with the limits of [Limits](jobs.md#limits); inside Herdr it also gets a tab that follows its log. `--detached` is accepted and changes nothing.
 
-**Start queue.** A detached job waits in the seat's start queue until the machine has room for it; see [Start queue](jobs.md#start-queue). Spawn and continue then print `queued <label>: <reading>, N ahead` before the ID. `--priority` sets the queue order: 1 is the most urgent, 2 is the default, and `continue` keeps the parent's priority unless it gets its own flag. The job records it in `priority`. Spawn when the work is ready; Limen starts the job and tells its coordinator.
+**Start queue.** A detached job waits in the seat's start queue until the machine has room for it; see [Start queue](jobs.md#start-queue). Spawn and continue then print `queued <label>: <reading>, N ahead` before the ID. `--priority` sets the queue order: 1 is the most urgent, 2 is the default, and `continue` keeps the parent's priority unless it gets its own flag. The job's record holds it in `priority`. Spawn when the work is ready; Limen starts the job and tells its coordinator.
 
 Spawn requires `--engine`, `--provider`, `--model` and `--thinking`: without one of them it exits 2 and names every missing flag, before a job exists. `continue` takes them as options and keeps the parent's engine.
 
@@ -152,7 +154,7 @@ Spawn requires `--engine`, `--provider`, `--model` and `--thinking`: without one
 
 **Pi extensions.** Repeat `--extension PATH` to select existing local extension files or package directories. Relative paths use the caller's directory, not the worker worktree; quoted `~/` paths expand from the caller's home. Quote paths with spaces. Limen resolves symlinks and removes duplicate paths in first-seen order. Empty values, remote sources (`npm:`, `git:`, URLs), built-in selectors and globs are rejected before preflight or job/worktree creation.
 
-Every Pi job keeps `--no-extensions` and all required Limen hooks. The selected list is published with the job in `extensions.json`; startup checks that its targets still exist. A missing legacy record means no extras. A malformed record or unavailable target is an error.
+Every Pi job keeps `--no-extensions` and all required Limen hooks. The selected list is published with the job in its record's `extensions`; startup checks that its targets still exist. A missing legacy record means no extras. A malformed record or unavailable target is an error.
 
 For ordinary jobs, `continue` inherits the parent's list when no `--extension` is given. Supplied flags replace the whole list, even if an old path is unavailable; the parent record stays unchanged. Repeat the chosen `--provider`, `--model` and `--thinking` flags: continuation does not inherit those choices. An ordinary fresh `spawn`, including `spawn --branch`, has no user extras unless selected. Group members instead inherit the fixed recorded team list; they cannot replace it. There is no clear-list flag.
 
@@ -188,11 +190,11 @@ After the leftover files, `limen status` names the `LIMEN_*` variables of its ow
 
 In a terminal, `show` shows the job for people. Through a pipe, it prints the compact format that tools read. The terminal alone selects the view; `LIMEN_VIEW` is no longer read. `NO_COLOR` removes the color. An unknown job ID exits 1 with `no job matches "<id>"`. The old `jobs` command was split into `limen status --all` and `limen show <job>`: `jobs <id>` exits 2 and names `limen show <id>`, and every other form of it names `limen status --all`.
 
-`limen show <id>` also shows `model`, the provider and model that the session's turns ran, and `tokens`, the turns and the input, output, cache-read and cache-write totals of that job's own turns. When a turn ran a model other than the one spawn recorded in the job's `model` file, the line shows both: `served … · requested …`. This informs; it does not block.
+`limen show <id>` also shows `model`, the provider and model that the session's turns ran, and `tokens`, the turns and the input, output, cache-read and cache-write totals of that job's own turns. When a turn ran a model other than the one spawn recorded in the job's route, the line shows both: `served … · requested …`. This informs; it does not block.
 
 A job in the start queue lists as running with the pulse `queued`, then its wait and the reason: the CPU and memory reading against the gate, or each rule that holds its priority with the rule's end, and the number of jobs ahead. `limen seat queue` prints the gate, the current reading, and every waiting job of the seat in start order, each held job with the rules that hold it. It samples the load for about two seconds. The old top-level `queue` command was renamed: it exits 2 and names `limen seat queue`.
 
-A job is starting while `limen spawn` still sets it up: the worktree and the launch. Its record holds the spawn's pid in `starting` from the first moment. `show` and `status` list it as running with the pulse `starting`. A job with no state whose spawn process is gone is `ORPHAN`. Spawn prints the job ID as soon as the record exists and again after its start line, and its final line carries it in `ids.job` ([Exit codes and the final line](#exit-codes-and-the-final-line)). The job's wrapper then prunes finished worktrees and runs `--prepare` before the engine starts; the job log records each result and its time. A prepare command has 5 minutes; a plant can change that (see [Limits](jobs.md#limits)). A setup failure after the ID printed marks the job `failed`.
+A job is starting while `limen spawn` still sets it up: the worktree and the launch. Its record has the state `starting` and the spawn's pid from the first moment. `show` and `status` list it as running with the pulse `starting`. A starting job whose spawn process is gone is `ORPHAN`. Spawn prints the job ID as soon as the record exists and again after its start line, and its final line carries it in `ids.job` ([Exit codes and the final line](#exit-codes-and-the-final-line)). The job's wrapper then prunes finished worktrees and runs `--prepare` before the engine starts; the job log records each result and its time. A prepare command has 5 minutes; a plant can change that (see [Limits](jobs.md#limits)). A setup failure after the ID printed marks the job `failed`.
 
 ### Control running jobs
 
@@ -219,7 +221,7 @@ limen prune [--retire [--dry-run]]
 
 `land` asks for a confirm only when stdin is a terminal; `--yes` skips it there too. After the merge, `land` deletes the job's local `limen/*` branch and the finished worktree that holds it. It keeps the branch while another job on that branch, such as a continuation, is still running, and prints why.
 
-`prune` prints one line for each worktree, leftover directory, or stateless record it removes: `pruned <path> (job <id>): <reason>`, with `job none` when no record names the path. The prune that a new job runs writes the same lines to its own log and to the log of the job whose worktree went.
+`prune` prints one line for each worktree, leftover directory, or record that never started that it removes: `pruned <path> (job <id>): <reason>`, with `job none` when no record names the path. The prune that a new job runs writes the same lines to its own log and to the log of the job whose worktree went.
 
 Prune and `land` never remove the worktree or record of a job that is starting, running, or in an open group, nor a worktree made inside such a job's worktree. A running job keeps its worktree even when its process looks gone; `limen sweep` finalizes it first. Prune lists what it may remove, then reads the job records under the lock that publishing a job record also takes, so a job started during a prune keeps its worktree. It moves each removal out of reach in one rename and deletes it after the lock. A Git-locked worktree stays.
 

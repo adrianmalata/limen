@@ -1,6 +1,7 @@
 import { formatDuration, type Job, type Pulse } from "./job.ts";
 
-export type JobRecord = {
+/** A job as `limen status` and `limen show` show it, built from its record (src/job/record.ts) and its content files. */
+export type ShownJob = {
 	readonly id: string;
 	readonly invalid?: string;
 	readonly job?: Job;
@@ -17,7 +18,7 @@ export type JobRecord = {
 	readonly commitCount?: number;
 	readonly repo?: string;
 	readonly parent?: string;
-	/** Detail only: who ran the spawn, from `spawner`, or `job <id>` from an older record's `spawned-by`. */
+	/** Detail only: who ran the spawn, from the record's `spawner`, else `job <id>` from its `spawnedBy`. */
 	readonly spawnedBy?: string;
 	readonly candidate?: string;
 	readonly advisory?: string;
@@ -27,6 +28,8 @@ export type JobRecord = {
 	readonly result?: string;
 	/** The open items of the final "Note check" of a done job, one per line. */
 	readonly openChecks?: string;
+	/** The side channels of the job's end that failed (T-01), one `<channel>: <message>` per line. */
+	readonly sideFailures?: string;
 	readonly model?: string;
 	readonly tokens?: string;
 	readonly cleanup?: string;
@@ -57,7 +60,7 @@ export function formatAge(milliseconds: number): string {
 	}
 	return `${Math.floor(hours / 24)}d ago`;
 }
-export function humanDetail(record: JobRecord, paint: Paint): string {
+export function humanDetail(record: ShownJob, paint: Paint): string {
 	const job = record.job;
 	if (record.invalid || !job) {
 		const tail = record.logTail ? `\n${indented(record.logTail, paint)}` : "";
@@ -98,6 +101,7 @@ export function humanDetail(record: JobRecord, paint: Paint): string {
 	put("commits", record.commits);
 	put("stop-reason", record.stopReason);
 	put("open-checks", record.openChecks);
+	put("side-failures", record.sideFailures);
 	put("result", record.result);
 	put("diff", record.diffstat);
 	put("cleanup", record.cleanup);
@@ -121,7 +125,7 @@ export function renderLogTail(tail: string, paint: Paint): string {
 	}
 	return kept.join("\n");
 }
-function glyph(record: JobRecord, paint: Paint): string {
+function glyph(record: ShownJob, paint: Paint): string {
 	if (record.invalid || !record.job) {
 		return paint("red", "!");
 	}
@@ -136,11 +140,13 @@ function glyph(record: JobRecord, paint: Paint): string {
 	}
 	return paint("yellow", "■");
 }
-function runningFacts(record: JobRecord, paint: Paint): string[] {
+function runningFacts(record: ShownJob, paint: Paint): string[] {
 	const facts = [formatDuration(record.elapsedMs ?? 0)];
 	const pulse = record.pulse ?? "think";
 	if (pulse === "dead") {
 		facts.push(paint("red", "dead"));
+	} else if (pulse === "unknown") {
+		facts.push(paint("yellow", "owner unknown"));
 	} else if (pulse === "starting") {
 		facts.push(paint("dim", "starting"));
 	} else if (pulse === "queued") {
@@ -160,14 +166,14 @@ function runningFacts(record: JobRecord, paint: Paint): string[] {
 	}
 	return facts;
 }
-function terminalRanLine(record: JobRecord, paint: Paint): string {
+function terminalRanLine(record: ShownJob, paint: Paint): string {
 	const facts = [formatDuration(record.elapsedMs ?? 0), ...workFacts(record, paint)];
 	if (record.ageMs !== undefined) {
 		facts.push(`finished ${formatAge(record.ageMs)}`);
 	}
 	return facts.join(" · ");
 }
-function workFacts(record: JobRecord, paint: Paint): string[] {
+function workFacts(record: ShownJob, paint: Paint): string[] {
 	if (record.producedNothing) {
 		return [paint("red", "nothing")];
 	}
@@ -178,7 +184,7 @@ function workFacts(record: JobRecord, paint: Paint): string[] {
 	}
 	return facts;
 }
-function flags(record: JobRecord): string[] {
+function flags(record: ShownJob): string[] {
 	const out: string[] = [];
 	if (record.candidate) {
 		out.push("review");

@@ -1,76 +1,84 @@
-import { readdir } from "node:fs/promises";
+// Whether the process a job record names still runs, and the reaper that ends a running job whose process is gone
+// (A-056). The identity is the record's `{pid, born, bootId}`, written in the transition to running: a missing part
+// means unknown, never alive, so nothing keeps a job running on it; another boot, or another start time under the pid,
+// means dead. What the system cannot describe (a process query that gives no answer) is not dead, as in src/lock.ts.
 import { testKnob } from "../config.ts";
-import { finalizeJob, textFile } from "../job/record.ts";
+import { finalizeJob } from "../job/finalize.ts";
+import { type Identity, type JobRecord, jobFolders, readRecord } from "../job/record.ts";
 import { type Platform, platform } from "../platform/platform.ts";
 import { claimRecovery } from "./recovery.ts";
 
 export const STARTUP_GRACE_MS = 10 * 60_000;
-export async function liveJob(jobDir: string, now = Date.now()): Promise<boolean> {
-	if ((await textFile(`${jobDir}/state`)) !== "running") {
-		return false;
-	}
-	const pid = Number(await textFile(`${jobDir}/pid`));
-	const recorded = Number.isSafeInteger(pid) && pid > 0 ? pid : undefined;
-	if (
-		recorded !== undefined &&
-		platform.processGroupAlive(recorded) &&
-		(await sameBirth(recorded, await textFile(`${jobDir}/born`)))
-	) {
-		return true;
-	}
-	if (recorded !== undefined) {
-		return false;
-	}
-	const startedAt = Date.parse(await textFile(`${jobDir}/started-at`));
-	return Number.isFinite(startedAt) && now - startedAt < STARTUP_GRACE_MS;
-}
-/** A job its spawner is still setting up: no state yet, and the spawning process recorded in `starting` is alive. */
-export async function startingJob(jobDir: string): Promise<boolean> {
-	if (await textFile(`${jobDir}/state`)) {
-		return false;
-	}
-	const pid = Number(await textFile(`${jobDir}/starting`));
-	return Number.isSafeInteger(pid) && pid > 0 && platform.processAlive(pid);
-}
-export async function ownerAlive(jobDir: string, query = platform.processInfo): Promise<boolean> {
-	const pid = Number(await textFile(`${jobDir}/pid`));
-	if (!Number.isSafeInteger(pid) || pid <= 0 || !platform.processAlive(pid)) {
-		return false;
-	}
-	return sameBirth(pid, await textFile(`${jobDir}/born`), query);
-}
-/** `pid born` of each process a check found gone: it is gone for good, since a pid and start time never return. */
+
+/** `alive`: the recorded process runs; `dead`: it is gone; `unknown`: the record does not say which process it is. */
+export type OwnerState = "alive" | "dead" | "unknown";
+
+/** `pid born bootId` of each process a check found gone: it is gone for good, since that identity never returns. */
 const gone = new Set<string>();
-/** The live pid is still the recorded process. Every check reads the process again, except one already found gone. */
-async function sameBirth(
-	pid: number,
-	born: string,
+
+/** Whether the process `identity` names runs now. Every check reads the process again, except one already found gone. */
+export async function ownerState(
+	identity: Identity | null,
 	query: Platform["processInfo"] = platform.processInfo,
-): Promise<boolean> {
-	if (!born) {
-		return true;
+): Promise<OwnerState> {
+	if (identity?.pid == null || identity.born === null) {
+		return "unknown";
 	}
-	const key = `${pid} ${born}`;
+	const { pid, born, bootId } = identity;
+	const key = `${pid} ${born} ${bootId}`;
 	if (gone.has(key)) {
-		return false;
+		return "dead";
 	}
-	const outcome = await query(pid);
-	if (outcome.kind === "unavailable") {
-		return true;
+	const current = platform.bootId();
+	const otherBoot = bootId !== null && current !== undefined && bootId !== current;
+	const outcome = otherBoot || !platform.processAlive(pid) ? undefined : await query(pid);
+	if (outcome?.kind === "unavailable" || (outcome?.kind === "present" && outcome.process.born === born)) {
+		return "alive";
 	}
-	const alive = outcome.kind === "present" && outcome.process.born === born;
-	if (!alive) {
-		gone.add(key);
-	}
-	return alive;
+	gone.add(key);
+	return "dead";
 }
+
+/** This process's identity, which the transition to running records: a part the system does not give is null. */
+export async function processIdentity(): Promise<Identity> {
+	const own = await platform.processInfo(process.pid);
+	const born = own.kind === "present" ? own.process.born : null;
+	return { pid: process.pid, born, bootId: platform.bootId() ?? null };
+}
+
+/** A job its spawner is still setting up: published, not yet running, and the publishing process is alive. */
+export function startingJob(record: JobRecord | undefined): boolean {
+	return record?.state === "starting" && record.spawnerPid !== null && platform.processAlive(record.spawnerPid);
+}
+
+/** Whether `startedAt` lies within the startup grace before `now`. */
+function young(record: JobRecord, now: number): boolean {
+	const started = Date.parse(record.startedAt ?? "");
+	return Number.isFinite(started) && now - started < STARTUP_GRACE_MS;
+}
+
+/**
+ * A job that runs or starts now: a running job whose process is alive; a starting job whose spawner lives or whose
+ * startup grace runs. A running job has no grace: the transition to running writes its identity in the same write.
+ */
+export async function liveJob(record: JobRecord | undefined, now = Date.now()): Promise<boolean> {
+	if (record?.state === "starting") {
+		return startingJob(record) || young(record, now);
+	}
+	return record?.state === "running" && (await ownerState(record.identity)) === "alive";
+}
+
+/**
+ * Ends each running job whose process is dead or unknown, once it was seen so twice `reapConfirmMs` apart (`seen`
+ * holds the first sighting), under the job's recovery claim.
+ */
 export async function reapDeadJobs(
 	jobsRoot: string,
 	seen: Map<string, number>,
 	now = Date.now(),
 	ids?: readonly string[],
 ): Promise<void> {
-	const candidates = ids ?? (await readdir(jobsRoot).catch(() => [] as string[]));
+	const candidates = ids ?? (await jobFolders(jobsRoot));
 	if (ids) {
 		const live = new Set(ids);
 		for (const id of seen.keys()) {
@@ -81,14 +89,8 @@ export async function reapDeadJobs(
 	}
 	for (const id of candidates) {
 		const jobDir = `${jobsRoot}/${id}`;
-		if ((await textFile(`${jobDir}/state`)) !== "running") {
-			seen.delete(id);
-			continue;
-		}
-		const startedAt = Date.parse(await textFile(`${jobDir}/started-at`));
-		const pid = Number(await textFile(`${jobDir}/pid`));
-		const validPid = Number.isSafeInteger(pid) && pid > 0;
-		if ((await ownerAlive(jobDir)) || (!validPid && Number.isFinite(startedAt) && now - startedAt < STARTUP_GRACE_MS)) {
+		const record = await readRecord(jobDir);
+		if (record?.state !== "running" || (await liveJob(record, now))) {
 			seen.delete(id);
 			continue;
 		}
@@ -105,7 +107,7 @@ export async function reapDeadJobs(
 			continue;
 		}
 		try {
-			if ((await textFile(`${jobDir}/state`)) !== "running" || (await ownerAlive(jobDir))) {
+			if (await liveJob(await readRecord(jobDir), now)) {
 				continue;
 			}
 			await finalizeJob(jobDir, "failed", "process group gone");

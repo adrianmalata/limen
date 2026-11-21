@@ -1,13 +1,14 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import { ignoredSettings } from "../config.ts";
 import { herdrBinary } from "../integrations/herdr.ts";
 import { type GroupIdentity, jobMembership } from "../job/group-cabinet.ts";
 import { isTerminal } from "../job/job.ts";
 import { orderedJobs, RECENT_MS, renderJobDirectory, shownState } from "../job/listing.ts";
-import type { JobRecord } from "../job/view.ts";
+import { jobFolders, readRecord } from "../job/record.ts";
+import type { ShownJob } from "../job/view.ts";
 import type { Parsed } from "../parser.ts";
 import { limenRoot, unlandedBranches, workspaceRepository, workspaceRoot } from "../project/git.ts";
 import { listLeftovers } from "../project/leftovers.ts";
@@ -37,6 +38,7 @@ type Finished = {
 	readonly repo: string;
 };
 
+/** What the summary reads of one job: its record's fields and its Herdr tab; "" for what the job has none of. */
 type JobFiles = {
 	readonly state: string;
 	readonly label: string;
@@ -47,6 +49,7 @@ type JobFiles = {
 	readonly origin: string;
 	readonly started: string;
 	readonly ended: string;
+	readonly openChecks: boolean;
 };
 
 /** What one pass over the job directories found, before Git says which branches are unlanded. */
@@ -76,7 +79,7 @@ export async function statusCommand(values: Parsed, cwd: string): Promise<undefi
 	const root = existsSync(`${resolve(cwd)}/.limen/jobs`) ? resolve(cwd) : limenRoot(cwd);
 	const jobsRoot = `${root}/.limen/jobs`;
 	await confirmDeadJobs(jobsRoot);
-	const ids = await jobIds(jobsRoot);
+	const ids = await jobFolders(jobsRoot);
 	const scan: Scan = {
 		root,
 		jobsRoot,
@@ -175,36 +178,21 @@ function environmentLines(): string[] {
 	];
 }
 
-async function jobIds(jobsRoot: string): Promise<string[]> {
-	const entries = await readdir(jobsRoot, { withFileTypes: true }).catch((error: unknown) => {
-		if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
-			return [];
-		}
-		throw error;
-	});
-	return entries
-		.filter((entry) => entry.isDirectory())
-		.map((entry) => entry.name)
-		.sort();
-}
-
 async function readJobFiles(dir: string): Promise<JobFiles> {
-	const [
-		state = "",
-		label = "",
-		branch = "",
-		repo = "",
-		tab = "",
-		worktree = "",
-		origin = "",
-		started = "",
-		ended = "",
-	] = await Promise.all(
-		["state", "label", "branch", "repo", "herdr/tab", "worktree", "origin-tab", "started-at", "finished-at"].map(
-			(name) => (name === "state" ? shownState(dir) : text(`${dir}/${name}`)),
-		),
-	);
-	return { state, label, branch, repo, tab, worktree, origin, started, ended };
+	const record = await readRecord(dir);
+	return {
+		state: shownState(record),
+		label: record?.label ?? "",
+		branch: record?.branch ?? "",
+		repo: record?.repo ?? "",
+		// The Herdr integration keeps its tab in its own folder of the job (src/integrations/herdr.ts).
+		tab: await text(`${dir}/herdr/tab`),
+		worktree: record?.worktree ?? "",
+		origin: record?.origin.tab ?? "",
+		started: record?.startedAt ?? "",
+		ended: record?.finishedAt ?? "",
+		openChecks: (record?.openChecks?.length ?? 0) > 0,
+	};
 }
 
 /** Sorts one job into running, older, unconfirmed, a group's branches, or a finished branch. */
@@ -225,7 +213,7 @@ async function scanJob(scan: Scan, id: string): Promise<void> {
 	}
 	const finishedAt =
 		Date.parse(job.ended) ||
-		(await stat(job.state ? `${dir}/state` : dir).then(
+		(await stat(dir).then(
 			(value) => value.mtimeMs,
 			() => 0,
 		));
@@ -250,7 +238,7 @@ async function scanJob(scan: Scan, id: string): Promise<void> {
 			id,
 			label: job.label || id,
 			// Open note checks need a decision before the branch is a candidate.
-			state: job.state === "done" && existsSync(`${dir}/open-checks`) ? "done with open checks" : job.state,
+			state: job.state === "done" && job.openChecks ? "done with open checks" : job.state,
 			branch: job.branch,
 			repo: job.repo,
 		});
@@ -290,7 +278,7 @@ async function runningJobLine(scan: Scan, id: string, job: JobFiles): Promise<st
 }
 
 /** Pulse, silence and advisory of a running job, or why its record is invalid. */
-function runningAttention(record: JobRecord): string {
+function runningAttention(record: ShownJob): string {
 	if (record.invalid) {
 		return `invalid: ${record.invalid}`;
 	}

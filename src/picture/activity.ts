@@ -2,9 +2,9 @@ import { open, readdir, readFile, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import type { GroupRun } from "../job/group-cabinet.ts";
 import { isTerminal } from "../job/job.ts";
-import { textFile } from "../job/record.ts";
+import { type JobRecord, jobFolders, progressPath, readProgress, readRecord, recordPath } from "../job/record.ts";
 import { platform } from "../platform/platform.ts";
-import { ownerAlive, startingJob } from "../runtime/reap.ts";
+import { ownerState, startingJob } from "../runtime/reap.ts";
 
 export type LiveState = "starting" | "working" | "waiting" | "quiet" | "dead" | "done" | "failed" | "stopped";
 export type LiveJob = {
@@ -206,11 +206,7 @@ export function activityReader(jobsRoot: string): (now?: number) => Promise<Live
 	const models = new Map<string, string>();
 	const settled = new Set<string>();
 	return async (now = Date.now()) => {
-		const ids = await readdir(jobsRoot, { withFileTypes: true }).then(
-			(entries) =>
-				entries.filter((entry) => entry.isDirectory() && !settled.has(entry.name)).map((entry) => entry.name),
-			() => [],
-		);
+		const ids = (await jobFolders(jobsRoot)).filter((id) => !settled.has(id));
 		const read = await Promise.all(
 			ids.map(async (id) => {
 				const files = await readJobFiles(join(jobsRoot, id), id, owners, models);
@@ -308,77 +304,66 @@ function byPage(a: LiveJob, b: LiveJob): number {
 	return order || recent || a.id.localeCompare(b.id);
 }
 
+/** What the job's record and progress say; undefined for a folder without a record. */
 async function readJobFiles(
 	dir: string,
 	id: string,
 	owners: Map<string, boolean>,
 	models: Map<string, string>,
-): Promise<JobFiles> {
-	const field = (name: string) => textFile(join(dir, name));
-	const state = await field("state");
-	const terminal = isTerminal(state);
-	const [
-		label = "",
-		engine = "",
-		activity = "",
-		lastTool = "",
-		tools = "",
-		stopReason = "",
-		started = "",
-		finished = "",
-		role = "",
-		spawnedBy = "",
-		group = "",
-		team = "",
-	] = await Promise.all(
-		"label engine activity last-tool tool-calls stop-reason started-at finished-at role spawned-by group team"
-			.split(" ")
-			.map(field),
-	);
+): Promise<JobFiles | undefined> {
+	const record = await readRecord(dir);
+	if (!record) {
+		return undefined;
+	}
+	const progress = await readProgress(dir);
+	const terminal = isTerminal(record.state);
+	const lastTool = progress?.lastTool ?? "";
 	const session = await sessionFile(dir);
 	const [eventAt, stateAt] = await Promise.all([
-		newestChange([join(dir, "activity"), join(dir, "log"), ...(session ? [session] : [])]),
-		newestChange([join(dir, "state")]),
+		newestChange([progressPath(dir), join(dir, "log"), ...(session ? [session] : [])]),
+		newestChange([recordPath(dir)]),
 	]);
-	const finishedAt = Date.parse(finished);
-	const finishedOrState = terminal ? stateAt : undefined;
+	const finishedAt = Date.parse(record.finishedAt ?? "");
 	return {
 		id,
-		state,
-		spawning: state === "" && (await startingJob(dir)),
-		owner: state === "running" ? await ownerState(dir, id, owners) : "none",
-		label,
-		engine,
+		state: record.state === "starting" ? "" : record.state,
+		spawning: startingJob(record),
+		owner: record.state === "running" ? await ownerOf(record, id, owners) : "none",
+		label: record.label ?? "",
+		engine: record.route.engine ?? "",
 		model: await sessionModel(id, session, models),
-		activity,
-		queued: !terminal && (await field("queued")) !== "",
+		activity: progress?.activity ?? "",
+		queued: !terminal && record.queued !== null,
 		lastTool,
 		detail: terminal ? "" : await commandDetail(dir, lastTool),
-		stopReason,
-		tools: Number.parseInt(tools, 10) || 0,
-		role,
-		spawnedBy,
-		group,
-		team,
-		startedAt: Date.parse(started) || eventAt || stateAt,
+		stopReason: record.stopReason ?? "",
+		tools: progress?.toolCalls ?? 0,
+		role: record.role ?? "",
+		spawnedBy: record.spawnedBy ?? "",
+		group: record.group ?? "",
+		team: record.team ?? "",
+		startedAt: Date.parse(record.startedAt ?? "") || eventAt || stateAt,
 		lastEventAt: eventAt || stateAt,
-		finishedAt: Number.isFinite(finishedAt) ? finishedAt : finishedOrState,
+		finishedAt: Number.isFinite(finishedAt) ? finishedAt : terminal ? stateAt : undefined,
 	};
 }
 
-/** The birth-time check costs a process query, so it runs once per owner; later reads only ask whether the pid lives. */
-async function ownerState(dir: string, id: string, owners: Map<string, boolean>): Promise<JobFiles["owner"]> {
-	const pid = Number(await textFile(join(dir, "pid")));
-	if (!Number.isSafeInteger(pid) || pid <= 0) {
+/**
+ * The owner check costs a process query, so it runs once per identity; later reads only ask whether the pid lives. A
+ * record without a pid has no owner yet; one whose identity is unknown is never alive (A-056).
+ */
+async function ownerOf(record: JobRecord, id: string, owners: Map<string, boolean>): Promise<JobFiles["owner"]> {
+	const identity = record.identity;
+	if (!identity?.pid) {
 		return "none";
 	}
-	const key = `${id}:${pid}:${await textFile(join(dir, "born"))}`;
+	const key = `${id}:${identity.pid}:${identity.born}:${identity.bootId}`;
 	let verified = owners.get(key);
 	if (verified === undefined) {
-		verified = await ownerAlive(dir);
+		verified = (await ownerState(identity)) === "alive";
 		owners.set(key, verified);
 	}
-	return verified && platform.processAlive(pid) ? "alive" : "gone";
+	return verified && platform.processAlive(identity.pid) ? "alive" : "gone";
 }
 
 /** The command of the last tool, which the job log holds after the tool name. */

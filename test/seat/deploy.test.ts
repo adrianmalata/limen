@@ -8,7 +8,9 @@ import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 import { runDeploy, type Verification } from "../../seat/deploy.ts";
-import { git } from "../plant.ts";
+import type { JobRecord } from "../../src/job/record.ts";
+import { platform } from "../../src/platform/platform.ts";
+import { git, writeRecord } from "../plant.ts";
 
 // The deployment's git gets this process's environment (`deployTo`), so the laptop's own git configuration must not
 // reach the fixtures.
@@ -67,8 +69,8 @@ async function fixture(t: TestContext): Promise<Fixture> {
 	git(work, "push", "-q", origin, "adrian-rebuild");
 	const [home, project, tools] = [join(dir, "agents"), join(dir, "project"), join(dir, "tools")];
 	const done = join(project, ".limen", "jobs", "2026-11-18-done-0a0b0c0d");
-	await Promise.all([mkdir(join(home, ".limen"), { recursive: true }), mkdir(done, { recursive: true }), mkdir(tools)]);
-	await writeFile(join(done, "state"), "done\n");
+	await Promise.all([mkdir(join(home, ".limen"), { recursive: true }), mkdir(tools)]);
+	await writeRecord(done, { state: "done" });
 	// The second line is a junk registration: a folder with no `.limen/`.
 	const registry = join(home, ".limen", "projects");
 	await writeFile(registry, `${project}\n${tools}\n`);
@@ -89,17 +91,16 @@ const head = (f: Fixture) => git(f.repo, "rev-parse", "HEAD");
 const tags = (f: Fixture) => git(f.repo, "tag", "--list");
 const fetched = (f: Fixture) => git(f.repo, "rev-parse", "origin/adrian-rebuild");
 
-async function jobFolder(f: Fixture, files: Readonly<Record<string, string>>): Promise<void> {
-	const dir = join(f.project, ".limen", "jobs", JOB);
-	await mkdir(dir);
-	for (const [name, text] of Object.entries(files)) {
-		await writeFile(join(dir, name), text);
-	}
+/** The project's job `JOB` with the record fields `fields`. */
+async function jobFolder(f: Fixture, fields: Partial<JobRecord>): Promise<void> {
+	await writeRecord(join(f.project, ".limen", "jobs", JOB), fields);
 }
+/** A job its spawner, this process, still sets up. */
+const SETTING_UP = { state: "starting", spawnerPid: process.pid } as const;
 
 test("a job its spawner still sets up refuses the deployment before the fetch, naming the job and its label", async (t) => {
 	const f = await fixture(t);
-	await jobFolder(f, { starting: `${process.pid}\n`, label: "demo job\n" });
+	await jobFolder(f, { ...SETTING_UP, label: "demo job" });
 	const run = await deployTo(f, f.newer);
 	assert.deepEqual([run.code, head(f), tags(f), fetched(f)], [1, f.older, "", f.older], run.stderr);
 	assert.ok(run.stderr.split("\n").includes(`${f.project}  ${JOB}  demo job`), run.stderr);
@@ -113,13 +114,28 @@ test("a job whose wrapper's process group is alive refuses the deployment before
 	});
 	wrapper.unref();
 	try {
-		await jobFolder(f, { state: "running\n", pid: `${wrapper.pid}\n` });
+		const pid = wrapper.pid ?? 0;
+		const info = await platform.processInfo(pid);
+		const born = info.kind === "present" ? info.process.born : null;
+		await jobFolder(f, { state: "running", identity: { pid, born, bootId: platform.bootId() ?? null } });
 		const run = await deployTo(f, f.newer);
 		assert.deepEqual([run.code, head(f), tags(f), fetched(f)], [1, f.older, "", f.older], run.stderr);
 		assert.ok(run.stderr.split("\n").includes(`${f.project}  ${JOB}`), run.stderr);
 	} finally {
 		wrapper.kill("SIGKILL");
 	}
+});
+
+// D-057 (1): the deployment runs before the migration, so it reads a folder an older Limen wrote as that Limen did.
+test("a job folder an older Limen wrote whose spawner still sets it up refuses the deployment, naming its label", async (t) => {
+	const f = await fixture(t);
+	const dir = join(f.project, ".limen", "jobs", JOB);
+	await mkdir(dir);
+	await writeFile(join(dir, "starting"), `${process.pid}\n`);
+	await writeFile(join(dir, "label"), "older job\n");
+	const run = await deployTo(f, f.newer);
+	assert.deepEqual([run.code, head(f), tags(f), fetched(f)], [1, f.older, "", f.older], run.stderr);
+	assert.ok(run.stderr.split("\n").includes(`${f.project}  ${JOB}  older job`), run.stderr);
 });
 
 test("a commit of another branch of origin is refused, naming the branch, and HEAD and the tags stay", async (t) => {
@@ -205,7 +221,7 @@ test("the entry point exits 2 and asks for the full SHA without an argument and 
 
 test("a job label with control characters is printed escaped, and the refusal holds no raw control character", async (t) => {
 	const f = await fixture(t);
-	await jobFolder(f, { starting: `${process.pid}\n`, label: "demo \u001b]0;owned\u0007 job\n" });
+	await jobFolder(f, { ...SETTING_UP, label: "demo \u001b]0;owned\u0007 job" });
 	const run = await deployTo(f, f.newer);
 	assert.equal(run.code, 1, run.stderr);
 	assert.doesNotMatch(run.stderr.replaceAll("\n", ""), /\p{Cc}/u);
@@ -297,7 +313,7 @@ test("a registry that cannot be read refuses the deployment with exit 4 before t
 
 test("a refusal for a running job also prints the list of what was checked", async (t) => {
 	const f = await fixture(t);
-	await jobFolder(f, { starting: `${process.pid}\n`, label: "demo job\n" });
+	await jobFolder(f, { ...SETTING_UP, label: "demo job" });
 	const run = await deployTo(f, f.newer);
 	assert.equal(run.code, 1, run.stderr);
 	assert.deepEqual(run.stdout.split("\n"), [

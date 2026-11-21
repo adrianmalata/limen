@@ -1,12 +1,13 @@
 // `servePicture` serves job activity only: `/activity.json` and `/events` from a jobs root, with no map anywhere.
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { type IncomingMessage, request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { servePicture } from "../../src/picture/picture-serve.ts";
+import { writeRecord } from "../plant.ts";
 
 /** Every request gives up after this long, so a server that never answers fails the test instead of hanging it. */
 const BOUND_MS = 5_000;
@@ -17,20 +18,15 @@ type Served = Awaited<ReturnType<typeof servePicture>>;
 /** A folder outside any repository with one finished job under `.limen/jobs/`; nothing else, so no map exists. */
 async function jobsRoot(): Promise<string> {
 	const root = await mkdtemp(join(tmpdir(), "limen-serve-"));
-	const job = join(root, ".limen", "jobs", JOB);
-	await mkdir(job, { recursive: true });
 	const now = Date.now();
-	const files = {
-		state: "done\n",
-		label: "F007 served job\n",
-		engine: "pi\n",
-		role: "worker\n",
-		"started-at": `${new Date(now - 60_000).toISOString()}\n`,
-		"finished-at": `${new Date(now).toISOString()}\n`,
-	};
-	for (const [name, text] of Object.entries(files)) {
-		await writeFile(join(job, name), text);
-	}
+	await writeRecord(join(root, ".limen", "jobs", JOB), {
+		state: "done",
+		label: "F007 served job",
+		role: "worker",
+		route: { engine: "pi", model: null, provider: null, thinking: null },
+		startedAt: new Date(now - 60_000).toISOString(),
+		finishedAt: new Date(now).toISOString(),
+	});
 	return root;
 }
 

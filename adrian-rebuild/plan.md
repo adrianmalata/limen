@@ -41,7 +41,10 @@ Pi `src/runtime/pi-api.ts` ze strażnikami, kontrakt typów na prawdziwych typac
 zamknięty w dzień (adapter platformy src/platform/ i wymagania systemowe przy limen init, bramka 401/401); R-022 i
 R-023 gotowe do nocy po D-061 (odpowiedzi zgodne z rekomendacjami; nowy ticket R-092 dla T-38), ticket.md R-019 napisany
 w dzień; przekazanie do limen-rebuild-13, która uruchomiła noc na hasło Adriana; nocą 20/21.11 R-019 zamknięty
-(jeden moduł blokad src/lock.ts, bramka 429/429, trzy uwagi rundy 3 czekają na pytanie nocne Q-9). -->
+(jeden moduł blokad src/lock.ts, bramka 429/429, trzy uwagi rundy 3 czekają na pytanie nocne Q-9); implementera
+R-021 przerwał limit 5 h, przebieg 3 dokończył go świeżym implementerem i R-021 zamknięty (jeden record.json na job,
+`limen migrate`, bramka 484/484, cztery uwagi rundy 3 czekają na pytanie nocne Q-10; limit tygodniowy 98 %). -->
+
 
 
 
@@ -1109,7 +1112,7 @@ Columns:
 | R-018 | One atomic-write module | 2 | A-022, T-25 | R-013 | L | delegated | night | — | — | — | done |
 | R-019 | One lock module with process identity and a bounded wait | 2 | A-017, A-018, A-055, A-058, A-087, T-25, D-029, D-056 | R-018, R-020 | M | delegated | night | yes | — | — | done |
 | R-020 | A Linux platform adapter and declared system requirements | 2 | A-083, T-12, T-32, D-060 | R-013 | M | delegated | night | — | — | — | done |
-| R-021 | One `record.json` per job, written only by the transition function | 2 | S1+, A-019, A-053, A-056, T-20, T-25, D-057 | R-016, R-018, R-019 | L | delegated | night | yes | — | — | ready (D-057) |
+| R-021 | One `record.json` per job, written only by the transition function | 2 | S1+, A-019, A-053, A-056, T-20, T-25, D-057 | R-016, R-018, R-019 | L | delegated | night | yes | — | — | done |
 | R-022 | Exact job references through one resolver | 2 | T-20, D-061 | R-014, R-021 | M | delegated | night | yes | — | — | ready (D-061) |
 | R-023 | Commands are thin adapters over domain operations | 2 | T-26, D-044, D-045, D-046, D-061 | R-014, R-021, R-089 | M | delegated | night | — | — | — | ready (D-061) |
 | R-092 | A refusal leaves no trace: `validate` then `apply` | 2 | T-38, D-061 | R-021, R-023 | L | delegated | night | — | — | — | planned |
@@ -1246,6 +1249,10 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   says every file of the job record is written by `atomicWrite`, while `log` is appended to (T-30); the comment at
   `src/job/publication.ts:154` says the transcript copy keeps the source's mode "as `copyFile` did", which holds only
   when the umask does not narrow it (the copy is never wider).
+- R-022 (R-021 review round 2, note 3): after R-021 one record that reads as `BAD_DATA` makes `resolveJob` (which
+  reads every folder's record for its label) and plain `limen status` fail with exit 4; only `status --all` shows such
+  a record as INVALID. The one resolver decides how a record it cannot read takes part in a reference (for example:
+  an exact id still resolves, a label match skips it and names it), with a test.
 - R-024: `limen stats` of a0.2.0 over a migrated copy of the whole history of both projects is the "before" of M-03,
   M-04 and M-06–M-11 (`## Deployment` B.3).
 - R-030: from R-068 on, a job in `needs-decision` does not block worker spawns for other tickets (T-05 (5)).
@@ -2374,16 +2381,34 @@ Night run of 2026-11-20/21 (until 07:00; `night.mjs` run 1 started at 23:26:54):
   (summarised in `ticket.md` → `## Decisions`), above all `LOCK_TIMEOUT`'s empty `next` with the hint in the message
   (T-37) and the new code `LOCK_LOST`; and Q-9 (no ticket blocked): whether round 3's three notes on code and tests get
   a fix ticket (recommended: yes, S, `night`).
+- R-021 `done` (delegated): its `ticket.md` written at `9cbc77d` from `evidence/inventories/R-021.md`; the
+  implementer started at 01:21 and was cut at 02:06 by the 5-hour limit (HTTP 429 `usage_limit_reached`, 466 tool calls,
+  mid-way through the CLI tests; weekly use 95 %), which ended run 1 with exit 1; run 2 (02:36) ended at once on the
+  same limit. Run 3 (03:36, the new window): `compare --git` on the snapshot of 01:21 exited 0, so the partial tree
+  stood as the cut implementer's work, and a fresh `rebuild-implementer` finished it (the night's rule for a resumed
+  implementer, `## Agents`). Review FAIL in rounds 1 and 2 (four blocking findings, then one: the hook's sweep stopped
+  at a damaged record), two rounds of fixes by fresh implementers, PASS in round 3 with five notes: two docs lines
+  fixed by the main session (D-053 (2)), four on code and the manual are Q-10 (recommended: one S fix ticket before
+  the close of stage 2, since the migration's `born` loss must land before `## Deployment` 2.1). Gate 484/484; no test
+  failed without a change of its code. For Adrian in the morning: the night defaults and the two deviations of
+  `outcome.md` (`cleanup` stays a content file; the reaper may end a migrated `running` record); round 2's rejected
+  finding 4 (records refuse unknown fields) as a format question in `outcome.md` → `## Open points`; finding 3 went to
+  R-022's notes in `## Tickets`.
+- Weekly use reached 98 % at 05:08 (read from the run's `rate_limit_event` lines in `.night/2026-11-20-run-3.log`, since
+  a night run has no status line) and 99 % at 05:37; the D-053 push "Hej, mamy 98% limitu tygodniowego, zresetuj
+  licznik" was tried and not sent ("Remote Control inactive" in a `claude -p` run), so the morning session tells Adrian.
 
 Active ticket: none.
 
 Next (night of 2026-11-20/21, then by day):
-0. The night run until 07:00 (started by `limen-rebuild-13` on Adrian's word; D-024, D-053 (3)). R-019 is `done`;
-   the night's `ready` tickets in dependency order: R-021 (after R-019) and R-089 on independent branches, R-022 after
-   R-021, R-023 after R-021 and R-089; the night writes the `ticket.md` of R-021, R-022 and R-023 at the HEAD it
-   starts each from (D-057, D-061, the inventories in `evidence/`).
-1. Morning: the day session reads `.night/status.json` and `.night/questions.md`, moves answers to `ticket.md` →
-   `## Decisions`, and goes on with stage 2 (R-092, R-024, R-025, then the close: tag `a0.2.0`, gate 5.2 by phone).
+0. The night run until 07:00 (started by `limen-rebuild-13` on Adrian's word; D-024, D-053 (3)). R-019 and R-021
+   are `done`; the night's `ready` tickets left in dependency order: R-089 and R-022 (after R-021) on independent
+   branches, R-023 after R-021 and R-089; the night writes the `ticket.md` of R-022 and R-023 at the HEAD it starts
+   each from (D-061, the inventories in `evidence/`).
+1. Morning: the day session reads `.night/status.json` and `.night/questions.md` (Q-9, Q-10), tells Adrian that the
+   weekly use reached 98–99 % in the night (D-053's push could not be sent), moves answers to `ticket.md` →
+   `## Decisions`, lists the night defaults of R-019 and R-021 for him, and goes on with stage 2 (R-092, R-024, R-025,
+   the fix tickets of Q-9 and Q-10 if he agrees, then the close: tag `a0.2.0`, gate 5.2 by phone).
 2. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
    D-047 and D-054 were.

@@ -1,8 +1,8 @@
 # Reading Herdr and Limen status
 
 A pane can be ready for your next message while its Limen jobs are still
-`RUNNING`. Herdr describes the conversation; `limen status` and the files in
-`.limen/jobs/<id>/` describe the job. Neither tells you that a candidate landed.
+`RUNNING`. Herdr describes the conversation; `limen status` and `limen show <id>`,
+which read the job's record, describe the job. Neither tells you that a candidate landed.
 
 `limen status` is the plant inbox for the owner. `Running` lists every
 RUNNING job record (including workers in another Herdr workspace) with its tab,

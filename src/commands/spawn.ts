@@ -1,18 +1,18 @@
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir, readdir, readFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { atomicWrite } from "../atomic-write.ts";
 import type { TransportName } from "../config.ts";
 import { herdrBinary, openWatchTab } from "../integrations/herdr.ts";
+import { finalizeJob } from "../job/finalize.ts";
 import type { GroupMember, GroupRun } from "../job/group-cabinet.ts";
 import { claimMember, groupIdentity, groupLock, groupPath, teamRoute } from "../job/group-cabinet.ts";
 import { syncLifecycle } from "../job/group-events.ts";
 import { memberPacket, routeFlags } from "../job/group-packet.ts";
 import { makeJobId, parseDuration, SESSION_ID } from "../job/job.ts";
 import { publishJob } from "../job/publication.ts";
-import { finalizeJob } from "../job/record.ts";
+import { jobFolders, readRecord, transition } from "../job/record.ts";
 import { type NameSource, refuseRemovedRole } from "../old-names.ts";
 import { JOB_STARTED, type Success } from "../outcome.ts";
 import type { Parsed } from "../parser.ts";
@@ -31,6 +31,7 @@ import {
 	workspaceRoot,
 	worktreeForBranch,
 } from "../project/git.ts";
+import { readOptional } from "../project/inherit.ts";
 import { inheritedPlanning, ticketPointers } from "../project/planning.ts";
 import { waitForProcessGroup } from "../runtime/contain.ts";
 import { type EngineProfile, preflightEngine, resolveSpawnEngine } from "../runtime/engine.ts";
@@ -269,7 +270,7 @@ async function checkLaunchAuthority(parsed: SpawnOptions, group: SpawnGroup | un
 		const teamBranches = await Promise.all(
 			run.members
 				.filter((member) => member.team === group.team)
-				.map((member) => text(`${run.root}/.limen/jobs/${member.id}/branch`)),
+				.map(async (member) => (await readRecord(`${run.root}/.limen/jobs/${member.id}`))?.branch ?? ""),
 		);
 		if (!teamBranches.includes(parsed.branch ?? "")) {
 			throw new Error("group review requires a candidate branch owned by this team");
@@ -329,6 +330,8 @@ async function recordSpawnedJob(launch: SpawnLaunch): Promise<string> {
 	const preamble = resolvePreamble(root, role, "argument");
 	const id = makeJobId(options.label);
 	const jobsRoot = `${root}/.limen/jobs`;
+	// A project an older Limen recorded is refused before the first write: no worktree root, no member slot (T-38).
+	await jobFolders(jobsRoot);
 	await mkdir(jobsRoot, { recursive: true });
 	const branch = options.branch ?? `limen/${id}`;
 	const worktreeRoot = `${dirname(repository)}/.${basename(repository)}-limen-worktrees`;
@@ -382,12 +385,13 @@ function assertTicketsAtBase(repository: string, baseCommit: string, task: strin
 async function noteRunningJobs(jobsRoot: string, label: string): Promise<void> {
 	let running = 0;
 	let held = false;
-	for (const entry of await readdir(jobsRoot, { withFileTypes: true })) {
-		if (!entry.isDirectory() || !(await liveJob(`${jobsRoot}/${entry.name}`))) {
+	for (const id of await jobFolders(jobsRoot)) {
+		const record = await readRecord(`${jobsRoot}/${id}`);
+		if (!(await liveJob(record))) {
 			continue;
 		}
 		running += 1;
-		if ((await text(`${jobsRoot}/${entry.name}/label`)) === label) {
+		if (record?.label === label) {
 			held = true;
 		}
 	}
@@ -431,25 +435,28 @@ async function publishSpawnedJob(launch: SpawnLaunch, record: SpawnRecord): Prom
 		engine: launch.profile.id,
 		priority: launch.options.priority ?? DEFAULT_PRIORITY,
 		...(launch.model ? { model: launch.model } : {}),
+		provider: launch.options.provider,
+		thinking: launch.options.thinking,
 		extensions: launch.extensions,
 		...(place.repo ? { repo: place.repo } : {}),
 		...(!group && notificationSession ? { notificationSession } : {}),
 		...(coordinatorTab ? { originTab: coordinatorTab } : {}),
 		...(coordinatorPane ? { originPane: coordinatorPane } : {}),
-		...(group && member ? { group: { id: group.run.id, team: group.team, deadline: member.deadline } } : {}),
+		...(group && member ? { group: { id: group.run.id, team: group.team } } : {}),
 		...(candidate ? { candidate } : {}),
 	});
 }
-/** Marks the job running, then starts it as a detached wrapper. */
+/** Starts the published job as a detached wrapper, which moves it to running (src/runtime/wrapper.ts). */
 async function launchSpawnedJob(launch: SpawnLaunch, job: SpawnedJob): Promise<void> {
-	const versions = capturedVersions(launch.profile).then((text) =>
-		atomicWrite(`${job.jobDir}/versions`, text, { exclusive: true }),
-	);
-	await atomicWrite(`${job.jobDir}/state`, "running\n");
-	if (launch.group) {
-		await syncLifecycle(launch.group.run, "skip");
-	}
-	await startDetachedJob(launch, job, versions);
+	await startDetachedJob(launch, job, recordVersions(job.jobDir, launch.profile));
+}
+/**
+ * Records the versions of the engine and the tools while the job starts or runs; a job that ended before the probes
+ * answered keeps none, since nothing writes after a terminal state.
+ */
+export async function recordVersions(jobDir: string, profile: EngineProfile): Promise<void> {
+	const versions = await capturedVersions(profile);
+	await transition(jobDir, { from: ["starting", "running"], set: { versions } });
 }
 async function startDetachedJob(launch: SpawnLaunch, job: SpawnedJob, versions: Promise<void>): Promise<void> {
 	const { options, model, group } = launch;
@@ -488,10 +495,13 @@ async function startDetachedJob(launch: SpawnLaunch, job: SpawnedJob, versions: 
 		throw error;
 	}
 	await waitForHandshake(jobDir, wrapperPid);
+	if (group) {
+		await syncLifecycle(group.run, "skip");
+	}
 	const queued = await queuedLine(jobDir, options.label);
-	const state = await text(`${jobDir}/state`);
+	const state = (await readRecord(jobDir))?.state;
 	if (state !== "running") {
-		const detail = await lastLimenDetail(jobDir);
+		const detail = lastLimenDetail(jobDir);
 		await versions.catch(() => {});
 		console.log(detail ? `${state} ${options.label}\n${detail}` : `${state} ${options.label}`);
 		console.log(id);
@@ -687,29 +697,26 @@ export function herdrWakePane(notificationSession: string | undefined): string |
 	return pane;
 }
 async function liveJobUsesBranch(jobsRoot: string, branch: string, repo?: string): Promise<boolean> {
-	for (const entry of await readdir(jobsRoot, { withFileTypes: true })) {
-		const jobDir = `${jobsRoot}/${entry.name}`;
-		if (
-			entry.isDirectory() &&
-			(await text(`${jobDir}/branch`)) === branch &&
-			(!repo || (await text(`${jobDir}/repo`)) === repo) &&
-			(await liveJob(jobDir))
-		) {
+	for (const id of await jobFolders(jobsRoot)) {
+		const record = await readRecord(`${jobsRoot}/${id}`);
+		if (record?.branch === branch && (!repo || record.repo === repo) && (await liveJob(record))) {
 			return true;
 		}
 	}
 	return false;
 }
-async function lastLimenDetail(jobDir: string): Promise<string> {
-	const line = (await text(`${jobDir}/log`)).split("\n").findLast((entry) => entry.startsWith("[limen ")) ?? "";
+/** The last Limen line of the job's log, without its time. */
+function lastLimenDetail(jobDir: string): string {
+	const log = readOptional(`${jobDir}/log`) ?? "";
+	const line = log.split("\n").findLast((entry) => entry.startsWith("[limen ")) ?? "";
 	const close = line.indexOf("] ");
 	return close === -1 ? line : line.slice(close + 2);
 }
-const text = async (path: string): Promise<string> => (await readFile(path, "utf8").catch(() => "")).trim();
+/** Waits for the wrapper's handshake, its transition from starting (src/runtime/wrapper.ts); ends the job without it. */
 export async function waitForHandshake(jobDir: string, wrapperPid: number): Promise<void> {
 	const deadline = Date.now() + HANDSHAKE_MS;
 	while (Date.now() < deadline) {
-		if ((await text(`${jobDir}/state`)) !== "running" || (await text(`${jobDir}/pid`))) {
+		if ((await readRecord(jobDir))?.state !== "starting") {
 			return;
 		}
 		await new Promise((resolve) => setTimeout(resolve, HANDSHAKE_POLL_MS));

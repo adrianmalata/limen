@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,7 +7,9 @@ import { groupAdvanceEnvironment, transport } from "../config.ts";
 import { withLock } from "../lock.ts";
 import { platform } from "../platform/platform.ts";
 import { limenRoot } from "../project/git.ts";
+import { ownerState } from "../runtime/reap.ts";
 import { SESSION_ID } from "./job.ts";
+import { readRecord } from "./record.ts";
 
 export type GroupMember = {
 	id: string;
@@ -269,7 +270,7 @@ export function startGroupAdvance(run: GroupRun): void {
 	child.unref();
 }
 export async function jobMembership(jobDir: string): Promise<GroupIdentity | undefined> {
-	const id = (await readFile(`${jobDir}/group`, "utf8").catch(() => "")).trim();
+	const id = (await readRecord(jobDir))?.group;
 	if (!id) {
 		return;
 	}
@@ -287,26 +288,20 @@ export async function retainedGroupJob(jobDir: string): Promise<boolean> {
 	return Boolean((await jobMembership(jobDir))?.run.closed === false);
 }
 /**
- * Why a member job is not over, or undefined when it is: its state says running, a process it recorded may still run,
- * or it has no record yet. A process that cannot be checked counts as running. Its worktree plays no part.
+ * Why a member job is not over, or undefined when it is: its state says starting or running, the process its record
+ * names still runs (its finish runs in that process after the terminal record), or it has no record yet. A process
+ * that cannot be checked counts as running. Its worktree plays no part.
  */
 export async function memberLive(root: string, member: GroupMember): Promise<string | undefined> {
-	const dir = `${root}/.limen/jobs/${member.id}`;
-	const state = (await readFile(`${dir}/state`, "utf8").catch(() => "")).trim();
-	if (state === "running") {
-		return "its state is running";
+	const record = await readRecord(`${root}/.limen/jobs/${member.id}`);
+	if (!record) {
+		return "it has no job record yet";
 	}
-	const pid = Number(await readFile(`${dir}/pid`, "utf8").catch(() => ""));
-	if (pid > 0 && (await platform.processInfo(pid)).kind !== "absent") {
-		return `its process ${pid} still runs or cannot be checked`;
+	if (record.state === "starting" || record.state === "running") {
+		return `its state is ${record.state}`;
 	}
-	const owner = JSON.parse(await readFile(`${dir}/group-owner.json`, "utf8").catch(() => "null")) as {
-		pid: number;
-		born: string;
-	} | null;
-	const info = owner ? await platform.processInfo(owner.pid) : undefined;
-	if (info?.kind === "unavailable" || (info?.kind === "present" && info.process.born === owner?.born)) {
-		return `its owner process ${owner?.pid} ${info.kind === "present" ? "still runs" : "cannot be checked"}`;
+	if ((await ownerState(record.identity)) === "alive") {
+		return `its owner process ${record.identity?.pid} still runs or cannot be checked`;
 	}
-	return !state && !existsSync(`${dir}/finished-at`) ? "it has no job record yet" : undefined;
+	return undefined;
 }

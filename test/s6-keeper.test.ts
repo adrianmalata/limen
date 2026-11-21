@@ -6,7 +6,20 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import { outputText, readOutcome } from "../src/outcome.ts";
-import { git, jobDir, jobFile, limen, plant, release, spawnJob, startedJob, TICKET, waitJob } from "./plant.ts";
+import {
+	git,
+	jobDir,
+	jobFile,
+	jobRecord,
+	jobState,
+	limen,
+	plant,
+	release,
+	spawnJob,
+	startedJob,
+	TICKET,
+	waitJob,
+} from "./plant.ts";
 
 const p = await plant();
 after(p.cleanup);
@@ -52,18 +65,18 @@ test("keeper refuses a running job, then starts on a new branch at the candidate
 	const refused = limen(p, ["keeper", TICKET, "--job", worker, ...ROUTE]);
 	assert.equal(refused.status, 1);
 	assert.match(refused.stderr, new RegExp(worker));
-	assert.deepEqual([git(p.root, "branch", "--list", "limen/keeper-*"), jobFile(p, worker, "state")], ["", "running"]);
+	assert.deepEqual([git(p.root, "branch", "--list", "limen/keeper-*"), jobState(p, worker)], ["", "running"]);
 
 	await release(jobDir(p, worker));
 	assert.equal(waitJob(p, worker), "done");
-	const branch = jobFile(p, worker, "branch");
+	const branch = jobRecord(p, worker)?.branch ?? "";
 	const tip = git(p.root, "rev-parse", branch);
 	assert.notEqual(tip, git(p.root, "rev-parse", "main"));
 	// The worker's task named the planned lane; the keeper follows the one F001 folder at the tip.
 	const started = limen(p, ["keeper", "spec/features/planned/F001-demo/ticket.md", "--job", worker, ...ROUTE]);
 	const keeper = startedJob(started);
 	const keeperBranch = `limen/keeper-f001-${tip.slice(0, 7)}`;
-	assert.deepEqual([jobFile(p, keeper, "branch"), jobFile(p, keeper, "base")], [keeperBranch, tip]);
+	assert.deepEqual([jobRecord(p, keeper)?.branch, jobRecord(p, keeper)?.base], [keeperBranch, tip]);
 	assert.ok(jobFile(p, keeper, "task.md").split("\n").includes(`Ticket: ${TICKET}`));
 	assert.deepEqual([git(p.root, "rev-parse", branch), waitJob(p, keeper)], [tip, "done"]);
 	const again = limen(p, ["keeper", TICKET, "--job", worker, ...ROUTE]);

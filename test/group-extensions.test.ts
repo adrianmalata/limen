@@ -1,11 +1,22 @@
 // Group extension selections: one plant per test, the fake engine as `pi` (it records the argv it got), real bin/limen.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { type GroupRun, readRun } from "../src/job/group-cabinet.ts";
-import { git, jobDir, jobFile, limen, plant, type RunOptions, startedJob, TICKET, waitJob } from "./plant.ts";
+import {
+	editRecord,
+	git,
+	jobDir,
+	jobFile,
+	jobRecord,
+	limen,
+	plant,
+	type RunOptions,
+	startedJob,
+	TICKET,
+	waitJob,
+} from "./plant.ts";
 
 const lead = { PI_SESSION_ID: "extension-lead" };
 const route = ["--engine", "pi", "--provider", "fixture", "--model", "fixture", "--thinking", "high"];
@@ -57,7 +68,7 @@ async function fixture() {
 	const resume = (id: string, ...extra: string[]) => run(["continue", id, "follow-up", ...route, mode, ...extra]);
 	const checkJob = async (id: string, selected: string[]) => {
 		assert.equal(waitJob(p, id), "done");
-		assert.deepEqual(JSON.parse(await readFile(join(jobDir(p, id), "extensions.json"), "utf8")), selected);
+		assert.deepEqual(jobRecord(p, id)?.extensions, selected);
 		const argv: string[] = JSON.parse(await readFile(join(jobDir(p, id), "fake-argv.json"), "utf8"));
 		assert.ok(argv.includes("--no-extensions"));
 		const loaded = argv.flatMap((arg, index) => (arg === "--extension" ? [argv[index + 1]] : []));
@@ -107,10 +118,9 @@ test("Pi teams keep common and private selections through workers, reviews and c
 		await f.checkJob(id, expected);
 		const bad = f.resume(id, "--extension", f.privatePath);
 		assert.match(`${bad.status} ${bad.stderr}`, /^1 .*recorded team extensions/s);
-		const record = join(jobDir(f, id), "extensions.json");
-		await writeFile(record, "[]\n");
+		await editRecord(jobDir(f, id), () => ({ extensions: [] }));
 		assert.match(f.resume(id).stderr, /parent does not match/);
-		await writeFile(record, JSON.stringify(expected));
+		await editRecord(jobDir(f, id), () => ({ extensions: expected }));
 		const continued = f.resume(id);
 		assert.equal(continued.status, 0, continued.stderr);
 		const continuedId = startedJob(continued);
@@ -118,7 +128,7 @@ test("Pi teams keep common and private selections through workers, reviews and c
 		const entry = (await readRun(f.root, run.id)).members.find((entry) => entry.id === continuedId);
 		assert.deepEqual([entry?.parent, entry?.team], [id, coordinator.team]);
 		assert.ok(entry && entry.deadline <= run.deadline - run.reserveMs);
-		const branch = readFileSync(join(jobDir(f, id), "branch"), "utf8").trim();
+		const branch = jobRecord(f, id)?.branch ?? "";
 		assert.equal(f.launch(run, coordinator.team, "--review", "--branch", "main").status, 1);
 		const review = f.launch(run, coordinator.team, "--review", "--branch", branch);
 		assert.equal(review.status, 0, review.stderr);

@@ -17,6 +17,8 @@ import {
 	git,
 	jobDir,
 	jobFile,
+	jobRecord,
+	jobState,
 	limen,
 	type Plant,
 	plant,
@@ -67,7 +69,7 @@ function wokeOnce(ids: Readonly<Record<string, string>>, listeners: readonly str
 	for (const [name, id] of Object.entries(ids)) {
 		const [wake, ...extra] = listeners.flatMap((dir) => wakes(dir, id));
 		assert.equal(extra.length, 0, `${name} woke its session once`);
-		const named = wake?.text?.includes(jobFile(p, id, "label")) && wake.text.includes(jobFile(p, id, "state"));
+		const named = wake?.text?.includes(jobRecord(p, id)?.label ?? "?") && wake.text.includes(jobState(p, id));
 		assert.ok(named, `${name} wake names its label and state`);
 	}
 }
@@ -99,7 +101,7 @@ test("a job that ends done, failed or on a provider error wakes its session once
 	assert.deepEqual(states, { done: "done", failed: "failed", provider: "failed" });
 	assert.equal(jobFile(p, ids.done, "log").split("note check sent").length, 2);
 	// A provider error after a commit fails the job (967ab4b recorded it as done) and keeps the commit on its branch.
-	assert.equal(git(p.root, "rev-list", "--count", `main..${jobFile(p, ids.provider, "branch")}`), "1");
+	assert.equal(git(p.root, "rev-list", "--count", `main..${jobRecord(p, ids.provider)?.branch}`), "1");
 	wokeOnce(ids, [coord, second]);
 	const [failed = "", done = "", provider = ""] = [ids.failed, ids.done, ids.provider].map(
 		(id) => [coord, second].flatMap((dir) => wakes(dir, id))[0]?.text,
@@ -210,16 +212,17 @@ test("a held gate queues jobs by priority and a rule's start priority holds the 
 	);
 	const later = startedJob(run);
 	const urgent = job("block", "q urgent", ["--priority", "1"]);
-	process.kill(Number(jobFile(p, dead, "pid")), "SIGKILL");
+	process.kill(jobRecord(p, dead)?.identity?.pid ?? 0, "SIGKILL");
 	assert.equal(outputText(limen(p, ["stop", stopped, "not needed"])), `stopped ${stopped}: not needed\n`);
-	await until(jobDir(p, timed), () => Date.now() - Date.parse(jobFile(p, timed, "started-at")) > 2_500);
+	await until(jobDir(p, timed), () => Date.now() - Date.parse(jobRecord(p, timed)?.startedAt ?? "") > 2_500);
 	// The budget: urgent starts under a start priority 2 rule; a change to 1 while timed samples must still hold timed.
 	limen(p, ["rule", "set", "week", "--until", "1h", "--start-priority", "2", "Low"]);
 	writeFileSync(reading, '{"cpuIdle":90,"memoryFree":80}');
 	const head = await open(pipe, "w"); // timed, the head once urgent started, samples the load
 	assert.match(limen(p, ["rule", "set", "week", "--until", "1h", "--start-priority", "1", "Low"]).stdout, /changed/);
 	await head.writeFile("{}").finally(() => head.close());
-	await until(jobDir(p, later), () => /"held by rule week until .+"ahead":1/.test(jobFile(p, later, "queued")));
+	const queued = () => JSON.stringify(jobRecord(p, later)?.queued ?? null);
+	await until(jobDir(p, later), () => /"held by rule week until .+"ahead":1/.test(queued()));
 	const held = "held by rule week until [^\\n]+ \\(start priority 1\\)";
 	const shown = limen(p, ["show", later], { env: { LIMEN_REAP_CONFIRM_MS: "1" } }).stdout;
 	assert.match(shown, new RegExp(` · queued · waiting \\d+s: ${held}, 1 ahead · `));

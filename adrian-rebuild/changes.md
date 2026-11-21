@@ -2,7 +2,7 @@
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
-R-019. -->
+R-019, R-021. -->
 
 # Changes
 
@@ -205,3 +205,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-10)
 - Commit: R-019
 - Rollback: git revert $(git log --format=%H --grep='^R-019:' adrian-rebuild --)
+
+## 2026-11-21 R-021 One `record.json` per job, written only by the transition function
+- What: `src/job/record.ts` (the record module: schema version 1, async and sync reads with `O_NOFOLLOW`, a regular file of at most one name and a size cap through `src/boundary.ts`; the one writer `transition` under R-019's per-job lock with compare-and-swap, nothing after a terminal state and the exclusive `terminal` claim; `publishRecord`; `progress.json` outside the transition; the poller's `readJobFile`), new `src/job/finalize.ts` (`finalizeJob`, side failures in `sideFailures`), new `src/job/migration.ts` and `src/commands/migrate.ts` (`limen migrate [--dry-run]`, `change`, irreversible; `.limen/unmigrated/`; older ids and token collisions in the report; `MIGRATE_JOBS_RUNNING`), `src/registry.ts` (`irreversible`), `src/boundary.ts` (`nullOr`, `boolean`, `arrayOf`; the cut keeps escapes, surrogate pairs and astral escapes whole; `\p{Cf}` escaped); every writer and reader moved onto the record (`src/commands/*`, `src/job/*`, `src/runtime/{reap,wrapper,start-queue,engine,worker-extensions}.ts`, `src/integrations/*`, `src/picture/activity.ts`, `src/project/{planning,series}.ts`, `hook/wake.ts` with its damage guard and the `NOT_MIGRATED` refusal, `seat/deploy.ts`); a running record with an unknown identity is never live (A-056); `limen stop` on a starting job finalizes only from `starting`; `docs/seat/bell.sh` runs the new `docs/seat/bell.ts`; `templates/agents.md` (+ `templates/.history/agents.md`), `docs/jobs.md`, `docs/commands.md`, `docs/seat/README.md`, `docs/herdr-status.md`, `README.md`; tests `test/cli/migrate.test.ts`, `test/cli/stop.test.ts`, `test/job/finalize.test.ts`, `test/integrations/coordinator-wake.test.ts`, `test/seat/bell.test.ts` (new), `test/job/record.test.ts`, `test/u9-process-identity.test.ts`, `test/boundary.test.ts`, `test/structure.test.ts` (the job-file scan with its self-test; `JSON_PARSE` 38 → 34, `CASTS` 75 → 60), `test/plant.ts` and the tests that made or read job files by hand
+- Why: S1+, A-019, A-053, A-056, T-20, T-25, T-28, D-056, D-057
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (484/484); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (32 test files fail at HEAD); `node --test test/cli/migrate.test.ts` → exit 0 (18/18)
+- Measurement: unmeasured (plan.md → Measurement: M-10, M-01)
+- Commit: R-021
+- Rollback: git revert $(git log --format=%H --grep='^R-021:' adrian-rebuild --) (+ the snapshot of `## Deployment` 0.1 for every migrated project)

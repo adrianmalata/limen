@@ -14,6 +14,7 @@ import {
 	FINAL,
 	jobDir,
 	jobFile,
+	jobState,
 	limen,
 	type Plant,
 	plant,
@@ -21,7 +22,6 @@ import {
 	start,
 	startedJob,
 	until,
-	waitJob,
 } from "./plant.ts";
 
 const herdrSource = `#!/usr/bin/env node
@@ -107,7 +107,9 @@ test("in Herdr a spawn with no mode flag runs detached under its --timeout; queu
 	assert.match(run.stdout, /\nqueued flagless: CPU 90% idle \(gate 25%\), memory 10% free \(gate 20%\), 0 ahead\n/);
 	const id = startedJob(run);
 	await writeFile(reading, "{}");
-	assert.equal(waitJob(p, id, { env }), "done");
+	// The wake goes whole through the Herdr socket this test process serves, while the wrapper still runs: the wait
+	// keeps this process's event loop free, where `waitJob` would block it until the wrapper exits.
+	await until(jobDir(p, id), () => jobState(p, id) === "done");
 	assert.equal(jobFile(p, id, "herdr/mode"), "watch", "a log-tail tab");
 	const receipts = ["herdr-start", "herdr-prompt"].map((name) => () => jobFile(p, id, `notify/${name}`));
 	await until(jobDir(p, id), () => receipts.every((receipt) => receipt().startsWith("attempt 1: delivered to")));

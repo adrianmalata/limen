@@ -1,9 +1,8 @@
-import { existsSync } from "node:fs";
-import { mkdir, readFile } from "node:fs/promises";
-import { atomicWrite } from "../atomic-write.ts";
+import { mkdir } from "node:fs/promises";
+import { finalizeJob, requestedTerminal } from "../job/finalize.ts";
 import { SESSION_ID } from "../job/job.ts";
 import { resolveJob } from "../job/lookup.ts";
-import { appendLimenLog, finalizeJob, requestedTerminal } from "../job/record.ts";
+import { appendLimenLog, readRecord, transition } from "../job/record.ts";
 import type { Parsed } from "../parser.ts";
 import { platform } from "../platform/platform.ts";
 import { containEscapedDescendants, discoverEscapedDescendants, waitForProcessGroup } from "../runtime/contain.ts";
@@ -11,24 +10,37 @@ import { containEscapedDescendants, discoverEscapedDescendants, waitForProcessGr
 export async function stopCommand(values: Parsed, cwd: string): Promise<undefined> {
 	await stopJob(values.get("job") ?? "", values.get("reason") ?? "", cwd);
 }
-/** Stops the running job `query` names; a group's stop calls it for each member job. */
+/**
+ * Stops the job `query` names; a group's stop calls it for each member job. A job its wrapper has not run yet ends
+ * here at once, only from `starting`, and its wrapper then finds it no longer starting and runs no engine; a wrapper
+ * that moved it to running in between is stopped as a running job, signal and all.
+ */
 export async function stopJob(query: string, given: string, cwd: string): Promise<void> {
 	const { id, jobDir } = await resolveJob(cwd, query, "control");
-	const state = (await readFile(`${jobDir}/state`, "utf8")).trim();
-	if (state !== "running") {
-		console.log(`${id} is already ${state}`);
+	let record = await readRecord(jobDir);
+	const reason = given.trim() || "stopped by request";
+	if (record?.state === "starting" || record?.state === "running") {
+		await appendLimenLog(jobDir, `stop requested: ${reason}`);
+	}
+	if (record?.state === "starting") {
+		if (await finalizeJob(jobDir, requestedTerminal(reason), reason, { from: ["starting"] })) {
+			console.log(`${requestedTerminal(reason)} ${id}: ${reason}`);
+			return;
+		}
+		record = await readRecord(jobDir);
+	}
+	if (record?.state !== "running") {
+		console.log(`${id} is already ${record?.state ?? "without a record"}`);
 		return;
 	}
-	const reason = given.trim() || "stopped by request";
-	await appendLimenLog(jobDir, `stop requested: ${reason}`);
-	const pid = Number((await readFile(`${jobDir}/pid`, "utf8")).trim());
-	if (!Number.isSafeInteger(pid) || pid <= 0) {
-		throw new Error(`running job ${id} has no valid pid`);
+	const pid = record.identity?.pid;
+	if (!pid) {
+		throw new Error(`running job ${id} has no recorded pid`);
 	}
 	// A wrapper in the start queue ends its own job with this reason at once; then this command finalizes nothing.
-	const queued = existsSync(`${jobDir}/queued`);
+	const queued = record.queued !== null;
 	if (queued) {
-		await atomicWrite(`${jobDir}/stop-requested`, `${reason}\n`);
+		await transition(jobDir, { from: ["running"], set: { stopRequested: reason } });
 	}
 	// Complete the bounded ownership snapshot while the parent chain is intact, then signal. A queued wrapper runs no
 	// engine child, so it has no process tree to search and an empty one is no attribution loss.
@@ -47,30 +59,26 @@ export async function stopJob(query: string, given: string, cwd: string): Promis
 			await waitForProcessGroup(pid, 1_000);
 		}
 	})().catch(() => {});
-	// Give a signaled wrapper one brief turn to publish its own terminal state before overwriting it.
+	// Give a signaled wrapper one brief turn to publish its own terminal state; the first finisher wins either way.
 	const turn = Date.now() + (queued ? 2_000 : 25);
 	do {
 		await new Promise((resolve) => setTimeout(resolve, 25));
-	} while (queued && Date.now() < turn && (await text(`${jobDir}/state`)) === "running");
-	const settledState = (await readFile(`${jobDir}/state`, "utf8")).trim();
-	if (settledState !== "running") {
+	} while (queued && Date.now() < turn && (await stateOf(jobDir)) === "running");
+	if (!(await finalizeJob(jobDir, requestedTerminal(reason), reason))) {
 		await markCallerDelivered(jobDir);
-		console.log(queued ? `${settledState} ${id}: ${reason}` : `${id} is already ${settledState}`);
+		const settled = await stateOf(jobDir);
+		console.log(queued ? `${settled} ${id}: ${reason}` : `${id} is already ${settled}`);
 		return;
 	}
-	await finalizeJob(jobDir, requestedTerminal(reason), reason);
 	await markCallerDelivered(jobDir);
 	console.log(`${requestedTerminal(reason)} ${id}: ${reason}`);
+}
+async function stateOf(jobDir: string): Promise<string> {
+	return (await readRecord(jobDir))?.state ?? "without a record";
 }
 async function markCallerDelivered(jobDir: string): Promise<void> {
 	const session = process.env.PI_SESSION_ID?.trim();
 	if (session && SESSION_ID.test(session)) {
 		await mkdir(`${jobDir}/notify/delivered/${session}`, { recursive: true });
 	}
-}
-function text(path: string): Promise<string> {
-	return readFile(path, "utf8").then(
-		(value) => value.trim(),
-		() => "",
-	);
 }

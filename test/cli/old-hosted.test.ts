@@ -14,7 +14,18 @@ import {
 	matchedGithubJob,
 } from "../../src/integrations/github-review.ts";
 import { isTerminal } from "../../src/job/job.ts";
-import { engineEvents, jobDir, jobFile, limen, type Plant, plant, spawnJob, TICKET, until } from "../plant.ts";
+import {
+	engineEvents,
+	jobDir,
+	jobState,
+	limen,
+	type Plant,
+	plant,
+	spawnJob,
+	TICKET,
+	until,
+	writeRecord,
+} from "../plant.ts";
 
 const WAKE = fileURLToPath(new URL("../../hook/wake.ts", import.meta.url));
 /** The files a hosted job had beside the ones every job has, as its supervisor and its Pi hook wrote them. */
@@ -31,9 +42,9 @@ const HOSTED_FILES: Readonly<Record<string, string>> = {
 	"ownership-uncertainty": `${JSON.stringify({ since: 1, root: true, child: false })}\n`,
 };
 
-/** Resolves once the job's `state` is terminal, the commit point of its record. */
+/** Resolves once the job's record is terminal, the commit point of its end. */
 function ended(p: Plant, id: string): Promise<void> {
-	return until(jobDir(p, id), () => isTerminal(jobFile(p, id, "state")));
+	return until(jobDir(p, id), () => isTerminal(jobState(p, id)));
 }
 async function writeFiles(dir: string, files: Readonly<Record<string, string>>): Promise<void> {
 	for (const [name, body] of Object.entries(files)) {
@@ -107,23 +118,23 @@ test("matchedGithubJob matches a GitHub job without a hosted file and an old hos
 	});
 	const [work, review, other] = [claim(104), claim(105), claim(106)];
 	const jobs = join(root, ".limen/jobs");
-	await writeFiles(join(jobs, "work"), {
-		"task.md": `${githubMarker(work)}\nCoordinator task: Fix it\n`,
-		state: "running\n",
-		role: "worker\n",
-		branch: `${githubBranch(work)}\n`,
-		base: `${"c".repeat(40)}\n`,
+	await writeRecord(join(jobs, "work"), {
+		state: "running",
+		role: "worker",
+		branch: githubBranch(work),
+		base: "c".repeat(40),
 	});
-	await writeFiles(join(jobs, "old-review"), {
-		...HOSTED_FILES,
-		"task.md": `${githubMarker(review)}\nReview PR #4\n`,
-		state: "done\n",
-		role: "reviewer\n",
-		branch: `${githubBranch(review)}\n`,
-		candidate: `${review.head}\n`,
-		base: `${review.base}\n`,
+	await writeFiles(join(jobs, "work"), { "task.md": `${githubMarker(work)}\nCoordinator task: Fix it\n` });
+	await writeRecord(join(jobs, "old-review"), {
+		state: "done",
+		role: "reviewer",
+		branch: githubBranch(review),
+		candidate: review.head ?? null,
+		base: review.base ?? null,
 	});
-	await writeFiles(join(jobs, "other"), { "task.md": `${githubMarker(other)}\n`, state: "done\n", branch: "main\n" });
+	await writeFiles(join(jobs, "old-review"), { ...HOSTED_FILES, "task.md": `${githubMarker(review)}\nReview PR #4\n` });
+	await writeRecord(join(jobs, "other"), { state: "done", branch: "main" });
+	await writeFiles(join(jobs, "other"), { "task.md": `${githubMarker(other)}\n` });
 	assert.deepEqual(await matchedGithubJob(root, work), {
 		id: "work",
 		branch: githubBranch(work),

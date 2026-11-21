@@ -11,6 +11,8 @@ import {
 	git,
 	jobDir,
 	jobFile,
+	jobRecord,
+	jobState,
 	limen,
 	type Plant,
 	plant,
@@ -19,6 +21,7 @@ import {
 	start,
 	until,
 	waitJob,
+	writeRecord,
 } from "./plant.ts";
 
 const WAKE = fileURLToPath(new URL("../hook/wake.ts", import.meta.url));
@@ -48,31 +51,34 @@ test("spawn returns before --prepare; prune keeps live, nested and starting work
 	assert.deepEqual([waitJob(p, landed), waitJob(p, unmerged)], ["done", "done"]);
 	const lost = spawnJob(p, "say lost", ["--prepare", 'rm -rf "$PWD"']);
 	assert.equal(waitJob(p, lost), "failed");
-	assert.ok(jobFile(p, lost, "log").includes(`failed: worktree ${jobFile(p, lost, "worktree")} `));
+	assert.ok(jobFile(p, lost, "log").includes(`failed: worktree ${jobRecord(p, lost)?.worktree} `));
 	const live = spawnJob(p, "block");
 	await until(jobDir(p, live), () => jobFile(p, live, "log").includes("prune: removed"));
-	const liveTree = jobFile(p, live, "worktree");
+	const liveTree = jobRecord(p, live)?.worktree ?? "";
 	// Another checkout (the live job's worktree) runs its own job; its worktree nests inside this plant's worktree root.
 	assert.equal(limen(p, ["init"], { cwd: liveTree }).status, 0);
 	const nested = spawnJob(p, "block", [], { cwd: liveTree });
 	const nestedDir = join(liveTree, ".limen/jobs", nested);
-	const nestedTree = readFileSync(join(nestedDir, "worktree"), "utf8").trim();
+	const nestedTree = jobRecord(p, nested, { cwd: liveTree })?.worktree ?? "";
 	await until(nestedDir, () => readFileSync(join(nestedDir, "log"), "utf8").includes("prune: removed"));
-	// Records with a worktree and no state, their spawner alive (this test) or long gone; one running, its process gone.
+	// Records with a worktree that never started, their spawner alive (this test) or long gone; one running, its process
+	// unknown long past the startup grace.
 	const [stale, starting, gone] = ["2000-01-stale-aaaaaaaa", "2000-01-starting-aaaaaaaa", "2000-01-gone-aaaaaaaa"];
 	for (const id of [stale, starting, gone]) {
-		await mkdir(jobDir(p, id));
-		await writeFile(join(jobDir(p, id), "started-at"), "2000-01-01T00:00:00.000Z\n");
-		await writeFile(join(jobDir(p, id), "starting"), `${id === starting ? process.pid : ""}\n`);
-		await writeFile(join(jobDir(p, id), "worktree"), `${join(halfTree, "..", id)}\n`);
+		await writeRecord(jobDir(p, id), {
+			state: id === gone ? "running" : "starting",
+			startedAt: "2000-01-01T00:00:00.000Z",
+			spawnerPid: id === starting ? process.pid : null,
+			worktree: join(halfTree, "..", id),
+		});
 		git(p.root, "worktree", "add", "-q", "--detach", join(halfTree, "..", id), "HEAD");
 	}
-	await writeFile(join(jobDir(p, gone), "state"), "running\n");
 	git(p.root, "worktree", "add", "-q", "--detach", join(liveTree, "tmp/scratch"), "HEAD"); // the live job's own
 
 	const pruned = limen(p, ["prune"]);
-	assert.match(pruned.stdout, new RegExp(`pruned .*/${stale} \\(job ${stale}\\): its record never got a state`));
-	for (const dropped of [jobFile(p, landed, "worktree"), jobFile(p, unmerged, "worktree"), jobDir(p, stale)]) {
+	assert.match(pruned.stdout, new RegExp(`pruned .*/${stale} \\(job ${stale}\\): its record never started`));
+	const trees = [jobRecord(p, landed)?.worktree ?? "", jobRecord(p, unmerged)?.worktree ?? ""];
+	for (const dropped of [...trees, jobDir(p, stale)]) {
 		assert.ok(!existsSync(dropped), `prune kept ${dropped}`);
 	}
 	const others = [...[starting, gone].map((id) => join(halfTree, "..", id)), join(liveTree, "tmp/scratch")];
@@ -85,7 +91,7 @@ test("spawn returns before --prepare; prune keeps live, nested and starting work
 	await release(nestedDir);
 	assert.equal(waitJob(p, nested, { cwd: liveTree }), "done");
 
-	const landedBranch = jobFile(p, landed, "branch");
+	const landedBranch = jobRecord(p, landed)?.branch ?? "";
 	git(p.root, "merge", "-q", "--no-edit", landedBranch);
 	assert.equal(limen(p, ["prune", "--retire"]).status, 0);
 	assert.deepEqual([existsSync(jobDir(p, landed)), git(p.root, "branch", "--list", landedBranch)], [false, ""]);
@@ -98,12 +104,12 @@ test("a killed wrapper is reaped at once and a stopped job leaves no escaped chi
 	const env = { PI_SESSION_ID: SESSION };
 	const killed = spawnJob(p, "block", [], { env });
 	await until(jobDir(p, killed), () => existsSync(join(jobDir(p, killed), "fake-blocked-1")));
-	const pid = Number(jobFile(p, killed, "pid"));
+	const pid = jobRecord(p, killed)?.identity?.pid ?? 0;
 	assert.ok(pid > 0, "the wrapper recorded its pid");
 	process.kill(pid, "SIGKILL");
 	// A young job: only the product's dead-pid confirmation window applies, never the startup grace.
 	const listed = limen(p, ["show", killed], { env: { LIMEN_REAP_CONFIRM_MS: "1" } });
-	assert.deepEqual([listed.status, jobFile(p, killed, "state")], [0, "failed"], listed.stderr);
+	assert.deepEqual([listed.status, jobState(p, killed)], [0, "failed"], listed.stderr);
 	await release(jobDir(p, killed));
 
 	const stopped = spawnJob(p, "orphan\nblock", [], { env });
@@ -111,7 +117,7 @@ test("a killed wrapper is reaped at once and a stopped job leaves no escaped chi
 	const orphan = Number(jobFile(p, stopped, "fake-orphan"));
 	assert.ok(alive(orphan), "the orphan escaped into its own process group and runs");
 	const stop = limen(p, ["stop", stopped, "s9"]);
-	assert.deepEqual([stop.status, jobFile(p, stopped, "state")], [0, "stopped"], stop.stderr);
+	assert.deepEqual([stop.status, jobState(p, stopped)], [0, "stopped"], stop.stderr);
 	const named = !alive(orphan) || jobFile(p, stopped, "cleanup").includes(`${orphan} `);
 	assert.ok(named, `orphan ${orphan} survived stop unnamed`);
 

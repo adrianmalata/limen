@@ -1,25 +1,20 @@
 import { spawn } from "node:child_process";
-import { appendFile, readFile, rm } from "node:fs/promises";
+import { appendFile, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { atomicWrite } from "../atomic-write.ts";
 import { engineEnvironment, type TransportName, transport, wrapperEnvironment } from "../config.ts";
 import { promptStartNotice } from "../integrations/coordinator-wake.ts";
+import { finalizeJob, isFailedStopReason, requestedTerminal } from "../job/finalize.ts";
 import { jobMembership } from "../job/group-cabinet.ts";
 import { formatDuration } from "../job/job.ts";
-import {
-	appendLimenLog,
-	finalizeJob,
-	isFailedStopReason,
-	requestedTerminal,
-	textFile,
-	writeHandshake,
-} from "../job/record.ts";
+import { appendLimenLog, readRecord, textFile, transition, writeProgress } from "../job/record.ts";
 import { enqueueSteer } from "../job/steer-inbox.ts";
 import { platform } from "../platform/platform.ts";
 import { limitCount } from "../project/limits.ts";
 import { containEscapedDescendants, discoverEscapedDescendants, type JobProcess } from "./contain.ts";
 import { argvFor, jobProfile } from "./engine.ts";
 import { setUpJob, worktreeMissing } from "./job-setup.ts";
+import { processIdentity } from "./reap.ts";
 import { observeToolStall, ownedToolDescendants, type ToolStallWatch, toolStallMs } from "./stalled-tool.ts";
 import { enterStartQueue, waitForStart } from "./start-queue.ts";
 import { createStreamParser, type StreamEvent } from "./stream.ts";
@@ -86,19 +81,25 @@ export async function runInternalJob(): Promise<void> {
 			shutdownDeadline ??= Date.now() + STOP_GRACE_MS - 500;
 		}
 	});
-	const profile = await jobProfile(jobDir);
+	const record = await readRecord(jobDir);
+	const profile = jobProfile(record);
 	// A group member runs on its group's deadline, so it starts at once.
-	const gate = !membership && (await enterStartQueue(jobDir));
-	// Spawn waits for this handshake, not for the queue or setup, so it returns before prune and --prepare run.
-	// One handshake per run: a second one races the first one's `born` write and can crash the wrapper.
-	const early = Boolean(transport("LIMEN_SETUP_KEEP") || gate);
-	if (early) {
-		await writeHandshake(jobDir);
+	const queued = membership ? undefined : await enterStartQueue(jobDir, record);
+	// The handshake is the one transition to running, with this process's identity (A-056) and, for a queued job, its
+	// place in the queue. Spawn waits for it, not for the queue or setup, so it returns before prune and --prepare run.
+	// A job stopped or ended before it ran is no longer starting: the transition does not apply, and no engine starts.
+	const running = await transition(jobDir, {
+		from: ["starting"],
+		to: "running",
+		set: { identity: await processIdentity(), queued: queued ?? null },
+	});
+	if (!running) {
+		return;
 	}
-	if (gate && !(await waitForStart(jobDir, stop.signal))) {
-		const requested = await textFile(`${jobDir}/stop-requested`);
+	if (queued && !(await waitForStart(jobDir, stop.signal))) {
+		const requested = (await readRecord(jobDir))?.stopRequested;
 		const reason = requested || "stopped while queued";
-		await finalizeJob(jobDir, requestedTerminal(reason), reason, shutdownDeadline);
+		await finalizeJob(jobDir, requestedTerminal(reason), reason, { shutdownDeadline });
 		return;
 	}
 	const notice = await textFile(`${jobDir}/start-notice`);
@@ -107,14 +108,14 @@ export async function runInternalJob(): Promise<void> {
 	}
 	if (transport("LIMEN_SETUP_KEEP")) {
 		await setUpJob(jobDir, worktree);
-		if (stopRequested || (await textFile(`${jobDir}/stop-requested`))) {
-			await finalizeJob(jobDir, "stopped", "stopped during setup", shutdownDeadline);
+		if (stopRequested || (await readRecord(jobDir))?.stopRequested) {
+			await finalizeJob(jobDir, "stopped", "stopped during setup", { shutdownDeadline });
 			return;
 		}
 	}
 	const missing = worktreeMissing(worktree);
 	if (missing) {
-		await finalizeJob(jobDir, "failed", missing, shutdownDeadline);
+		await finalizeJob(jobDir, "failed", missing, { shutdownDeadline });
 		return;
 	}
 	// The timeout and a group deadline count from engine start, so time in the start queue never counts against them.
@@ -147,7 +148,7 @@ export async function runInternalJob(): Promise<void> {
 				graceTimer.unref();
 				void containEscapedDescendants(jobDir, descendants, "after exhaustion").catch(() => {});
 			}
-			await finalizeJob(jobDir, "failed", reason, shutdownDeadline);
+			await finalizeJob(jobDir, "failed", reason, { shutdownDeadline });
 		})();
 	};
 	const provider = transport("LIMEN_PROVIDER");
@@ -162,7 +163,7 @@ export async function runInternalJob(): Promise<void> {
 			`${HOOK}/steering.ts`,
 			`${HOOK}/communication.ts`,
 			...((await jobMembership(jobDir)) ? [`${HOOK}/group-peer.ts`] : []),
-			...(await readWorkerExtensions(jobDir)),
+			...(await readWorkerExtensions(jobDir, record)),
 		],
 		...(provider ? { provider } : {}),
 		...(model ? { model } : {}),
@@ -173,7 +174,16 @@ export async function runInternalJob(): Promise<void> {
 	});
 	const childEnvironment = engineEnvironment(process.env, { LIMEN_JOB: "1", LIMEN_JOB_ID: jobId });
 	const parser = createStreamParser();
-	const seen = { activity: "", activityAt: 0, assistant: "", stop: "", tool: "", progress: 0 };
+	const seen: Seen = {
+		activity: "",
+		activityAt: 0,
+		assistant: "",
+		stop: "",
+		tool: "",
+		lastTool: "",
+		toolCalls: 0,
+		progress: 0,
+	};
 	const failLog = (error: unknown) =>
 		appendLimenLog(jobDir, `log write failed: ${error instanceof Error ? error.message : String(error)}`).catch(
 			() => {},
@@ -216,15 +226,11 @@ export async function runInternalJob(): Promise<void> {
 		child.once("error", (error) => resolve({ code: null, signal: null, error }));
 		child.once("close", (code, signal) => resolve({ code, signal }));
 	});
-	if (!early) {
-		await writeHandshake(jobDir);
-	}
-	await atomicWrite(`${jobDir}/state`, "running\n");
 	await appendLimenLog(jobDir, `worker started, time limit ${formatDuration(timeoutMs)}`);
 	const enginePid = child.pid;
 	const stallWatch: ToolStallWatch = { tool: "", born: "", started: 0 };
 	let observing = false;
-	// The advisory file shows the current observation; the log gets each distinct observation once per run, since a
+	// The record's advisory shows the current observation; the log gets each distinct observation once per run, since a
 	// flaky process query alternates its reasons every few seconds and coordinators tail this log.
 	let advised = "";
 	const logged = new Set<string>();
@@ -232,7 +238,8 @@ export async function runInternalJob(): Promise<void> {
 		const line = `tool stall observation uncertain: ${detail}`;
 		if (line !== advised) {
 			advised = line;
-			await atomicWrite(`${jobDir}/advisory`, `${line}\n`);
+			const advisory = { text: line, at: new Date().toISOString() };
+			await transition(jobDir, { from: ["running"], set: { advisory } });
 		}
 		if (!logged.has(line)) {
 			logged.add(line);
@@ -244,7 +251,7 @@ export async function runInternalJob(): Promise<void> {
 			return;
 		}
 		advised = "";
-		await rm(`${jobDir}/advisory`, { force: true });
+		await transition(jobDir, { from: ["running"], set: { advisory: null } });
 	};
 	const observeStall = async (pid: number) => {
 		const identity = await platform.processInfo(pid);
@@ -329,13 +336,13 @@ export async function runInternalJob(): Promise<void> {
 	apply(parser.flush());
 	await pending;
 	if (seen.stop) {
-		await atomicWrite(`${jobDir}/stop-reason`, `${seen.stop}\n`).catch(() => {});
+		await transition(jobDir, { from: ["running"], set: { stopReason: seen.stop } });
 		await appendLimenLog(jobDir, `assistant ${seen.stop}`).catch(() => {});
 	}
 	if (exhausted) {
 		await exhaustionTermination;
 	} else if (stopRequested || result.signal === "SIGTERM" || result.signal === "SIGKILL") {
-		await finalizeJob(jobDir, "stopped", "process group interrupted", shutdownDeadline);
+		await finalizeJob(jobDir, "stopped", "process group interrupted", { shutdownDeadline });
 	} else if (result.error) {
 		await finalizeJob(jobDir, "failed", result.error.message);
 	} else if (result.code === 0) {
@@ -356,25 +363,38 @@ export async function failInternalJob(error: unknown): Promise<void> {
 	}
 	await finalizeJob(jobDir, "failed", error instanceof Error ? error.message : String(error));
 }
+/** What the wrapper has seen of the engine's stream so far. */
+type Seen = {
+	activity: string;
+	activityAt: number;
+	assistant: string;
+	stop: string;
+	/** The last tool with its detail, for the stall rule and its messages. */
+	tool: string;
+	/** The last tool's name and the tool count, as the progress file shows them. */
+	lastTool: string;
+	toolCalls: number;
+	progress: number;
+};
 async function recordEvents(
 	jobDir: string,
 	events: readonly StreamEvent[],
 	nextCount: () => number,
-	seen: { activity: string; activityAt: number; assistant: string; stop: string; tool: string; progress: number },
+	seen: Seen,
 ): Promise<void> {
 	for (const event of events) {
 		if (event.kind === "tool") {
 			seen.activity = "tool";
 			seen.tool = event.detail ? `${event.name} ${event.detail}` : event.name;
-			await atomicWrite(`${jobDir}/last-tool`, `${event.name}\n`);
-			await atomicWrite(`${jobDir}/activity`, "tool\n");
+			seen.lastTool = event.name;
 			seen.activityAt = Date.now();
-			await atomicWrite(`${jobDir}/tool-calls`, `${nextCount()}\n`);
+			seen.toolCalls = nextCount();
+			await writeProgress(jobDir, { activity: "tool", lastTool: seen.lastTool, toolCalls: seen.toolCalls });
 			await appendFile(`${jobDir}/log`, event.detail ? `${event.name} ${event.detail}\n` : `${event.name}\n`);
 		} else if (event.kind === "activity") {
 			// Every streamed delta reports activity; an unchanged one refreshes the file at most once a second.
 			if (seen.activity !== event.name || Date.now() - seen.activityAt >= ACTIVITY_REFRESH_MS) {
-				await atomicWrite(`${jobDir}/activity`, `${event.name}\n`);
+				await writeProgress(jobDir, { activity: event.name, lastTool: seen.lastTool, toolCalls: seen.toolCalls });
 				seen.activityAt = Date.now();
 			}
 			if (seen.activity !== event.name) {

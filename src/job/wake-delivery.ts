@@ -3,17 +3,20 @@ import { dirname, join } from "node:path";
 import { atomicRenameSync, atomicWriteSync, TEMPORARY_NAME } from "../atomic-write.ts";
 import { testKnob } from "../config.ts";
 import { isTerminal } from "./job.ts";
+import { readRecordSync, recordPath } from "./record.ts";
 
 // The notify/ record of who heard a job: claims, delivered slots, unconfirmed attempts, subscribers, and the ready marker.
 const DEFAULT_FALLBACK_GRACE_MS = 5 * 60_000;
 export const CLAIM_STALE_MS = 30_000;
 const WAKE_ATTEMPTS = 2;
-// What a job's completion still asks of this session. A group member reports through its group, never by wake.
+// What a job's completion still asks of this session. A group member reports through its group, never by wake, and a
+// record the migration wrote is history only (D-057 (4)): the Limen that ran it owed its wakes.
 export function deliveryLeft(job: string, session: string): "nothing" | "open" | "fallback" {
-	if (!isTerminal(text(join(job, "state")))) {
+	const record = readRecordSync(job);
+	if (!(record && isTerminal(record.state))) {
 		return "open";
 	}
-	if (existsSync(join(job, "group")) || !routable(job)) {
+	if (record.group || record.migrated || !routable(job)) {
 		return "nothing";
 	}
 	const delivered = deliveredSlots(job);
@@ -282,13 +285,17 @@ export function subscribeSession(job: string, session: string): void {
 		// Already subscribed.
 	}
 }
-export function oldEnoughForFallback(job: string, stamp = join(job, "finished-at")): boolean {
-	return Date.now() >= fallbackDueAt(job, stamp);
+/** Whether the job's fallback wake is due: its grace since `since`, by default the record's finish time, has passed. */
+export function oldEnoughForFallback(job: string, since?: string | null): boolean {
+	return Date.now() >= fallbackDueAt(job, since);
 }
-export function fallbackDueAt(job: string, stamp = join(job, "finished-at")): number {
-	const finished = Date.parse(text(stamp));
-	const since = Number.isFinite(finished) ? finished : statSync(existsSync(stamp) ? stamp : join(job, "state")).mtimeMs;
-	return since + fallbackGraceMs();
+/**
+ * When the job's fallback wake is due: the grace after `since`, by default the record's finish time (D-057 (7.7)); a
+ * record without one counts from when it was last written.
+ */
+export function fallbackDueAt(job: string, since: string | null = readRecordSync(job)?.finishedAt ?? null): number {
+	const parsed = Date.parse(since ?? "");
+	return (Number.isFinite(parsed) ? parsed : statSync(recordPath(job)).mtimeMs) + fallbackGraceMs();
 }
 function fallbackGraceMs(): number {
 	const raw = Number(testKnob("LIMEN_WAKE_FALLBACK_MS"));

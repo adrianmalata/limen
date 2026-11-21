@@ -91,6 +91,28 @@ test("D-039: the moved entries are exactly the commands a subsequent ticket move
 	assert.deepEqual(Object.fromEntries(moved.map((entry) => [entry.name, entry.movedBy])), MOVED);
 });
 
+// T-28 (3): each command marked irreversible, with its test file and the titles of its tests of running it again and
+// of losing nothing.
+const IRREVERSIBLE = {
+	migrate: {
+		file: "test/cli/migrate.test.ts",
+		again: "a second run has nothing to do, exits 0 and changes nothing",
+		kept: "a valid older job becomes a record holding every value of its files, and its content files stay",
+	},
+};
+
+test("T-28 (3): the irreversible entries are changes with tests of running them again and of losing nothing", () => {
+	const marked = REGISTRY.filter((entry) => entry.irreversible).map((entry) => entry.name);
+	assert.deepEqual(marked, Object.keys(IRREVERSIBLE));
+	for (const [name, { file, again, kept }] of Object.entries(IRREVERSIBLE)) {
+		assert.equal(byName(name)?.kind, "change", name);
+		const text = readFileSync(fileURLToPath(new URL(`../${file}`, import.meta.url)), "utf8");
+		for (const title of [again, kept]) {
+			assert.ok(text.includes(`test(${JSON.stringify(title)},`), `${file} has no test "${title}"`);
+		}
+	}
+});
+
 test("T-18: an entry that acts on one job takes a required job, except spawn, which creates it", () => {
 	const without = REGISTRY.filter((entry) => entry.object === "job" && entry.name !== "spawn")
 		.filter((entry) => !entry.schema.some((part) => "positional" in part && part.type === "job" && !part.optional))

@@ -3,15 +3,16 @@ import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { atomicWriteSync } from "../atomic-write.ts";
 import { readOptional } from "../project/inherit.ts";
+import type { JobRecord } from "./record.ts";
 import { type Gap, NOT_NAMED, type Run, sessionRuns, unproven } from "./session-commands.ts";
 
 // The agent writes the note in its job folder; the project may keep reminders beside its other Limen guidance.
 // Limen copies, logs and shows both, and never parses them. Adam approved the wording below as written (F950).
-// Limen reads only the "Note check" of the final message, and records its open items in `open-checks`.
+// Limen reads only the "Note check" of the final message, and records its open items in the job record's
+// `openChecks`.
 const NOTE = "note.md";
 const FIRST = "note.first.md";
 const TASK = "task.md";
-const OPEN = "open-checks";
 const REMINDERS = ".agents/limen/reminders.md";
 // One "Note check" line: `<check>: <mark>`, then the evidence or the gap. Proven and followed close an item.
 const MARKED = /^(.+?):\s*(not proven|proven|changed|dropped|followed|broken)\b[\s.,;:]*(.*)$/i;
@@ -119,11 +120,11 @@ export function recordNote(jobDir: string, seen: string | undefined): string | u
 }
 
 /**
- * The open items of the final "Note check", for `open-checks`: each line marked not proven, changed, dropped, or
- * broken, and each proven line whose evidence Limen cannot find. The note and the reminders share these lines.
- * A check that was sent and not answered is one item.
+ * The open items of the final "Note check", for the record's `openChecks`: each line marked not proven, changed,
+ * dropped, or broken, and each proven line whose evidence Limen cannot find in `worktree`, the job folder or the
+ * project. The note and the reminders share these lines. A check that was sent and not answered is one item.
  */
-export function noteCheckOpen(jobDir: string): string[] {
+export function noteCheckOpen(jobDir: string, worktree?: string | null): string[] {
 	const lines = noteCheckSection(readOptional(join(jobDir, "result")) ?? "");
 	if (!lines) {
 		const sent = (readOptional(join(jobDir, "log")) ?? "").includes("] note check sent\n");
@@ -135,7 +136,6 @@ export function noteCheckOpen(jobDir: string): string[] {
 	}
 	// The transcripts are read once, and only when a proven line needs them.
 	let runs: Run[] | undefined;
-	const worktree = readOptional(join(jobDir, "worktree"))?.trim();
 	const seen: Seen = {
 		unproven: (name) => {
 			runs ??= sessionRuns(jobDir);
@@ -146,10 +146,10 @@ export function noteCheckOpen(jobDir: string): string[] {
 	return items.flatMap((item) => openItem(item, seen)).map((line) => clip(line, 240));
 }
 
-/** The open items a done job recorded, as wake lines: at most ten, then a count of the rest. */
-export function openChecks(jobDir: string): string[] {
-	const open = (readOptional(join(jobDir, OPEN)) ?? "").split("\n").filter(Boolean);
-	const more = open.length > SHOWN ? [`… ${open.length - SHOWN} more in ${join(jobDir, OPEN)}`] : [];
+/** The open items a done job recorded, as wake lines: at most ten, then a count of the rest and where they all are. */
+export function openChecks(record: Pick<JobRecord, "id" | "openChecks"> | undefined): string[] {
+	const open = record?.openChecks ?? [];
+	const more = open.length > SHOWN ? [`… ${open.length - SHOWN} more in limen show ${record?.id}`] : [];
 	return [...open.slice(0, SHOWN).map((line) => `- ${line}`), ...more];
 }
 

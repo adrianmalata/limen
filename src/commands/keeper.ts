@@ -1,16 +1,18 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { atomicWrite } from "../atomic-write.ts";
 import { transport } from "../config.ts";
 import { readRun } from "../job/group-cabinet.ts";
+import { isTerminal } from "../job/job.ts";
 import { resolveJob } from "../job/lookup.ts";
+import { type JobRecord, readRecord } from "../job/record.ts";
 import type { Success } from "../outcome.ts";
 import type { Parsed } from "../parser.ts";
 import { branchCommit, branchExists, commitHasFile, limenRoot, workspaceRepository } from "../project/git.ts";
-import { ownerAlive } from "../runtime/reap.ts";
+import { ownerState } from "../runtime/reap.ts";
 import { landTicketCheck, TICKET_PATH } from "./land.ts";
 import { startSpawn } from "./spawn.ts";
 
@@ -27,6 +29,7 @@ type KeeperOptions = {
 type KeeperJob = {
 	readonly id: string;
 	readonly jobDir: string;
+	readonly record: JobRecord | undefined;
 	readonly state: string;
 	readonly branch: string;
 	readonly repo: string;
@@ -153,11 +156,19 @@ async function finishedJobs(root: string, options: KeeperOptions): Promise<Keepe
 	const jobs: KeeperJob[] = [];
 	for (const query of queries) {
 		const { id, jobDir } = await resolveJob(root, query, "control");
-		const state = await text(`${jobDir}/state`);
-		if (state === "running" || (await ownerAlive(jobDir))) {
+		const record = await readRecord(jobDir);
+		// The process the record names still finishes the job after its terminal record; it counts as live.
+		if (record && (!isTerminal(record.state) || (await ownerState(record.identity)) === "alive")) {
 			throw new Error(`job ${id} is still running. A keeper never commits beside a live job. Wait for it, or stop it.`);
 		}
-		jobs.push({ id, jobDir, state, branch: await text(`${jobDir}/branch`), repo: await text(`${jobDir}/repo`) });
+		jobs.push({
+			id,
+			jobDir,
+			record,
+			state: record?.state ?? "",
+			branch: record?.branch ?? "",
+			repo: record?.repo ?? "",
+		});
 	}
 	return jobs;
 }
@@ -183,9 +194,7 @@ function ticketAtTip(repository: string, tip: string, ticket: string, code: stri
 }
 
 async function jobBlock(repository: string, job: KeeperJob): Promise<string> {
-	const [label, base, worktree] = await Promise.all(
-		["label", "base", "worktree"].map((name) => text(`${job.jobDir}/${name}`)),
-	);
+	const { label, base, worktree } = job.record ?? { label: "", base: "", worktree: "" };
 	const jobTip = job.branch && branchExists(repository, job.branch) ? branchCommit(repository, job.branch) : "none";
 	const sessions = await readdir(`${job.jobDir}/session`).catch(() => [] as string[]);
 	const session = sessions
@@ -201,11 +210,4 @@ async function jobBlock(repository: string, job: KeeperJob): Promise<string> {
 		`  Session: ${session ? `${job.jobDir}/session/${session}` : "none"}`,
 		`  Task: ${job.jobDir}/task.md`,
 	].join("\n");
-}
-
-function text(path: string): Promise<string> {
-	return readFile(path, "utf8").then(
-		(value) => value.trim(),
-		() => "",
-	);
 }

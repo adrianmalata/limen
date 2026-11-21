@@ -62,21 +62,50 @@ function attempt<T>(validator: Validator<T>, value: unknown, field: string): T |
  */
 type Shown = { readonly uncut?: true };
 
-/** What `JSON.stringify` leaves raw: every control character (`\p{Cc}`: C0, DEL and C1), U+2028 and U+2029. */
-const RAW = /[\p{Cc}\p{Zl}\p{Zp}]/gu;
+/**
+ * What `escaped` turns into a `\uXXXX` escape. `JSON.stringify` already escapes the C0 controls (U+0000 to U+001F), a
+ * quote and a backslash, and leaves DEL, the C1 controls, U+2028 and U+2029 raw, so `escaped` takes those; it also
+ * takes the format characters (`\p{Cf}`, such as U+202E), which can change how a terminal shows the rest of a line.
+ */
+const RAW = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
 
-/** `text` with each character of `RAW` as a `\uXXXX` escape: no line terminator or control reaches a log line raw. */
+/**
+ * `text` with each character of `RAW` as `\uXXXX` escapes, one per UTF-16 unit, so a character beyond U+FFFF becomes
+ * its surrogate pair: no line terminator, control or format character reaches a log line raw.
+ */
 function escaped(text: string): string {
-	return text.replace(RAW, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`);
+	return text.replace(RAW, (char) =>
+		[...Array(char.length).keys()]
+			.map((index) => `\\u${char.charCodeAt(index).toString(16).padStart(4, "0")}`)
+			.join(""),
+	);
 }
 
 /**
- * The value a validator refused, as its JSON with every control character, U+2028 and U+2029 escaped (`escaped`),
- * cut after `SHOWN` characters unless `uncut`.
+ * The pieces a cut never splits: the two escapes of one character beyond U+FFFF (a high and a low surrogate), one
+ * escape of `JSON.stringify` or `escaped`, else one code point.
+ */
+const PIECE = /\\u[dD][89abAB][0-9a-fA-F]{2}\\u[dD][c-fC-F][0-9a-fA-F]{2}|\\u[0-9a-fA-F]{4}|\\[\s\S]|[\s\S]/gu;
+
+/** `text` cut after at most `SHOWN` characters, at the end of a piece, so no escape or surrogate pair is split. */
+function cut(text: string): string {
+	let kept = "";
+	for (const [piece] of text.matchAll(PIECE)) {
+		if (kept.length + piece.length > SHOWN) {
+			return `${kept}…`;
+		}
+		kept += piece;
+	}
+	return kept;
+}
+
+/**
+ * The value a validator refused, as its JSON with the characters of `RAW` escaped (`escaped`), cut after `SHOWN`
+ * characters unless `uncut`.
  */
 function shownValue(value: unknown, { uncut }: Shown): string {
 	const text = escaped(value === undefined ? "nothing" : (JSON.stringify(value) ?? String(value)));
-	return !uncut && text.length > SHOWN ? `${text.slice(0, SHOWN)}…` : text;
+	return !uncut && text.length > SHOWN ? cut(text) : text;
 }
 
 /**
@@ -234,6 +263,33 @@ export function oneOf<const T extends string | number>(values: readonly T[]): Va
 /** A field that may be absent; when it is present, `validator` reads it. */
 export function optional<T>(validator: Validator<T>): Validator<T | undefined> {
 	return (value, field) => (value === undefined ? undefined : validator(value, field));
+}
+
+/** A field that holds null where nothing is known (z. 10), or a value that `validator` reads. */
+export function nullOr<T>(validator: Validator<T>): Validator<T | null> {
+	return (value, field) => {
+		if (value === null) {
+			return null;
+		}
+		const read = attempt(validator, value, field);
+		if (!(read instanceof Mismatch)) {
+			return read;
+		}
+		throw read.field === field ? new Mismatch(field, `null or ${read.expected}`, value) : read;
+	};
+}
+
+/** True or false. */
+export function boolean(value: unknown, field: string): boolean {
+	return typeof value === "boolean" ? value : mismatch(field, "true or false", value);
+}
+
+/** An array whose every item `validator` reads; an item it refuses is named by its index, as `list.1`. */
+export function arrayOf<T>(validator: Validator<T>): Validator<T[]> {
+	return (value, field) =>
+		Array.isArray(value)
+			? value.map((item, index) => validator(item, at(field, String(index))))
+			: mismatch(field, "an array", value);
 }
 
 /** An object, not null and not an array, as its fields by name; with `known`, a field outside it is refused. */

@@ -1,11 +1,13 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { jobFeatures } from "../job/job.ts";
 import { shownState } from "../job/listing.ts";
+import { jobFolders, readRecord } from "../job/record.ts";
 import { formatAge } from "../job/view.ts";
 import type { Parsed } from "../parser.ts";
 import { readTickets } from "../picture/tickets.ts";
 import { commitList, limenRoot, unlandedBranches, workspaceRepository } from "../project/git.ts";
+import { readOptional } from "../project/inherit.ts";
 import { renderBoard, writeBoard } from "../project/lanes.ts";
 import { activeRules, ruleLine } from "../project/seat-rules.ts";
 import { archiveRows } from "../project/series.ts";
@@ -124,24 +126,22 @@ function landedJobs(done: readonly BoardJob[]): ReadonlySet<string> {
 
 async function readJobs(root: string): Promise<BoardJob[]> {
 	const jobsRoot = join(root, ".limen", "jobs");
-	const entries = await readdir(jobsRoot, { withFileTypes: true }).catch(() => []);
-	const ids = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+	const ids = await jobFolders(jobsRoot);
 	return Promise.all(
 		ids.map(async (id) => {
 			const dir = join(jobsRoot, id);
-			const [state = "", label = "", task = "", commits = "", branch = "", repo = "", started = "", finished = ""] =
-				await Promise.all([
-					shownState(dir),
-					...["label", "task.md", "commits", "branch", "repo", "started-at", "finished-at"].map((name) =>
-						readFile(join(dir, name), "utf8").then(
-							(value) => value.trim(),
-							() => "",
-						),
-					),
-				]);
-			const repository = repo ? workspaceRepository(root, repo) : root;
+			const record = await readRecord(dir);
+			const state = shownState(record);
+			const label = record?.label ?? "";
+			const branch = record?.branch ?? "";
+			const task = (readOptional(join(dir, "task.md")) ?? "").trim();
+			const repository = record?.repo ? workspaceRepository(root, record.repo) : root;
 			// A running job has not recorded its commits yet; read the ones its branch holds beyond this checkout.
-			const log = state === "running" && branch ? (commitList(repository, "HEAD", branch) ?? "") : commits;
+			const log =
+				state === "running" && branch
+					? (commitList(repository, "HEAD", branch) ?? "")
+					: (record?.commits ?? []).join("\n");
+			const [started, finished] = [record?.startedAt ?? "", record?.finishedAt ?? ""];
 			const subjects = log.split("\n").map((line) => line.replace(/^\S+ /, ""));
 			return {
 				id,

@@ -4,25 +4,15 @@ import { atomicWriteSync, TEMPORARY_NAME } from "../atomic-write.ts";
 import { removeDeadCoordinators } from "../integrations/coordinator-registration.ts";
 import { showSeatNotification } from "../integrations/herdr.ts";
 import { isTerminal } from "../job/job.ts";
+import { type JobRecord, jobFoldersSync, readRecordSync } from "../job/record.ts";
 import { receiptFamily } from "../job/wake-delivery.ts";
 import type { Parsed } from "../parser.ts";
 import { installSeatSweep, uninstallSeatSweep, updateRegisteredProjects } from "../project/seat.ts";
 import { confirmDeadJobs } from "../runtime/reap.ts";
 
-const text = (path: string) => (fs.existsSync(path) ? fs.readFileSync(path, "utf8").trim() : "");
 const modified = (path: string) => (fs.existsSync(path) ? fs.statSync(path).mtimeMs : 0);
 /** How old a job's seat event is before the sweep rings for it; a constant, as no setting chooses it (R-015). */
 const SEAT_RING_MS = 5 * 60_000;
-const metadata = (path: string) => {
-	try {
-		return fs.statSync(path);
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-			return undefined;
-		}
-		throw error;
-	}
-};
 
 /** `limen sweep`: one pass over every registered project, or the install or removal of the timer that runs it. */
 export async function sweepCommand(values: Parsed): Promise<undefined> {
@@ -52,52 +42,60 @@ async function sweepProject(root: string): Promise<void> {
 	if (Date.now() - modified(join(root, ".limen", "last-sweep")) < SEAT_RING_MS) {
 		return;
 	}
-	for (const entry of fs.existsSync(jobs) ? fs.readdirSync(jobs, { withFileTypes: true }) : []) {
-		if (!entry.isDirectory()) {
+	for (const id of jobFoldersSync(jobs)) {
+		const job = join(jobs, id);
+		const record = readRecordSync(job);
+		const due = record && seatEvent(job, record);
+		if (!(record && due?.since) || Date.now() - due.since < SEAT_RING_MS || !claimSeatEvent(job, due)) {
 			continue;
 		}
-		const job = join(jobs, entry.name);
-		const due = seatEvent(job);
-		if (!due?.since || Date.now() - due.since < SEAT_RING_MS || !claimSeatEvent(job, due)) {
-			continue;
-		}
-		const label = text(join(job, "label")) || entry.name;
-		const title = `limen: ${label}${due.headline}`;
-		if (!(await showSeatNotification(title, `job ${entry.name} · ${root}`))) {
-			console.error(`seat notification failed for ${entry.name}; event recorded to avoid an ambiguous retry`);
+		const title = `limen: ${record.label || id}${due.headline}`;
+		if (!(await showSeatNotification(title, `job ${id} · ${root}`))) {
+			console.error(`seat notification failed for ${id}; event recorded to avoid an ambiguous retry`);
 		}
 	}
 }
 type SeatEvent = { readonly since: number; readonly event: string; readonly headline: string };
-/** What the seat has not heard about a job yet: an advisory of a running job, or its terminal state. */
-function seatEvent(job: string): SeatEvent | undefined {
-	const statePath = join(job, "state");
-	const state = text(statePath);
+/**
+ * What the seat has not heard about a job yet: an advisory of a running job, keyed by its time, or its terminal
+ * state, keyed by the record's finish time (D-057 (7.7)). A record the migration wrote is history only: the Limen that
+ * ran its job rang for it (D-057 (4)).
+ */
+function seatEvent(job: string, record: JobRecord): SeatEvent | undefined {
+	if (record.migrated) {
+		return;
+	}
 	const delivered = fs.existsSync(join(job, "notify", "delivered"))
 		? fs.readdirSync(join(job, "notify", "delivered")).filter((name) => !TEMPORARY_NAME.test(name))
 		: [];
 	const heard = new Set(delivered.map(receiptFamily));
-	if (state === "running") {
-		if (heard.has("_advisory")) {
+	if (record.state === "running") {
+		if (heard.has("_advisory") || !record.advisory) {
 			return;
 		}
-		const stamp = metadata(join(job, "advisory"));
-		if (!stamp) {
-			return;
-		}
-		return { since: stamp.mtimeMs, event: `_advisory.${stamp.mtimeMs}.${stamp.birthtimeMs}`, headline: " · advisory" };
+		const since = Date.parse(record.advisory.at);
+		return { since, event: `_advisory.${since}`, headline: " · advisory" };
 	}
-	if (!isTerminal(state) || heard.has("_completion")) {
+	if (!isTerminal(record.state) || heard.has("_completion")) {
 		return;
 	}
-	const since = Math.max(modified(join(job, "finished-at")), modified(statePath));
-	return { since, event: `_terminal.${state}.${since}`, headline: ` is ${state}` };
+	const since = Date.parse(record.finishedAt ?? "") || 0;
+	return { since, event: `_terminal.${record.state}.${since}`, headline: ` is ${record.state}` };
 }
-/** Claim before transport: a concurrent sweep or ambiguous failure must not replay this event. False when claimed already. */
+/**
+ * Claim before transport: a concurrent sweep or ambiguous failure must not replay this event. False when claimed
+ * already. A record changes nothing after its terminal state, so any marker of that state is this event, one an older
+ * Limen keyed by a file's time included.
+ */
 function claimSeatEvent(job: string, { since, event }: SeatEvent): boolean {
 	const seat = join(job, "notify", "seat");
 	const markers = fs.existsSync(seat) ? fs.readdirSync(seat) : [];
-	if (markers.some((name) => name === event || (/^\d+$/.test(name) && Number(name) >= since))) {
+	const terminal = event.startsWith("_terminal.") ? `${event.split(".").slice(0, 2).join(".")}.` : undefined;
+	const claimed = (name: string) =>
+		name === event ||
+		(terminal !== undefined && name.startsWith(terminal)) ||
+		(/^\d+$/.test(name) && Number(name) >= since);
+	if (markers.some(claimed)) {
 		return false;
 	}
 	fs.mkdirSync(seat, { recursive: true });

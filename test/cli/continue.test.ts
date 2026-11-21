@@ -1,19 +1,30 @@
 // `limen continue`: it finds the project from a subdirectory, its engine does not inherit the continue flag, and it
 // refuses a parent whose engine was removed.
 import assert from "node:assert/strict";
-import { chmodSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { isTerminal } from "../../src/job/job.ts";
 import { outputText, readOutcome } from "../../src/outcome.ts";
-import { jobDir, jobFile, limen, type Plant, plant, spawnJob, startedJob, until } from "../plant.ts";
+import {
+	editRecord,
+	jobDir,
+	jobRecord,
+	jobState,
+	limen,
+	type Plant,
+	plant,
+	spawnJob,
+	startedJob,
+	until,
+} from "../plant.ts";
 
 /** A job id that names no job: a usage error comes before any record is read. */
 const NO_JOB = "2026-11-18-none-1a2b3c4d";
 
-/** Resolves once the job's `state` is terminal, the commit point of its record. */
+/** Resolves once the job's record is terminal, the commit point of its end. */
 function ended(p: Plant, id: string): Promise<void> {
-	return until(jobDir(p, id), () => isTerminal(jobFile(p, id, "state")));
+	return until(jobDir(p, id), () => isTerminal(jobState(p, id)));
 }
 
 test("a continuation started from a subdirectory of the project continues its parent and ends done", async (t) => {
@@ -25,7 +36,7 @@ test("a continuation started from a subdirectory of the project continues its pa
 	assert.equal(run.status, 0, run.stderr);
 	const id = startedJob(run);
 	await ended(p, id);
-	assert.deepEqual([jobFile(p, id, "parent"), jobFile(p, id, "state")], [parent, "done"]);
+	assert.deepEqual([jobRecord(p, id)?.parent, jobState(p, id)], [parent, "done"]);
 });
 
 test("limen continue copies the parent's session transcript with the transcript's permission bits", async (t) => {
@@ -53,7 +64,7 @@ test("a job continued with limen continue starts an engine whose environment hol
 	// The fake engine records the names of its LIMEN_, HERDR_ and PI_ variables.
 	const names: string[] = JSON.parse(readFileSync(join(jobDir(p, id), "fake-env.json"), "utf8"));
 	assert.deepEqual(
-		[jobFile(p, id, "state"), names.includes("LIMEN_JOB_ID"), names.includes("LIMEN_CONTINUE")],
+		[jobState(p, id), names.includes("LIMEN_JOB_ID"), names.includes("LIMEN_CONTINUE")],
 		["done", true, false],
 	);
 });
@@ -65,7 +76,7 @@ test("limen continue of a finished job recorded with the removed engine devin re
 	await ended(p, parent);
 	// A Devin job's record names its engine and holds no session transcript, as the cut wrapper wrote it.
 	const dir = jobDir(p, parent);
-	writeFileSync(join(dir, "engine"), "devin\n");
+	await editRecord(dir, (record) => ({ route: { ...record.route, engine: "devin" } }));
 	for (const name of readdirSync(join(dir, "session"))) {
 		rmSync(join(dir, "session", name), { recursive: true });
 	}
@@ -83,7 +94,7 @@ test("limen continue of a finished job recorded with the removed engine omp refu
 	const parent = spawnJob(p, "commit");
 	await ended(p, parent);
 	// An OMP job's record names its engine and keeps the session transcript that OMP wrote.
-	writeFileSync(join(jobDir(p, parent), "engine"), "omp\n");
+	await editRecord(jobDir(p, parent), (record) => ({ route: { ...record.route, engine: "omp" } }));
 	const run = limen(p, ["continue", parent, "say continued"]);
 	assert.notEqual(run.status, 0, run.stdout);
 	assert.equal(outputText(run), "engine omp was removed with the OMP engine (R-004); use --engine pi\n");

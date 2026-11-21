@@ -186,8 +186,9 @@ async function recordNoJobAnswer(registered: string, claimWord: string, nonce: s
 	await mkdir(join(githubDir(root), "inflight"), { recursive: true });
 	await mkdir(gate);
 	await mkdir(join(githubDir(root), "outcomes"), { recursive: true });
-	// Not `exclusive`: its link gives the file a second name for a moment, and the poller's `readJobFile` reads only a
-	// file with one name, so a crash in that moment would hide the answer for ever. The gate above is the exclusion.
+	// Not `exclusive`: its link gives the file a second name for a moment, and the poller's `readJobFile`
+	// (src/job/record.ts) reads only a file with one name, so a crash in that moment would hide the answer for ever. The
+	// gate above is the exclusion.
 	await atomicWrite(
 		join(githubDir(root), "outcomes", `${claim.id}.json`),
 		`${JSON.stringify({ repo: binding.repo, id: claim.id, coordinator: binding.coordinator, nonce, answer: answer.trim() })}\n`,

@@ -5,7 +5,19 @@ import { generateKeyPairSync } from "node:crypto";
 import { link, mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
-import { git, jobDir, jobFile, LIMEN, limen, plant, requests, respond, startedJob, waitJob } from "./plant.ts";
+import {
+	git,
+	jobDir,
+	jobFile,
+	LIMEN,
+	limen,
+	plant,
+	requests,
+	respond,
+	startedJob,
+	waitJob,
+	writeRecord,
+} from "./plant.ts";
 
 const REPO = "acme/widget";
 const APP = 7;
@@ -164,9 +176,8 @@ test("S10: only an authorized request rings the doorbell, the App replies once e
 	};
 	await writeFile(join(p.root, ".limen/github/claims/31.json"), JSON.stringify(forged));
 	const fake = join(p.root, ".limen/jobs/forged");
-	await mkdir(fake, { recursive: true });
-	const fields = { "task.md": `${marker}\n`, candidate: SHA.head, base: SHA.base, state: "done\n" };
-	await Promise.all(Object.entries(fields).map(([name, text]) => writeFile(join(fake, name), text)));
+	await writeRecord(fake, { state: "done", candidate: SHA.head, base: SHA.base });
+	await writeFile(join(fake, "task.md"), `${marker}\n`);
 
 	await rm(join(jobDir(p, id), "result"), { force: true });
 	await symlink(key, join(jobDir(p, id), "result"));

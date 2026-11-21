@@ -5,9 +5,24 @@ import { existsSync } from "node:fs";
 import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
-import { git, jobDir, jobFile, limen, type Plant, plant, release, spawnJob, TICKET, until, waitJob } from "./plant.ts";
+import {
+	editRecord,
+	git,
+	jobDir,
+	jobRecord,
+	limen,
+	type Plant,
+	plant,
+	release,
+	spawnJob,
+	TICKET,
+	until,
+	waitJob,
+} from "./plant.ts";
 
 let p: Plant;
+/** The branch the job's record names. */
+const branchOf = (id: string): string => jobRecord(p, id)?.branch ?? "";
 let main: string;
 const job = { a: "", b: "", running: "", empty: "", failed: "", ticket: "" };
 const lines = (n: number) => "x\n".repeat(n);
@@ -33,7 +48,7 @@ function done(task: string, flags: readonly string[] = []): string {
 // Each spawn prunes the worktrees of finished jobs, so a branch gets its extra commit in a worktree of its own.
 async function amend(id: string, files: Readonly<Record<string, string>>): Promise<void> {
 	const worktree = join(p.parent, `amend-${id}`);
-	git(p.root, "worktree", "add", "-q", "--force", worktree, jobFile(p, id, "branch"));
+	git(p.root, "worktree", "add", "-q", "--force", worktree, branchOf(id));
 	for (const [path, text] of Object.entries(files)) {
 		await mkdir(dirname(join(worktree, path)), { recursive: true });
 		await writeFile(join(worktree, path), text);
@@ -53,7 +68,7 @@ function refused(id: string, env: Readonly<Record<string, string>> = {}, flags: 
 
 /** The files a job's branch adds on top of main. */
 function changed(id: string): string[] {
-	return git(p.root, "diff", "--name-only", `main...${jobFile(p, id, "branch")}`).split("\n");
+	return git(p.root, "diff", "--name-only", `main...${branchOf(id)}`).split("\n");
 }
 
 test("a running, an empty and a failed job are refused", async () => {
@@ -84,13 +99,10 @@ test("another target, a group member, a staged target and a dirty file in the me
 		join(p.root, ".limen/groups/g1/run.json"),
 		JSON.stringify({ root: p.root, members: [{ id: job.a, team: "t1" }] }),
 	);
-	await Promise.all([writeFile(join(record, "group"), "g1\n"), writeFile(join(record, "team"), "t1\n")]);
+	await editRecord(record, () => ({ group: "g1", team: "t1" }));
 	refused(job.a, { LIMEN_GROUP_ID: "g1", LIMEN_TEAM_ID: "t1", LIMEN_JOB_ID: job.a, LIMEN_CONTEXT_ROOT: p.root });
-	await Promise.all([
-		rm(join(p.root, ".limen/groups"), { recursive: true }),
-		rm(join(record, "group")),
-		rm(join(record, "team")),
-	]);
+	await rm(join(p.root, ".limen/groups"), { recursive: true });
+	await editRecord(record, () => ({ group: null, team: null }));
 
 	await writeFile(join(p.root, "staged.txt"), "staged\n");
 	git(p.root, "add", "staged.txt");
@@ -127,14 +139,14 @@ test("a done job fast-forwards without --yes off a TTY, a landed branch is delet
 	// B starts from the same main as A and removes test lines, leaving test/ still over the cap.
 	job.b = done("commit", ["--label", "demo · F001"]);
 	await amend(job.b, { "test/old.test.ts": lines(6) });
-	const a = git(p.root, "rev-parse", jobFile(p, job.a, "branch"));
+	const a = git(p.root, "rev-parse", branchOf(job.a));
 	limen(p, ["land", job.a]);
 	assert.equal(git(p.root, "rev-parse", "main"), a);
 	await writeFile(join(p.root, "draft.txt"), "another session drafts\n");
 	const status = git(p.root, "status", "--porcelain");
-	const b = git(p.root, "rev-parse", jobFile(p, job.b, "branch"));
+	const b = git(p.root, "rev-parse", branchOf(job.b));
 	limen(p, ["land", job.b, "--yes"]);
-	assert.equal(git(p.root, "branch", "--list", jobFile(p, job.a, "branch"), jobFile(p, job.b, "branch")), "");
+	assert.equal(git(p.root, "branch", "--list", branchOf(job.a), branchOf(job.b)), "");
 	assert.deepEqual(git(p.root, "log", "-1", "--format=%P", "main^").split(" "), [a, b]);
 	assert.equal(git(p.root, "show", "main:test/old.test.ts"), lines(6).trim());
 	assert.equal(git(p.root, "status", "--porcelain"), status);

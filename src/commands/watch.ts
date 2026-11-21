@@ -1,6 +1,8 @@
-import { access, mkdir, readdir, readFile, rm } from "node:fs/promises";
+import { access, mkdir, rm } from "node:fs/promises";
 import { atomicWrite } from "../atomic-write.ts";
+import { isTerminal } from "../job/job.ts";
 import { resolveJob } from "../job/lookup.ts";
+import { jobFolders, readRecord, transition } from "../job/record.ts";
 import type { Parsed } from "../parser.ts";
 import { limenRoot } from "../project/git.ts";
 import { currentNotificationSession, herdrWakePane } from "./spawn.ts";
@@ -37,9 +39,9 @@ async function changeSubscriptions(query: string | undefined, cwd: string, watch
 		return;
 	}
 	// The pane wake is sent once, when the job ends; a job that already ended will not send another.
-	const state = await text(`${named}/state`);
+	const state = (await readRecord(named))?.state;
 	const id = named.split("/").at(-1);
-	if (state && state !== "running") {
+	if (state && isTerminal(state)) {
 		console.log(`${id} already ${state}; no wake will follow, so read \`limen show ${id}\``);
 	}
 }
@@ -64,26 +66,25 @@ export async function watches(job: string, route: WakeRoute): Promise<boolean> {
 			() => false,
 		);
 	}
-	return (await text(`${job}/origin-pane`)) === route.pane;
+	return (await readRecord(job))?.origin.pane === route.pane;
 }
 async function jobDirectories(root: string, runningOnly: boolean): Promise<string[]> {
-	const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
-	const jobs = entries.filter((entry) => entry.isDirectory()).map((entry) => `${root}/${entry.name}`);
+	const jobs = (await jobFolders(root)).map((id) => `${root}/${id}`);
 	if (!runningOnly) {
 		return jobs;
 	}
-	const states = await Promise.all(jobs.map((job) => readFile(`${job}/state`, "utf8").catch(() => "")));
-	return jobs.filter((_job, index) => states[index]?.trim() === "running");
+	const states = await Promise.all(jobs.map(async (job) => (await readRecord(job))?.state));
+	return jobs.filter((_job, index) => states[index] === "running");
 }
 async function setSubscription(job: string, route: WakeRoute, watching: boolean): Promise<void> {
 	if ("pane" in route) {
-		// A job has one wake pane. Watching takes it over from the pane that spawned or last watched the job.
-		if (watching && !(await watches(job, route))) {
-			await atomicWrite(`${job}/origin-pane`, `${route.pane}\n`);
-		}
-		if (!watching && (await watches(job, route))) {
-			await rm(`${job}/origin-pane`, { force: true });
-		}
+		// A job has one wake pane. Watching takes it over from the pane that spawned or last watched the job; a job that
+		// ended keeps its record, so the pane of an ended job stays as it was.
+		const pane = watching ? route.pane : null;
+		await transition(job, {
+			from: ["starting", "running"],
+			set: (record) => (watching || record.origin.pane === route.pane ? { origin: { ...record.origin, pane } } : {}),
+		});
 		return;
 	}
 	const marker = `${job}/notify/subscribers/${route.session}`;
@@ -101,10 +102,4 @@ async function exclusiveWrite(path: string, content: string): Promise<void> {
 			throw error;
 		}
 	});
-}
-function text(path: string): Promise<string> {
-	return readFile(path, "utf8").then(
-		(value) => value.trim(),
-		() => "",
-	);
 }

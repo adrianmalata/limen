@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { outputText } from "../../src/outcome.ts";
-import { jobDir, limen, plant, release, spawnJob, until, waitJob } from "../plant.ts";
+import { editRecord, jobDir, limen, plant, release, spawnJob, until, waitJob } from "../plant.ts";
 
 const AGENTS_TEMPLATE = fileURLToPath(new URL("../../templates/agents.md", import.meta.url));
 const STUB_TEMPLATE = fileURLToPath(new URL("../../templates/limen-extension.ts", import.meta.url));
@@ -173,7 +173,8 @@ test("limen status names a running job's note by its file, advisory", async (t) 
 	const dir = jobDir(p, id);
 	await until(dir, () => existsSync(join(dir, "fake-blocked-1")));
 	// The note the detached wrapper writes when it cannot observe a tool stall (src/runtime/wrapper.ts).
-	writeFileSync(join(dir, "advisory"), "tool stall observation uncertain: CPU or process identity unavailable\n");
+	const text = "tool stall observation uncertain: CPU or process identity unavailable";
+	await editRecord(dir, () => ({ advisory: { text, at: new Date().toISOString() } }));
 	const run = limen(p, ["status"]);
 	await release(dir);
 	assert.equal(run.status, 0, run.stderr);
@@ -188,7 +189,7 @@ test("limen status --all prints the summary without the 7-day window and under i
 	const recent = spawnJob(p, "say recent", ["--label", "recent"]);
 	assert.deepEqual([waitJob(p, old), waitJob(p, recent)], ["done", "done"]);
 	// A job that ended eight days ago is outside the window of the plain summary.
-	writeFileSync(join(jobDir(p, old), "finished-at"), `${new Date(Date.now() - 8 * 86_400_000).toISOString()}\n`);
+	await editRecord(jobDir(p, old), () => ({ finishedAt: new Date(Date.now() - 8 * 86_400_000).toISOString() }));
 	assert.ok(limen(p, ["status"]).stdout.includes("Older: 1 record (limen status --all)"));
 	const run = limen(p, ["status", "--all"]);
 	assert.equal(run.status, 0, run.stderr);

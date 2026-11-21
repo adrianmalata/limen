@@ -5,6 +5,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { atomicWrite } from "../atomic-write.ts";
 import { exception } from "../config.ts";
+import { readJobFile } from "../job/record.ts";
 import { withLock } from "../lock.ts";
 import { EXIT_CODES, failureOf, LimenError } from "../outcome.ts";
 import {
@@ -19,7 +20,6 @@ import {
 	matchedGithubJob,
 	originRepository,
 	readBinding,
-	readJobFile,
 } from "./github-review.ts";
 
 const API = "https://api.github.com";

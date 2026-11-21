@@ -1,11 +1,12 @@
 import { execFile, spawn, spawnSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
-import { appendFile, mkdir, readdir, readFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { atomicWrite } from "../atomic-write.ts";
 import { testKnob } from "../config.ts";
 import { closedFeatures, closedJobFeatures } from "../job/job.ts";
+import { jobFolders, readRecord } from "../job/record.ts";
 
 export type HerdrPlace = {
 	readonly workspace: string;
@@ -88,8 +89,8 @@ export async function closeJobTab(herdr: string, jobDir: string, tab: string): P
 	}
 	await note(`failed after one retry (${refusal})`);
 	// The tab stays open; its label must stop saying running.
-	const [label, state] = await Promise.all([text(`${jobDir}/label`), text(`${jobDir}/state`)]);
-	advisoryCall(herdr, ["tab", "rename", tab, `${label || basename(jobDir)} · ${state || "finished"}`]);
+	const record = await readRecord(jobDir);
+	advisoryCall(herdr, ["tab", "rename", tab, `${record?.label || basename(jobDir)} · ${record?.state ?? "finished"}`]);
 }
 
 /** The seat's notice as a Herdr notification; false when Herdr is missing or cannot show it. */
@@ -149,7 +150,8 @@ export async function openJobPlace(input: {
 	if (!herdr) {
 		throw new Error("herdr is not available");
 	}
-	const label = (await text(`${input.jobDir}/label`)) || basename(input.jobDir);
+	const record = await readRecord(input.jobDir);
+	const label = record?.label || basename(input.jobDir);
 	const recorded = await readPlace(input.jobDir);
 	try {
 		if (recorded && tabExists(herdr, recorded.tab)) {
@@ -159,7 +161,7 @@ export async function openJobPlace(input: {
 	} catch (error) {
 		await skip(input.jobDir, error instanceof Error ? error.message : String(error));
 	}
-	const state = (await text(`${input.jobDir}/state`)) || "done";
+	const state = record?.state ?? "done";
 	const place = await createTab({
 		jobDir: input.jobDir,
 		label: `${label} · ${state}`,
@@ -190,14 +192,10 @@ export async function closeFeatureTabs(input: { readonly root: string; readonly 
 		throw new Error("herdr is not available");
 	}
 	const coordinator = process.env.HERDR_TAB_ID?.trim();
-	const entries = await readdir(`${input.root}/.limen/jobs`, { withFileTypes: true }).catch(() => []);
 	let closed = 0;
-	for (const entry of entries) {
-		if (!entry.isDirectory()) {
-			continue;
-		}
-		const jobDir = `${input.root}/.limen/jobs/${entry.name}`;
-		if (!closedJobFeatures(await text(`${jobDir}/label`), entry.name, closedSet).includes(feature)) {
+	for (const id of await jobFolders(`${input.root}/.limen/jobs`)) {
+		const jobDir = `${input.root}/.limen/jobs/${id}`;
+		if (!closedJobFeatures((await readRecord(jobDir))?.label ?? "", id, closedSet).includes(feature)) {
 			continue;
 		}
 		const places = await Promise.all([readPlace(jobDir), readPlace(jobDir, "diff")]);
@@ -236,11 +234,11 @@ async function createTab(input: {
 		return;
 	}
 	try {
+		const record = input.role ? undefined : await readRecord(input.jobDir);
 		const { workspace, seeded } = ensureWorkspace(
 			herdr,
 			input.workspaceCwd ?? input.cwd,
-			input.role ??
-				((await text(`${input.jobDir}/role`)) || ((await text(`${input.jobDir}/candidate`)) ? "reviewer" : "worker")),
+			input.role ?? (record?.role || (record?.candidate ? "reviewer" : "worker")),
 		);
 		const created = call(herdr, [
 			"tab",

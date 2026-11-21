@@ -1,11 +1,12 @@
 import { execFile, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, type FSWatcher, mkdirSync, readdirSync, readFileSync, watch } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { atomicWriteSync, TEMPORARY_NAME } from "../src/atomic-write.ts";
 import { transport } from "../src/config.ts";
 import { coordinatorRegistration } from "../src/integrations/coordinator-registration.ts";
 import { herdrBinary } from "../src/integrations/herdr.ts";
 import { closedFeatures, closedJobFeatures, derivePulse, isTerminal, type Pulse, SESSION_ID } from "../src/job/job.ts";
+import { isProgressName, type JobRecord, jobFoldersSync, readProgressSync, readRecordSync } from "../src/job/record.ts";
 import { openChecks } from "../src/job/task-note.ts";
 import {
 	CLAIM_STALE_MS,
@@ -33,6 +34,7 @@ import {
 } from "../src/job/wake-delivery.ts";
 import { advisoryWake, completionWake } from "../src/job/wake-text.ts";
 import { removedCommand } from "../src/old-names.ts";
+import { LimenError } from "../src/outcome.ts";
 import { unlandedBranches } from "../src/project/git.ts";
 import { registerProject } from "../src/project/seat.ts";
 import {
@@ -43,7 +45,7 @@ import {
 	piContext,
 	piEvent,
 } from "../src/runtime/pi-api.ts";
-import { ownerAlive, reapDeadJobs } from "../src/runtime/reap.ts";
+import { ownerState, reapDeadJobs } from "../src/runtime/reap.ts";
 
 const CACHE_REFRESH_MS = 30_000;
 const SWEEP_MS = 500;
@@ -100,6 +102,8 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 		| { readonly key: string; readonly until: number; readonly jobs: readonly FinishedJob[] }
 		| undefined;
 	const firstDead = new Map<string, number>();
+	// The damaged records this session already named, so each one is reported once.
+	const reportedDamage = new Set<string>();
 	// Records with nothing left to deliver here, oldest first. A watch event, a fallback due time, or the refresh reopens one.
 	const settled = new Set<string>();
 	const fallbackDue = new Map<string, number>();
@@ -274,6 +278,8 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 		fallbackDue.clear();
 		unowned.clear();
 	};
+	// What the job's completion still asks of this session; a damaged record asks nothing until it changes again.
+	const leftFor = (job: string) => undamaged(job, () => deliveryLeft(job, sessionId), "nothing");
 	const settle = (jobs: string, id: string, left: ReturnType<typeof deliveryLeft>) => {
 		const job = join(jobs, id);
 		if (left === "open") {
@@ -283,7 +289,7 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 			unowned.add(id);
 		} else if (left === "fallback") {
 			// A due fallback stays open while the session is busy or muted; one inside its grace waits for its due time.
-			const due = fallbackDueAt(job);
+			const due = fallbackDueAt(job, recordOf(job)?.finishedAt ?? null);
 			if (due <= Date.now()) {
 				return;
 			}
@@ -307,7 +313,7 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 			}
 			share -= 1;
 			reopen(id);
-			if (deliveryLeft(join(jobs, id), sessionId) === "nothing") {
+			if (leftFor(join(jobs, id)) === "nothing") {
 				settled.add(id);
 			}
 		}
@@ -325,10 +331,10 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 		if (!herdr || !tab) {
 			return;
 		}
-		const count = running.filter((id) => text(join(jobs, id, "origin-tab")) === tab).length;
+		const count = running.filter((id) => recordOf(join(jobs, id))?.origin.tab === tab).length;
 		// The finished count is news since the owner last spoke; the job line keeps naming older finished jobs.
 		const fresh = finished.filter(
-			({ id, finishedAt }) => finishedAt >= ownerTurnAt && text(join(jobs, id, "origin-tab")) === tab,
+			({ id, finishedAt }) => finishedAt >= ownerTurnAt && recordOf(join(jobs, id))?.origin.tab === tab,
 		).length;
 		const counts = [count > 0 ? `${count} running` : "", fresh > 0 ? `${fresh} finished` : ""].filter(Boolean);
 		const tail = counts.length ? ` · ${counts.join(" · ")}` : "";
@@ -379,7 +385,7 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 		if (!claimMarker(job, "herdr", slot)) {
 			return;
 		}
-		const done = state === "done" && openChecks(job).length > 0 ? OPEN_DONE : PLAIN_DONE;
+		const done = state === "done" && openChecks(recordOf(job)).length > 0 ? OPEN_DONE : PLAIN_DONE;
 		// An advisory is a note on a running job, not a state; its title reads as the seat notification's does.
 		const headline = state === "done" ? done.title : state === "advisory" ? "· advisory" : `is ${state}`;
 		herdrCall([
@@ -438,9 +444,10 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 			return false;
 		}
 		const job = join(jobs, id);
-		const label = text(join(job, "label")) || id;
-		const branch = text(join(job, "branch"));
-		const repo = text(join(job, "repo"));
+		const record = recordOf(job);
+		const label = record?.label || id;
+		const branch = record?.branch ?? "";
+		const repo = record?.repo ?? "";
 		const slot = fallback ? "_fallback" : sessionId;
 		if (!fallback && deliveryExists(job, sessionId)) {
 			return false;
@@ -485,7 +492,15 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 				!existsSync(join(job, "notify", "delivered", "_fallback"))
 			);
 		};
-		const message = completionWake(job, label, state, id, branch, repo, { fallback, session: sessionId });
+		// The wake text reads the record again; a record damaged since then sends nothing.
+		const message = undamaged(
+			job,
+			() => completionWake(job, label, state, id, branch, repo, { fallback, session: sessionId }),
+			"",
+		);
+		if (!message) {
+			return false;
+		}
 		const routed = claimDelivery(
 			job,
 			slot,
@@ -495,7 +510,7 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 				try {
 					session?.ui.notify(
 						state === "done"
-							? `limen: ${label} ${openChecks(job).length ? OPEN_DONE.toast : PLAIN_DONE.toast} (${id})`
+							? `limen: ${label} ${openChecks(recordOf(job)).length ? OPEN_DONE.toast : PLAIN_DONE.toast} (${id})`
 							: `limen: ${label} is ${state}; inspect failure (${id})`,
 						"info",
 					);
@@ -517,14 +532,15 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 			return false;
 		}
 		const job = join(jobs, id);
-		const advisory = text(join(job, "advisory"));
+		const record = recordOf(job);
+		const advisory = record?.advisory?.text;
 		if (!advisory) {
 			return false;
 		}
 		const slots = (names: readonly string[]) => names.filter((name) => receiptFamily(name) === "_advisory");
-		const label = text(join(job, "label")) || id;
-		const branch = text(join(job, "branch"));
-		const repo = text(join(job, "repo"));
+		const label = record.label || id;
+		const branch = record.branch ?? "";
+		const repo = record.repo ?? "";
 		const slot = `_advisory.${fallback ? "_fallback" : sessionId}`;
 		if (!fallback && deliveryExists(job, slot)) {
 			return false;
@@ -549,7 +565,8 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 			if (recoverClaims(job, (claim) => pendingDeliveries.has(claim))) {
 				blocked();
 			}
-			if (stateOf(jobs, id) !== "running" || !routable(job) || !text(join(job, "advisory"))) {
+			const now = recordOf(job);
+			if (now?.state !== "running" || !routable(job) || !now.advisory) {
 				return false;
 			}
 			if (fallback) {
@@ -595,7 +612,7 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 		if (!session || !message || startedEarlier.has(id) || deliveryExists(job, slot)) {
 			return false;
 		}
-		const label = text(join(job, "label")) || id;
+		const label = recordOf(job)?.label || id;
 		const blocked = () => {
 			try {
 				session?.ui.notify(`limen: ${label} start notice was unconfirmed twice; delivery stopped (${id})`, "info");
@@ -607,28 +624,31 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 			if (recoverClaims(job, (claim) => pendingDeliveries.has(claim))) {
 				blocked();
 			}
-			return stateOf(jobs, id) === "running" && subscribed(job, sessionId) && !existsSync(join(job, "queued"));
+			const now = recordOf(job);
+			return now?.state === "running" && subscribed(job, sessionId) && now.queued === null;
 		};
 		return claimDelivery(job, slot, eligible, () => injectWake(message), deliveryCallbacks(message, blocked));
 	};
 	// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: split pending: job observer in the wake hook
 	const observe = (jobs: string, id: string) => {
-		if (existsSync(join(jobs, id, "group"))) {
+		const job = join(jobs, id);
+		const record = recordOf(job);
+		// A group member reports through its group; a migrated record is history only (D-057 (4)).
+		if (!record || record.group || record.migrated) {
 			return;
 		}
-		if (!session || !routable(join(jobs, id))) {
+		if (!session || !routable(job)) {
 			return;
 		}
-		const state = stateOf(jobs, id);
+		const state = record.state;
 		if (!isObservable(state)) {
 			return;
 		}
-		const job = join(jobs, id);
 		const own = subscribed(job, sessionId);
-		const label = text(join(job, "label")) || id;
-		const branch = text(join(job, "branch"));
+		const label = record.label || id;
+		const branch = record.branch ?? "";
 		// A job in the start queue has not started: the toast waits for its handshake and for it to leave the queue.
-		const waiting = !text(join(job, "pid")) || existsSync(join(job, "queued"));
+		const waiting = !record.identity?.pid || record.queued !== null;
 		if (own && state === "running" && !muted && !waiting && claimMarker(job, "started", sessionId)) {
 			try {
 				session.ui.notify(`limen: ${label} started (${id})`, "info");
@@ -643,12 +663,12 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 			if (own && !waiting && existsSync(join(job, "start-notice"))) {
 				sendStart(jobs, id);
 			}
-			if (!text(join(job, "advisory"))) {
+			if (!record.advisory) {
 				return;
 			}
 			if (own) {
 				sendAdvisory(jobs, id, "own");
-			} else if (oldEnoughForFallback(job, join(job, "advisory"))) {
+			} else if (oldEnoughForFallback(job, record.advisory.at)) {
 				sendAdvisory(jobs, id, "fallback");
 			}
 			return;
@@ -658,7 +678,7 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 		}
 		if (own) {
 			sendCompletion(jobs, id, state, "own");
-		} else if (oldEnoughForFallback(job)) {
+		} else if (oldEnoughForFallback(job, record.finishedAt)) {
 			sendCompletion(jobs, id, state, "fallback");
 		}
 	};
@@ -716,12 +736,17 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 			if (initialSweep) {
 				initialSweep = false;
 				for (const id of running) {
-					if (text(join(jobs, id, "advisory"))) {
+					if (recordOf(join(jobs, id))?.advisory) {
 						observe(jobs, id);
 					}
 				}
 			}
-			await reapDeadJobs(jobs, firstDead, Date.now(), running);
+			await reapDeadJobs(jobs, firstDead, Date.now(), running).catch((error: unknown) => {
+				// The reaper reads only records this tick read as running; one damaged since then is named on the next tick.
+				if (!(error instanceof LimenError && error.code === "BAD_DATA")) {
+					throw error;
+				}
+			});
 			if (!active || generation !== sessionGeneration) {
 				return;
 			}
@@ -730,19 +755,22 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 				if (stateOf(jobs, id) === "running" && !routable(job)) {
 					enrollLegacyRunning(job);
 				}
-				if (deliveryLeft(job, sessionId) === "nothing") {
+				if (leftFor(job) === "nothing") {
 					settled.add(id);
 					continue;
 				}
 				observe(jobs, id);
 				// Observing can claim or deliver, so the verdict is read again.
-				settle(jobs, id, deliveryLeft(job, sessionId));
+				settle(jobs, id, leftFor(job));
 			}
 			await updateStatus(
 				jobs,
 				running.filter((id) => stateOf(jobs, id) === "running"),
 				generation,
 			);
+			for (const line of damagedRecords(reportedDamage)) {
+				session?.ui.notify(line, "warning");
+			}
 		} catch {
 			// Display and delivery are advisory; durable state remains on disk.
 		} finally {
@@ -793,22 +821,36 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 		}
 		scheduleSweep();
 	};
+	/**
+	 * The project of `context`, or undefined outside one. A project an older Limen recorded is migrated first (D-057
+	 * (6)): the hook does nothing there and says so once.
+	 */
+	const projectToWake = (context: Pick<PiContext, "cwd" | "ui">): string | undefined => {
+		const root = projectRoot(context.cwd);
+		const unmigrated = root && notMigratedReason(join(root, ".limen", "jobs"));
+		if (unmigrated) {
+			stopTimers();
+			context.ui.notify(unmigrated, "warning");
+			return undefined;
+		}
+		return root;
+	};
 	pi.on("session_start", (_event, rawContext) => {
 		if (transport("LIMEN_JOB") === "1") {
 			return;
 		}
 		const context = piContext("session_start", rawContext, ["cwd", "isIdle", "sessionManager", "ui"]);
-		const root = projectRoot(context.cwd);
+		const root = projectToWake(context);
 		if (!root) {
 			return;
 		}
+		const jobs = join(root, ".limen", "jobs");
 		coordinator.start(root, context);
 		stopTimers();
 		const id = context.sessionManager.getSessionId();
 		if (!SESSION_ID.test(id)) {
 			return;
 		}
-		const jobs = join(root, ".limen", "jobs");
 		try {
 			mkdirSync(jobs, { recursive: true });
 		} catch {
@@ -831,6 +873,7 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 		pendingDeliveries.clear();
 		activeDeliveries.clear();
 		firstDead.clear();
+		reportedDamage.clear();
 		reopenAll();
 		refreshTicks = 0;
 		listing = undefined;
@@ -841,17 +884,18 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 		const tab = process.env.HERDR_TAB_ID?.trim();
 		for (const jobId of readdirSync(jobs)) {
 			const job = join(jobs, jobId);
-			if (stateOf(jobs, jobId) !== "running") {
+			const record = recordOf(job);
+			if (record?.state !== "running") {
 				continue;
 			}
 			if (!routable(job)) {
 				enrollLegacyRunning(job);
 			}
 			// A job recording origin-pane is woken through Herdr at finalize; subscribing here would wake the same coordinator twice.
-			if (tab && text(join(job, "origin-tab")) === tab && !text(join(job, "origin-pane"))) {
+			if (tab && record.origin.tab === tab && !record.origin.pane) {
 				subscribeSession(job, id);
 			}
-			if (subscribed(job, id) && text(join(job, "pid")) && !existsSync(join(job, "queued"))) {
+			if (subscribed(job, id) && record.identity?.pid && record.queued === null) {
 				claimMarker(job, "started", id);
 				startedEarlier.add(jobId);
 			}
@@ -991,12 +1035,56 @@ function collectSweep(
 	}
 	return { observe, running };
 }
+/** Whether a watch event names a job's progress file, which changes per stream event and is no news (D-057 (7.1)). */
 export function progressFilename(filename: string | null): boolean {
 	if (!filename) {
 		return false;
 	}
 	// atomicWrite renames a temp sibling into place; the temp name is the same progress write.
-	return /^[^/]+\/(activity|last-tool)$/.test(filename.replaceAll("\\", "/").replace(TEMPORARY_NAME, ""));
+	const parts = filename.replaceAll("\\", "/").replace(TEMPORARY_NAME, "").split("/");
+	return parts.length === 2 && isProgressName(parts[1] ?? "");
+}
+/** Why the hook does nothing in this project: a job folder of an older Limen (D-057 (6)); undefined when it can run. */
+function notMigratedReason(jobs: string): string | undefined {
+	try {
+		jobFoldersSync(jobs);
+		return undefined;
+	} catch (error) {
+		if (error instanceof LimenError && error.code === "NOT_MIGRATED") {
+			return `limen: wakes are off in this project: ${error.message}; run ${error.next}, then limen migrate, then reload this coordinator session (/reload): the hook checks only at session start`;
+		}
+		// A folder the hook cannot list is handled where the hook makes it; this check only names an older record.
+		return undefined;
+	}
+}
+/** Each damaged record the hook read, by job id, so that it reports each one once (T-01). */
+const damaged = new Map<string, string>();
+/**
+ * What `read` gives for the job; when its record is damaged, `instead`, so one bad record does not stop the wakes of
+ * every other job, and `damagedRecords` names it.
+ */
+function undamaged<T>(job: string, read: () => T, instead: T): T {
+	try {
+		return read();
+	} catch (error) {
+		if (error instanceof LimenError && error.code === "BAD_DATA") {
+			damaged.set(basename(job), error.message);
+			return instead;
+		}
+		throw error;
+	}
+}
+/** The job's record; a damaged one counts as none here (`undamaged`). */
+function recordOf(job: string): JobRecord | undefined {
+	return undamaged(job, () => readRecordSync(job), undefined);
+}
+/** The damaged records found since the last call, each reported once. */
+function damagedRecords(reported: Set<string>): string[] {
+	const fresh = [...damaged].filter(([id]) => !reported.has(id));
+	for (const [id] of fresh) {
+		reported.add(id);
+	}
+	return fresh.map(([id, message]) => `limen: the record of job ${id} is damaged: ${message}`);
 }
 /** The job line: each running job with its pulse, then each finished job with its state, until it lands or closes. */
 async function jobDisplay(
@@ -1016,9 +1104,9 @@ async function jobDisplay(
 > {
 	const running = await Promise.all(
 		runningIds.map(async (id) => {
-			const label = text(join(jobs, id, "label")) || id;
+			const label = recordOf(join(jobs, id))?.label || id;
 			const pulse = await pulseOf(jobs, id);
-			const tool = text(join(jobs, id, "last-tool"));
+			const tool = readProgressSync(join(jobs, id))?.lastTool ?? "";
 			const watching = subscribed(join(jobs, id), session);
 			return {
 				label,
@@ -1055,6 +1143,21 @@ async function jobDisplay(
 		watched: running.filter(({ watching }) => watching).length,
 	};
 }
+/**
+ * Whether this coordinator answers for the job's end: a terminal record of no group member and no migrated history
+ * (D-057 (4)), spawned from its tab or watched by its session.
+ */
+function answersFor(
+	job: string,
+	record: JobRecord | undefined,
+	tab: string | undefined,
+	session: string,
+): record is JobRecord {
+	if (!(record && isTerminal(record.state)) || record.group || record.migrated) {
+		return false;
+	}
+	return Boolean(tab && record.origin.tab === tab) || subscribed(job, session);
+}
 /** Finished jobs this coordinator still answers for: terminal, spawned from its tab or watched by its session, not landed, and not closed. */
 function finishedJobs(jobs: string, tab: string | undefined, session: string): FinishedJob[] {
 	const root = dirname(dirname(jobs));
@@ -1065,26 +1168,22 @@ function finishedJobs(jobs: string, tab: string | undefined, session: string): F
 	> = [];
 	for (const id of readdirSync(jobs).sort()) {
 		const job = join(jobs, id);
-		const state = text(join(job, "state"));
-		if (!isTerminal(state) || existsSync(join(job, "group"))) {
+		const record = recordOf(job);
+		if (!answersFor(job, record, tab, session)) {
 			continue;
 		}
-		if (!(tab && text(join(job, "origin-tab")) === tab) && !subscribed(job, session)) {
-			continue;
-		}
-		const label = text(join(job, "label")) || id;
+		const label = record.label || id;
 		if (closedJobFeatures(label, id, closed).length > 0) {
 			continue;
 		}
-		const finishedAt = Date.parse(text(join(job, "finished-at"))) || 0;
 		candidates.push({
 			id,
 			label,
-			state,
-			finishedAt,
-			branch: text(join(job, "branch")),
-			repo: text(join(job, "repo")),
-			landable: text(join(job, "commits")) !== "",
+			state: record.state,
+			finishedAt: Date.parse(record.finishedAt ?? "") || 0,
+			branch: record.branch ?? "",
+			repo: record.repo ?? "",
+			landable: (record.commits?.length ?? 0) > 0,
 		});
 	}
 	// Only a job with commits can land. Without commits it stays until its feature closes or `limen prune` retires the record.
@@ -1110,13 +1209,12 @@ function finishedJobs(jobs: string, tab: string | undefined, session: string): F
 	return candidates.filter(({ id }) => !landed.has(id));
 }
 async function pulseOf(jobs: string, id: string): Promise<Pulse> {
-	const pid = Number(text(join(jobs, id, "pid")));
-	const recorded = Number.isSafeInteger(pid) && pid > 0 ? pid : undefined;
-	const activity = text(join(jobs, id, "activity"));
+	const record = recordOf(join(jobs, id));
+	const activity = readProgressSync(join(jobs, id))?.activity;
 	return derivePulse({
-		alive: await ownerAlive(join(jobs, id)),
-		queued: existsSync(join(jobs, id, "queued")),
-		...(recorded !== undefined ? { pid: recorded } : {}),
+		starting: !record || record.state === "starting",
+		owner: await ownerState(record?.identity ?? null),
+		queued: (record?.queued ?? null) !== null,
 		...(activity ? { activity } : {}),
 	});
 }
@@ -1203,8 +1301,9 @@ function shortLabel(label: string): string {
 	return words ? `${words} · ${feature.toUpperCase()}` : feature.toUpperCase();
 }
 function stateOf(jobs: string, id: string): string {
-	return text(join(jobs, id, "state"));
+	return recordOf(join(jobs, id))?.state ?? "";
 }
+/** A content file of a job (its start notice), trimmed; "" when it is missing. */
 function text(path: string): string {
 	if (!existsSync(path)) {
 		return "";

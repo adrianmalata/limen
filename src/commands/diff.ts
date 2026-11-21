@@ -1,23 +1,22 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
 import { testKnob } from "../config.ts";
 import { herdrAvailable, openDiffTab } from "../integrations/herdr.ts";
 import { resolveJob } from "../job/lookup.ts";
+import { readRecord } from "../job/record.ts";
 import type { Parsed } from "../parser.ts";
 import { limenRoot, workspaceRepository } from "../project/git.ts";
 
 /** `limen diff`: the change a job made against its base, in Hunk or as the git command that shows it. */
 export async function diffCommand(values: Parsed, cwd: string): Promise<undefined> {
 	const { id, jobDir } = await resolveJob(cwd, values.get("job") ?? "", "read");
-	const [base, branch, worktree, state, repo, label] = await Promise.all([
-		text(`${jobDir}/base`),
-		text(`${jobDir}/branch`),
-		text(`${jobDir}/worktree`),
-		text(`${jobDir}/state`),
-		text(`${jobDir}/repo`),
-		text(`${jobDir}/label`),
-	]);
+	const record = await readRecord(jobDir);
+	const base = record?.base ?? "";
+	const branch = record?.branch ?? "";
+	const worktree = record?.worktree ?? "";
+	const repo = record?.repo ?? "";
+	const label = record?.label ?? "";
+	const state = record?.state;
 	if (!base || !branch) {
 		throw new Error(`job ${id} has no recorded ${base ? "branch" : "base"}`);
 	}
@@ -70,11 +69,4 @@ export function hunkBinary(): string | undefined {
 
 function shellArg(value: string): string {
 	return /^[A-Za-z0-9_./:@+~-]+$/.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`;
-}
-
-function text(path: string): Promise<string> {
-	return readFile(path, "utf8").then(
-		(value) => value.trim(),
-		() => "",
-	);
 }

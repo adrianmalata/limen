@@ -1,8 +1,8 @@
 import { existsSync, readdirSync, realpathSync } from "node:fs";
-import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { exception } from "../config.ts";
+import type { JobRecord } from "../job/record.ts";
 import { refuseRemovedEngine } from "../old-names.ts";
 
 export type EngineId = "pi";
@@ -56,8 +56,9 @@ export function resolveSpawnEngine(flag: string): EngineProfile {
 	refuseRemovedEngine(raw, "argument");
 	throw new Error("--engine must be pi");
 }
-export async function jobProfile(jobDir: string): Promise<EngineProfile> {
-	return engineProfile((await readFile(`${jobDir}/engine`, "utf8").catch(() => "pi")).trim() || "pi");
+/** The engine of the job's recorded route; a record without one ran on pi. */
+export function jobProfile(record: JobRecord | undefined): EngineProfile {
+	return engineProfile(record?.route.engine || "pi");
 }
 /**
  * The model of a continuation without `--model`: `LIMEN_WORKER_MODEL`, else a package default. Spawn requires

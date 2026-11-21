@@ -56,6 +56,8 @@ const GENERAL = [
 	"      the board with NOW and PROVEN; --write rewrites them in spec/build.md",
 	"  limen prune [--retire] [--dry-run]",
 	"      remove finished worktrees; --retire deletes records of landed jobs",
+	"  limen migrate [--dry-run]",
+	"      move job records an older Limen wrote into record.json; --dry-run writes nothing",
 	"",
 	"Tickets: files under spec/features/",
 	'  limen ticket new "what becomes true" [--lane planned|active] [--touches <ids>]',

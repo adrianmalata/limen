@@ -15,7 +15,8 @@ import {
 	engineEvents,
 	git,
 	jobDir,
-	jobFile,
+	jobRecord,
+	jobState,
 	limen,
 	type Plant,
 	plant,
@@ -23,6 +24,7 @@ import {
 	startedJob,
 	TICKET,
 	until,
+	waitJob,
 } from "../plant.ts";
 
 const WAKE = fileURLToPath(new URL("../../hook/wake.ts", import.meta.url));
@@ -70,21 +72,17 @@ const ROUTE = ["--engine", "pi", "--provider", "p", "--model", "m", "--thinking"
 /** A job id that names no job: a refusal reads no job record, so the id need not exist. */
 const NO_JOB = "2026-11-18-none-1a2b3c4d";
 
-/** Resolves once the job's `state` is terminal, the commit point of its record. */
+/** Resolves once the job's record is terminal, the commit point of its end. */
 function ended(p: Plant, id: string): Promise<void> {
-	return until(jobDir(p, id), () => isTerminal(jobFile(p, id, "state")));
+	return until(jobDir(p, id), () => isTerminal(jobState(p, id)));
 }
 
 /**
- * Resolves once the job's `state` is terminal and its wrapper removed `pid` and `born`, the last changes the wrapper
- * makes to the job's folder, so a snapshot of `.limen/` taken after it holds still.
+ * Resolves once the job's record is terminal and its wrapper has exited, after the last change the wrapper makes to
+ * the job's folder, so a snapshot of `.limen/` taken after it holds still.
  */
-function settled(p: Plant, id: string): Promise<void> {
-	const dir = jobDir(p, id);
-	return until(
-		dir,
-		() => isTerminal(jobFile(p, id, "state")) && !existsSync(join(dir, "pid")) && !existsSync(join(dir, "born")),
-	);
+async function settled(p: Plant, id: string): Promise<void> {
+	waitJob(p, id);
 }
 
 /** Every path under `dir` with a digest of its content, so a write, a new path or a removal shows as a difference. */
@@ -181,7 +179,7 @@ test("spawn --label --tab reads --tab as the label and starts the job", async (t
 	t.after(() => p.cleanup());
 	const id = spawnJob(p, "work", ["--label", "--tab"]);
 	await ended(p, id);
-	assert.deepEqual([jobFile(p, id, "label"), jobFile(p, id, "state")], ["--tab", "done"]);
+	assert.deepEqual([jobRecord(p, id)?.label, jobState(p, id)], ["--tab", "done"]);
 });
 
 test("limen planning, highlight, ticket-author and wait refuse with one removal line each and leave .limen/ unchanged", async (t) => {
@@ -240,10 +238,7 @@ test("continue --label --review reads --review as the label and continues the jo
 	assert.equal(run.status, 0, run.stderr);
 	const id = startedJob(run);
 	await ended(p, id);
-	assert.deepEqual(
-		[jobFile(p, id, "label"), jobFile(p, id, "role"), jobFile(p, id, "state")],
-		["--review", "worker", "done"],
-	);
+	assert.deepEqual([jobRecord(p, id)?.label, jobRecord(p, id)?.role, jobState(p, id)], ["--review", "worker", "done"]);
 });
 
 test("limen group status --json refuses with one removal line before a group id is read and leaves .limen/ unchanged", async (t) => {

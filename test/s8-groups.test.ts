@@ -14,6 +14,7 @@ import {
 	git,
 	jobDir,
 	jobFile,
+	jobRecord,
 	limen,
 	type Plant,
 	plant,
@@ -159,9 +160,9 @@ test("a member's finish completes while another process holds the cabinet; its l
 		return true;
 	});
 	await release(jobDir(p, roster.worker1));
+	// `waitJob` returns once the wrapper the record names has exited, after its lifecycle step: the step skipped the held
+	// cabinet.
 	assert.equal(waitJob(p, roster.worker1), "done");
-	// The finish removes the job's pid file after its lifecycle step, so the step skipped the held cabinet.
-	await until(jobDir(p, roster.worker1), () => !existsSync(join(jobDir(p, roster.worker1), "pid")));
 	await rm(lock, { recursive: true });
 	// `group status` publishes lifecycle only when it gets the cabinet, and live member hooks take it for a moment, so read
 	// until the event is there; one more read must still show exactly one. Each event is one JSON file in the cabinet.
@@ -224,12 +225,12 @@ test("a second group runs two routes through draft, critique and final, and the 
 
 test("close refuses a member with uncommitted work until it is clean", async () => {
 	assert.equal(limen(p, ["group", "stop", group], { env: LEAD }).status, 0);
-	const dirty = join(jobFile(p, roster.coordinator2, "worktree"), "recovery.txt");
+	const dirty = join(jobRecord(p, roster.coordinator2)?.worktree ?? "", "recovery.txt");
 	await writeFile(dirty, "keep me\n");
 	assert.equal(limen(p, ["group", "close", group], { env: LEAD }).status, 1);
 	assert.equal(JSON.parse(readFileSync(join(cabinet(), "run.json"), "utf8")).closed, false);
 	await rm(dirty);
-	await rm(join(jobFile(p, roster.worker2, "worktree"), ".git")); // a folder a prune race left: no Git work in it
+	await rm(join(jobRecord(p, roster.worker2)?.worktree ?? "", ".git")); // a folder a prune race left: no Git work in it
 	limen(p, ["group", "close", group], { env: LEAD });
 	assert.equal(JSON.parse(readFileSync(join(cabinet(), "run.json"), "utf8")).closed, true);
 	// The story ends here: the lead's last turn ends its session, which the gate held open since the start.
