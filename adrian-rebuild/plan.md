@@ -82,8 +82,9 @@ rekordzie joba, `github resolve` pod tą blokadą, klasa `GROUP_STOP_INCOMPLETE`
 zgłasza błędy; bramka 733/733, recenzja FAIL, PASS, PASS), więc etap 2 ma 19 z 19 ticketów zamkniętych;
 przekazanie do limen-rebuild-18, która zamknęła etap 2 (bramka 733/733 dwukrotnie, M-10 150,8 s, lokalny tag
 a0.2.0 na commicie `Stage 2: close`; `check.mjs` na tym commicie zgłaszał dwa błędy tekstu planu, poprawione
-w następnym commicie); bramka 5.2 czeka na odpowiedzi Adriana na Q-27–Q-31 (domyślne decyzje nocne, format rekordu
-przy nieznanym polu, rozmieszczenie otwartych punktów z nowym ticketem R-100, przejście do etapu 3, tag a0.2.0). -->
+w następnym commicie); bramka 5.2 rozstrzygnięta (D-078–D-082: domyślne decyzje nocne etapu 2 potwierdzone, rekord
+dalej odrzuca nieznane pole, nowy ticket R-100 w etapie 3 przed R-029 i notatki dla siedmiu ticketów, tag a0.2.0
+zostaje na 56f8168); etap 3 zaczyna nowa sesja. -->
 
 
 
@@ -953,6 +954,32 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   snapshot's `git()` reports a git failure except `symbolic-ref` on a detached HEAD; each with a test that fails
   before. With his consent ("tak", 2026-11-22 about 00:20), the main session started the night runner a second time
   for R-099 once the first had ended with `done` (D-024, D-074). Check: R-099's criteria.
+- 2026-11-22 D-078 (gate 5.2, Adrian: "Q27 potwierdzam"; Q-27, option 1): every night default of stage 2 stands as
+  recorded: R-019's `outcome.md` → `## Night defaults` 1–17 (among them `LOCK_TIMEOUT`'s empty `next` with the hint
+  in the message, and the code `LOCK_LOST`), R-021's and R-022's `## Night defaults` and R-021's two deviations
+  (`cleanup` a content file; the reaper may end a migrated `running` record), R-024's direct test of
+  `projectStatistics` in `test/job/statistics.test.ts`, R-025's `SHARED_CODES` with `UNKNOWN_COMMAND`, `REMOVED` and
+  `UNTYPED` and its Deviations 6–11, and R-099's F1, F2, F3 and G1 (`ticket.md` → `## Decisions`). Check: none (a
+  record of confirmed choices).
+- 2026-11-22 D-079 (gate 5.2, Adrian: "Q28 rekomendacja"; Q-28, option 1, from R-021's review round 2, finding 4): a
+  record keeps refusing a field it does not know, as `BAD_DATA` (T-27 (2)). A deployment runs with no job running and
+  `/reload` follows at once (`## Deployment` 0.2, 0.3), so no record of the new code meets an older hook; a change a
+  reader older than the record cannot read raises the schema version (`## Stages` → conventions). Check: R-021's
+  record tests (a record with an unknown field refuses).
+- 2026-11-22 D-080 (gate 5.2, Adrian: "Q29 rekomendacja"; Q-29, option 1): the open points of stage 2 go where
+  `## State` → "Close of stage 2" proposes: a new fix ticket R-100 (S, stage 3, delegated, night, before R-029; T-25
+  (2)): one definition of the ISO-time pattern of `src/job/record.ts`, `src/lock.ts`, `src/job/migration.ts` and
+  `src/job/usage.ts`, which also checks the ranges; the older copy of the 429 rule in `src/job/listing.ts` through
+  `isRateLimit`; the eight inline error-code checks of R-093's open point through `hasCode`; `seat/deploy.ts`'s own
+  `jobFolders` through the resolver's listing; each with a test that fails before. The other points are notes for
+  R-031, R-032, R-033, R-038, R-051, R-058 and R-082 in `## Tickets`; the rest stay as each `outcome.md` records them.
+  Check: R-100's criteria; the notes in `## Tickets`.
+- 2026-11-22 D-081 (gate 5.2, Adrian: "Q30 rekomendacja"; Q-30, option 1): stage 3 starts in a new session, which
+  makes its tickets `ready` by day (D-074) for the next night. Check: `## State`.
+- 2026-11-22 D-082 (gate 5.2, Adrian: "Q31 rekomendacja"; Q-31, option 1): the tag `a0.2.0` stays on `56f8168`
+  (`Stage 2: close`), whose code is that of the gated `224afe6`; its two text errors of `check.mjs` are fixed in
+  `1bdad58`, and `## Deployment` 2.0 deploys `56f816820786d77e7cd13485ea20bb7fc78dd9d3`. Check: `git rev-parse
+  a0.2.0^{commit}`.
 
 ### Gate 2 §2, copied
 
@@ -1226,7 +1253,7 @@ records of both projects migrate; `limen stats` reads the migrated history. The 
 No unlanded work is deleted; every job runs in its own scope; every failure has a recorded kind; a seat timer finds and
 finishes dead jobs; a quota limit ends in one automatic resume; land is a sequence of recorded, repeatable steps; the
 owner gets alerts for failures and escalations only; jobs run with an allow-listed environment and no credential (T1,
-moved here from stage 5 by D-012). Tickets R-026–R-037 and R-087.
+moved here from stage 5 by D-012). Tickets R-026–R-037, R-087, R-098 and R-100 (D-072, D-080).
 
 ### Stage 4 — Limen's instructions reach the model (a0.4.0)
 
@@ -1334,7 +1361,7 @@ Columns:
 | R-026 | Every job runs in its own systemd user scope | 3 | A-029, A-052, T-43 | R-020, R-021 | L | delegated | night | — | systemd | 3.2, 3.7, 3.8 | planned |
 | R-027 | The reaper ends a job only after its process group is gone | 3 | A-005, A-056 | R-026 | M | delegated | night | — | — | — | planned |
 | R-028 | SIGTERM reaches the engine; a signal without a stop request is a failure | 3 | A-020, A-052 | R-026 | M | delegated | night | — | — | — | planned |
-| R-029 | One recorded failure cause per job | 3 | A-016, E-9, T-31, T-32, D-055 | R-017, R-021 | M | delegated | night | — | bridge | 3.4 | planned |
+| R-029 | One recorded failure cause per job | 3 | A-016, E-9, T-31, T-32, D-055 | R-017, R-021, R-100 | M | delegated | night | — | bridge | 3.4 | planned |
 | R-030 | Unlanded work survives: `limen abandon`, a guarded prune, a refusing spawn | 3 | A-001 | R-023, R-092 | M | delegated | night | yes | — | — | planned |
 | R-031 | `landed` and `abandoned` markers; retire moves records to the archive | 3 | A-002, §6 | R-030 | M | delegated | night | yes | — | — | planned |
 | R-032 | `limen seat sweep` runs on a timer; read commands never write or wait | 3 | A-024, T-04, T-18, A-017, §6, D-045 | R-012, R-027, R-031 | L | delegated | night | yes | systemd | 3.1 | planned |
@@ -1345,6 +1372,7 @@ Columns:
 | R-037 | Land runs as recorded steps with an atomic closing commit | 3 | A-021, A-057, T-18, T-28 | R-023, R-031, R-092 | L | delegated | night | yes | herdr | 3.9 | planned |
 | R-087 | The job environment is an allow-list; git and gh in a job hold no credential (T1) | 3 | A-004, A-061, E-4, D-017 | R-015, R-021, R-026 | M | delegated | night | — | pi, bridge | 3.10 | planned |
 | R-098 | `limen stats` per landed ticket and per coordinator turn | 3 | §2, A-078, A-037, D-072 | R-024, R-031 | M | delegated | night | — | pi | B.3, B.4 | planned |
+| R-100 | One definition of the ISO time, the 429 rule, the error-code check and the jobs listing | 3 | T-25, D-080 | R-022, R-093, R-097 | S | delegated | night | — | — | — | planned |
 | R-038 | The fake engine shows the model's view under the bridge | 4 | T-31, A-051 | R-017 | M | delegated | night | — | bridge | 4.1 | planned |
 | R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16 | R-021, R-038 | L | delegated | night | yes | pi, bridge | 4.2 | planned |
 | R-040 | Role texts come from the package, in three registers | 4 | A-038, A-039, A-042, D-005 | R-001, R-039 | M | delegated | night | yes | — | — | planned |
@@ -1514,6 +1542,26 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   header of `test/cli/continue.test.ts` does not name its transcript-mode test.
 - R-059: no shell scripts (D-010): `docs/seat/bell.sh` and `docs/seat/github-setup.sh` become TypeScript in `seat/`,
   and every unit calls `node /opt/limen/seat/<tool>.ts`.
+- R-031 (D-080; R-099 `outcome.md` → Open point 2): a job whose record leaves `.limen/jobs/` before the poller saw it
+  past `starting` leaves a GitHub handoff gate that no rule tells from a crash's, so a rerun of the claim's command
+  would start a new job; the archive is where a gate can find the claim's job after a retire.
+- R-032 (D-080; R-099 `outcome.md` → Open points 7 and 8): a crash between the job record and the wrapper's start
+  leaves a `starting` record with no pid, which the reaper skips and prune removes only after the 10-minute grace; a
+  crash before publication's rename leaves `.limen/.publishing-<id>`, which no line of `src/` removes outside
+  `publishJob`'s `catch`. The sweep finds and ends both.
+- R-033 (D-080; R-021 `outcome.md` → Open points): since R-021 the bell needs `node` on its service's `PATH`; the
+  alerts that replace it, and seat step 3.3, name what their service runs.
+- R-038 (D-080; R-024 Open point 3, R-096 Open point 1): the fake engine writes `{"task": …}` into its transcript,
+  which is no Pi entry, so `limen stats` over a fake job names it under `Not read`; and a message a hook sends while
+  `agent_settled` is emitted, which starts a new run as Pi's `prompt` defers it, has no test of its own.
+- R-051 (D-080; R-022 `outcome.md` → Open points): the wake's own listings of `.limen/jobs/` (three in
+  `hook/wake.ts`, one in `src/job/wake-delivery.ts`) go through the resolver's listing, whose scan then covers them.
+- R-058 (D-080; R-099 Open point 9): `limen github status` (`doorbellStatus`, `src/integrations/github-claims.ts`)
+  prints the newest claim copy's `job` field as the copy holds it; a job can write that copy, so the field is printed
+  only in the form of a job id, as R-099's G1 does for the refusal.
+- R-082 (D-080; R-025 `outcome.md` → Open points): scan (b)3 holds a test by the command it runs, not by its code, so
+  the unit tests that run no command (the parser's, the lock's, the runner's, the resolver's) leave
+  `WITHOUT_SNAPSHOT` and their codes are proved by a command's refusal test that compares the snapshot.
 
 ## Deployment
 
@@ -1663,7 +1711,8 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
 
 ### After stage 2 (a0.2.0)
 
-- **2.0** Deploy a0.2.0 by 0.1–0.3: `node /opt/limen/seat/deploy.ts <sha>` with the full SHA from gate 5.2.
+- **2.0** Deploy a0.2.0 by 0.1–0.3: `node /opt/limen/seat/deploy.ts <sha>` with the full SHA from gate 5.2
+  (`56f816820786d77e7cd13485ea20bb7fc78dd9d3`, D-082).
 - **2.1** The record migration of R-021, from each project's root on the agents' account: `limen migrate --dry-run`,
   then `limen migrate` (D-057 (1)), with no job running or starting; the report lists every job, every id collision
   (item 10), every folder moved to `.limen/unmigrated/` and every file removed.
@@ -2004,10 +2053,10 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 Updated 2026-11-22 by day (`limen-rebuild-18`), rebuild stage 5 in plan stage 2: stage 1 is closed at `a0.1.1`
 (deployed on 2026-11-20, with B.2 closed by D-050); stage 2 has all 19 tickets done (R-015–R-025, R-089,
-R-092–R-097, R-099) and is closed: the commit `Stage 2: close` carries the local tag `a0.2.0`, and gate 5.2 waits for
-Adrian's answers to Q-27–Q-31 ("Close of stage 2" near the end of this section). The newest entries are at the end of
-this section, from "Day session of 2026-11-21, continued (`limen-rebuild-16`", the night's in "Night run of
-2026-11-22" and "Night run of 2026-11-22, the runner's second start", and the close in "Close of stage 2".
+R-092–R-097, R-099) and is closed: the commit `Stage 2: close` carries the local tag `a0.2.0`, and gate 5.2 is
+decided (D-078–D-082): stage 3 starts in a new session. The newest entries are at the end of this section, from "Day
+session of 2026-11-21, continued (`limen-rebuild-16`", the night's in "Night run of 2026-11-22" and "Night run of
+2026-11-22, the runner's second start", the close in "Close of stage 2" and the gate in "Gate 5.2 decided".
 
 Handover of 2026-11-19 (D-033, at 37 % context, after the commit `R-014:`): `limen-rebuild-5` started
 `limen-rebuild-6` in `tmux` in remote-control mode (14:10) and ended. WSL booted at 10:34 on 2026-11-19, after the
@@ -3036,6 +3085,12 @@ push was skipped as redundant, the terminal being active; context 9 % at the sta
     Open point 2, R-023 Open points 3 and 4, R-024 Open points 1, 4, 5 and 7 (7 is B.3's, M-07), R-025's (R-083's
     already), R-095 Open points 2 and 3, R-099 Open points 3, 4 and 6.
 
+Gate 5.2 decided (2026-11-22, Adrian: "Q27 potwierdzam, Q28 rekomendacja, Q29 rekomendacja, Q30 rekomendacja, Q31
+rekomendacja"): D-078 (the night defaults of stage 2 stand), D-079 (a record refuses an unknown field), D-080 (R-100's
+row in `## Tickets`, before R-029, and the notes of R-031, R-032, R-033, R-038, R-051, R-058 and R-082 there), D-081
+(stage 3 in a new session) and D-082 (`a0.2.0` stays on `56f8168`; `## Deployment` 2.0 names its full SHA). The seat
+steps 0.1, 2.0–2.4 and B.3 are Adrian's; stage 3 does not wait for them (`## Stages` → Closing a stage).
+
 Active ticket: none.
 
 Resolved (Q-26 → D-077), asked in the conversation with a push: R-092's round-3 notes 1, 2, 6 and the template line of
@@ -3048,10 +3103,11 @@ documents:
   (recommended); 2. also only spawn, continue and stop; 3. every change command without `movedBy` now.
 
 Next (by day):
-1. Stage 2 is closed and tagged `a0.2.0` ("Close of stage 2" above). Gate 5.2: Adrian's answers to Q-27–Q-31 become
-   D-078 onwards, with their consequences in the same commit (for Q-29 option 1: R-100's row in `## Tickets` and
-   the notes of R-031, R-032, R-033, R-038, R-051, R-058 and R-082 in its notes list). Then stage 3 starts in a new
-   session (the rebuild prompt, stage 5), which makes the tickets of stage 3 `ready` by day (D-074).
+1. Stage 3 (a0.3.0) starts in a new session (D-081). By day it makes the tickets of stage 3 `ready` for the next
+   night (D-074): their `ticket.md` written from read-only inventories in `evidence/inventories/`, as R-024's and
+   R-025's were, with no grep criteria (D-025), on at least two independent branches (D-054 (1)). The tickets whose
+   dependencies are all `done` now: R-026 (R-020, R-021), R-030 (R-023, R-092), R-033 (R-021) and R-100 (R-022,
+   R-093, R-097); R-029 waits for R-100 (D-080).
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
    D-047 and D-054 were.
@@ -3140,3 +3196,10 @@ close of stage 2, then `node adrian-rebuild/tools/handover.mjs close-previous`, 
 `Next` 1: the close of stage 2 (`## Stages` → Closing a stage), gate 5.2 by phone with the "Gate 5.2 summary" above
 and R-099's entry (the night defaults of R-024, R-025 and R-099, the open points), the tag `a0.2.0`, and the tickets
 of stage 3 `ready` by day (D-074). The handover after it is `limen-rebuild-19`.
+
+Handover of 2026-11-22 (D-081, at 18 % context, at the start of stage 3, after the commit `D-078–D-082:`, with the
+tree clean and pushed): `limen-rebuild-18` starts `limen-rebuild-19` with `node adrian-rebuild/tools/handover.mjs
+start 19` and ends its turn. By day: the next session's first acts are a push notification to Adrian that it takes
+over at the start of stage 3, then `node adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into this
+section, then `Next` 1: the tickets of stage 3 `ready` by day for the next night (D-074, D-081). The handover after it
+is `limen-rebuild-20`.
