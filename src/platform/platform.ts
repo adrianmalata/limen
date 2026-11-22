@@ -1,10 +1,11 @@
 // The operating-system primitives Limen uses, as one interface (A-083): a process's identity, the process table,
 // liveness and signals of a process and of a process group, the CPU and memory readings of the start gate, the boot id
 // that a lock's owner record carries (D-056 (1)), and the systemd user scopes every job runs in (A-029): a start in a
-// new scope, the end of a scope, a process's own cgroup, a scope's readings, and the probe of `limen init`; and what the
-// system manager says of a unit, which the GitHub doctor and the alerts' warning of `limen status` read. The policies
-// built on them (birth checks, the stall rule, the start gate's thresholds, the lock's owner check, the names of
-// Limen's scopes and when one ends) stay with their callers. Linux is the one implementation; another operating system
+// new scope, a scope's state, a signal to a whole scope, the end of a scope, a process's own cgroup, a scope's
+// readings, and the probe of `limen init`; and what the system manager says of a unit, which the GitHub doctor and the
+// alerts' warning of `limen status` read. The policies built on them (birth checks, the stall rule, the start gate's
+// thresholds, the lock's owner check, the names of Limen's scopes, when one ends and the grace before its KILL) stay
+// with their callers. Linux is the one implementation; another operating system
 // is another implementation with its own tests. A member exists only with an implementation: the scheduler install
 // comes with R-032, and notifications stay Herdr's (src/integrations/herdr.ts).
 import { linux } from "./linux.ts";
@@ -57,6 +58,18 @@ export type ScopeEnd =
 	| { readonly kind: "gone" }
 	| { readonly kind: "failed"; readonly detail: string };
 /**
+ * `active`: a process is left in the scope; `gone`: no process is left in it, which ended or never started; `failed`:
+ * the system did not say, as it says.
+ */
+export type ScopeState =
+	| { readonly kind: "active" }
+	| { readonly kind: "gone" }
+	| { readonly kind: "failed"; readonly detail: string };
+/** The signals a whole scope gets: the TERM that starts a grace, and the KILL after it. */
+export type ScopeSignal = "SIGTERM" | "SIGKILL";
+/** `sent`: the system sent the signal to every process of the scope; `failed`: it did not, as it says. */
+export type ScopeSignalResult = { readonly kind: "sent" } | { readonly kind: "failed"; readonly detail: string };
+/**
  * `started`: a new user scope ran `true`; `missing`: the program that starts one is not on PATH; `failed`: it ran and
  * failed, as it says.
  */
@@ -99,8 +112,15 @@ export interface Platform {
 	 */
 	startInScope(start: ScopedStart): Promise<ScopedProcess>;
 	/**
-	 * Sends SIGKILL to every process of the user scope `unit`, `setsid` and re-parented ones included; `cgroup`, when
-	 * known, lets a scope already gone end with nothing to do.
+	 * Whether a process is left in the user scope `unit`, read without a signal; `cgroup`, when known, lets a scope
+	 * already gone answer with no call.
+	 */
+	scopeState(unit: string, cgroup: string | undefined): ScopeState;
+	/** Sends `signal` to every process of the user scope `unit`, `setsid` and re-parented ones included. */
+	signalScope(unit: string, signal: ScopeSignal): ScopeSignalResult;
+	/**
+	 * Sends SIGKILL to every process of the user scope `unit` that `scopeState` finds active; a scope already gone ends
+	 * with nothing to do.
 	 */
 	endScope(unit: string, cgroup: string | undefined): ScopeEnd;
 	/** Whether a new user scope starts here, as `limen init` checks it (T-12). */

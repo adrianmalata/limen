@@ -2,7 +2,8 @@
 scope, jego grupa procesów) zniknął: najpierw odczyty scope, potem TERM, czas łaski, KILL i potwierdzenie; gdy scope nie
 znika, job zostaje `running` z jedną linią w logu i następny przebieg próbuje znowu. Linia porażki mówi, co sprawdzono,
 jeden czas łaski obsługuje stop, wyczerpanie i żniwiarza, a test `s9` sprawdza, że silnik nie żyje. Stan: napisany 22.11
-przy `9a370ae` z inwentarza `evidence/inventories/R-027.md`, gotowy na noc. -->
+przy `9a370ae` z inwentarza `evidence/inventories/R-027.md`; zrobiony w nocy 22/23.11 z jedną rundą poprawek (F1–F3)
+i domyślnymi decyzjami nocnymi do potwierdzenia przez Adriana. -->
 
 # R-027 The reaper ends a job only after its process group is gone
 
@@ -156,3 +157,31 @@ Settled by the documents when the ticket was written (2026-11-22, the main sessi
    already move.
 6. T-28 (5): the reaper's TERM and state reads are systemd behaviour, so the row's API is `systemd` and seat step 3.2
    names the trial (a wrapper killed alone, its engine ended, the record `failed` with its checks).
+
+- 2026-11-22, night, the implementer's choices (`outcome.md` → `## Night defaults` 1–7), taken as the main session's
+  night defaults (category A (b) of D-054 (2)), for Adrian to confirm in the morning. Default 2 narrows Decision 4 for a
+  record without `scope`: when its pid has no start time recorded and a live process holds that pid, the reaper cannot
+  tell the wrapper from a stranger leading its own group, so it signals nothing and the job stays `running` with one
+  `reap: group <pid> not ended: …` line per attempt; this is (b) 4's "its state cannot be read" (z. 14: no group the
+  reaper cannot attribute is signalled; A-005: no `failed` while a process that may be the wrapper lives). The cost: a
+  migrated `running` record with a reused pid and no start time stays `running` until R-032's sweep escalates it; none
+  runs after a deployment (`## Deployment` 0.2).
+- 2026-11-22, night, review round 1 (`review.md` → Round 1: PASS, with notes that need code and tests): the first round
+  of fixes, for a fresh `rebuild-implementer` (D-026 (2)). The wording in F1 is the implementer's, a night default.
+  Each changed mechanism gets a test that fails before its fix (T-29: one mechanism per test).
+  - F1 (finding 2, T-01): a signal call of the reap that fails is never dropped. When the scope's SIGTERM call fails
+    (`signalScope` → `failed`), its detail appears in the line the reap writes, whatever decides the ending: the
+    terminal detail (`process group gone: …; scope <unit> … ; SIGTERM failed: <detail>` or a like wording) when the
+    scope is then read as gone or ends after the KILL, and the `reap: <unit> not ended: …` line when it does not end.
+    The same for a SIGKILL call that fails before a state read reports the scope gone. A test: the tests' `systemctl`
+    fails the SIGTERM call only, and the reaped job's detail (or its `not ended` line) names that failure.
+  - F2 (finding 3, T-29 (3)): the deaf-engine test of `test/runtime/reap.test.ts` is split: one test that a scope whose
+    engine ignores TERM is ended by the KILL once the grace passed, and one that the terminal record holds the readings
+    taken before the TERM although the KILL removed the scope's folder. Each test's name is one sentence about its one
+    behaviour.
+  - F3 (finding B of the first reply, T-25 (1)): the 1 s wait after a KILL has one definition: `src/job/stopping.ts`
+    uses the reaper's `KILL_WAIT_MS` (exported from `src/runtime/reap.ts`, beside `stopGraceMs`) instead of its literal
+    `1_000`; no other literal of that wait is left in `src/`.
+  - Not fixed (reasons in `review.md` → Round 1): findings 1, 4, 5, A, C and D, and the killed-alone test's form.
+  - Text: `outcome.md` gains the fixes, their failing-before runs, and the open points of `review.md` → Round 1
+    (findings 4, 5, A and C).

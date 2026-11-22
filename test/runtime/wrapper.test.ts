@@ -33,7 +33,9 @@ import {
 const EXIT_BOUND_MS = 10_000;
 /** How often the test reads the wrapper's process again: an exit raises no file event. */
 const EXIT_CHECK_MS = 20;
-/** How long an exhausted job's wrapper and group may take to end: the group's grace of 5 s, and far above it for load. */
+/** The group's grace here: the test knob LIMEN_STOP_GRACE_MS shortens the 5 s, so no test waits it (T-31 (4)). */
+const GRACE_MS = "200";
+/** How long an exhausted job's wrapper and group may take to end: the group's grace, and far above it for load. */
 const GRACE_BOUND_MS = 20_000;
 
 /**
@@ -100,7 +102,7 @@ test("an exhausted job whose scope cannot be ended kills its process group after
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const run = limen(p, ["spawn", ...routed(["--label", "deaf", "--timeout", "1s"]), "deaf\nblock"], {
-		env: { PATH: await pathWithFailingScopeEnd(p) },
+		env: { PATH: await pathWithFailingScopeEnd(p), LIMEN_STOP_GRACE_MS: GRACE_MS },
 	});
 	assert.equal(run.status, 0, run.stderr);
 	const id = startedJob(run);

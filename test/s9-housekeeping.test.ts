@@ -223,17 +223,27 @@ test("prune names a dirty worktree inside another dirty one with a kept line of 
 });
 
 // A-029: the fake engine's `orphan` starts a child in a process group of its own, as `setsid` does, which no signal of
-// the job's group reaches; only the end of the job's systemd user scope, at every terminal transition, does.
-test("a killed wrapper is reaped at once; the orphan of a job that ends, is stopped or is reaped is dead after its end; each wakes the coordinator once", async () => {
+// the job's group reaches; only the end of the job's systemd user scope, at every terminal transition, does. A-005: the
+// reaper ends that scope, the engine in it, before it writes `failed`, and the failure names what it checked.
+test("a killed wrapper is reaped at once, its engine dead; the orphan of a job that ends, is stopped or is reaped is dead after its end; each wakes the coordinator once", async () => {
 	const env = { PI_SESSION_ID: SESSION };
 	const killed = spawnJob(p, "orphan\nblock", [], { env });
 	await until(jobDir(p, killed), () => existsSync(join(jobDir(p, killed), "fake-blocked-1")));
 	const pid = jobRecord(p, killed)?.identity?.pid ?? 0;
 	assert.ok(pid > 0, "the wrapper recorded its pid");
+	const engines = engineEvents(jobDir(p, killed)).flatMap((entry) => (entry.event === "pid" ? [entry.pid ?? 0] : []));
+	assert.equal(engines.length, 1, "the engine recorded its pid");
 	process.kill(pid, "SIGKILL");
 	// A young job: only the product's dead-pid confirmation window applies, never the startup grace.
 	const listed = limen(p, ["show", killed], { env: { LIMEN_REAP_CONFIRM_MS: "1" } });
 	assert.deepEqual([listed.status, jobState(p, killed)], [0, "failed"], listed.stderr);
+	const scope = jobRecord(p, killed)?.scope?.unit;
+	assert.deepEqual(jobRecord(p, killed)?.failure, {
+		kind: "reaped",
+		detail: `process group gone: wrapper ${pid} is not running; scope ${scope} ended after TERM`,
+		resetAt: null,
+	});
+	assert.deepEqual(await survivors(engines, ORPHAN_EXIT_MS), [], "the reaped job's engine is dead");
 
 	const stopped = spawnJob(p, "orphan\nblock", [], { env });
 	await until(jobDir(p, stopped), () => existsSync(join(jobDir(p, stopped), "fake-blocked-1")));

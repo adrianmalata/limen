@@ -37,7 +37,7 @@ import { readOptional } from "../project/inherit.ts";
 import { inheritedPlanning, ticketPointers } from "../project/planning.ts";
 import { type EngineProfile, preflightEngine, resolveSpawnEngine } from "../runtime/engine.ts";
 import { launchWrapper } from "../runtime/launcher.ts";
-import { liveJob, waitForProcessGroup } from "../runtime/reap.ts";
+import { KILL_WAIT_MS, liveJob, waitForProcessGroup } from "../runtime/reap.ts";
 import { DEFAULT_PRIORITY, parsePriority, queuedLine } from "../runtime/start-queue.ts";
 import { normalizeWorkerExtensions } from "../runtime/worker-extensions.ts";
 import { hasCode } from "../system-error.ts";
@@ -996,7 +996,7 @@ export async function waitForHandshake(jobDir: string, wrapper: ScopedProcess): 
 	platform.signalProcessGroup(wrapper.pid, "SIGTERM");
 	if (!(await waitForProcessGroup(wrapper.pid, 1_000))) {
 		platform.signalProcessGroup(wrapper.pid, "SIGKILL");
-		await waitForProcessGroup(wrapper.pid, 1_000);
+		await waitForProcessGroup(wrapper.pid, KILL_WAIT_MS);
 	}
 	const how = end === undefined ? "" : ` (it ended with ${end.signal ?? `exit code ${end.code ?? "unknown"}`})`;
 	throw await cleanedUp(

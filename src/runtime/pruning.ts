@@ -104,7 +104,8 @@ export async function pruneFinishedWorktrees(root: string, keep: readonly string
 /**
  * The one rule every removal obeys: a job keeps its record and its worktree while it is starting, running, or in an
  * open group. Starting is a record its wrapper has not run yet whose spawner lives or whose startup grace runs. Prune
- * does not ask whether a running job's process lives; the sweep finalizes a dead job first.
+ * does not ask whether a running job's process lives: a running record keeps its worktree, and the reaper writes a dead
+ * wrapper's job `failed` only once its scope or group is gone (A-005, src/runtime/reap.ts).
  */
 async function jobKeeps(jobDir: string, record: JobRecord | undefined): Promise<boolean> {
 	if (record && record.state !== "starting") {

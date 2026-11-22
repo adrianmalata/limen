@@ -2,7 +2,8 @@
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
-R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025, R-097, R-099, R-026, R-030, R-033. -->
+R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025, R-097, R-099, R-026, R-030, R-033,
+R-027. -->
 
 # Changes
 
@@ -333,4 +334,12 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-10, M-08; `## Deployment` 3.3)
 - Commit: R-033
 - Rollback: git revert $(git log --format=%H --grep='^R-033:' adrian-rebuild --) (+ on the seat before the revert's deployment: disable the timer, remove both units, `systemctl daemon-reload`)
+
+## 2026-11-22 R-027 The reaper ends a job only after its process group is gone
+- What: `src/runtime/reap.ts` (a dead wrapper's job keeps `running` until its scope, or for a record without one its wrapper's process group, is gone: the scope's readings first, then TERM, the grace, KILL and a read of the state; only then `failed` with `process group gone: <checks>`, naming the wrapper's pid, why it is dead, how the scope or group ended and every signal call that failed; a scope or group not ended, or unreadable, leaves one `reap: … not ended: …` line per attempt; `STOP_GRACE_MS` with `stopGraceMs()` and `KILL_WAIT_MS`, the one grace and the one wait after a KILL; `ownerState` without its unused parameter); `src/platform/platform.ts`, `src/platform/linux.ts` (`scopeState`, `signalScope`; `endScope` built on them); `src/job/finalize.ts` (`readScope` exported, the `readings` option); `src/job/stopping.ts`, `src/runtime/wrapper.ts`, `src/job/spawning.ts` (the shared grace and wait); `src/config.ts` (the test knob `LIMEN_STOP_GRACE_MS`); `src/runtime/pruning.ts` (a comment); `test/u9-process-identity.test.ts` moved to `test/runtime/reap.test.ts`, with new tests; `test/platform/linux.test.ts`, `test/s9-housekeeping.test.ts` (the reaped job's engine is dead), `test/plant.ts` (the fake `systemctl` takes SIGTERM; `scopeProcess`), `test/fake-engine.mjs` (its pid as an event), `test/config.test.ts`, `test/job/finalize.test.ts`, `test/runtime/wrapper.test.ts`; `docs/jobs.md`, `docs/herdr-status.md`, `templates/agents.md` with `templates/.history/agents.md`
+- Why: A-005, A-056, T-01, T-25, T-29, T-31
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (846/846); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (six test files); `node --test test/runtime/reap.test.ts` → exit 0; `node --test test/s9-housekeeping.test.ts` → exit 0
+- Measurement: unmeasured (plan.md → Measurement: M-11, M-10; `## Deployment` 3.2)
+- Commit: R-027
+- Rollback: git revert $(git log --format=%H --grep='^R-027:' adrian-rebuild --)
 

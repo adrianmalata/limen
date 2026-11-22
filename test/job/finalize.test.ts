@@ -2,8 +2,6 @@
 // readings of the job's systemd user scope it writes with them, the start of its group's next round, and the end of
 // that scope after them.
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { once } from "node:events";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,7 +9,15 @@ import test, { type TestContext } from "node:test";
 import { finalizeJob } from "../../src/job/finalize.ts";
 import { readRecord, type Scope } from "../../src/job/record.ts";
 import { withEnvironment } from "../environment.ts";
-import { failingSystemdRun, fakeCgroup, fakeSystemd, SCOPE_READINGS, systemdCalls, writeRecord } from "../plant.ts";
+import {
+	failingSystemdRun,
+	fakeCgroup,
+	fakeSystemd,
+	SCOPE_READINGS,
+	scopeProcess,
+	systemdCalls,
+	writeRecord,
+} from "../plant.ts";
 
 const IDENTITY = { pid: 4242, born: "123", bootId: null } as const;
 const UNIT = "limen-job-job.scope";
@@ -47,32 +53,6 @@ function cgroupWithReadings(cgroups: string): string {
 	writeFileSync(join(folder, "cpu.stat"), `usage_usec ${SCOPE_READINGS.cpuMicroseconds}\nuser_usec 0\nsystem_usec 0\n`);
 	writeFileSync(join(folder, "memory.events"), "low 0\nhigh 0\nmax 0\noom 1\noom_kill 1\n");
 	return folder;
-}
-
-/** How long a process that got SIGKILL may take to exit: milliseconds, so the bound only ends a wait for a live one. */
-const EXIT_BOUND_MS = 5_000;
-
-/**
- * A process of the recorded scope, as the tests' systemd marks one, detached into its own process group as a process
- * the engine detached is; the wait for its end, which gives the signal that ended it, or "still running" once
- * `EXIT_BOUND_MS` passed.
- */
-async function scopeMember(t: TestContext): Promise<() => Promise<string>> {
-	const code = "Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0)";
-	const env = { ...process.env, LIMEN_CGROUP: RECORDED.cgroup };
-	const detached = spawn(process.execPath, ["-e", code], { detached: true, stdio: "ignore", env });
-	t.after(() => detached.kill("SIGKILL"));
-	const exited = once(detached, "exit").then(([, signal]) => String(signal));
-	await once(detached, "spawn");
-	return async () => {
-		let timer: NodeJS.Timeout | undefined;
-		const bound = new Promise<string>((resolve) => {
-			timer = setTimeout(() => resolve("still running"), EXIT_BOUND_MS);
-		});
-		const end = await Promise.race([exited, bound]);
-		clearTimeout(timer);
-		return end;
-	};
 }
 
 /** The lines of the job's log that say its scope was not ended. */
@@ -133,10 +113,10 @@ test("finalizeJob ends the job's scope after its terminal state: every process l
 	const { job, cgroups } = await jobFolder(t);
 	cgroupWithReadings(cgroups);
 	await writeRecord(job, { state: "running", identity: IDENTITY, scope: RECORDED });
-	const ended = await scopeMember(t);
+	const member = await scopeProcess(t, RECORDED.cgroup);
 	await finalizeJob(job, "done", "pi exited 0");
 	assert.deepEqual(
-		[(await readRecord(job))?.state, await ended(), systemdCalls(cgroups, "systemctl").at(-1)],
+		[(await readRecord(job))?.state, await member.end(), systemdCalls(cgroups, "systemctl").at(-1)],
 		["done", "SIGKILL", `--user kill --signal=SIGKILL ${UNIT}`],
 	);
 });
@@ -146,13 +126,13 @@ test("finalizeJob ends the job's scope also when a step after the transition rej
 	const { job, cgroups } = await jobFolder(t);
 	cgroupWithReadings(cgroups);
 	await writeRecord(job, { state: "running", identity: IDENTITY, scope: RECORDED });
-	const ended = await scopeMember(t);
+	const member = await scopeProcess(t, RECORDED.cgroup);
 	const grace = () => Promise.reject(new Error("the grace failed"));
 	await assert.rejects(
 		finalizeJob(job, "stopped", "stopped by request", { beforeScopeEnd: grace }),
 		/the grace failed/,
 	);
-	assert.equal(await ended(), "SIGKILL");
+	assert.equal(await member.end(), "SIGKILL");
 });
 
 // A launch that failed, or a stop before systemd-run ran, leaves a job with no scope: there is nothing to end.

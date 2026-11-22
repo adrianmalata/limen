@@ -1,6 +1,7 @@
 // The end of a job (A-019, T-01): its terminal transition through the record's one writer (src/job/record.ts), then
 // what follows from it. Before the transition it counts the job's commits, collects the open note checks and reads its
-// scope's readings; a side channel that fails there is written with the terminal state in `sideFailures`. The
+// scope's readings, unless the finisher read them before it ended the scope itself, as the reaper does
+// (src/runtime/reap.ts); a side channel that fails there is written with the terminal state in `sideFailures`. The
 // transition is the commit point: a finisher that loses it writes nothing, and the group's events, the coordinator's
 // Herdr wake, the next round of its group and the job's tab, which read the terminal record, follow only the winner;
 // their failures go to the job's log, since nothing writes the record after a terminal state. The winner's last step,
@@ -42,7 +43,27 @@ export type FinalizeOptions = {
 	 * wrapper's own group, so that an engine that ignores TERM still ends. None by default.
 	 */
 	readonly onScopeNotEnded?: () => void;
+	/**
+	 * The scope's readings when the finisher read them before it ended the scope itself, as the reaper does: once its
+	 * KILL has emptied the scope, the scope's folder and its readings may be gone. Read here, before the transition, by
+	 * default.
+	 */
+	readonly readings?: ScopeRead;
 };
+
+/** The readings of a job's scope just before its end, with the side failure of a read that failed (T-01). */
+export type ScopeRead = { readonly readings: ScopeReadings; readonly failures: readonly SideFailure[] };
+
+/** Reads the readings of the scope `record` names, while its processes still hold it; a record without one has none. */
+export async function readScope(record: JobRecord): Promise<ScopeRead> {
+	if (!record.scope) {
+		return { readings: UNREAD, failures: [] };
+	}
+	return platform.scopeReadings(record.scope.cgroup).then(
+		(readings) => ({ readings, failures: [] }),
+		(error: unknown) => ({ readings: UNREAD, failures: [sideFailure("scope readings", error)] }),
+	);
+}
 
 /**
  * Ends the job of `jobDir` as `state` with `detail` when it is still in a state of `options.from`; true when this call
@@ -67,12 +88,8 @@ export async function finalizeJob(
 	// A done the coordinator asked for (`done: <reason>`) already accepts what is open.
 	const open = state === "done" && !detail.startsWith("done:") ? noteCheckOpen(jobDir, record.worktree) : [];
 	// The scope's readings just before the transition, while its processes still hold it (`memory.peak` goes with it).
-	const readings = record.scope
-		? await platform.scopeReadings(record.scope.cgroup).catch((error: unknown) => {
-				sideFailures.push(sideFailure("scope readings", error));
-				return UNREAD;
-			})
-		: UNREAD;
+	const { readings, failures } = options.readings ?? (await readScope(record));
+	sideFailures.push(...failures);
 	const ended = await transition(jobDir, {
 		from,
 		to: state,

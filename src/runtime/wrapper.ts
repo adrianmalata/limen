@@ -14,13 +14,12 @@ import { limitCount } from "../project/limits.ts";
 import { argvFor, jobProfile } from "./engine.ts";
 import { setUpJob, worktreeMissing } from "./job-setup.ts";
 import { jobScope } from "./launcher.ts";
-import { processIdentity } from "./reap.ts";
+import { processIdentity, stopGraceMs } from "./reap.ts";
 import { observeToolStall, ownedToolDescendants, type ToolStallWatch, toolStallMs } from "./stalled-tool.ts";
 import { enterStartQueue, waitForStart } from "./start-queue.ts";
 import { createStreamParser, type StreamEvent } from "./stream.ts";
 import { readWorkerExtensions } from "./worker-extensions.ts";
 
-const STOP_GRACE_MS = 5_000;
 // Coordinators and `limen picture serve` read the job folder; a streamed delta must not rewrite the same word many
 // times a second.
 const ACTIVITY_REFRESH_MS = 1_000;
@@ -72,7 +71,7 @@ export async function runInternalJob(): Promise<void> {
 		// A stop's KILL of the group follows its TERM, so the Herdr wake must end before it; the wrapper's own TERM at an
 		// exhaustion has no KILL after it, since the end of the job's scope follows the group's grace instead.
 		if (!exhausted) {
-			shutdownDeadline ??= Date.now() + STOP_GRACE_MS - 500;
+			shutdownDeadline ??= Date.now() + stopGraceMs() - 500;
 		}
 	});
 	const record = await readRecord(jobDir);
@@ -134,7 +133,7 @@ export async function runInternalJob(): Promise<void> {
 			return;
 		}
 		exhausted = reason;
-		const graceEnd = Date.now() + STOP_GRACE_MS;
+		const graceEnd = Date.now() + stopGraceMs();
 		exhaustionTermination = (async () => {
 			await appendLimenLog(jobDir, `${reason}; sending TERM`).catch(() => {});
 			platform.signalProcessGroup(process.pid, "SIGTERM");

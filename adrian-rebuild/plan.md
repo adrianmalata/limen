@@ -95,7 +95,9 @@ systemd, bramka 752/752, trzy rundy recenzji PASS); przekazanie do limen-rebuild
 (limen abandon, prune bez utraty niewylądowanej pracy, odmowa spawnu UNLANDED_WORK; pięć rund recenzji, trzecia i
 czwarta runda poprawek z decyzji Adriana D-087 i D-088, bramka 787/787) i R-033 (powiadomienia z własnego konta
 zamiast dzwonka, trzy rundy recenzji PASS, bramka 834/834; dwie uwagi do R-035, D-090); noc do 9:00 z pięcioma
-ticketami (D-091) przygotowuje limen-rebuild-22. -->
+ticketami (D-091) przygotowuje limen-rebuild-22; noc 22/23.11: R-027 zamknięty (żniwiarz zapisuje `failed` dopiero
+po zniknięciu scope albo grupy, jedna łaska i jedno czekanie po KILL; bramka 846/846, recenzja PASS i PASS z jedną
+rundą poprawek). -->
 
 
 
@@ -1441,7 +1443,7 @@ Columns:
 | R-024 | `limen stats` over records and transcripts | 2 | H-01, H-20, §2, T-33, D-072, D-073 | R-021, R-023 | M | delegated | night | — | pi | 2.3 | done |
 | R-025 | Test coverage derived from the command registry | 2 | T-28, T-29, D-045, D-046, D-075, D-076 | R-014, R-023, R-092 | M | delegated | night | — | — | — | done |
 | R-026 | Every job runs in its own systemd user scope | 3 | A-029, A-052, T-43 | R-020, R-021 | L | delegated | night | — | systemd | 3.2, 3.7, 3.8 | done |
-| R-027 | The reaper ends a job only after its process group is gone | 3 | A-005, A-056 | R-026 | M | delegated | night | — | systemd | 3.2 | ready |
+| R-027 | The reaper ends a job only after its process group is gone | 3 | A-005, A-056 | R-026 | M | delegated | night | — | systemd | 3.2 | done |
 | R-028 | SIGTERM reaches the engine; a signal without a stop request is a failure | 3 | A-020, A-052 | R-026 | M | delegated | night | — | pi | 3.8 | ready |
 | R-029 | One recorded failure cause per job | 3 | A-016, E-9, T-31, T-32, D-055 | R-017, R-021, R-100 | M | delegated | night | — | bridge | 3.4 | planned |
 | R-030 | Unlanded work survives: `limen abandon`, a guarded prune, a refusing spawn | 3 | A-001 | R-023, R-092 | M | delegated | night | yes | herdr | 3.6 | done |
@@ -3419,6 +3421,25 @@ takeover push was skipped as redundant, the terminal being active; context 8 % a
   that still trust a dead wrapper or a scope's end).
 - One grace for stop, exhaustion and the reaper: R-027 makes it one constant at 5 s, R-028 sets A-020's 10 s, so the
   two tickets run in either order.
+
+Night run of 2026-11-22/23 (D-091, until 09:00; `night.mjs` run 1 started at 21:10:15, from `cda9da5`, the tree clean
+and pushed; the tickets in protocol order, the lowest `ready` ID first: R-027, R-028, R-031, R-035, R-100):
+- R-027 `done` (delegated; review PASS in rounds 1 and 2 with one round of fixes by a fresh implementer, D-026 (2);
+  round 1's first reply rejected by `review-verdict.mjs` for its form, bullet lines below AC-9, and given again by a
+  fresh reviewer with the tree unchanged): the reaper writes `failed` only once the job's scope, or for a record
+  without one its wrapper's process group, is gone (readings, TERM, grace, KILL, a read of the state), with
+  `process group gone: <checks>`; otherwise the job stays `running` with one `reap: … not ended: …` line per attempt;
+  the platform's `scopeState` and `signalScope`; one grace (`stopGraceMs`, 5 s, the test knob `LIMEN_STOP_GRACE_MS`)
+  and one wait after a KILL (`KILL_WAIT_MS`). Fixes F1–F3: a failed signal call is named in the reap's line (T-01), the
+  deaf-engine test split (T-29 (3)), the 1 s wait after a KILL defined once (T-25). The main session's gate 846/846 on
+  the final tree; `fails-before.mjs` exit 0 (six files). Night defaults for Adrian to confirm (`ticket.md` →
+  `## Decisions`): the implementer's seven (`outcome.md` → `## Night defaults`), of which default 2 narrows the
+  ticket's Decision 4: a record without `scope` whose pid has no start time and is held by a live process stays
+  `running`, since the reaper signals no group it cannot attribute. Open points for gate 5.3 (`outcome.md` → Open
+  points): `is-active` exit 3 also reads a `deactivating` scope as gone; a reaper inside the reaped job's own scope
+  TERMs itself; the reaper signals the unit the record names (not new); the words "ended after TERM" beside a failed
+  TERM call; for R-028's implementer, the stop's Herdr deadline with the test knob at 500 ms or less. Unmeasured: M-11,
+  M-10 (step 3.2).
 
 Next (by day):
 1. After his return from the trip (Adrian, 2026-11-22: "Zapisz mi to na zrobienie po powrocie z wyjazdu, teraz działaj

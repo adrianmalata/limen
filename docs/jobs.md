@@ -219,7 +219,7 @@ The coordinator does this. You need it only if you look at a stuck tab yourself.
 |---|---|
 | The job is quiet or repeats itself | Read `limen show <id>`, the log, and the worktree. Stop only on evidence. Then resume with a narrower task. |
 | The worker has a real question | Read its durable note. Answer it. Resume the branch. |
-| The wrapper is dead, but the state says `running` | Run `limen show <id>`: it ends a job whose recorded process is gone as `failed` and stops the job's scope, so none of its processes keeps running. Then resume. |
+| The wrapper is dead, but the state says `running` | Run `limen show <id>`: once the recorded process is gone, it ends the job's scope first (TERM, then KILL after a grace), so none of its processes keeps running, and only then ends the job as `failed`, with what it checked in the failure. A scope it cannot end leaves the job `running` with a `reap: … not ended` line in its log, and the next reap tries again. Then resume. |
 | A completion wake did not come | Run `limen show <id>` and read Git. The job's record stays the source of truth when a notification does not come. |
 
 ## How it works

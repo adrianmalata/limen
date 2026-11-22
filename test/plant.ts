@@ -4,10 +4,12 @@
 // file events and FIFOs; nothing here sleeps, and only a process's exit, which raises no file event, is read again on
 // a short interval (`waitJob`, and cleanup's listing of the plant's processes).
 import { type ChildProcess, execFileSync, spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import { existsSync, readFileSync, watch } from "node:fs";
 import { mkdir, mkdtemp, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
+import type { TestContext } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { atomicWrite } from "../src/atomic-write.ts";
@@ -165,12 +167,14 @@ const SYSTEMD_RUN = [
 	'exec "$@"',
 ];
 /**
- * The tests' systemctl: only `--user is-active --quiet <name>.scope` and `--user kill --signal=SIGKILL <name>.scope`,
- * and any other call exits 1. It logs its words. A scope's processes are those whose environment holds its
- * LIMEN_CGROUP and this systemd's LIMEN_CGROUP_ROOT. `is-active` exits 0 while the scope has a process and 3 when it
- * has none, as systemd does for a scope that ended or never started. `kill` sends SIGKILL to each process of the scope
- * and removes its folder, as systemd collects a scope once it is empty; with none, the scope is not loaded, as for
- * systemd. Unlike systemd, a scope whose processes all ended by themselves keeps its folder until a `kill`.
+ * The tests' systemctl: only `--user is-active --quiet <name>.scope` and `--user kill --signal=SIGTERM|SIGKILL
+ * <name>.scope`, and any other call exits 1. It logs its words. A scope's processes are those whose environment holds
+ * its LIMEN_CGROUP and this systemd's LIMEN_CGROUP_ROOT. `is-active` exits 0 while the scope has a process and 3 when
+ * it has none, as systemd does for a scope that ended or never started. `kill --signal=SIGTERM` sends SIGTERM to each
+ * process of the scope and leaves its folder, since the scope lives on while a process of it does. `kill
+ * --signal=SIGKILL` sends SIGKILL to each process of the scope and removes its folder, as systemd collects a scope once
+ * it is empty. With no process, either `kill` finds the scope not loaded, as for systemd, and removes its folder.
+ * Unlike systemd, a scope whose processes all ended by themselves keeps its folder until a `kill`.
  */
 const SYSTEMCTL = [
 	"#!/bin/sh",
@@ -179,8 +183,9 @@ const SYSTEMCTL = [
 	`printf '%s\\n' "$*" >> "$root/systemctl.log"`,
 	'case "$#:$1:$2:$3:$4" in',
 	"4:--user:is-active:--quiet:*.scope) verb=is-active unit=$4 ;;",
+	"4:--user:kill:--signal=SIGTERM:*.scope) verb=term unit=$4 ;;",
 	"4:--user:kill:--signal=SIGKILL:*.scope) verb=kill unit=$4 ;;",
-	`*) echo "systemctl (tests): only --user is-active --quiet or kill --signal=SIGKILL <name>.scope is emulated" >&2; exit 1 ;;`,
+	`*) echo "systemctl (tests): only --user is-active --quiet or kill --signal=SIGTERM|SIGKILL <name>.scope is emulated" >&2; exit 1 ;;`,
 	"esac",
 	`cgroup=${CGROUP_OF_UNIT}/$unit`,
 	// The grep and the subshells of the listing carry the scope too; each has ended when the list is read.
@@ -192,6 +197,10 @@ const SYSTEMCTL = [
 	'if [ "$verb" = is-active ]; then',
 	'\t[ -n "$members" ] && exit 0',
 	"\texit 3",
+	"fi",
+	'if [ "$verb" = term ] && [ -n "$members" ]; then',
+	"\tkill -TERM $members 2>/dev/null",
+	"\texit 0",
 	"fi",
 	'rm -rf "$root$cgroup"',
 	'if [ -z "$members" ]; then',
@@ -247,13 +256,64 @@ export async function pathWithFailingScope(plant: Plant): Promise<string> {
 	return `${await failingSystemdRun(plant.parent)}:${plant.env.PATH}`;
 }
 
-/** The plant's PATH with a systemctl first that fails every call, as it does when the user manager cannot be reached. */
-export async function pathWithFailingScopeEnd(plant: Plant): Promise<string> {
-	const folder = join(plant.parent, "failing-systemctl");
+/** A folder below `parent` whose systemctl fails every call, as it does when the user manager cannot be reached. */
+export async function failingSystemctl(parent: string): Promise<string> {
+	const folder = join(parent, "failing-systemctl");
 	await mkdir(folder);
 	const script = ["#!/bin/sh", 'echo "Failed to connect to bus: No medium found" >&2', "exit 1"];
 	await writeFile(join(folder, "systemctl"), `${script.join("\n")}\n`, { mode: 0o755 });
-	return `${folder}:${plant.env.PATH}`;
+	return folder;
+}
+
+/** The plant's PATH with a systemctl first that fails every call, as it does when the user manager cannot be reached. */
+export async function pathWithFailingScopeEnd(plant: Plant): Promise<string> {
+	return `${await failingSystemctl(plant.parent)}:${plant.env.PATH}`;
+}
+
+/** How long a test waits for a process of a tests' scope to end once it was ended: a signal takes milliseconds. */
+const SCOPE_EXIT_BOUND_MS = 5_000;
+
+/** A process of a tests' scope: its pid, and how it ended, or "still running" once `SCOPE_EXIT_BOUND_MS` passed. */
+export type ScopeProcess = { readonly pid: number; readonly end: () => Promise<string> };
+
+/**
+ * A process of the tests' scope whose cgroup is `cgroup`, as the tests' systemd marks one (its LIMEN_CGROUP), for a
+ * test that runs Limen in its own process with `fakeSystemd`. It is detached into a process group of its own, as a
+ * process the engine detached is, runs the CommonJS `setup` with `args` as its words (a signal handler, say), and then
+ * waits; it resolves once that setup ran. Its end is `exit <code>` or the signal that ended it. The test kills it after
+ * the test.
+ */
+export async function scopeProcess(
+	t: TestContext,
+	cgroup: string,
+	setup = "",
+	args: readonly string[] = [],
+): Promise<ScopeProcess> {
+	const code = `${setup}\nsetInterval(() => {}, 1 << 30);\nprocess.stdout.write("ready\\n");\n`;
+	const env = { ...process.env, LIMEN_CGROUP: cgroup };
+	const child = spawn(process.execPath, ["-e", code, ...args], {
+		detached: true,
+		stdio: ["ignore", "pipe", "ignore"],
+		env,
+	});
+	t.after(() => child.kill("SIGKILL"));
+	const exited: Promise<string> = once(child, "exit").then(([exitCode, signal]) =>
+		signal === null ? `exit ${exitCode}` : String(signal),
+	);
+	const setUp = await Promise.race([once(child.stdout, "data").then(() => "ready"), exited]);
+	if (setUp !== "ready") {
+		throw new Error(`the scope's process ended before its setup ran: ${setUp}`);
+	}
+	const end = async () => {
+		let timer: NodeJS.Timeout | undefined;
+		const bound = new Promise<string>((resolve) => {
+			timer = setTimeout(() => resolve("still running"), SCOPE_EXIT_BOUND_MS);
+		});
+		const how = await Promise.race([exited, bound]);
+		clearTimeout(timer);
+		return how;
+	};
+	return { pid: child.pid ?? 0, end };
 }
 
 /** The plant's PATH with a systemd-run first that runs the command in place in no scope at all. */
@@ -561,10 +621,13 @@ export async function release(dir: string, n = 1): Promise<void> {
 	await writeFile(join(dir, "fake-gate"), "go\n");
 }
 
-/** What the fake engine received through the extension API: steers, follow-ups, messages, notices, its exit. */
+/**
+ * What the fake engine received through the extension API: steers, follow-ups, messages, notices, its exit; and the pid
+ * of each engine process at its start (event `pid`).
+ */
 export function engineEvents(
 	dir: string,
-): Array<{ readonly event: string; readonly text?: string; readonly code?: number }> {
+): Array<{ readonly event: string; readonly text?: string; readonly code?: number; readonly pid?: number }> {
 	const path = join(dir, "fake-events.jsonl");
 	return existsSync(path) ? JSON.parse(`[${readFileSync(path, "utf8").trim().split("\n").join(",")}]`) : [];
 }

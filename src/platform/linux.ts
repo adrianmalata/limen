@@ -1,9 +1,10 @@
 // The Linux implementation of the platform adapter (src/platform/platform.ts): /proc for a process's identity, its
 // cgroup, the memory reading and the boot id, ps for the process table and a program's name, kill(2) for liveness and
 // signals, Node's per-core times for the CPU reading, and systemd: for scopes of the user manager, systemd-run starts
-// one, `systemctl --user is-active` and `kill` end one, and /sys/fs/cgroup holds its readings; `systemctl` also says
-// what the system manager knows of a unit. This is the only code that runs those two programs or reads that hierarchy
-// (A-083, test/structure.test.ts). The parsers are exported so that tests read fixture text instead of the machine.
+// one, `systemctl --user is-active` reads its state, `kill` signals it, the two together end it, and /sys/fs/cgroup
+// holds its readings; `systemctl` also says what the system manager knows of a unit. This is the only code that runs
+// those two programs or reads that hierarchy (A-083, test/structure.test.ts). The parsers are exported so that tests
+// read fixture text instead of the machine.
 import { execFileSync, type SpawnSyncReturns, spawn, spawnSync } from "node:child_process";
 import { statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -23,6 +24,9 @@ import type {
 	ScopeEnd,
 	ScopeProbe,
 	ScopeReadings,
+	ScopeSignal,
+	ScopeSignalResult,
+	ScopeState,
 	SignalResult,
 } from "./platform.ts";
 
@@ -297,12 +301,12 @@ function cgroupFolder(cgroup: string): string {
 }
 
 /**
- * The user manager sends SIGKILL to every process of the scope `unit`, wherever it was re-parented and whatever group
- * it leads; a caller inside the scope ends with it. A scope with no process left is `gone`, decided from facts, never
- * from the words systemctl prints: its cgroup folder no longer exists (the manager collected it), or `is-active` exits
- * 3, as for a scope that ended, or one that never started, such as the scope of a job whose launch failed.
+ * Whether a process is left in the scope `unit`. A scope with no process left is `gone`, decided from facts, never from
+ * the words systemctl prints: its cgroup folder no longer exists (the manager collected it), or `is-active` exits 3, as
+ * for a scope that ended, or one that never started, such as the scope of a job whose launch failed. This is the one
+ * place of that rule; the end of a scope reads it here too.
  */
-function endScope(unit: string, cgroup: string | undefined): ScopeEnd {
+function scopeState(unit: string, cgroup: string | undefined): ScopeState {
 	if (cgroup !== undefined && statSync(cgroupFolder(cgroup), { throwIfNoEntry: false }) === undefined) {
 		return { kind: "gone" };
 	}
@@ -310,8 +314,27 @@ function endScope(unit: string, cgroup: string | undefined): ScopeEnd {
 	if (active.status === NOT_ACTIVE) {
 		return { kind: "gone" };
 	}
-	const failure = callFailure(active) ?? callFailure(systemctl(["--user", "kill", "--signal=SIGKILL", unit]));
-	return failure === undefined ? { kind: "ended" } : { kind: "failed", detail: failure };
+	const failure = callFailure(active);
+	return failure === undefined ? { kind: "active" } : { kind: "failed", detail: failure };
+}
+
+/**
+ * The user manager sends `signal` to every process of the scope `unit`, wherever it was re-parented and whatever group
+ * it leads; a caller inside the scope gets it too.
+ */
+function signalScope(unit: string, signal: ScopeSignal): ScopeSignalResult {
+	const failure = callFailure(systemctl(["--user", "kill", `--signal=${signal}`, unit]));
+	return failure === undefined ? { kind: "sent" } : { kind: "failed", detail: failure };
+}
+
+/** SIGKILL to every process of the scope `unit` while one is left; a caller inside the scope ends with it. */
+function endScope(unit: string, cgroup: string | undefined): ScopeEnd {
+	const state = scopeState(unit, cgroup);
+	if (state.kind !== "active") {
+		return state;
+	}
+	const killed = signalScope(unit, "SIGKILL");
+	return killed.kind === "sent" ? { kind: "ended" } : killed;
 }
 
 /** A call of systemctl, bounded as every call to a manager is. */
@@ -400,6 +423,8 @@ export const linux: Platform = {
 	memory: () => parseMeminfo(readOptional("/proc/meminfo") ?? ""),
 	bootId: () => parseBootId(readOptional("/proc/sys/kernel/random/boot_id") ?? ""),
 	startInScope,
+	scopeState,
+	signalScope,
 	endScope,
 	probeUserScope,
 	ownCgroup,

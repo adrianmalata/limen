@@ -62,6 +62,10 @@ export const ENVIRONMENT = {
 	LIMEN_HERDR: { kind: "test", carries: "the Herdr binary, or 0 for none, in place of herdr on PATH" },
 	LIMEN_HUNK: { kind: "test", carries: "the hunk binary, or 0 for none, in place of hunk on PATH" },
 	LIMEN_REAP_CONFIRM_MS: { kind: "test", carries: "the wait before a dead job is reaped, in place of 10 s" },
+	LIMEN_STOP_GRACE_MS: {
+		kind: "test",
+		carries: "the grace between the TERM and the KILL of a stop, an exhaustion and a reap, in place of 5 s",
+	},
 	LIMEN_START_POLL_MS: { kind: "test", carries: "the start queue's poll interval, in place of 5 s" },
 	LIMEN_START_READING: { kind: "test", carries: "a file with the CPU and memory reading, in place of the machine's" },
 	LIMEN_WAKE_FALLBACK_MS: { kind: "test", carries: "the grace before a fallback wake, in place of 5 min" },

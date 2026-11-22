@@ -1,8 +1,12 @@
-// The parsers of src/platform/linux.ts on fixture text: /proc/<pid>/stat, ps, /proc/meminfo, the boot id, a process's
-// cgroup and a scope's readings.
+// src/platform/linux.ts: its parsers on fixture text (/proc/<pid>/stat, ps, /proc/meminfo, the boot id, a process's
+// cgroup, a scope's readings), and the state and the signals of a user scope on the tests' systemd (test/plant.ts).
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { type TestContext, test } from "node:test";
 import {
+	linux,
 	parseBootId,
 	parseCgroup,
 	parseCounter,
@@ -11,6 +15,8 @@ import {
 	parseProcessTable,
 	parseStat,
 } from "../../src/platform/linux.ts";
+import { withEnvironment } from "../environment.ts";
+import { failingSystemctl, fakeCgroup, fakeSystemd, scopeProcess, systemdCalls } from "../plant.ts";
 
 /** A stat line: the fields after the command are state, parent, group, session, then fields 7-21, start ticks last. */
 const stat = (pid: number, command: string, state: string, startTicks: string) =>
@@ -105,4 +111,70 @@ test("a scope's reading is null for a file that is gone or holds no number of it
 		],
 		[null, null, null, null, null],
 	);
+});
+
+const UNIT = "limen-job-2026-11-22-scope-1a2b3c4d.scope";
+
+/**
+ * The tests' systemd for this test, in a new folder of the OS temporary folder removed after it, with the folder of the
+ * scope `UNIT`: its cgroup, the folder of the tests' cgroups, and the test's own folder.
+ */
+async function scopeFolder(
+	t: TestContext,
+): Promise<{ readonly cgroup: string; readonly cgroups: string; readonly folder: string }> {
+	const folder = mkdtempSync(join(tmpdir(), "limen-linux-"));
+	t.after(() => rmSync(folder, { recursive: true, force: true }));
+	const systemd = await fakeSystemd(folder);
+	withEnvironment(t, systemd);
+	const cgroup = fakeCgroup(UNIT);
+	mkdirSync(join(systemd.LIMEN_CGROUP_ROOT, cgroup), { recursive: true });
+	return { cgroup, cgroups: systemd.LIMEN_CGROUP_ROOT, folder };
+}
+
+test("scopeState reads a scope that holds a process as active and sends its process no signal", async (t) => {
+	const { cgroup, cgroups } = await scopeFolder(t);
+	const member = await scopeProcess(t, cgroup);
+	assert.deepEqual(
+		[linux.scopeState(UNIT, cgroup), systemdCalls(cgroups, "systemctl"), linux.processAlive(member.pid)],
+		[{ kind: "active" }, [`--user is-active --quiet ${UNIT}`], true],
+	);
+});
+
+test("scopeState reads a scope with no process left as gone, and one whose cgroup folder is gone with no call", async (t) => {
+	const { cgroup, cgroups } = await scopeFolder(t);
+	const empty = linux.scopeState(UNIT, cgroup);
+	rmSync(join(cgroups, cgroup), { recursive: true });
+	assert.deepEqual(
+		[empty, linux.scopeState(UNIT, cgroup), systemdCalls(cgroups, "systemctl")],
+		[{ kind: "gone" }, { kind: "gone" }, [`--user is-active --quiet ${UNIT}`]],
+	);
+});
+
+test("scopeState gives the user manager's first line of error when it cannot read the scope", async (t) => {
+	const { cgroup, folder } = await scopeFolder(t);
+	process.env.PATH = `${await failingSystemctl(folder)}:${process.env.PATH ?? ""}`;
+	assert.deepEqual(linux.scopeState(UNIT, cgroup), {
+		kind: "failed",
+		detail: "Failed to connect to bus: No medium found",
+	});
+});
+
+test("signalScope sends SIGTERM to every process of the scope, which then holds none and reads as gone", async (t) => {
+	const { cgroup, cgroups } = await scopeFolder(t);
+	const [first, second] = [await scopeProcess(t, cgroup), await scopeProcess(t, cgroup)];
+	assert.deepEqual(linux.signalScope(UNIT, "SIGTERM"), { kind: "sent" });
+	assert.deepEqual(
+		[await first.end(), await second.end(), existsSync(join(cgroups, cgroup)), linux.scopeState(UNIT, cgroup)],
+		["SIGTERM", "SIGTERM", true, { kind: "gone" }],
+	);
+	assert.equal(systemdCalls(cgroups, "systemctl").at(0), `--user kill --signal=SIGTERM ${UNIT}`);
+});
+
+test("signalScope gives the user manager's words for a scope with no process left", async (t) => {
+	const { cgroup } = await scopeFolder(t);
+	assert.deepEqual(linux.signalScope(UNIT, "SIGKILL"), {
+		kind: "failed",
+		detail: `Failed to kill unit ${UNIT}: Unit ${UNIT} not loaded.`,
+	});
+	assert.deepEqual(linux.scopeState(UNIT, cgroup), { kind: "gone" });
 });

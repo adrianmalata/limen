@@ -61,8 +61,9 @@ Details stop after three jobs in each group, but counts include all RUNNING jobs
 The footer shows the same job line. A warning such as `1 of 14 needs attention`
 counts only dead jobs, not every running job.
 
-The footer, `limen status`, and the reaper use the wrapper's PID and recorded birth
-identity to judge its owner.
+The footer, `limen status`, and the reaper use the wrapper's PID, start time and
+boot id to judge its owner. When the owner is gone, the reaper ends the job's scope
+before it records the job as failed.
 
 A finished job stays on the job line until it lands or closes. It lands when
 its recorded commits are in the checked-out branch, by the same test as
@@ -98,10 +99,12 @@ remains RUNNING and this session is not watching it. `tool` names tool activity;
 `wait` records a turn boundary or waiting activity. Neither silence nor `wait`
 says the owner needs to answer a question.
 
-`dead` means the recorded process group was not found while the job record still
-says RUNNING. Keep that warning separate from waiting; inspect the job and its
-wrapper rather than treating it as successful completion. Likewise, preserve
-a real Herdr `blocked` prompt instead of replacing it with a generic idle label.
+`dead` means the job's wrapper is gone (its PID, start time or boot no longer
+match) while the job record still says RUNNING; the job's scope may still hold
+its engine until the reaper ends it. Keep that warning separate from waiting;
+inspect the job and its wrapper rather than treating it as successful
+completion. Likewise, preserve a real Herdr `blocked` prompt instead of
+replacing it with a generic idle label.
 
 ## Candidate awaiting the owner is not landed work
 

@@ -6,7 +6,7 @@ import { mkdir } from "node:fs/promises";
 import { runOperation, stepFailure } from "../operation.ts";
 import { LimenError, refused } from "../outcome.ts";
 import { platform } from "../platform/platform.ts";
-import { waitForProcessGroup } from "../runtime/reap.ts";
+import { KILL_WAIT_MS, stopGraceMs, waitForProcessGroup } from "../runtime/reap.ts";
 import { finalizeJob, requestedTerminal } from "./finalize.ts";
 import { SESSION_ID } from "./job.ts";
 import { appendLimenLog, type JobRecord, readRecord, transition } from "./record.ts";
@@ -101,10 +101,10 @@ async function endJob({ id, jobDir, reason, state }: StopPlan, again: string | n
 	// this grace (A-029).
 	const result = platform.signalProcessGroup(pid, "SIGTERM");
 	const grace = (async () => {
-		if (result !== "missing" && !(await waitForProcessGroup(pid, 5_000))) {
+		if (result !== "missing" && !(await waitForProcessGroup(pid, stopGraceMs()))) {
 			await appendLimenLog(jobDir, "TERM grace elapsed; sending KILL");
 			platform.signalProcessGroup(pid, "SIGKILL");
-			await waitForProcessGroup(pid, 1_000);
+			await waitForProcessGroup(pid, KILL_WAIT_MS);
 		}
 	})().catch(() => {});
 	// Give a signaled wrapper one brief turn to publish its own terminal state; the first finisher wins either way.

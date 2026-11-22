@@ -6,8 +6,8 @@
 //   · /<command> <args> (runs a command a hook registered, as a user typing it)
 // `block` writes fake-blocked-<n> and waits for one write to the FIFO fake-gate. Records: fake-argv.json, fake-env.json
 // (variable names), fake-task.txt, fake-system.txt (system prompt after before_agent_start), fake-context.txt (the hidden
-// context messages before_agent_start returned), fake-events.jsonl, and one transcript line per engine process in
-// --session-dir.
+// context messages before_agent_start returned), fake-events.jsonl (its first event the `pid` of this engine process,
+// so a test can tell whether the engine still runs), and one transcript line per engine process in --session-dir.
 import { execFileSync, spawn } from "node:child_process";
 import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -31,6 +31,7 @@ if (flag("--session-dir")) {
 	appendFileSync(join(flag("--session-dir"), "fake.jsonl"), `${JSON.stringify({ task })}\n`);
 }
 const record = (entry) => appendFileSync(join(dir, "fake-events.jsonl"), `${JSON.stringify(entry)}\n`);
+record({ event: "pid", pid: process.pid });
 const emit = (event) => console.log(JSON.stringify(event));
 
 const handlers = new Map();
