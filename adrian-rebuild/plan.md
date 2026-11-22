@@ -91,8 +91,9 @@ poza repo; D-083 (przed pytaniem o decyzję sesja przeszukuje cztery źródła, 
 limen-rebuild-20, która zbudowała hook D-083 (tools/decision-guard.mjs, 63 testy, trzy rundy recenzji PASS; uwagi
 rundy 3 poprawione bez czwartej rundy, D-086); blok hooks do .claude/settings.local.json dopisuje Adrian po powrocie
 z wyjazdu, a sesja dzienna bierze tymczasem tickety etapu 3: R-026 zamknięty za dnia (każdy job we własnym scope
-systemd, bramka 752/752, trzy rundy recenzji PASS); przekazanie do limen-rebuild-21, która bierze R-030, R-033 i
-R-100. -->
+systemd, bramka 752/752, trzy rundy recenzji PASS); przekazanie do limen-rebuild-21, która zamknęła R-030 za dnia
+(limen abandon, prune bez utraty niewylądowanej pracy, odmowa spawnu UNLANDED_WORK; pięć rund recenzji, trzecia i
+czwarta runda poprawek z decyzji Adriana D-087 i D-088, bramka 787/787); zostają R-033 i R-100. -->
 
 
 
@@ -1019,6 +1020,25 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   can only miss a search, never count one that did not happen; (2) the wide line of its `ticket.md` is wrapped
   (D-053 (2) applied to a rebuild tool's `ticket.md`). Check: `node --test adrian-rebuild/tools/test-decision-guard.mjs`;
   `evidence/decision-guard/review.md` → Round 3.
+- 2026-11-22 D-087 (Adrian: "rekomendacja"; Q-38, option 1, after R-030's review round 3 with both rounds of fixes
+  spent; an exception to `## Agents`, step 6, for R-030 only, on D-044's pattern): a third round of fixes by the
+  resumed implementer. H1: `limen abandon` keeps and names the worktree when a gitlink of the saved tree points to a
+  commit that the project repository's object store lacks (`git cat-file -e`), with the reviewer's probe of round 3 as
+  a test that fails before the fix; H2: `docs/commands.md:158` states G5's condition; H3: `outcome.md`'s test count.
+  Review round 4 checks only H1–H3 and the absence of regressions; a new non-blocking note is fixed by the main session
+  when it touches only text, or goes to the notes of the ticket that rewrites that part; a new blocking finding goes
+  to Adrian; there is no
+  fifth round. Check: `node --test test/cli/abandon.test.ts`; `R-030-unlanded-work-survives/review.md` → Round 4.
+- 2026-11-22 D-088 (Adrian: "zgodnie z rekomendacją"; Q-39, option 1, after R-030's review round 4 found a new
+  blocking finding; a further exception to `## Agents`, step 6, for R-030 only): a fourth round of fixes by the resumed
+  implementer with one item, I1: one function decides whether a worktree holds state the project's repository cannot
+  hold, and prune, the setup prune, land, `prune --retire` and abandon all use it; a worktree whose `HEAD`, index or
+  working tree holds a gitlink to a commit that the project's object store lacks is kept like a dirty one, whatever job
+  names it, with a `kept` line naming the nested path. Tests: round 4's probe (abandon, then `limen prune`) and the same
+  worktree through `limen land`, each failing before the fix. Review round 5 checks only I1 and the absence of
+  regressions; a new blocking finding goes to Adrian. Round 4's note 2 (a nested repository's other branches, stash and
+  reflog) goes to R-031's notes in `## Tickets`. Check: `node --test test/s9-housekeeping.test.ts`; `node --test
+  test/cli/land.test.ts`; `R-030-unlanded-work-survives/review.md` → Round 5.
 
 ### Gate 2 §2, copied
 
@@ -1401,7 +1421,7 @@ Columns:
 | R-027 | The reaper ends a job only after its process group is gone | 3 | A-005, A-056 | R-026 | M | delegated | night | — | — | — | planned |
 | R-028 | SIGTERM reaches the engine; a signal without a stop request is a failure | 3 | A-020, A-052 | R-026 | M | delegated | night | — | — | — | planned |
 | R-029 | One recorded failure cause per job | 3 | A-016, E-9, T-31, T-32, D-055 | R-017, R-021, R-100 | M | delegated | night | — | bridge | 3.4 | planned |
-| R-030 | Unlanded work survives: `limen abandon`, a guarded prune, a refusing spawn | 3 | A-001 | R-023, R-092 | M | delegated | night | yes | — | — | ready |
+| R-030 | Unlanded work survives: `limen abandon`, a guarded prune, a refusing spawn | 3 | A-001 | R-023, R-092 | M | delegated | night | yes | herdr | 3.6 | done |
 | R-031 | `landed` and `abandoned` markers; retire moves records to the archive | 3 | A-002, §6 | R-030 | M | delegated | night | yes | — | — | planned |
 | R-032 | `limen seat sweep` runs on a timer; read commands never write or wait | 3 | A-024, T-04, T-18, A-017, §6, D-045 | R-012, R-027, R-031 | L | delegated | night | yes | systemd | 3.1 | planned |
 | R-033 | Alerts from their own account: failures and escalations only | 3 | A-066, A-054, T-18, D-084, D-085 | R-021 | L | delegated | night | yes | systemd | 3.3 | ready |
@@ -1584,10 +1604,21 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
 - R-031 (D-080; R-099 `outcome.md` → Open point 2): a job whose record leaves `.limen/jobs/` before the poller saw it
   past `starting` leaves a GitHub handoff gate that no rule tells from a crash's, so a rerun of the claim's command
   would start a new job; the archive is where a gate can find the claim's job after a retire.
+- R-031 (D-088; R-030 `review.md` → Round 4, note 2): R-030's test of a nested repository reads only the gitlink's
+  commit and the nested repository's status, never its other branches, stash or reflog, so commits there go with the
+  worktree after abandon; the `abandoned` marker that replaces the branch test should be set only when the save holds
+  the whole worktree.
 - R-032 (D-080; R-099 `outcome.md` → Open points 7 and 8): a crash between the job record and the wrapper's start
   leaves a `starting` record with no pid, which the reaper skips and prune removes only after the 10-minute grace; a
   crash before publication's rename leaves `.limen/.publishing-<id>`, which no line of `src/` removes outside
   `publishJob`'s `catch`. The sweep finds and ends both.
+- R-032 (D-088; R-030 `review.md` → Round 5, notes 2–4): R-030's rule of a gitlink to a commit the project lacks
+  (`unsavedGitlink`) keeps also a worktree whose gitlink folder holds no nested `.git`, so in a project with a
+  registered submodule, or whose `main` records such a gitlink, no worktree and no landed branch is removed any more
+  (nothing is lost; the kept lines grow); a clean candidate whose `HEAD` has no commit makes the whole prune fail with
+  `GIT_FAILED` and Git's words only; a gitlink path that holds a tab is cut at it in the `kept` line. The sweep's prune
+  checks a gitlink only where a nested `.git` is there, names the worktree in that failure, and reads `-z` entries
+  whole.
 - R-033 (D-080; R-021 `outcome.md` → Open points): since R-021 the bell needs `node` on its service's `PATH`; the
   alerts that replace it, and seat step 3.3, name what their service runs.
 - R-038 (D-080; R-024 Open point 3, R-096 Open point 1): the fake engine writes `{"task": …}` into its transcript,
@@ -1809,8 +1840,9 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
   the weekly limit (item 12; E-9; R-029, R-034).
 - **3.5** `limen rule` refuses and names its replacement; the old seat rules file appears as a leftover (R-034).
 - **3.6** `limen status` lists finished jobs with unlanded work; resolve each with `limen continue <id>` or
-  `limen abandon <id>` before the next spawn (R-030); the marker migration of R-031 reports which landed jobs it marked
-  and which it left without a marker.
+  `limen abandon <id>` before the next spawn (R-030); the first `limen abandon` of a job whose Herdr tab is open closes
+  that tab (`herdr` tab list before and after; T-28 (5), R-030); the marker migration of R-031 reports which landed
+  jobs it marked and which it left without a marker.
 - **3.7** Reboot test: jobs survive a Herdr restart (`systemd-cgls` before and after) (item 13; R-026).
 - **3.8** A trial job's record holds the peak memory and CPU of its scope, and a job that runs only `sleep 300` ends
   with kind `stall` (R-026, R-035, R-036).
@@ -2115,12 +2147,12 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-22 by day (`limen-rebuild-20`), rebuild stage 5 in plan stage 3: stage 1 is closed at `a0.1.1`
+Updated 2026-11-22 by day (`limen-rebuild-21`), rebuild stage 5 in plan stage 3: stage 1 is closed at `a0.1.1`
 (deployed on 2026-11-20, with B.2 closed by D-050); stage 2 is closed at `a0.2.0` (gate 5.2 decided, D-078–D-082);
-stage 3 has started: R-026 is `done` (by day), R-030, R-033 and R-100 are `ready`, and D-083's decision guard is
+stage 3 has started: R-026 and R-030 are `done` (by day), R-033 and R-100 are `ready`, and D-083's decision guard is
 built (D-086). The newest entries are at the end of this section: the close of stage 2 in "Close of stage 2", the gate
-in "Gate 5.2 decided", the start of stage 3 in "Start of stage 3", and the guard and R-026 in "D-083's decision
-guard".
+in "Gate 5.2 decided", the start of stage 3 in "Start of stage 3", the guard and R-026 in "D-083's decision guard",
+and R-030 (with D-087 and D-088) in "R-030".
 
 Handover of 2026-11-19 (D-033, at 37 % context, after the commit `R-014:`): `limen-rebuild-5` started
 `limen-rebuild-6` in `tmux` in remote-control mode (14:10) and ended. WSL booted at 10:34 on 2026-11-19, after the
@@ -3240,6 +3272,50 @@ redundant, the terminal being active):
   R-087, R-034 and R-081 in `## Tickets`, the R-050/R-087 one corrected after round 3). Not checked here: that
   `systemctl --user is-active` exits 3 for a scope that is gone (step 3.2). Unmeasured: M-09 (steps 3.2, 3.7, 3.8).
 
+R-030 (2026-11-22, `limen-rebuild-21`, by day, Adrian away; its `close-previous` printed `handover: closed tmux session
+limen-rebuild-20` and one `handover: stopped claude …` line and exited 0; its takeover push was skipped as redundant,
+the terminal being active; context 8 % at the start):
+- R-030 `active` (delegated, from 15:20). The implementer's `DONE`; `compare --git` exit 0; the main session's gate
+  771/771, `fails-before.mjs` exit 0 (twelve files). Review round 1 FAIL (one blocking: abandon saved a nested
+  repository only as a gitlink and removed it); fixes F1–F8 in `ticket.md` → `## Decisions`; `## Deployment` 3.6 and
+  the ticket's row gain the Herdr check of T-28 (5). Round 1 of fixes: gate 778/778. Review round 2 PASS with ten
+  notes; fixes G1–G9 (the second and last round), Deviation 10 accepted. Round 2 of fixes: gate 784/784,
+  `fails-before.mjs` exit 0. Review round 3 FAIL with one blocking finding (`review.md` → Round 3): abandon still
+  removes a worktree whose embedded repository the job committed as a gitlink in its own unlanded `HEAD`, so the
+  nested commit is lost. Both rounds of fixes are spent: Q-38 asked in the conversation, with a push. The working tree
+  holds R-030's uncommitted change, so no other ticket starts until it is committed.
+  - Q-38: 1. a third round of fixes for R-030 only, on D-044's pattern: H1 abandon keeps and names the worktree when
+    a gitlink of the saved tree points to a commit missing from the project repository's object store (`git cat-file
+    -e`), with the reviewer's probe as a test that fails before it; H2 `docs/commands.md:158` states G5's condition; H3
+    `outcome.md`'s test count; review round 4 checks only these and regressions, a new blocking finding goes to Adrian,
+    no fifth round (recommended); 2. commit R-030 as it is and give the loss case to a new fix ticket before `a0.3.0`;
+    3. abandon refuses with a new code any job whose worktree holds a nested repository.
+- Adrian: "rekomendacja" → D-087 (Q-38 option 1): H1–H3 in `ticket.md` → `## Decisions`, a third round of fixes by
+  the resumed implementer, then review round 4 on H1–H3 and regressions only.
+- The third round of fixes `DONE`; `compare --git` exit 0; gate 785/785, `fails-before.mjs` exit 0. Review round 4
+  FAIL with a new blocking finding (`review.md` → Round 4): the worktree that H1 keeps is removed by the next prune,
+  since the written `limen/abandon/<id>` resolves the job and the worktree looks clean. By D-087 it goes to Adrian:
+  Q-39 asked in the conversation, with a push. Round 4's note 3 (`docs/jobs.md:138`) fixed by the main session.
+  - Q-39: 1. a fourth round of fixes with one item: one function decides whether a worktree holds state the project
+    cannot hold, used by prune, land, `prune --retire` and abandon; a worktree whose `HEAD`, index or working tree holds
+    a gitlink to a commit the project's object store lacks is kept like a dirty one, whatever job names it; tests:
+    round 4's probe (abandon, then `limen prune`) and the same through land, each failing before the fix; review round
+    5 on that item and regressions only, a new blocking finding to Adrian (recommended: it closes the loss on every
+    removal path, a landed job's worktree too, and leaves the meaning of "resolved" as it is); 2. abandon writes no
+    branch when a nested repository holds what the branch cannot, and refuses with a new code, so the job stays
+    unresolved, listed and blocking worker spawns until a human moves the nested repository (it covers the abandon path
+    only); 3. commit R-030 now and give the case to a new fix ticket before `a0.3.0`.
+- Adrian: "zgodnie z rekomendacją" → D-088 (Q-39 option 1): I1 in `ticket.md` → `## Decisions`, a fourth round of
+  fixes by the resumed implementer, then review round 5 on I1 and regressions only; round 4's note 2 to R-031's notes.
+- R-030 `done` (delegated; review FAIL, PASS, FAIL, FAIL, PASS in rounds 1–5, with fixes F1–F8, G1–G9, H1–H3 (D-087)
+  and I1 (D-088) by the resumed implementer): prune keeps every worktree that is dirty, holds unlanded work, holds a
+  registered worktree below it or a nested repository whose commit the project lacks, one `kept` line each, and land
+  and `prune --retire` keep by the same checks; `limen abandon <id>` saves the whole state on `limen/abandon/<id>` and
+  removes the worktree only when the branch holds all of it; worker spawns refuse `UNLANDED_WORK` (a repair spawn on
+  the job's own branch takes it over); `limen status` lists the jobs. The main session's gate 787/787 on the final tree
+  (184.7 s); `fails-before.mjs` exit 0 (twelve files). Round 5's text note fixed by the main session (`docs/jobs.md:147`,
+  D-053 (2)); its notes 2–4 go to R-032's notes (D-087's rule). Unmeasured: M-10, M-06 (step 3.6, with its Herdr check).
+
 Next (by day):
 1. After his return from the trip (Adrian, 2026-11-22: "Zapisz mi to na zrobienie po powrocie z wyjazdu, teraz działaj
    z zadaniami dalej"), Adrian adds the `hooks` block below to `.claude/settings.local.json` as a top-level key (into
@@ -3265,7 +3341,7 @@ Next (by day):
      ]
    }
    ```
-2. The `ready` tickets of stage 3 left, in protocol order (R-030, R-033, R-100; R-026 is `done`): by day, at Adrian's word
+2. The `ready` tickets of stage 3 left, in protocol order (R-033, R-100; R-026 and R-030 are `done`): by day, at Adrian's word
    ("teraz działaj z zadaniami dalej", 2026-11-22), the main session takes them in delegated mode by the ticket
    protocol (`Run` = `night` means a night run may take a ticket, not that only a night run may); whatever is left
    goes to the next night run, started as the night mode says (D-024), after the preflight. R-029 waits for R-100

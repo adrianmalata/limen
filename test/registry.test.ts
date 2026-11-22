@@ -125,6 +125,11 @@ test("D-039: the moved entries are exactly the commands a subsequent ticket move
 // T-28 (3): each command marked irreversible, with its test file and the titles of its tests of running it again and
 // of losing nothing.
 const IRREVERSIBLE = {
+	abandon: {
+		file: "test/cli/abandon.test.ts",
+		again: "a second abandon after all its steps prints the branch, exits 0 and changes nothing",
+		kept: "abandon keeps every changed, deleted and untracked file of the worktree on its branch byte for byte, and no ignored one",
+	},
 	migrate: {
 		file: "test/cli/migrate.test.ts",
 		again: "a second run has nothing to do, exits 0 and changes nothing",
@@ -585,7 +590,6 @@ const WITHOUT_CODE_TEST: readonly string[] = [
 	"GROUP_TEAM_JOB",
 	"GROUP_TEAM_UNKNOWN",
 	"GROUP_TIMEOUT_SHORT",
-	"JOB_NOT_FINISHED",
 	"JOB_NO_BRANCH",
 	"JOB_NO_SESSION",
 	"JOB_NO_WORKTREE",

@@ -14,7 +14,11 @@ import { type Facts, publishRecord, writeProgress } from "./record.ts";
  * Publication holds it too, so no job claims a worktree between that read and the removal.
  */
 export function worktreeLock<T>(jobsRoot: string, operation: () => Promise<T>): Promise<T> {
-	return groupLock(`${dirname(jobsRoot)}/prune`, operation, "wait");
+	return groupLock(worktreeGuard(jobsRoot).folder, operation, "wait");
+}
+/** The lock of `worktreeLock`, for an operation of src/operation.ts whose apply removes a worktree under it. */
+export function worktreeGuard(jobsRoot: string): { readonly folder: string } {
+	return { folder: `${dirname(jobsRoot)}/prune` };
 }
 
 /**

@@ -569,6 +569,50 @@ export function engineEvents(
 	return existsSync(path) ? JSON.parse(`[${readFileSync(path, "utf8").trim().split("\n").join(",")}]`) : [];
 }
 
+/** How `nestedJob` makes its job and the nested repository in the job's worktree. */
+export type Nested = {
+	/** The job's branch records the nested repository at its commit as a gitlink. */
+	readonly committed: boolean;
+	/** A clone of the project, so its commit is in the project's object store too; else a commit of its own. */
+	readonly known?: true;
+	/** It holds an untracked file, `wip.txt`. */
+	readonly untracked: boolean;
+	/** The job ends `done`, so it can land; else it ends `failed`. */
+	readonly done?: true;
+};
+
+/**
+ * A finished job of the plant with a nested repository at `name` below its worktree, made as `how` says (R-030: what
+ * abandon, prune and land must not lose). Returns the job's id, its worktree, the nested repository's folder and the
+ * commit it has checked out.
+ */
+export async function nestedJob(p: Plant, name: string, how: Nested) {
+	const id = spawnJob(p, how.done ? "say done" : "fail 3");
+	const state = waitJob(p, id);
+	if (state !== (how.done ? "done" : "failed")) {
+		throw new Error(`job ${id} ended ${state}`);
+	}
+	const worktree = jobRecord(p, id)?.worktree ?? "";
+	const nested = join(worktree, name);
+	await mkdir(how.known ? dirname(nested) : nested, { recursive: true });
+	if (how.known) {
+		git(p.root, "clone", "-q", p.root, nested);
+	} else {
+		git(nested, "init", "-q", "-b", "main");
+		await writeFile(join(nested, "lib.txt"), "the nested repository's own commit\n");
+		git(nested, "add", "lib.txt");
+		git(nested, "-c", "user.name=Nested", "-c", "user.email=nested@example.test", "commit", "-q", "-m", "lib");
+	}
+	if (how.committed) {
+		git(worktree, "add", name);
+		git(worktree, "commit", "-q", "-m", "record the nested repository");
+	}
+	if (how.untracked) {
+		await writeFile(join(nested, "wip.txt"), "half-done edit\n");
+	}
+	return { id, worktree, nested, head: git(nested, "rev-parse", "HEAD") };
+}
+
 /** Every fetch any Limen process in this plant made; `respond` rows answer the first request whose URL contains `match`. */
 export function requests(plant: Plant): Array<{
 	readonly url: string;

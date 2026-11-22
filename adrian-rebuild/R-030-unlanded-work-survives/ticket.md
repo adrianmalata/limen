@@ -2,8 +2,12 @@
 worktree ani worktree joba z niewylądowanymi commitami, dopóki job nie zostanie rozwiązany; nowe `limen abandon <id>`
 zapisuje stan na gałęzi `limen/abandon/<id>`, dopiero wtedy usuwa worktree i zamyka kartę Herdr joba; spawn workera
 odmawia (`UNLANDED_WORK`), dopóki taki job istnieje, a `limen status` je wymienia. Stan: napisany 22.11 przy `9da2fde`
-z inwentarza `evidence/inventories/R-030.md`, tego samego dnia sprawdzony ponownie z `taste.md` (T-04, T-18, T-19),
-gotowy na noc. -->
+z inwentarza `evidence/inventories/R-030.md`, tego samego dnia sprawdzony ponownie z `taste.md` (T-04, T-18, T-19).
+Po rundach 1 i 2 recenzji (22.11) `## Decisions` ma poprawki F1–F8 (m.in. zagnieżdżone repo przy abandon, naprawa
+przez spawn na gałęzi kandydata) i G1–G9 (m.in. ta sama ochrona przy land, ucieczka znaków sterujących w ścieżkach);
+po rundzie 3 decyzja Adriana D-087 daje trzecią rundę poprawek H1–H3 (gitlink do commitu spoza bazy obiektów repo
+zatrzymuje worktree), a po rundzie 4 decyzja D-088 daje czwartą rundę z jedną poprawką I1 (jedna funkcja „worktree
+trzyma stan, którego repo nie pomieści” dla prune, land, `--retire` i abandon). -->
 
 # R-030 Unlanded work survives: `limen abandon`, a guarded prune, a refusing spawn
 
@@ -178,3 +182,102 @@ Settled by the documents when the ticket was written (2026-11-22, the main sessi
    summary is T-19's wording, and the status listing reads worktrees without optional locks (T-04). Abandon's steps
    are found again from git state when it runs again (the branch, the worktree, the tab), not recorded in the record,
    because a terminal record cannot be written before R-031 (T-38 (3) asks that a rerun continue).
+
+Review round 1 (2026-11-22, by day; `review.md` → Round 1): the findings to fix, for the first round of fixes by the
+resumed implementer. Each is the main session's reading of the ticket and of the sources it names, not a night default:
+- F1 (the blocking finding; AC-9, T-28 (3)): abandon removes a worktree only when the saved commit holds all of its
+  state. Step (2) also keeps and names the worktree when the commit's tree holds a gitlink (mode `160000`) that the
+  worktree's `HEAD` tree does not hold at the same object, or when any nested repository in the worktree (a registered
+  submodule or an unregistered folder with its own `.git`) has changes or untracked files of its own; the branch is
+  still written, and the kept line names the nested path. A test: the reviewer's probe (a failed job's worktree with
+  `vendor/lib` holding its own commit and an untracked `wip.txt`); `limen abandon` keeps the worktree and `wip.txt`
+  survives; it fails before the fix.
+- F2 ((a): "never remove a dirty worktree, whatever job names it or none"): prune visits its candidates deepest first
+  and keeps a worktree that still holds another registered worktree below it after the pass; abandon keeps and names a
+  worktree that holds another registered worktree. A test: the reviewer's probe (a clean done job's worktree with a
+  registered worktree under its ignored `.limen/` and an untracked file there); prune keeps both and prints a `kept`
+  line; it fails before the fix.
+- F3 (the repair loop of `templates/agents.md:146` and `:200`, `docs/jobs.md:91` and `:115`; A-015, A-035 and A-073
+  name repair spawns; the ticket's "resolved … when a newer job takes the worktree"): a worker spawn whose `--branch`
+  is the own branch of an unresolved job takes over that job's work (spawn reuses its worktree, `spawning.ts:787-798`,
+  or makes a new one on the branch when the worktree is gone; Deviation 1 moves the branch's commits to the newest
+  record), so that job does not make it refuse; every other unresolved job still does. The manual's lines stay as they
+  are. Tests: the reviewer's probe (a done candidate, its done review, then a repair spawn with `--branch <its branch>`)
+  passes; the same repair spawn while another job has unresolved unlanded work refuses with `UNLANDED_WORK` naming only
+  that other job. The first fails before the fix.
+- F4 (step (2): "removed by prune's own removal"): abandon removes a worktree only when prune itself could remove it: a
+  registered worktree, not the primary checkout, not locked in Git, under the Limen worktree root; otherwise it keeps
+  and names it (`docs/commands.md:238`: "A Git-locked worktree stays"), and empties only the trash it made. A test: a
+  Git-locked worktree stays after `limen abandon`, with the branch written.
+- F5 ((a), z. 10: "each kept worktree prints one line"): one line form for every kept worktree, `kept <worktree> (job
+  <id>): <reason>`, from prune, the setup prune, land and `prune --retire` (which prints it too); the reason is
+  `unlanded work` for prune, land and `--retire`, and names the cause for abandon (changed after the save, a nested
+  repository, a registered worktree inside, locked, outside the worktree root). This replaces Deviation 3.
+- F6 (Deviation 8; T-01): a worktree that `git status` cannot read still fails closed (`GIT_FAILED`, exit 4), and the
+  message names the worktree's path and its job id before git's own text. A test of the message.
+- F7 (T-30): the comment at `test/s5-land.test.ts:41` says what the tests do now.
+- F8 ((e): text says what the code does): `docs/herdr-status.md:15` names `--retire`'s skip of jobs with unlanded work.
+- Accepted as written (`outcome.md` → Deviations): 1 (consistent with F3), 2, 4, 5, 6, 7 and 9. The main session adds
+  the Herdr verification of T-28 (5) to `plan.md` → `## Deployment` 3.6 and the ticket's row (API `herdr`, Seat 3.6).
+
+Review round 2 (2026-11-22, by day; `review.md` → Round 2, verdict PASS with ten notes): the findings to fix, for the
+second and last round of fixes by the resumed implementer; again the main session's reading, not a night default:
+- G1 ((a) names `deleteLandedBranch`; note 1, proven): `deleteLandedBranch` (land and `prune --retire`) keeps a
+  worktree that holds another registered worktree below it, by the same test as prune and abandon (one function, T-25).
+  A test: the F2 probe through `limen land <id>`; the inner worktree and its untracked file survive; it fails before the
+  fix.
+- G2 ((a), z. 10: "each kept worktree prints one line"; note 2, proven): a held worktree inside another held worktree
+  prints its own `kept` line too. A test, failing before the fix.
+- G3 (F5: "the reason … names the cause"; note 3, proven): a worktree kept only because a registered worktree lies
+  below it prints that cause (`holds the registered worktree <path>`), not `unlanded work`; `docs/commands.md:236` and
+  `docs/jobs.md:138` say so. A test of the line, failing before the fix.
+- G4 (note 5): a test of F1's second cause, a gitlink at `HEAD`'s commit whose nested repository has changes of its
+  own; the worktree stays and the line names the nested path.
+- G5 (F3: "takes over that job's work"; note 6): a worker spawn with `--branch` takes over an unresolved job only when
+  it reuses that job's worktree or the job's worktree is gone; a job whose worktree is there without that branch checked
+  out still makes the spawn refuse. A test, failing before the fix.
+- G6 (z. 15; note 7): a path that `limen abandon`, prune and land print in a `kept` line (a nested repository's path,
+  an inner worktree's path) goes through one escaping of control characters, as `JSON.stringify` writes them, so a name
+  a job chose cannot add a line to the output the coordinator reads; an existing helper of `src/` is reused if one
+  does this. A test with a nested folder whose name holds a newline, failing before the fix.
+- G7 (T-30; note 8): the comment at `src/job/unlanded.ts:199` and `outcome.md` → Unmeasured count the Git processes
+  right (one `rev-list` per unlanded branch).
+- G8 ((e); note 9): `docs/commands.md:192` shows the repo suffix that `unlandedLines` adds for a workspace repository.
+- G9 (note 10): `outcome.md` → Deviations numbered in order.
+- Accepted: Deviation 10 (note 4): a nested repository in an ignored folder goes with the worktree, as A-001's Decision
+  saves "changes and untracked files, not ignored ones" and Decision 4 says ignored files go with it; a nested
+  repository with no commit fails closed (`GIT_FAILED`, nothing written). Deviation 11 stays as G2 narrows it (a clean
+  inner worktree of a kept one stays without a line of its own).
+
+Review round 3 (2026-11-22, by day; `review.md` → Round 3, verdict FAIL with one blocking finding). Adrian's decision
+(2026-11-22, "rekomendacja", Q-38 option 1 → `plan.md` → D-087): a third round of fixes for this ticket only, on
+D-044's pattern; review round 4 checks only H1–H3 and the absence of regressions, a new blocking finding goes to
+Adrian, and there is no fifth round:
+- H1 (the blocking finding; F1's rule "abandon removes a worktree only when the saved commit holds all of its state",
+  AC-9, T-28 (3)): `limen abandon` keeps and names the worktree when a gitlink (mode `160000`) of the saved tree points
+  to a commit that the project repository's object store lacks (`git cat-file -e <oid>` in the job's repository), also
+  when the worktree's `HEAD` holds that gitlink at the same commit; the branch is still written, and the kept line names
+  the nested path (escaped as G6 says). The rule fails safe: a gitlink it cannot check keeps the worktree. The header
+  of `src/job/abandoning.ts`, the comment of `nestedWork` and `docs/jobs.md:149` say what the code does. A test: the
+  reviewer's probe of round 3 (a failed job whose worktree holds `vendor/lib` with its own commit, committed as a
+  gitlink in the worktree; `limen abandon` keeps the worktree, and the nested commit is still there); it fails before
+  the fix.
+- H2 ((e); round 3, note 2): `docs/commands.md:158` states G5's condition (the spawn takes over a job only when it
+  reuses that job's worktree or the job's worktree is gone).
+- H3 (round 3, note 3): `outcome.md` → Done (f) gives one test count for `test/cli/abandon.test.ts`, the true one.
+
+Review round 4 (2026-11-22, by day; `review.md` → Round 4, verdict FAIL with a new blocking finding: the worktree that
+H1 keeps is removed by the next prune, since `limen/abandon/<id>` resolves the job and the worktree looks clean).
+Adrian's decision (2026-11-22, "zgodnie z rekomendacją", Q-39 option 1 → `plan.md` → D-088): a fourth round of fixes
+with one item; review round 5 checks only I1 and the absence of regressions, and a new blocking finding goes to Adrian:
+- I1 ((a): "never remove a dirty worktree, whatever job names it or none"; AC-9; T-28 (3); T-25: one definition): one
+  function decides whether a worktree holds state the project's repository cannot hold, and prune, the setup prune,
+  land, `prune --retire` and abandon all use it. A worktree whose `HEAD` tree, index or working tree holds a gitlink
+  (mode `160000`) to a commit that the project's object store lacks (`hasObject`) is kept like a dirty one, whatever
+  job names it and whether or not the job is resolved, with a `kept <worktree> (job <id>): <reason>` line whose reason
+  names the nested path (escaped as G6 says). The check fails safe: a gitlink it cannot check keeps the worktree.
+  `docs/jobs.md` (`:138`, `:149`) and `docs/commands.md` say so. Tests: round 4's probe (H1's setup, `limen abandon`,
+  then `limen prune`: the worktree and the nested commit survive, and prune prints the `kept` line) and the same
+  worktree of a job through `limen land` (kept, the nested commit survives), each failing before the fix.
+- Round 4's note 2 (a nested repository's other branches, stash and reflog) goes to R-031's notes in `plan.md` →
+  `## Tickets`; note 3 (`docs/jobs.md:138`) was fixed by the main session.

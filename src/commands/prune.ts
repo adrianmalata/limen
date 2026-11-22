@@ -2,9 +2,16 @@ import { rm } from "node:fs/promises";
 import { retainedGroupJob } from "../job/group-cabinet.ts";
 import { isTerminal } from "../job/job.ts";
 import { jobFolders, readRecord } from "../job/record.ts";
+import { unlandedWork } from "../job/unlanded.ts";
 import type { Parsed } from "../parser.ts";
 import { limenRoot, unlandedBranches, workspaceRepository } from "../project/git.ts";
-import { deleteLandedBranches, pruneFinishedWorktrees, pruneLine } from "../runtime/pruning.ts";
+import {
+	deleteLandedBranches,
+	keptLine,
+	type PruneKept,
+	pruneFinishedWorktrees,
+	pruneLine,
+} from "../runtime/pruning.ts";
 
 /** `limen prune`: removes finished worktrees, or with `--retire` the records of finished jobs that landed. */
 export async function pruneCommand(values: Parsed, cwd: string): Promise<undefined> {
@@ -14,18 +21,24 @@ export async function pruneCommand(values: Parsed, cwd: string): Promise<undefin
 		throw new Error("prune --dry-run requires --retire");
 	}
 	if (!retire) {
-		const removals = await pruneFinishedWorktrees(limenRoot(cwd));
-		for (const removal of removals) {
+		const { removed, kept } = await pruneFinishedWorktrees(limenRoot(cwd));
+		for (const removal of removed) {
 			console.log(pruneLine(removal));
 		}
+		for (const each of kept) {
+			console.log(keptLine(each));
+		}
 		console.log(
-			removals.length === 0
+			removed.length === 0
 				? "no finished worktrees"
-				: `pruned ${removals.length} finished worktree${removals.length === 1 ? "" : "s"}`,
+				: `pruned ${removed.length} finished worktree${removed.length === 1 ? "" : "s"}`,
 		);
 		return;
 	}
-	const { ids, branches } = await retireFinishedJobs(limenRoot(cwd), dryRun);
+	const { ids, branches, kept } = await retireFinishedJobs(limenRoot(cwd), dryRun);
+	for (const each of kept) {
+		console.log(keptLine(each));
+	}
 	if (dryRun && ids.length) {
 		console.log(ids.map((id) => `would retire ${id}`).join("\n"));
 	} else {
@@ -67,7 +80,7 @@ async function finishedJobs(root: string, jobsRoot: string): Promise<FinishedJob
 async function retireFinishedJobs(
 	root: string,
 	dryRun: boolean,
-): Promise<{ readonly ids: readonly string[]; readonly branches: number }> {
+): Promise<{ readonly ids: readonly string[]; readonly branches: number; readonly kept: readonly PruneKept[] }> {
 	const jobsRoot = `${root}/.limen/jobs`,
 		retired: FinishedJob[] = [],
 		finished = await finishedJobs(root, jobsRoot);
@@ -85,20 +98,28 @@ async function retireFinishedJobs(
 			unlanded.set(repository, undefined);
 		}
 	}
+	// A job whose worktree or branch holds unlanded work keeps its record until it is continued or abandoned (A-001), and
+	// a worktree that stays for it is named in the one line of every kept worktree.
+	const holding = new Map((await unlandedWork(root)).map((work) => [work.id, work]));
+	const kept: PruneKept[] = [];
 	for (const job of finished) {
 		const pending = unlanded.get(job.repository);
-		if (pending && !pending.has(job.branch)) {
+		const work = holding.get(job.id);
+		if (pending && !pending.has(job.branch) && work?.worktree) {
+			kept.push({ path: work.worktree, job: job.id });
+		} else if (pending && !pending.has(job.branch) && !work) {
 			retired.push(job);
 		}
 	}
 	if (dryRun) {
-		return { ids: retired.map((job) => job.id), branches: 0 };
+		return { ids: retired.map((job) => job.id), branches: 0, kept };
 	}
 	// Branches go before records: a record names the finished worktree that may still hold its branch.
 	const landed = new Map(retired.filter((job) => job.branch).map((job) => [`${job.repository}\0${job.branch}`, job]));
-	const deleted = (await deleteLandedBranches(root, [...landed.values()])).filter((result) => !result.kept).length;
+	const results = await deleteLandedBranches(root, [...landed.values()]);
 	for (const { id } of retired) {
 		await rm(`${jobsRoot}/${id}`, { recursive: true, force: true });
 	}
-	return { ids: retired.map((job) => job.id), branches: deleted };
+	kept.push(...results.flatMap((result) => (result.worktree ? [result.worktree] : [])));
+	return { ids: retired.map((job) => job.id), branches: results.filter((result) => !result.kept).length, kept };
 }

@@ -43,6 +43,7 @@ Jobs: spawn starts a job; the others act on one job, or on several with --runnin
   limen continue <job> "instruction" …       resume a finished job in its worktree
   limen steer <job>|--running "text"         send a correction to a running job
   limen stop <job> ["reason"]                stop a running job
+  limen abandon <job>                        give up on a job and keep its work on a branch
   limen land <job> [--onto <branch>] [--yes] [--keep-open]
                                              merge a done job onto this branch and close its ticket
   limen diff <job>                           the change a job made against its base
@@ -154,6 +155,8 @@ limen continue <id|token> "follow-up instruction" [--label L] [--engine pi] [--p
 
 Spawn requires `--engine`, `--provider`, `--model` and `--thinking`: without one of them it exits 2 and names every missing flag, before a job exists. `continue` takes them as options and keeps the parent's engine.
 
+**Unlanded work first.** A worker spawn, with `--branch` too, and a GitHub or group worker's, exits 1 with `UNLANDED_WORK` while a finished job of the project holds unlanded work that nothing resolved ([Finished jobs](jobs.md#finished-jobs)): it names each such job with its changed files and unlanded commits, and `limen continue <id>` and `limen abandon <id>`, and `next` is `limen status`. A worker spawn with `--branch` on the own branch of such a job, as a repair of a reviewed candidate, takes over that job's work and waits only for the others, when it reuses that job's worktree or the job's worktree is gone; a job whose worktree is there without the branch checked out still makes it refuse. A review spawn, a keeper and a group's team coordinators work on a candidate and start anyway.
+
 `--base` and `--head` pin the range that a review reads. They take a full SHA, a short SHA, or a ref such as a branch or tag; Limen resolves it with `git rev-parse` and records the full SHA. They require `--review`.
 
 **Pi extensions.** Repeat `--extension PATH` to select existing local extension files or package directories. Relative paths use the caller's directory, not the worker worktree; quoted `~/` paths expand from the caller's home. Quote paths with spaces. Limen resolves symlinks and removes duplicate paths in first-seen order. Empty values, remote sources (`npm:`, `git:`, URLs), built-in selectors and globs are rejected before preflight or job/worktree creation.
@@ -186,6 +189,8 @@ limen open <id|token>
 
 Open groups replace individual member candidates with one line: `group <feature>: N member branches; the lead decides (limen group status <id>)`. Closed groups leave the inbox. Work outside groups keeps its ordinary candidate or decision row.
 
+After `Needs a decision`, a section `Unlanded work (spawn refuses until each is continued or abandoned):` lists every finished job that holds unlanded work no landing, continuation or abandon resolved, whatever its age, migrated records included ([Finished jobs](jobs.md#finished-jobs)): a line `<id> · <state> · <n> changed files, <m> unlanded commits`, with ` · repo <repo>` after it for a job in a workspace repository, then `limen continue <id> "instruction"` and `limen abandon <id>` on a line each. It reads each worktree with `git --no-optional-locks status`, which refreshes no index. When no job holds unlanded work, the section is not shown.
+
 `status --all` reports every record, also those older than 7 days, and under the summary prints `Jobs (N):` with one row for each job of the project, running jobs first, then the newest. The row is the compact format that tools read.
 
 When the project has leftover files, a section `Leftover files (N); check them, then run limen init --drop-leftovers:` comes before the `Older:` line, or before `Coordinator tabs:` with `--all`, with one line `<path> (<feature>)` for each file. It lists each path that a cut feature left in the project (a file, a directory or a symlink), and each copy of a package prompt (`AGENTS.md`, `.agents/limen/worker.md`, `.agents/limen/reviewer.md`, `.agents/limen/communication.md`) that is byte-identical to the package's template, as `identical copy of the package's templates/<name>`. When the project has no leftover files, the section is not shown. The list only reads files; it removes nothing.
@@ -198,7 +203,7 @@ In a terminal, `show` shows the job for people. Through a pipe, it prints the co
 
 A job in the start queue lists as running with the pulse `queued`, then its wait and the reason: the CPU and memory reading against the gate, or each rule that holds its priority with the rule's end, and the number of jobs ahead. `limen seat queue` prints the gate, the current reading, and every waiting job of the seat in start order, each held job with the rules that hold it. It samples the load for about two seconds. The old top-level `queue` command was renamed: it exits 2 and names `limen seat queue`.
 
-A job is starting while `limen spawn` still sets it up: the worktree and the launch. Its record has the state `starting` and the spawn's pid from the first moment. `show` and `status` list it as running with the pulse `starting`. A starting job whose spawn process is gone is `ORPHAN`. Spawn prints its text when it ends: the job ID after its start line, and its final line carries it in `ids.job` ([Exit codes and the final line](#exit-codes-and-the-final-line)); a spawn stopped before its end prints no ID, and `limen status` lists the job its record names. The job's wrapper then prunes finished worktrees and runs `--prepare` before the engine starts; the job log records each result and its time. A prepare command has 5 minutes; a plant can change that (see [Limits](jobs.md#limits)). A setup failure after the record exists marks the job `failed`.
+A job is starting while `limen spawn` still sets it up: the worktree and the launch. Its record has the state `starting` and the spawn's pid from the first moment. `show` and `status` list it as running with the pulse `starting`. A starting job whose spawn process is gone is `ORPHAN`. Spawn prints its text when it ends: the job ID after its start line, and its final line carries it in `ids.job` ([Exit codes and the final line](#exit-codes-and-the-final-line)); a spawn stopped before its end prints no ID, and `limen status` lists the job its record names. The job's wrapper then prunes the worktrees of finished jobs that hold no unlanded work and runs `--prepare` before the engine starts; the job log records each result and its time. A prepare command has 5 minutes; a plant can change that (see [Limits](jobs.md#limits)). A setup failure after the record exists marks the job `failed`.
 
 ### Control running jobs
 
@@ -213,21 +218,24 @@ limen unwatch <id|token> | --all
 
 ### Land and clean up
 
-Merge a job and close its ticket, close the Herdr tabs of a feature, and remove finished worktrees or records.
+Merge a job and close its ticket, close the Herdr tabs of a feature, give up on a job and keep its work on a branch, and remove finished worktrees or records.
 
 ```text
 limen land <id|token> [--onto BRANCH] [--yes] [--keep-open]
 limen close <FNNN>
+limen abandon <id|token>
 limen prune [--retire [--dry-run]]
 ```
 
 `land` merges into the checkout of the plant even when another session has uncommitted files there. It leaves those files as they are. It refuses when a file the merge would change has uncommitted edits, or when the index holds staged changes. A merge that fails beside uncommitted files is aborted, so the checkout returns to its earlier state.
 
-`land` asks for a confirm only when stdin is a terminal; `--yes` skips it there too. After the merge, `land` deletes the job's local `limen/*` branch and the finished worktree that holds it. It keeps the branch while another job on that branch, such as a continuation, is still running, and prints why.
+`land` asks for a confirm only when stdin is a terminal; `--yes` skips it there too. After the merge, `land` deletes the job's local `limen/*` branch and the finished worktree that holds it. It keeps the branch while another job on that branch, such as a continuation, is still running, and prints why. It keeps the branch and the worktree while `git status` shows the worktree dirty, and prints `kept <worktree> (job <id>): unlanded work`, while a nested repository in it holds a commit that the project's object store lacks, and prints `kept <worktree> (job <id>): the nested repository <path> holds a commit that the project's repository lacks`, or while a registered worktree lies below it, and prints `kept <worktree> (job <id>): it holds the registered worktree <path>`.
 
-`prune` prints one line for each worktree, leftover directory, or record that never started that it removes: `pruned <path> (job <id>): <reason>`, with `job none` when no record names the path. The prune that a new job runs writes the same lines to its own log and to the log of the job whose worktree went.
+`abandon` gives up on a finished job and keeps its work on the branch `limen/abandon/<id>`: a commit of the worktree's whole state, changed, deleted and untracked files, on top of the worktree's HEAD, or the tip of the job's own branch when its worktree is gone. It prints the branch and the commit, removes the worktree as prune does, only while the commit holds all of it and prune itself could remove it, and closes the job's Herdr tab. A worktree it keeps prints `kept <worktree> (job <id>): <cause>`: it changed after the commit, a nested repository holds commits or changes the commit does not, or a commit the project's object store lacks (which keeps the worktree from every later prune and land too), it holds another registered worktree, Git locks it, or it is no worktree prune would remove. Ignored files go with the worktree, so it cannot be undone; run again, it finishes the steps that are left. [Finished jobs](jobs.md#finished-jobs) lists its refusals.
 
-Prune and `land` never remove the worktree or record of a job that is starting, running, or in an open group, nor a worktree made inside such a job's worktree. A running job keeps its worktree even when its process looks gone; `limen sweep` finalizes it first. Prune lists what it may remove, then reads the job records under the lock that publishing a job record also takes, so a job started during a prune keeps its worktree. It moves each removal out of reach in one rename and deletes it after the lock. A Git-locked worktree stays.
+`prune` prints one line for each worktree, leftover directory, or record that never started that it removes: `pruned <path> (job <id>): <reason>`, with `job none` when no record names the path, then one line for each worktree it keeps because it holds unlanded work, `kept <worktree> (job <id>): unlanded work`, because a nested repository in it holds a commit that the project's object store lacks, `kept <worktree> (job <id>): the nested repository <path> holds a commit that the project's repository lacks` (whether or not its job is resolved), or because a registered worktree still lies below it, `kept <worktree> (job <id>): it holds the registered worktree <path>`. It decides the deepest worktrees first. `prune --retire` prints the same line for the worktree of each job it keeps for its unlanded work. The prune that a new job runs writes the same lines to its own log, and each removal's line to the log of the job whose worktree went.
+
+Prune and `land` never remove the worktree or record of a job that is starting, running, or in an open group, nor a worktree made inside such a job's worktree. Neither removes a worktree that `git status` shows dirty, whatever job names it, nor the worktree of a finished job that holds unlanded work, and `prune --retire` keeps such a job's record. A running job keeps its worktree even when its process looks gone; `limen sweep` finalizes it first. Prune lists what it may remove, then reads the job records under the lock that publishing a job record also takes, so a job started during a prune keeps its worktree. It moves each removal out of reach in one rename and deletes it after the lock. A Git-locked worktree stays.
 
 After the merge, `land` also closes the active tickets the job works on: the tickets its label, ID or `Ticket:` pointers name, or, when they name none, the feature that starts its commit subjects (`F946: …`). Each folder moves to `spec/features/done/YYYY-MM/` with a `landed` date, NOW and PROVEN in `spec/build.md` are regenerated, and both go in one commit, `Close FNNN: landed by <id>`. `--keep-open` keeps the tickets active while more slices remain. When the board or a ticket folder has uncommitted edits, the tickets stay active and `land` says so.
 

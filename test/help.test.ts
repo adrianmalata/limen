@@ -40,6 +40,7 @@ const GENERAL = [
 	'  limen continue <job> "instruction" …       resume a finished job in its worktree',
 	'  limen steer <job>|--running "text"         send a correction to a running job',
 	'  limen stop <job> ["reason"]                stop a running job',
+	"  limen abandon <job>                        give up on a job and keep its work on a branch",
 	"  limen land <job> [--onto <branch>] [--yes] [--keep-open]",
 	"                                             merge a done job onto this branch and close its ticket",
 	"  limen diff <job>                           the change a job made against its base",

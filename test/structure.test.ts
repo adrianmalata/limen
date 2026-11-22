@@ -1086,8 +1086,8 @@ test("T-20 (4): the module of every handler that takes an argument of type job, 
 	}
 	assert.deepEqual(
 		{ count: typed.length, unresolved },
-		{ count: 10, unresolved: [] },
-		"continue, steer, stop, land, diff, show, open, watch, unwatch and keeper take a job",
+		{ count: 11, unresolved: [] },
+		"continue, steer, stop, abandon, land, diff, show, open, watch, unwatch and keeper take a job",
 	);
 });
 

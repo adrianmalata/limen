@@ -2,6 +2,7 @@
 // visibility, its summary, its schema of positionals and flags, the `ids` keys it may return (D-022), one example and
 // its handler, a thin adapter over one domain operation (T-26). `src/main.ts` dispatches through it, `src/parser.ts`
 // reads its words by it, and `src/help.ts` generates the help and the command sections of docs/commands.md from it.
+import { abandonCommand } from "./commands/abandon.ts";
 import { boardCommand } from "./commands/board-view.ts";
 import { closeCommand } from "./commands/close.ts";
 import { continueCommand } from "./commands/continue.ts";
@@ -300,6 +301,7 @@ const SPAWN: Entry = {
 		"SPAWN_LEAD_ROLE",
 		"TICKET_NOT_AT_BASE",
 		"TITLE_TWICE",
+		"UNLANDED_WORK",
 	]),
 	example:
 		'limen spawn "Implement F012. Ticket: spec/features/active/F012-demo/ticket.md" --engine pi --provider pi-claude --model claude-opus-5-5 --thinking high',
@@ -407,6 +409,20 @@ const JOBS: readonly Entry[] = [
 		refuses: refusals(IN_PROJECT, OWN_JOB, ["JOB_NO_PID"]),
 		example: 'limen stop a1b2c3d4 "the ticket changed"',
 		handler: stopCommand,
+	},
+	{
+		name: "abandon",
+		object: "job",
+		kind: "change",
+		visibility: "public",
+		summary: "give up on a job and keep its work on a branch",
+		schema: [JOB],
+		ids: [],
+		refuses: refusals(IN_PROJECT, OWN_JOB, ["JOB_CONTINUED", "JOB_IN_GROUP", "JOB_NOT_FINISHED", "NO_UNLANDED_WORK"]),
+		example: "limen abandon a1b2c3d4",
+		// It removes the job's worktree, and the ignored files there go with it.
+		irreversible: true,
+		handler: abandonCommand,
 	},
 	{
 		name: "land",

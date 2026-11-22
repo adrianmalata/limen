@@ -104,11 +104,14 @@ after(async () => {
 test("a job that ends done, failed or on a provider error wakes its session once, with two listeners on that session", async () => {
 	const second = coordinator("second", "coord", "block\n");
 	const handoff = `${FINAL.line.replace("Note check:", "Report:")}\\n## Note check\\n- Hold: not proven. No run.\\n- Cap: proven. \`npm test\``;
+	// The jobs that commit wait for their release until the last spawn: a finished job with unlanded work refuses a worker
+	// spawn (A-001).
 	const ids = {
-		done: job(`commit\nfinish\nfinish ${handoff}`, "a done"),
+		done: job(`block\ncommit\nfinish\nfinish ${handoff}`, "a done"),
 		failed: job("fail 7", "a failed"),
-		provider: job(`say ${FINAL.line}\ncommit\nerror`, "a provider error"),
+		provider: job(`block\nsay ${FINAL.line}\ncommit\nerror`, "a provider error"),
 	};
+	await Promise.all([release(jobDir(p, ids.done)), release(jobDir(p, ids.provider))]);
 	const states = Object.fromEntries(Object.entries(ids).map(([name, id]) => [name, waitJob(p, id)]));
 	await delivered(Object.values(ids));
 	// Every wake is recorded now. The second listener ends, so only the coord session hears the next jobs.
@@ -130,6 +133,11 @@ test("a job that ends done, failed or on a provider error wakes its session once
 	// Its open note checks reach the wake, one line each, and it is not a plain done; `npm test` never ran.
 	assert.match(done, /is done with open checks \(.+\n\nOpen checks:\n- Hold: not proven\. No run\.\n- Cap: /);
 	assert.match(done, /\n- Cap: not proven\. Limen: no proof that `npm test` ran \(no shell call names it .+\n\n/);
+	// The next tests of this plant spawn workers, which these two commits would refuse.
+	for (const id of [ids.done, ids.provider]) {
+		const abandoned = limen(p, ["abandon", id]);
+		assert.equal(abandoned.status, 0, abandoned.stderr);
+	}
 });
 
 test("stop, timeout and a stalled tool each end a job once and wake its session once; 80% of a timeout steers once", async () => {

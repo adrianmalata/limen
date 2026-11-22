@@ -110,9 +110,10 @@ function shownValue(value: unknown, { uncut }: Shown): string {
 
 /**
  * A field's path escaped as the value is, without the quotes, so that a key from the data with a newline or another
- * control character keeps a log line one line.
+ * control character keeps a log line one line. The `kept` lines of prune, land and abandon show a path a job chose,
+ * such as a nested repository's, through it too (R-030), so that path cannot add a line to what the coordinator reads.
  */
-function shownField(field: string): string {
+export function shownField(field: string): string {
 	return escaped(JSON.stringify(field).slice(1, -1));
 }
 

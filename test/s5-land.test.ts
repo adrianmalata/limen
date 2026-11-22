@@ -38,24 +38,31 @@ before(async () => {
 });
 after(() => p.cleanup());
 
-// Each test spawns the jobs it needs, so no single test carries every spawn under npm test's per-test limit.
+// The first test starts every job the later tests land (`startCandidates`), since a worker spawn refuses while a finished
+// job holds unlanded work (A-001); this spawns one that commits nothing.
 function done(task: string, flags: readonly string[] = []): string {
 	const id = spawnJob(p, task, flags);
 	assert.equal(waitJob(p, id), "done");
 	return id;
 }
 
-// Each spawn prunes the worktrees of finished jobs, so a branch gets its extra commit in a worktree of its own.
+// A finished job whose branch holds a commit outside main keeps its worktree (A-001), so the branch gets its extra
+// commit there; the next spawn pruned the worktree of a job with none, so its branch gets it in a worktree of its own.
 async function amend(id: string, files: Readonly<Record<string, string>>): Promise<void> {
-	const worktree = join(p.parent, `amend-${id}`);
-	git(p.root, "worktree", "add", "-q", "--force", worktree, branchOf(id));
+	const own = jobRecord(p, id)?.worktree ?? "";
+	const worktree = existsSync(own) ? own : join(p.parent, `amend-${id}`);
+	if (worktree !== own) {
+		git(p.root, "worktree", "add", "-q", worktree, branchOf(id));
+	}
 	for (const [path, text] of Object.entries(files)) {
 		await mkdir(dirname(join(worktree, path)), { recursive: true });
 		await writeFile(join(worktree, path), text);
 	}
 	git(worktree, "add", "-A");
 	git(worktree, "commit", "-q", "-m", "candidate");
-	git(p.root, "worktree", "remove", "--force", worktree);
+	if (worktree !== own) {
+		git(p.root, "worktree", "remove", "--force", worktree);
+	}
 }
 
 /** Lands `id` expecting a refusal that leaves main where it was; returns stderr. */
@@ -79,14 +86,32 @@ test("a running, an empty and a failed job are refused", async () => {
 	assert.match(limen(p, ["board"]).stdout, /`F001-demo` \(🟠 ACTIVE\)[^\n]*\n {2}- last job failed: demo · F001/);
 	await until(jobDir(p, job.running), () => existsSync(join(jobDir(p, job.running), "fake-blocked-1")));
 	refused(job.running);
-	await release(jobDir(p, job.running));
-	assert.equal(waitJob(p, job.running), "done");
 	refused(job.empty);
 	refused(job.failed);
+	await startCandidates();
 });
 
+/**
+ * The candidates of the next tests, each a done job with one commit outside main. A worker spawn refuses while a finished
+ * job holds unlanded work (A-001), so they start while the running job still runs, once the failed job, which no test
+ * lands, is abandoned; each commits only once all of them started.
+ */
+async function startCandidates(): Promise<void> {
+	assert.equal(limen(p, ["abandon", job.failed]).status, 0);
+	job.a = spawnJob(p, "block\ncommit");
+	job.ticket = spawnJob(p, "block\ncommit");
+	job.b = spawnJob(p, "block\ncommit", ["--label", "demo · F001"]);
+	const started = [job.running, job.a, job.ticket, job.b];
+	for (const id of started) {
+		await release(jobDir(p, id));
+	}
+	assert.deepEqual(
+		started.map((id) => waitJob(p, id)),
+		["done", "done", "done", "done"],
+	);
+}
+
 test("another target, a group member, a staged target and a dirty file in the merge are refused", async () => {
-	job.a = done("commit");
 	// --onto names a branch that is not checked out.
 	git(p.root, "branch", "other");
 	refused(job.a, {}, ["--onto", "other", "--yes"]);
@@ -119,7 +144,6 @@ test("another target, a group member, a staged target and a dirty file in the me
 
 test("a ticket that fails the strict check is refused with the keeper command", async () => {
 	// The job files a ticket that touches no known place.
-	job.ticket = done("commit");
 	const ticket = TICKET.replace("F001-demo", "F002-bad");
 	await amend(job.ticket, {
 		[ticket]: (await readFile(join(p.root, TICKET), "utf8")).replace("demo.place", "nope").replaceAll("F001", "F002"),
@@ -137,7 +161,6 @@ test("a branch that adds test lines past the cap is refused and names the number
 
 test("limen land: a done job fast-forwards without --yes off a TTY, a landed branch is deleted, and a merge lands beside an uncommitted file and closes its ticket", async () => {
 	// B starts from the same main as A and removes test lines, leaving test/ still over the cap.
-	job.b = done("commit", ["--label", "demo · F001"]);
 	await amend(job.b, { "test/old.test.ts": lines(6) });
 	const a = git(p.root, "rev-parse", branchOf(job.a));
 	limen(p, ["land", job.a]);

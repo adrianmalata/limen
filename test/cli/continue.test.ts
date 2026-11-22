@@ -1,6 +1,7 @@
-// `limen continue`: its start, the transcript it copies with the same mode, its engine's environment and its refusals.
+// `limen continue`: its start, the transcript it copies with the same mode, its engine's environment, its refusals, and
+// the unlanded work of its parent that it takes (A-001).
 import assert from "node:assert/strict";
-import { chmodSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { chmodSync, existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -15,6 +16,8 @@ import {
 	limen,
 	type Plant,
 	plant,
+	release,
+	routed,
 	spawnJob,
 	startedJob,
 	TICKET,
@@ -261,5 +264,28 @@ test("GROUP_EXTENSIONS_PARENT: the continuation of a group worker whose extensio
 		[continued.status, readOutcome(continued).code, snapshot(p.root)],
 		[1, "GROUP_EXTENSIONS_PARENT", before],
 		continued.stderr,
+	);
+});
+
+// A-001: the continuation takes its parent's worktree, and the work in it, so the parent no longer holds it.
+test("a continuation takes its parent's unlanded work: a worker spawn starts while it runs, and status names it alone after", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const parent = spawnJob(p, "fail 3");
+	assert.equal(waitJob(p, parent), "failed");
+	await writeFile(join(jobRecord(p, parent)?.worktree ?? "", "wip.txt"), "half-done edit\n");
+	const child = startedJob(limen(p, ["continue", parent, "block"]));
+	await until(jobDir(p, child), () => existsSync(join(jobDir(p, child), "fake-blocked-1")));
+	const beside = limen(p, ["spawn", ...routed([]), "say beside"]);
+	assert.equal(beside.status, 0, beside.stderr);
+	await release(jobDir(p, child));
+	assert.deepEqual([waitJob(p, startedJob(beside)), waitJob(p, child)], ["done", "done"]);
+	// The continuation ended with the file still in the worktree, so the work is its own now.
+	const lines = limen(p, ["status"]).stdout.split("\n");
+	const at = lines.indexOf("Unlanded work (spawn refuses until each is continued or abandoned):");
+	assert.deepEqual(
+		[at > 0, lines[at + 1], lines.some((line) => line.includes(parent))],
+		[true, `  ${child} · done · 1 changed file, 0 unlanded commits`, false],
+		lines.join("\n"),
 	);
 });

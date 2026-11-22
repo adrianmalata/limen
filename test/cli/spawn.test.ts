@@ -1,6 +1,7 @@
 // `limen spawn`: the job it starts takes its time limit from the spawn, never from the spawner's environment, and its
 // task from the words after the flags; each refusal of its worktree and its group slot leaves the shared snapshot
-// identical (T-38 (4)); a job whose systemd user scope cannot start never runs.
+// identical (T-38 (4)); a job whose systemd user scope cannot start never runs; a worker spawn refuses while a finished job
+// holds unlanded work (A-001), and a reviewer spawn does not.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { readdirSync } from "node:fs";
@@ -9,16 +10,18 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { isTerminal } from "../../src/job/job.ts";
 import { platform } from "../../src/platform/platform.ts";
-import { readOutcome } from "../final-line.ts";
+import { outputText, readOutcome } from "../final-line.ts";
 import {
 	git,
 	jobDir,
 	jobFile,
+	jobRecord,
 	jobState,
 	limen,
 	type Plant,
 	pathWithFailingScope,
 	plant,
+	release,
 	routed,
 	spawnJob,
 	startedJob,
@@ -68,7 +71,7 @@ function featureBranch(p: Plant): void {
 	git(p.root, "checkout", "-q", "main");
 }
 
-/** Spawns with `flags` and the test route in a plant that has no job yet, and returns the run and both snapshots. */
+/** Spawns with `flags` and the test route in a plant where no job runs, and returns the run and both snapshots. */
 function refusedSpawn(p: Plant, flags: readonly string[]) {
 	const before = snapshot(p.root);
 	const run = limen(p, ["spawn", ...routed(flags), "work"]);
@@ -275,4 +278,90 @@ test("SCOPE_FAILED: a spawn whose systemd user scope cannot start exits 4, and i
 	);
 	const ended = /\] failed: failed to launch wrapper: the job's systemd user scope did not start: .+: it ended with /;
 	assert.deepEqual([jobFile(p, id, "fake-argv.json"), ended.test(jobFile(p, id, "log"))], ["", true]);
+});
+
+/** A job of the plant on the test route that ran the script `task` and ended `state`, its wrapper gone. */
+function finishedJob(p: Plant, task: string, state: string): string {
+	const id = spawnJob(p, task);
+	assert.equal(waitJob(p, id), state);
+	return id;
+}
+
+// A-001: before R-030 the next spawn's setup pruned this worktree, and the untracked file went with it.
+test("UNLANDED_WORK: a worker spawn beside a failed job whose worktree holds an untracked file exits 1 and leaves the snapshot identical", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const failed = finishedJob(p, "fail 3", "failed");
+	await writeFile(join(jobRecord(p, failed)?.worktree ?? "", "wip.txt"), "half-done edit\n");
+	const { run, before, after } = refusedSpawn(p, []);
+	assert.deepEqual(
+		[run.status, readOutcome(run), after],
+		[1, { class: "refused", code: "UNLANDED_WORK", next: "limen status" }, before],
+		run.stderr,
+	);
+	assert.deepEqual(outputText(run).split("\n").slice(0, 3), [
+		"a finished job holds unlanded work; a worker spawn refuses until each is continued or abandoned:",
+		`  ${failed} (failed): 1 changed file, 0 unlanded commits`,
+		`    limen continue ${failed} "instruction", or limen abandon ${failed}`,
+	]);
+});
+
+test("UNLANDED_WORK: a worker spawn beside a done job whose branch holds an unlanded commit exits 1 and leaves the snapshot identical", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const done = finishedJob(p, "commit", "done");
+	const { run, before, after } = refusedSpawn(p, ["--branch", "feature"]);
+	assert.deepEqual([run.status, readOutcome(run).code, after], [1, "UNLANDED_WORK", before], run.stderr);
+	assert.ok(outputText(run).includes(`  ${done} (done): 0 changed files, 1 unlanded commit\n`), run.stderr);
+});
+
+// Review round 1, F3: the repair loop of the coordinator's manual (A-015, A-035) spawns on the candidate's own branch,
+// which takes over the candidate's worktree and work; before the fix the candidate's commit refused it.
+test("a repair spawn on a reviewed candidate's own branch starts and takes over the candidate's worktree", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const candidate = finishedJob(p, "commit", "done");
+	const [branch, worktree] = [jobRecord(p, candidate)?.branch ?? "", jobRecord(p, candidate)?.worktree ?? ""];
+	const review = spawnJob(p, "say reviewed", ["--review", "--branch", branch]);
+	assert.equal(waitJob(p, review), "done");
+	const repair = spawnJob(p, "say repaired", ["--branch", branch]);
+	assert.deepEqual([waitJob(p, repair), jobRecord(p, repair)?.worktree], ["done", worktree]);
+});
+
+test("UNLANDED_WORK: a repair spawn on a candidate's own branch beside another job with unlanded work exits 1, names only that job and leaves the snapshot identical", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	// The other job commits only once the candidate has spawned: a finished job with unlanded work refuses a worker spawn.
+	const other = spawnJob(p, "block\ncommit");
+	const candidate = finishedJob(p, "commit", "done");
+	await release(jobDir(p, other));
+	assert.equal(waitJob(p, other), "done");
+	const { run, before, after } = refusedSpawn(p, ["--branch", jobRecord(p, candidate)?.branch ?? ""]);
+	assert.deepEqual([run.status, readOutcome(run).code, after], [1, "UNLANDED_WORK", before], run.stderr);
+	const text = outputText(run);
+	assert.deepEqual([text.includes(`  ${other} (done): `), text.includes(candidate)], [true, false], text);
+});
+
+// Review round 2, G5: a spawn on the branch takes over a job's work only through its worktree; before the fix it took
+// it over by the branch alone, and the job's own worktree, detached from the branch, would have stayed with the job.
+test("UNLANDED_WORK: a spawn on the own branch of a job whose dirty worktree has the branch no longer checked out exits 1 and leaves the snapshot identical", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const failed = finishedJob(p, "fail 3", "failed");
+	const [branch, worktree] = [jobRecord(p, failed)?.branch ?? "", jobRecord(p, failed)?.worktree ?? ""];
+	git(worktree, "checkout", "-q", "--detach");
+	await writeFile(join(worktree, "wip.txt"), "half-done edit\n");
+	const { run, before, after } = refusedSpawn(p, ["--branch", branch]);
+	assert.deepEqual([run.status, readOutcome(run).code, after], [1, "UNLANDED_WORK", before], run.stderr);
+	assert.ok(outputText(run).includes(`  ${failed} (failed): 1 changed file, 0 unlanded commits\n`), run.stderr);
+});
+
+// A reviewer works on a candidate, so the candidate's own unlanded commits are what it reads.
+test("a reviewer spawn beside a done job whose branch holds an unlanded commit starts", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const done = finishedJob(p, "commit", "done");
+	const branch = jobRecord(p, done)?.branch ?? "";
+	const review = spawnJob(p, "say reviewed", ["--review", "--branch", branch]);
+	assert.equal(waitJob(p, review), "done");
 });

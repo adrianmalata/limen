@@ -287,15 +287,94 @@ export function mergeBranch(cwd: string, branch: string): string {
 export function abortMerge(cwd: string): void {
 	git(cwd, ["merge", "--abort"]);
 }
+/** The words of a `git status` that lists every uncommitted path, each untracked file on its own, refreshing no index. */
+const STATUS = ["--no-optional-locks", "status", "--porcelain", "-z", "--untracked-files=all"] as const;
 /** Uncommitted paths, untracked files included; `staged` lists the paths whose change is already in the index. */
 export function dirtyPaths(cwd: string): { readonly paths: readonly string[]; readonly staged: readonly string[] } {
-	const fields = requireGit(cwd, [
-		"--no-optional-locks",
-		"status",
-		"--porcelain",
-		"-z",
-		"--untracked-files=all",
-	]).stdout.split("\0");
+	return statusPaths(requireGit(cwd, STATUS).stdout);
+}
+/**
+ * The paths `git status` lists in the worktree at `cwd`, read without refreshing its index (T-04): changes, deletions
+ * and untracked files, not ignored ones (A-001). Undefined when no checkout is there: no folder, no `.git`, or one Git
+ * does not accept. Any other Git failure is the environment's (exit 4), so work Git cannot read never reads as none;
+ * its message names the worktree and `job`, the job that holds it, before Git's own words.
+ */
+export function worktreeChanges(cwd: string, job: string | undefined): readonly string[] | undefined {
+	if (!existsSync(`${cwd}/.git`)) {
+		return undefined;
+	}
+	const result = git(cwd, STATUS);
+	if (result.status === 0) {
+		return statusPaths(result.stdout).paths;
+	}
+	if (result.stderr.includes("not a git repository")) {
+		return undefined;
+	}
+	const words = result.stderr.trim() || result.stdout.trim() || "git status failed";
+	throw environmentError("GIT_FAILED", `the worktree ${cwd} of job ${job ?? "none"} cannot be read: ${words}`);
+}
+/**
+ * Whether the object store of the repository at `cwd` holds the object `oid` (`git cat-file -e`). Any answer but
+ * yes, a missing object or a check that failed, is false, so a caller that keeps what it cannot prove saved fails safe.
+ */
+export function hasObject(cwd: string, oid: string): boolean {
+	return git(cwd, ["cat-file", "-e", oid]).status === 0;
+}
+/**
+ * The first nested repository of the checkout at `cwd` whose commit the object store of `repository` lacks: a gitlink
+ * (mode 160000) of its HEAD tree or its index, or the commit a nested `.git` at such a path has checked out. That
+ * commit lives only in the nested `.git`, so whatever removes the worktree loses it, however clean `git status` shows
+ * it and whether or not its job is resolved (A-001, R-030). Undefined when the store holds every such commit. A commit
+ * it cannot check, or a nested `.git` whose HEAD it cannot read, counts as lacking (`hasObject`), so the rule fails safe.
+ */
+export function unsavedGitlink(cwd: string, repository: string): string | undefined {
+	const links = [...gitlinks(cwd, "HEAD"), ...indexGitlinks(cwd)];
+	const missing = links.find(([, oid]) => !hasObject(repository, oid));
+	if (missing) {
+		return missing[0];
+	}
+	for (const path of new Set(links.map(([path]) => path))) {
+		const nested = resolve(cwd, path);
+		if (!existsSync(`${nested}/.git`)) {
+			continue;
+		}
+		const head = git(nested, ["rev-parse", "--verify", "HEAD"]);
+		if (head.status !== 0 || !hasObject(repository, head.stdout.trim())) {
+			return path;
+		}
+	}
+	return undefined;
+}
+/** The gitlinks of the index of the checkout at `cwd` (`ls-files -s`), each path with the commit it records. */
+function indexGitlinks(cwd: string): ReadonlyMap<string, string> {
+	const links = new Map<string, string>();
+	for (const entry of requireGit(cwd, ["ls-files", "-s", "-z"]).stdout.split("\0")) {
+		const [meta = "", path = ""] = entry.split("\t");
+		const [mode, oid] = meta.split(" ");
+		if (mode === "160000" && oid && path) {
+			links.set(path, oid);
+		}
+	}
+	return links;
+}
+/**
+ * The nested repositories that `treeish` records in the checkout at `cwd` (gitlinks, mode 160000), each path with the
+ * commit it records: a registered submodule, or a folder with its own `.git` that `add -A` took as one.
+ */
+export function gitlinks(cwd: string, treeish: string): ReadonlyMap<string, string> {
+	const links = new Map<string, string>();
+	for (const entry of requireGit(cwd, ["ls-tree", "-r", "-z", treeish]).stdout.split("\0")) {
+		const [meta = "", path = ""] = entry.split("\t");
+		const [mode, , oid] = meta.split(" ");
+		if (mode === "160000" && oid && path) {
+			links.set(path, oid);
+		}
+	}
+	return links;
+}
+/** The paths of the output of `STATUS`, and those whose change is already in the index. */
+function statusPaths(stdout: string): { readonly paths: readonly string[]; readonly staged: readonly string[] } {
+	const fields = stdout.split("\0");
 	const paths: string[] = [];
 	const staged: string[] = [];
 	for (let index = 0; index < fields.length; index++) {
@@ -325,6 +404,43 @@ export function mergePaths(cwd: string, branch: string): ReadonlySet<string> {
 export function commitList(cwd: string, base: string, branch: string): string | undefined {
 	const result = git(cwd, ["log", "--oneline", `${base}..${branch}`]);
 	return result.status === 0 ? result.stdout.trimEnd() : undefined;
+}
+/** How many commits the branch `branch` holds that HEAD of the checkout at `cwd` does not reach. */
+export function commitsOutsideHead(cwd: string, branch: string): number {
+	return Number(requireGit(cwd, ["rev-list", "--count", `refs/heads/${branch}`, "^HEAD"]).stdout.trim());
+}
+/** The names of the branches below `prefix`, such as `limen/abandon/`, in one Git process. */
+export function branchesBelow(cwd: string, prefix: string): ReadonlySet<string> {
+	const refs = requireGit(cwd, ["for-each-ref", "--format=%(refname)", `refs/heads/${prefix}`]).stdout.split("\n");
+	return new Set(refs.filter(Boolean).map((ref) => ref.slice("refs/heads/".length)));
+}
+/** The commit the branch `branch` points at, or undefined when there is no such branch. */
+export function branchTip(cwd: string, branch: string): string | undefined {
+	const result = git(cwd, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}^{commit}`]);
+	return result.status === 0 ? result.stdout.trim() : undefined;
+}
+/** The tree of the commit `commit`. */
+export function treeOf(cwd: string, commit: string): string {
+	return requireGit(cwd, ["rev-parse", "--verify", `${commit}^{tree}`]).stdout.trim();
+}
+/**
+ * The tree of the worktree's whole state: its HEAD with every change, deletion and untracked file in it, ignored files
+ * left out (`add -A`). Git writes it through the index file `index`, which the caller makes in a folder of its own, so
+ * the worktree's own index stays as it is and no hook runs (A-001).
+ */
+export function worktreeTree(worktree: string, index: string): string {
+	const env = { ...process.env, GIT_INDEX_FILE: index };
+	requireGit(worktree, ["read-tree", "HEAD"], undefined, env);
+	requireGit(worktree, ["add", "-A"], undefined, env);
+	return requireGit(worktree, ["write-tree"], undefined, env).stdout.trim();
+}
+/** A new commit of `tree` on top of `parent`, with `message` and the repository's configured identity; no hook runs. */
+export function commitTree(cwd: string, tree: string, parent: string, message: string): string {
+	return requireGit(cwd, ["commit-tree", tree, "-p", parent, "-m", message]).stdout.trim();
+}
+/** Makes the branch `branch` at `commit` only while no such branch exists, so two writers cannot both make it. */
+export function createBranchOnce(cwd: string, branch: string, commit: string): void {
+	requireGit(cwd, ["update-ref", `refs/heads/${branch}`, commit, ""]);
 }
 /** Commits only `paths`, as they are in the working tree, beside whatever else is staged or changed; returns the short SHA. */
 export function commitPaths(cwd: string, paths: readonly string[], message: string): string {
@@ -358,21 +474,22 @@ export function gitText(cwd: string, args: readonly string[]): string {
 	return execFileSync("git", args, { cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }).trim();
 }
 /** A git call that must succeed; its failure is the environment's (T-02, exit 4), with git's own words. */
-function requireGit(cwd: string, args: readonly string[], input?: string): GitResult {
-	const result = git(cwd, args, input);
+function requireGit(cwd: string, args: readonly string[], input?: string, env?: NodeJS.ProcessEnv): GitResult {
+	const result = git(cwd, args, input, env);
 	if (result.status !== 0) {
 		throw environmentError("GIT_FAILED", result.stderr.trim() || result.stdout.trim() || `git ${args[0]} failed`);
 	}
 	return result;
 }
 let gitBin = "";
-function git(cwd: string, args: readonly string[], input?: string): GitResult {
+function git(cwd: string, args: readonly string[], input?: string, env?: NodeJS.ProcessEnv): GitResult {
 	const run = (bin: string) =>
 		spawnSync(bin, args, {
 			cwd: resolve(cwd),
 			encoding: "utf8",
 			maxBuffer: Number.POSITIVE_INFINITY,
 			...(input === undefined ? {} : { input }),
+			...(env === undefined ? {} : { env }),
 		});
 	const miss = (error: Error | undefined) => !!error && "code" in error && error.code === "ENOENT";
 	let result = run(gitBin || "git");

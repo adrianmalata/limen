@@ -58,6 +58,7 @@ import { parseDuration } from "./job.ts";
 import { publishJob } from "./publication.ts";
 import { readRecord, transition } from "./record.ts";
 import { jobsLock, newJobId } from "./reference.ts";
+import { type Takeover, takesOver, unlandedSummary, unlandedWork } from "./unlanded.ts";
 import { currentNotificationSession, herdrWakePane } from "./watching.ts";
 
 /**
@@ -335,6 +336,10 @@ async function validateSpawn(
 	}
 	const task = spawnTaskText(loaded, options.repo, place);
 	assertTicketsAtBase(repository, baseCommit, task);
+	if (role === "worker") {
+		const reuses = worktree.kind === "reuse" ? worktree.path : undefined;
+		await checkNoUnlandedWork(view, root, options.branch ? { repository, branch: options.branch, reuses } : undefined);
+	}
 	await checkMemberSlot(view, group);
 	await noteRunningJobs(view, jobsRoot, options.label, out);
 	return {
@@ -372,6 +377,34 @@ async function spawnGroup(cwd: string, coordinator: TeamLaunch | undefined): Pro
 		throw refused("GROUP_WORKER_SPAWN", "group workers cannot launch jobs; ask their team coordinator");
 	}
 	return identity?.member ? { run: identity.run, team: identity.member.team, role: "worker", replaces: [] } : undefined;
+}
+/**
+ * A worker spawn refuses while a finished job of the project holds unlanded work that nothing resolved (A-001): the
+ * refusal names each such job with what it holds and both commands that resolve it, and its `next` lists them all
+ * (`limen status`), since only the coordinator or the owner chooses between continuing and abandoning. A spawn with
+ * `--branch` on the own branch of such a job, the repair spawn of A-015 and A-035, takes over that job's work, as a
+ * continuation does, when it reuses the job's worktree or the job's worktree is gone (`takesOver`): its record is then
+ * the newest on both, so only the other jobs make it refuse. Validate holds the fact, so work that a job leaves before
+ * apply ends the spawn in STATE_CHANGED. A reviewer, keeper or team coordinator works on a candidate, so its spawn does
+ * not refuse.
+ */
+async function checkNoUnlandedWork(view: StateView, root: string, takeover: Takeover | undefined): Promise<void> {
+	await view.hold(`the unlanded work of the finished jobs of ${root}`, async () => {
+		const held = (await unlandedWork(root, view)).filter((work) => !(takeover && takesOver(work, takeover)));
+		if (held.length === 0) {
+			return "none";
+		}
+		const lines = held.flatMap((work) => [
+			`  ${work.id} (${work.state}): ${unlandedSummary(work)}`,
+			`    limen continue ${work.id} "instruction", or limen abandon ${work.id}`,
+		]);
+		const jobs = held.length === 1 ? "a finished job holds" : `${held.length} finished jobs hold`;
+		throw refused(
+			"UNLANDED_WORK",
+			[`${jobs} unlanded work; a worker spawn refuses until each is continued or abandoned:`, ...lines].join("\n"),
+			"limen status",
+		);
+	});
 }
 /**
  * A worker launch needs a free slot of its team (`memberSlotProblem`): validate refuses without one, and holds the

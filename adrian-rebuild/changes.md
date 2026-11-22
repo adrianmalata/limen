@@ -2,7 +2,7 @@
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
-R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025, R-097, R-099, R-026. -->
+R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025, R-097, R-099, R-026, R-030. -->
 
 # Changes
 
@@ -317,4 +317,12 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-09; `## Deployment` 3.2, 3.7, 3.8)
 - Commit: R-026
 - Rollback: git revert $(git log --format=%H --grep='^R-026:' adrian-rebuild --)
+
+## 2026-11-22 R-030 Unlanded work survives: `limen abandon`, a guarded prune, a refusing spawn
+- What: `src/job/unlanded.ts` (new: the one reading of unlanded work and of what resolves it, with the repair spawn's take-over, `takesOver`); `src/job/abandoning.ts` and `src/commands/abandon.ts` (new: `limen abandon <id>`, an irreversible change command through the runner, which saves the worktree's whole state on `limen/abandon/<id>` through a temporary index and a create-only ref, removes the worktree only when the branch holds all of it and prune could remove it, and closes the job's Herdr tab); `src/runtime/pruning.ts` (prune decides deepest first and keeps every worktree that is dirty, holds unlanded work, holds a registered worktree below it or a nested repository whose commit the project lacks, one `kept <worktree> (job <id>): <reason>` line each; land and `prune --retire` keep by the same checks); `src/project/git.ts` (`worktreeChanges`, `unsavedGitlink`, `hasObject`, the save's plumbing); `src/job/spawning.ts` (worker spawns refuse `UNLANDED_WORK` under the jobs lock); `src/project/summary.ts` (`limen status` → Unlanded work); `src/registry.ts`, `src/commands/prune.ts`, `src/job/landing.ts`, `src/job/publication.ts`, `src/boundary.ts` (`shownField` exported for the escaped paths); tests in `test/cli/` (`abandon.test.ts` new), `test/s9-housekeeping.test.ts`, `test/s1-spawn.test.ts`, `test/s3-finish-wake.test.ts`, `test/s5-land.test.ts`, `test/registry.test.ts`, `test/help.test.ts`, `test/structure.test.ts`, `test/plant.ts`; `docs/jobs.md`, `docs/commands.md`, `docs/herdr-status.md`, `templates/agents.md` with `templates/.history/agents.md`
+- Why: A-001, T-28, T-18, T-19, T-04, D-087, D-088
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (787/787); `node adrian-rebuild/tools/fails-before.mjs` → exit 0; `node --test test/cli/abandon.test.ts` → exit 0; `node --test test/s9-housekeeping.test.ts` → exit 0
+- Measurement: unmeasured (plan.md → Measurement: M-10, M-06; `## Deployment` 3.6)
+- Commit: R-030
+- Rollback: git revert $(git log --format=%H --grep='^R-030:' adrian-rebuild --)
 

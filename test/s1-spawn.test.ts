@@ -109,6 +109,9 @@ test("limen spawn: a detached job runs in its own worktree from the base with th
 	const detail = limen(p, ["show", id]).stdout;
 	assert.ok(detail.includes(`model served p/other · requested ${jobRecord(p, id)?.route.model}`), detail);
 	assert.ok(detail.includes("tokens 2 turns · input 2 · output 20 · cache read 200 · cache write 2,000"), detail);
+	// The next tests of this plant spawn workers, which a finished job with unlanded work refuses (A-001).
+	const abandoned = limen(p, ["abandon", id]);
+	assert.equal(abandoned.status, 0, abandoned.stderr);
 });
 
 test("a detached spawn says to end the turn, then ends with the golden final line, whose ids.job names its job folder", () => {

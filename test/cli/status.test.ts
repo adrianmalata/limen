@@ -1,12 +1,13 @@
 // `limen status` lists the leftover files of cut features in the project it reports on, the Limen variables of its
-// environment that it no longer reads or reads only until a ticket, and names a running job's note.
+// environment that it no longer reads or reads only until a ticket, names a running job's note, and lists the finished
+// jobs whose unlanded work makes a worker spawn refuse (A-001).
 import assert from "node:assert/strict";
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { outputText } from "../final-line.ts";
-import { editRecord, jobDir, limen, plant, release, spawnJob, until, waitJob } from "../plant.ts";
+import { outputText, readOutcome } from "../final-line.ts";
+import { editRecord, git, jobDir, jobRecord, limen, plant, release, spawnJob, until, waitJob } from "../plant.ts";
 
 const AGENTS_TEMPLATE = fileURLToPath(new URL("../../templates/agents.md", import.meta.url));
 const STUB_TEMPLATE = fileURLToPath(new URL("../../templates/limen-extension.ts", import.meta.url));
@@ -200,4 +201,61 @@ test("limen status: --all prints the summary without the 7-day window and under 
 		[true, false, true],
 	);
 	assert.deepEqual([rows(old), rows(recent)], [1, 1]);
+});
+
+// A-001: the section lists what makes a worker spawn refuse, so its age does not hide a job, as the 7-day window does.
+test("limen status lists every finished job with unlanded work, whatever its age, with what it holds and both commands", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	// A worker spawn refuses while a finished job holds unlanded work, so the job with a commit commits after the last spawn.
+	const clean = spawnJob(p, "say clean", ["--label", "clean"]);
+	assert.equal(waitJob(p, clean), "done");
+	const old = spawnJob(p, "block\ncommit", ["--label", "old"]);
+	await until(jobDir(p, old), () => existsSync(join(jobDir(p, old), "fake-blocked-1")));
+	const failed = spawnJob(p, "fail 3", ["--label", "failed"]);
+	assert.equal(waitJob(p, failed), "failed");
+	await release(jobDir(p, old));
+	assert.equal(waitJob(p, old), "done");
+	writeFileSync(join(jobRecord(p, failed)?.worktree ?? "", "wip.txt"), "half-done edit\n");
+	await editRecord(jobDir(p, old), () => ({ finishedAt: new Date(Date.now() - 8 * 86_400_000).toISOString() }));
+	const run = limen(p, ["status"]);
+	assert.equal(run.status, 0, run.stderr);
+	const lines = run.stdout.split("\n");
+	const at = lines.indexOf("Unlanded work (spawn refuses until each is continued or abandoned):");
+	assert.ok(at > 0, run.stdout);
+	const listed = [failed, old].sort();
+	const holds = {
+		[failed]: "failed · 1 changed file, 0 unlanded commits",
+		[old]: "done · 0 changed files, 1 unlanded commit",
+	};
+	assert.deepEqual(
+		lines.slice(at + 1, at + 7),
+		listed.flatMap((id) => [
+			`  ${id} · ${holds[id]}`,
+			`    limen continue ${id} "instruction"`,
+			`    limen abandon ${id}`,
+		]),
+	);
+	assert.ok(!lines[at + 7]?.startsWith("  "), run.stdout);
+});
+
+// Review round 1, F6: work Git cannot read never reads as none, and the failure says which worktree and whose it is;
+// before the fix the message held only Git's own words.
+test("limen status exits 4 with GIT_FAILED when git cannot read a finished job's worktree, and names the worktree and its job", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = spawnJob(p, "fail 3");
+	assert.equal(waitJob(p, id), "failed");
+	const worktree = jobRecord(p, id)?.worktree ?? "";
+	// A corrupt index makes `git status` fail with an error that is not "not a git repository".
+	writeFileSync(join(git(worktree, "rev-parse", "--absolute-git-dir"), "index"), "garbage\n");
+	const run = limen(p, ["status"]);
+	assert.deepEqual(
+		[run.status, readOutcome(run).class, readOutcome(run).code],
+		[4, "environment", "GIT_FAILED"],
+		run.stderr,
+	);
+	const message = outputText(run);
+	assert.ok(message.startsWith(`the worktree ${worktree} of job ${id} cannot be read: `), message);
+	assert.match(message, /index file/);
 });

@@ -1,5 +1,6 @@
 // The summary of this project (`limen status`): what runs, what landed, what waits for a decision, in the last 7 days,
-// and with `--all` every record and one row for each job (D-038).
+// every finished job whose unlanded work blocks a worker spawn, whatever its age (A-001), and with `--all` every record
+// and one row for each job (D-038).
 import { spawnSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
@@ -10,6 +11,7 @@ import { type GroupIdentity, jobMembership } from "../job/group-cabinet.ts";
 import { isTerminal } from "../job/job.ts";
 import { orderedJobs, RECENT_MS, renderJobDirectory, shownState } from "../job/listing.ts";
 import { jobFolders, readRecord } from "../job/record.ts";
+import { unlandedSummary, unlandedWork } from "../job/unlanded.ts";
 import type { ShownJob } from "../job/view.ts";
 import { confirmDeadJobs } from "../runtime/reap.ts";
 import { limenRoot, unlandedBranches, workspaceRepository, workspaceRoot } from "./git.ts";
@@ -123,6 +125,7 @@ export async function projectStatus(cwd: string, all: boolean): Promise<string> 
 		...(ready.length ? ready : ["  none"]),
 		`Needs a decision (${decide.length}):`,
 		...(decide.length ? decide : ["  none"]),
+		...(await unlandedLines(root)),
 		...(scan.uncertain.length ? ["Unconfirmed jobs:", ...scan.uncertain] : []),
 		...leftoverLines(root),
 		...environmentLines(),
@@ -131,6 +134,25 @@ export async function projectStatus(cwd: string, all: boolean): Promise<string> 
 		...coordinators,
 		...(all ? await jobRows(root, jobsRoot, ids) : []),
 	].join("\n");
+}
+
+/**
+ * Every finished job whose unlanded work nothing resolved, whatever its age and migrated ones too (A-001): what it
+ * holds and the two commands that resolve it, since each makes a worker spawn refuse. Empty when there is none.
+ */
+async function unlandedLines(root: string): Promise<string[]> {
+	const held = await unlandedWork(root);
+	if (held.length === 0) {
+		return [];
+	}
+	return [
+		"Unlanded work (spawn refuses until each is continued or abandoned):",
+		...held.flatMap((work) => [
+			`  ${work.id} · ${work.state} · ${unlandedSummary(work)}${work.repo ? ` · repo ${work.repo}` : ""}`,
+			`    limen continue ${work.id} "instruction"`,
+			`    limen abandon ${work.id}`,
+		]),
+	];
 }
 
 /** One row for each job, running jobs first and then the newest, as the job list has always shown them. */

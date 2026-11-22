@@ -18,7 +18,7 @@ import {
 } from "../project/git.ts";
 import { closeTickets } from "../project/lanes.ts";
 import { landTicketCheck } from "../project/ticket-check.ts";
-import { deleteLandedBranches } from "../runtime/pruning.ts";
+import { deleteLandedBranches, keptLine } from "../runtime/pruning.ts";
 import { jobFeatures } from "./job.ts";
 import { readRecord } from "./record.ts";
 import { type JobArgument, resolveJob } from "./reference.ts";
@@ -90,8 +90,9 @@ export async function landJob(
 	}
 	out.line(`landed ${id} onto ${target}`);
 	// The merge put every branch commit in the target, so the branch is landed.
-	for (const { branch: name, kept } of await deleteLandedBranches(root, [{ repository, branch }])) {
-		out.line(kept ? `kept branch ${name}: ${kept}` : `deleted branch ${name}`);
+	// A worktree that holds unlanded work stays with its branch, and says so in the one line of every kept worktree.
+	for (const { branch: name, kept, worktree } of await deleteLandedBranches(root, [{ repository, branch }])) {
+		out.line(worktree ? keptLine(worktree) : kept ? `kept branch ${name}: ${kept}` : `deleted branch ${name}`);
 	}
 	if (request.keepOpen) {
 		return;
