@@ -75,7 +75,9 @@ noc 22.11: R-024 zamknięty (`limen stats` i jeden czytnik transkryptów przez w
 recenzji z PASS); limit 5 h przerwał przebieg 1 w R-025, przebieg 2 zamknął R-025 (deklaracje odmów `refuses`
 w rejestrze, skany kodów i testów przez drzewo składni, zapadki 70/35/29, test T-04 dla poleceń `read`; bramka
 710/710, trzy rundy recenzji: FAIL, PASS, PASS) i R-097 (awaria na limicie subskrypcji jako `quota`; bramka
-714/714), więc etap 2 ma wszystkie 18 ticketów zamknięte, a w `## State` czeka gotowe podsumowanie bramki 5.2. -->
+714/714), więc etap 2 ma wszystkie 18 ticketów zamknięte, a w `## State` czeka gotowe podsumowanie bramki 5.2;
+Q-26 → D-077: nowy ticket naprawczy R-099 (uwagi rundy 3 R-092) gotowy i drugi przebieg runnera do 9:00 za zgodą
+Adriana. -->
 
 
 
@@ -937,6 +939,13 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   its name, which starts with the command: `limen <command words>: …`; a scan requires one for every registry command,
   and for a `read` command it is its golden test of the whole output; the commands without one start as a ratchet list
   that may only shrink, which R-083 brings to zero. Check: R-025's criteria.
+- 2026-11-22 D-077 (Adrian: "Zgadzam się na nowy ticket nocny R-099"; Q-26, option 1, from R-092's review round 3):
+  a new fix ticket R-099 (S, stage 2, delegated, night, after R-092) for R-092's round-3 notes 1, 2, 6 and the
+  template line of note 3: a rerun under the jobs lock removes a GitHub handoff gate with no job record;
+  `GROUP_STOP_INCOMPLETE` takes its cause's class (T-02); the template's sentence on a refused `--strict` build; the
+  snapshot's `git()` reports a git failure except `symbolic-ref` on a detached HEAD; each with a test that fails
+  before. With his consent ("tak", 2026-11-22 about 00:20), the main session started the night runner a second time
+  for R-099 once the first had ended with `done` (D-024, D-074). Check: R-099's criteria.
 
 ### Gate 2 §2, copied
 
@@ -1312,6 +1321,7 @@ Columns:
 | R-095 | The round-3 notes of R-022 and R-094: the shared-token report, `keeper`'s de-duplication, the record check | 2 | T-01, T-29, T-30, D-065 | R-022, R-094 | S | delegated | night | — | — | — | done |
 | R-096 | One wake per event: the extra wake of the held-gate queue test, found and removed | 2 | T-29, D-067 | R-023, R-095 | S | delegated | night | — | — | — | done |
 | R-097 | A failure on the subscription limit is `quota`, in the migration and at finalize | 2 | A-016, D-057, D-071 | R-021 | S | delegated | night | — | — | 2.3 | done |
+| R-099 | The round-3 notes of R-092: a stale handoff gate, the class of an incomplete stop, the snapshot's git | 2 | T-38, T-02, D-077 | R-092 | S | delegated | night | — | — | — | ready |
 | R-024 | `limen stats` over records and transcripts | 2 | H-01, H-20, §2, T-33, D-072, D-073 | R-021, R-023 | M | delegated | night | — | pi | 2.3 | done |
 | R-025 | Test coverage derived from the command registry | 2 | T-28, T-29, D-045, D-046, D-075, D-076 | R-014, R-023, R-092 | M | delegated | night | — | — | — | done |
 | R-026 | Every job runs in its own systemd user scope | 3 | A-029, A-052, T-43 | R-020, R-021 | L | delegated | night | — | systemd | 3.2, 3.7, 3.8 | planned |
@@ -2916,14 +2926,20 @@ Gate 5.2 summary (stage 2's tickets are done; the close and the gate are by day,
   the command it runs (for R-082), and the second copies of the ISO-time pattern (R-024) and of the 429 rule (R-097),
   T-25 (2).
 
+The main session `limen-rebuild-17`, at night with Adrian's consent (D-077):
+- Q-26 → D-077 (Adrian, about 00:10: "Zgadzam się na nowy ticket nocny R-099"); his "tak" (about 00:20) to starting
+  the runner a second time for R-099 once the first had ended with `done`, the tree clean and pushed, before 08:00.
+  The session waited for the runner's process to exit (04:26:45) and found the reason `done`, a clean tree and
+  `50212ef` pushed. R-099 `ready` (S, delegated, night), its `ticket.md` written at `50212ef` (no grep criteria,
+  D-025); the D-024 preflight, then `night.mjs --until 09:00`. Stage 2 now holds R-099 too: the gate summary above
+  counts 18 tickets without it.
+- A correction: R-092's commit `6556e38` was made at 00:05, not at 00:20 as an entry above says.
+
 Active ticket: none.
 
-Open (Q-26, asked in the conversation with a push): R-092's round-3 notes 1, 2, 6 and the template line of note 3.
-Options: 1. a new fix ticket R-099 (S, stage 2, delegated, night, after R-092): a rerun under the jobs lock removes a
-GitHub handoff gate with no job record; `GROUP_STOP_INCOMPLETE` takes its cause's class (T-02); the template's
-sentence on a refused `--strict` build; the snapshot's `git()` reports a git failure except `symbolic-ref` on a
-detached HEAD; each with a test that fails before (recommended; as D-062, D-065, D-067); 2. notes for the tickets that rewrite those parts;
-3. the fix ticket by day tomorrow.
+Resolved (Q-26 → D-077), asked in the conversation with a push: R-092's round-3 notes 1, 2, 6 and the template line of
+note 3. Options: 1. a new fix ticket R-099 (recommended); 2. notes for the tickets that rewrite those parts; 3. the fix
+ticket by day tomorrow.
 
 Resolved (Q-19 → D-070), asked in the conversation with a push, then again after Adrian had the session read the
 documents:
@@ -2931,10 +2947,10 @@ documents:
   (recommended); 2. also only spawn, continue and stop; 3. every change command without `movedBy` now.
 
 Next (by day):
-1. The night of 2026-11-22 is over (R-024, R-025 and R-097 done; the reason `done`). In the morning: check that
-   `399dc4f`'s successor, the commit `R-097:`, is pushed and the tree is clean; Q-26; the close of stage 2 and gate
-   5.2 by phone with the "Gate 5.2 summary" above (the night defaults and open points); the tag `a0.2.0`; then the
-   tickets of stage 3 `ready` by day (D-074).
+1. The night's second run (from about 04:35, until 09:00): R-099, the only `ready` ticket. In the morning: check
+   that its commit is pushed and the tree is clean; the close of stage 2 and gate 5.2 by phone with the "Gate 5.2
+   summary" above (the night defaults and open points, R-099 added); the tag `a0.2.0`; then the tickets of stage 3
+   `ready` by day (D-074). The day session hands over first (D-047; `limen-rebuild-17` is at 40 % context).
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
    D-047 and D-054 were.
