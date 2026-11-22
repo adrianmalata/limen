@@ -2,7 +2,8 @@
 deklaruje swoje kody odmów (`refuses`), a skany w `npm run check` sprawdzają, że każdy kod odmowy w kodzie jest
 zadeklarowany, ma test `CODE: …` porównujący migawkę, każde polecenie ma test sukcesu `limen <polecenie>: …`, a
 każde polecenie `read` niczego nie zapisuje; braki zaczynają jako zapadki do zera w R-082 i R-083. Stan: napisany
-21.11 w dzień przy commicie R-092; gotowy (ready). -->
+21.11 przy commicie R-092; w nocy 22.11 wdrożony, po dwóch rundach recenzji (FAIL, PASS z uwagami) i z decyzjami obu
+rund poprawek w `## Decisions`. -->
 
 # R-025 Test coverage derived from the command registry
 
@@ -140,3 +141,50 @@ None: the registry and the tests only.
   which starts with the command: `limen <command words>: …`; a scan requires one for every registry command, and for
   a `read` command it is its golden test of the whole output; the commands without one start as a ratchet list that
   may only shrink, which R-083 brings to zero."
+- 2026-11-22, the night session (a fact, not a decision): R-024 (`24f37a6`), done after this ticket was written, added
+  the `read` command `stats` (`src/registry.ts`, `src/commands/stats.ts`, `src/job/statistics.ts`), so the registry
+  has 47 entries and 12 `read` commands; its tests are `limen stats: …` (the golden test), `NOT_MIGRATED: …` and
+  `T-04: …` (the shared snapshot) in `test/cli/stats.test.ts`. Fact 1's counts are those of `6556e38`; (a)–(c) cover
+  `stats` as every other entry.
+- 2026-11-22, the night session's reading (settled by the documents, not a night default): AC-3 is judged by the
+  gate's run of `test/cli/github.test.ts`. Outside `gate.mjs` its `github poll` tests refuse the shared `/tmp`
+  ("unsafe owner or permissions on /tmp"), at `HEAD` too: the platform exception P2 of `evidence/baseline.md`,
+  accepted at gate 0, and D-034's lesson that a run outside `gate.mjs` on this laptop is no evidence of a failure
+  (R-005, R-019 and R-092 recorded the same).
+- 2026-11-22, review round 1 (`review.md` → Round 1), the first round of fixes, for a fresh implementer (D-026 (2)):
+  (1) Scan (b)3 covers every `CODE:` test of a `change` command, whichever list declares its code (an entry's
+  `refuses` or `SHARED_CODES`): it compares the shared snapshot or is on `WITHOUT_SNAPSHOT`; the four tests of the
+  finding are among those it finds; a fixture case fails when such a test compares no snapshot and is not listed; the
+  scan's comment and `outcome.md` → Deviation 3 say what it does. (2) `thrownCodes` skips no `new LimenError`: a site
+  whose class is not a literal has its code on an exact list with the reason (today `GROUP_PARTIAL_START`), so a new
+  such site fails the scan, with a fixture case; its comment says what the scan reads. (3) `codesOf` resolves a name
+  to the function's parameter before a file-wide constant, as the language's scopes do, with a fixture case. (4) The
+  T-04 read test names each read's expected end on the plant (exit 0, or the expected code of a read that refuses
+  there, with the reason), so any other end, a crash included, fails it. Night default (category A (b), D-054 (2)), for
+  Adrian to confirm in the morning: `SHARED_CODES` holds D-075's five codes and the three every command line can hit
+  (`UNKNOWN_COMMAND`, `REMOVED`, `UNTYPED`). Not fixed, with the reason in `review.md`: finding 6. `outcome.md`
+  records the round under its sections, with the new sizes of the ratchet lists (AC-8).
+- 2026-11-22, review round 2 (`review.md` → Round 2, verdict PASS with notes), the second and last round of fixes,
+  for a fresh implementer (D-026 (2)): (1) The tests that already prove a success are renamed rather than listed
+  (Change (b)): `ticket new returns the number of the ticket it wrote in ids.ticket` (`test/outcome.test.ts`) as
+  `limen ticket new: …`, and one of the two `group start run again …` tests (`test/cli/group.test.ts`) as `limen group
+  start: …`, as `limen github work: run again …` was; `ticket new` and `group start` leave `WITHOUT_SUCCESS_TEST`. A
+  test that combines mechanisms (T-29 (3)) is not renamed, and `outcome.md` says why it stays listed. (2) Names resolve
+  as the language's scopes do: a name in a code position means its innermost declaration around it, a parameter of a
+  function or a `const` of a block, function or file; a string constant gives its literal; a name bound by
+  destructuring a property of a call of the file's own function (`const { code } = problemOf(…)` in
+  `src/job/reference.ts`) gives the literals that property has in that function; any other binding is unreadable, so
+  the test fails on it. Fixture cases: two functions with a local constant of one name each, each throw reading its
+  own; a local variable with a non-literal value in a file that gives a `code` property literals is unreadable. The
+  comment of `thrownCodes` says what it reads. (3) Scan (b)3 holds a test to T-38's Check "compares the snapshots
+  before and after": a test compares when it takes the snapshot at least twice, itself or through the file's
+  functions (a function that takes it twice counts twice); a fixture case where a test takes it once fails; a test
+  that leaves the held set by this joins `WITHOUT_SNAPSHOT`, and `outcome.md` names it. (4) The D-045 test's name
+  holds one identifier (T-29 (2)): R-032 leaves the name for a comment above the test. (5) `UNKNOWN_CLASS` lists
+  sites, not codes: one entry per site, as its file and code, repeats kept, compared both ways, so a new site fails the
+  scan even with a listed code; a fixture case. (6) The `UNPRIVILEGED` comment says the stubs hold for an account that
+  is not root (under uid 0 `assertUnprivileged` refuses before it runs `id`). The main session's after the round
+  (`outcome.md` only, D-053 (2)): `## Fails before` records its run of `fails-before.mjs` after this round. `outcome.md`
+  records the round under its sections, with the new sizes of the ratchet lists (AC-8). Not fixed, an open point for
+  gate 5.2 and R-082 (`review.md` → Round 2): whether scan (b)3 holds a test by the command it runs rather than by its
+  code.

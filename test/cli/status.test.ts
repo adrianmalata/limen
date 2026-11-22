@@ -182,7 +182,7 @@ test("limen status names a running job's note by its file, advisory", async (t) 
 	assert.ok(line.endsWith(" · advisory: tool stall observation uncertain: CPU or process identity unavailable"), line);
 });
 
-test("limen status --all prints the summary without the 7-day window and under it one row for each job", async (t) => {
+test("limen status: --all prints the summary without the 7-day window and under it one row for each job", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const old = spawnJob(p, "say old", ["--label", "old"]);

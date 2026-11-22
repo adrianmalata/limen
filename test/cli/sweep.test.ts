@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { limen, plant, writeRecord } from "../plant.ts";
 
 // A temp of src/atomic-write.ts sits beside its target until the link; a leftover one, after a crash, stays.
-test("limen sweep rings for a finished job whose delivered folder holds only the temp of a delivery write", async (t) => {
+test("limen sweep: rings for a finished job whose delivered folder holds only the temp of a delivery write", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const job = join(p.root, ".limen/jobs/2026-11-20-sweep-1a2b3c4d");

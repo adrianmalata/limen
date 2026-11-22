@@ -135,7 +135,7 @@ test("a branch that adds test lines past the cap is refused and names the number
 	assert.match(refused(job.running), /\b9\b[^\n]*\b5\b[^\n]*\b1\b/);
 });
 
-test("a done job fast-forwards without --yes off a TTY, a landed branch is deleted, and a merge lands beside an uncommitted file and closes its ticket", async () => {
+test("limen land: a done job fast-forwards without --yes off a TTY, a landed branch is deleted, and a merge lands beside an uncommitted file and closes its ticket", async () => {
 	// B starts from the same main as A and removes test lines, leaving test/ still over the cap.
 	job.b = done("commit", ["--label", "demo · F001"]);
 	await amend(job.b, { "test/old.test.ts": lines(6) });

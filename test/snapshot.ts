@@ -29,8 +29,9 @@ export type Snapshot = {
 const DIGESTED = [".limen", "spec"] as const;
 
 /**
- * The snapshot of the project at `root`. `also` names more folders under the root to digest, such as `.git/hooks`
- * for a command that once wrote hooks. Outside a Git repository the git parts are empty.
+ * The snapshot of the project at `root`. `also` names more folders, from the root, to digest: one under it, such as
+ * `.git/hooks` for a command that once wrote hooks, or the seat's folder beside a test project, `../.limen`
+ * (test/plant.ts). Outside a Git repository the git parts are empty.
  */
 export function snapshot(root: string, also: readonly string[] = []): Snapshot {
 	const files: Record<string, string> = {};

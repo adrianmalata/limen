@@ -68,7 +68,10 @@ export type Handler = (values: Parsed, cwd: string, out: CommandText) => Promise
 /**
  * One command. An internal one names its `caller` and stays out of `limen --help`. `movedBy` names the ticket that
  * moves or cuts it (D-039, D-042); the help does not show it. `irreversible` marks a command whose change cannot be
- * undone or that moves data, which has tests of running it again and of losing nothing (T-28 (3)).
+ * undone or that moves data, which has tests of running it again and of losing nothing (T-28 (3)). `refuses` names the
+ * codes of class refused and usage that the command's own path throws (T-28 (1), D-075): the codes every command can
+ * end with are `SHARED_CODES` of src/operation.ts, and a command that runs another command's operation, as `github
+ * work` runs spawn's, names only its own. test/registry.test.ts reads them against the code and the tests.
  */
 export type Entry = Command & {
 	readonly object: CommandObject;
@@ -77,6 +80,7 @@ export type Entry = Command & {
 	readonly caller?: string;
 	readonly summary: string;
 	readonly ids: readonly IdKey[];
+	readonly refuses: readonly string[];
 	readonly example: string;
 	readonly movedBy?: string;
 	readonly irreversible?: true;
@@ -106,6 +110,44 @@ export const GROUPS: readonly Group[] = [
 ];
 /** D-040: until module switches exist (R-044), the header says only what is true now. */
 export const MODULES_HEADER = "Modules";
+
+/** The codes of `groups`, each once, in order: an entry's `refuses` from the refusals of the functions its path calls. */
+function refusals(...groups: ReadonlyArray<readonly string[]>): readonly string[] {
+	return [...new Set(groups.flat())].sort();
+}
+/** `limenRoot` (src/project/git.ts): a folder outside every project, or a group member's incomplete context. */
+const IN_PROJECT = ["GROUP_CONTEXT", "NOT_A_PROJECT"];
+/** `resolveJob` for a read (src/job/reference.ts, T-20): a word that names no job exactly. */
+const JOB_WORD = ["JOB_NOT_EXACT", "JOB_NOT_FOUND", "JOB_TOKEN_SHARED"];
+/** `resolveJob` for control: a job word, and a group member that names another team's job. */
+const OWN_JOB = [...JOB_WORD, "JOB_OTHER_TEAM"];
+/** `readRun` of a group id a command line or a member's environment gives (src/job/group-cabinet.ts). */
+const GROUP_RUN = ["BAD_GROUP_ID", "GROUP_NOT_FOUND", "GROUP_RECORD"];
+/** `jobMembership`: the group a job's record names is gone, malformed, or no longer lists the job. */
+const RECORDED_GROUP = ["GROUP_GONE", "GROUP_RECORD", "GROUP_ROSTER", "RECORD_GROUP_ID"];
+/** `selectedGroup` (src/job/group-control.ts): the group a member belongs to, or the one its lead names. */
+const SELECTED_GROUP = [...GROUP_RUN, ...IN_PROJECT, "GROUP_OTHER_LEAD", "GROUP_ROSTER", "NO_GROUP"];
+/** `memberSlotProblem`: a group launch with no free slot of its team. */
+const MEMBER_SLOT = ["GROUP_ALLOWANCE", "GROUP_CLOSED", "GROUP_NO_TIME", "GROUP_TEAM_UNKNOWN"];
+/** `normalizeWorkerExtensions` and `readWorkerExtensions` (src/runtime/worker-extensions.ts). */
+const EXTENSIONS = ["BAD_EXTENSION", "EXTENSION_GONE", "RECORD_EXTENSIONS"];
+/** `assertUnprivileged`, `readBinding` and `originRepository` of the GitHub module (src/integrations/). */
+const GITHUB_SEAT = ["GITHUB_BINDING", "GITHUB_ORIGIN", "GITHUB_PRIVILEGED"];
+/** The checks of a claim's job before its handoff (`validateClaimJob`, src/integrations/github-claims.ts). */
+const GITHUB_CLAIM = [
+	...GITHUB_SEAT,
+	"BAD_CLAIM",
+	"BAD_ROOT",
+	"GITHUB_CLAIM_MISMATCH",
+	"GITHUB_CONFLICT",
+	"GITHUB_DISCONNECTED",
+	"GITHUB_HANDOFF_GATE",
+	"GITHUB_NO_CLAIM",
+	"GITHUB_NOT_COORDINATOR",
+	"NOT_A_PROJECT",
+];
+/** `readDataset` and `mapFolder` of the map (src/picture/): a map path that is missing or no folder. */
+const MAP_FOLDER = ["PICTURE_NO_MAP", "PICTURE_NOT_A_FOLDER"];
 
 const JOB: Positional = { positional: "job", type: "job", about: "the job's full id or its 8-character token" };
 const ROUTE_ABOUT = {
@@ -223,6 +265,42 @@ const SPAWN: Entry = {
 		{ removed: "tab" },
 	],
 	ids: ["job"],
+	// A spawn from a group member's environment launches into its group (`spawnGroup`), so the group's codes are its own.
+	refuses: refusals(GROUP_RUN, MEMBER_SLOT, EXTENSIONS, [
+		"BAD_BRANCH",
+		"BAD_COMMIT",
+		"BAD_DURATION",
+		"BAD_ENGINE",
+		"BAD_LABEL",
+		"BAD_PRIORITY",
+		"BAD_REPO",
+		"BAD_ROLE",
+		"BAD_TASK_FILE",
+		"BRANCH_IN_PRIMARY",
+		"BRANCH_LIVE_JOB",
+		"BRANCH_MISSING",
+		"GROUP_CONTEXT",
+		"GROUP_EXTENSIONS",
+		"GROUP_LAUNCH_FLAGS",
+		"GROUP_NO_ROUTE",
+		"GROUP_REVIEW_BRANCH",
+		"GROUP_ROSTER",
+		"GROUP_ROUTE",
+		"GROUP_WORKER_SPAWN",
+		"NO_COMMIT",
+		"NO_TASK",
+		"NOT_A_PROJECT",
+		"PIN_WITHOUT_REVIEW",
+		"REPO_OUTSIDE_WORKSPACE",
+		"REPO_REQUIRED",
+		"REVIEW_HEAD_MOVED",
+		"REVIEW_NEEDS_BRANCH",
+		"REVIEW_WITH_ROLE",
+		"ROLE_UNKNOWN",
+		"SPAWN_LEAD_ROLE",
+		"TICKET_NOT_AT_BASE",
+		"TITLE_TWICE",
+	]),
 	example:
 		'limen spawn "Implement F012. Ticket: spec/features/active/F012-demo/ticket.md" --engine pi --provider pi-claude --model claude-opus-5-5 --thinking high',
 	handler: spawnCommand,
@@ -261,6 +339,31 @@ const CONTINUE: Entry = {
 		{ removed: "review" },
 	],
 	ids: ["job"],
+	refuses: refusals(IN_PROJECT, OWN_JOB, GROUP_RUN, RECORDED_GROUP, MEMBER_SLOT, EXTENSIONS, [
+		"BAD_DURATION",
+		"BAD_ENGINE",
+		"BAD_LABEL",
+		"BAD_PRIORITY",
+		"BAD_REPO",
+		"ENGINE_MISMATCH",
+		"ENGINE_UNKNOWN",
+		"GROUP_EXTENSIONS",
+		"GROUP_EXTENSIONS_PARENT",
+		"GROUP_LAUNCH_FLAGS",
+		"GROUP_NO_ROUTE",
+		"GROUP_NOT_ALLOWED",
+		"GROUP_OTHER_LEAD",
+		"GROUP_ROUTE",
+		"GROUP_TEAM_JOB",
+		"JOB_NO_BRANCH",
+		"JOB_NO_SESSION",
+		"JOB_NO_WORKTREE",
+		"JOB_NOT_FINISHED",
+		"JOB_TREE_GONE",
+		"LIVE_CONTINUATION",
+		"NO_INSTRUCTION",
+		"ROLE_UNKNOWN",
+	]),
 	example: 'limen continue a1b2c3d4 "Fix the test the review names, then commit"',
 	handler: continueCommand,
 };
@@ -280,6 +383,8 @@ const JOBS: readonly Entry[] = [
 			{ positional: "text", type: "text", about: "the correction; the job reads it at its next turn" },
 		],
 		ids: [],
+		// A group member is refused before its job is resolved, so no team or group context of a member reaches it.
+		refuses: refusals(JOB_WORD, ["NOT_A_PROJECT"]),
 		example: 'limen steer a1b2c3d4 "Leave docs/ alone; fix src/main.ts first"',
 		handler: steerCommand,
 	},
@@ -299,6 +404,7 @@ const JOBS: readonly Entry[] = [
 			},
 		],
 		ids: [],
+		refuses: refusals(IN_PROJECT, OWN_JOB, ["JOB_NO_PID"]),
 		example: 'limen stop a1b2c3d4 "the ticket changed"',
 		handler: stopCommand,
 	},
@@ -315,6 +421,9 @@ const JOBS: readonly Entry[] = [
 			{ flag: "keep-open", about: "keep the ticket active, because more slices remain" },
 		],
 		ids: [],
+		// A group member is refused before its job is resolved; a ticket close that fails leaves the tickets active and
+		// says so, without a refusal.
+		refuses: refusals(JOB_WORD, ["BAD_REPO", "MERGE_FAILED", "NOT_A_PROJECT", "PICTURE_NOT_A_FOLDER"]),
 		example: "limen land a1b2c3d4",
 		handler: landCommand,
 	},
@@ -326,17 +435,21 @@ const JOBS: readonly Entry[] = [
 		summary: "the change a job made against its base",
 		schema: [JOB],
 		ids: [],
+		refuses: refusals(IN_PROJECT, JOB_WORD, ["BAD_REPO"]),
 		example: "limen diff a1b2c3d4",
 		handler: diffCommand,
 	},
 	{
 		name: "show",
 		object: "job",
-		kind: "read",
+		// A change while it reaps dead jobs first (D-045 (6.2)); R-032 makes it a read again.
+		kind: "change",
 		visibility: "public",
 		summary: "one job's record",
 		schema: [JOB],
 		ids: [],
+		// The reap finalizes a dead job, whose group it reads.
+		refuses: refusals(IN_PROJECT, JOB_WORD, RECORDED_GROUP),
 		example: "limen show a1b2c3d4",
 		handler: showCommand,
 	},
@@ -348,6 +461,7 @@ const JOBS: readonly Entry[] = [
 		summary: "open the job's log tab in Herdr",
 		schema: [JOB],
 		ids: [],
+		refuses: refusals(IN_PROJECT, JOB_WORD),
 		example: "limen open a1b2c3d4",
 		handler: openCommand,
 	},
@@ -362,6 +476,7 @@ const JOBS: readonly Entry[] = [
 			{ flag: "running", about: "every job of this project that runs now" },
 		],
 		ids: [],
+		refuses: refusals(IN_PROJECT, OWN_JOB),
 		example: "limen watch a1b2c3d4",
 		handler: watchCommand,
 	},
@@ -376,6 +491,7 @@ const JOBS: readonly Entry[] = [
 			{ flag: "all", about: "every job of this project" },
 		],
 		ids: [],
+		refuses: refusals(IN_PROJECT, OWN_JOB),
 		example: "limen unwatch a1b2c3d4",
 		handler: unwatchCommand,
 	},
@@ -395,17 +511,22 @@ const PROJECT: readonly Entry[] = [
 			},
 		],
 		ids: [],
+		// Its refusals are untyped until R-082; it reads the project's root only after it checked that git knows one.
+		refuses: [],
 		example: "limen init",
 		handler: initCommand,
 	},
 	{
 		name: "status",
 		object: "project",
-		kind: "read",
+		// A change while it reaps dead jobs first (D-045 (6.2)); R-032 makes it a read again.
+		kind: "change",
 		visibility: "public",
 		summary: "what runs, what landed, what waits for the owner; --all lists every job",
 		schema: [{ flag: "all", about: "also the records older than 7 days, then one row for every job" }],
 		ids: [],
+		// The reap finalizes a dead job, whose group it reads.
+		refuses: refusals(IN_PROJECT, RECORDED_GROUP),
 		example: "limen status --all",
 		handler: statusCommand,
 	},
@@ -417,6 +538,7 @@ const PROJECT: readonly Entry[] = [
 		summary: "jobs by route and role: done, failed, run time and tokens by class",
 		schema: [],
 		ids: [],
+		refuses: refusals(IN_PROJECT),
 		example: "limen stats",
 		handler: statsCommand,
 	},
@@ -428,6 +550,7 @@ const PROJECT: readonly Entry[] = [
 		summary: "the board with NOW and PROVEN; --write rewrites them in spec/build.md",
 		schema: [{ flag: "write", about: "rewrite NOW and PROVEN in spec/build.md from the ticket folders" }],
 		ids: [],
+		refuses: refusals(IN_PROJECT, ["BAD_REPO"]),
 		example: "limen board",
 		handler: boardCommand,
 	},
@@ -442,6 +565,8 @@ const PROJECT: readonly Entry[] = [
 			{ flag: "dry-run", about: "with --retire: list the records it would delete, and delete none" },
 		],
 		ids: [],
+		// A job of an open group keeps its worktree and record, so prune reads the group a record names.
+		refuses: refusals(IN_PROJECT, RECORDED_GROUP, ["BAD_REPO"]),
 		example: "limen prune --retire --dry-run",
 		movedBy: "R-032",
 		handler: pruneCommand,
@@ -454,6 +579,7 @@ const PROJECT: readonly Entry[] = [
 		summary: "move job records an older Limen wrote into record.json; --dry-run writes nothing",
 		schema: [{ flag: "dry-run", about: "print the report of what the migration would do, and write nothing" }],
 		ids: [],
+		refuses: refusals(IN_PROJECT),
 		example: "limen migrate --dry-run",
 		irreversible: true,
 		handler: migrateCommand,
@@ -478,6 +604,8 @@ const TICKETS: readonly Entry[] = [
 			{ flag: "touches", value: "ids", about: "the map places it changes, as module ids joined by commas" },
 		],
 		ids: ["ticket"],
+		// --touches reads the map its places come from.
+		refuses: refusals(MAP_FOLDER, ["NOT_A_PROJECT"]),
 		example: 'limen ticket new "Spawn names every missing route flag" --lane active',
 		handler: ticketNewCommand,
 	},
@@ -496,6 +624,8 @@ const TICKETS: readonly Entry[] = [
 			},
 		],
 		ids: [],
+		// The map is read only where it exists, so a missing one gives no refusal.
+		refuses: refusals(IN_PROJECT, ["PICTURE_NOT_A_FOLDER", "TICKET_CHECK_FAILED"]),
 		example: "limen ticket check limen/2026-11-19-f012-a1b2c3d4",
 		handler: ticketCheckCommand,
 	},
@@ -510,6 +640,7 @@ const TICKETS: readonly Entry[] = [
 			{ flag: "on", value: "date", about: "the landed date, YYYY-MM-DD; default today" },
 		],
 		ids: [],
+		refuses: refusals(IN_PROJECT, ["BAD_DATE", "NO_ACTIVE_TICKET", "TICKETS_UNCOMMITTED"]),
 		example: "limen ticket done F012",
 		handler: ticketDoneCommand,
 	},
@@ -529,6 +660,7 @@ const TICKETS: readonly Entry[] = [
 			},
 		],
 		ids: [],
+		refuses: refusals(IN_PROJECT),
 		example: "limen close F012",
 		movedBy: "R-037",
 		handler: closeCommand,
@@ -553,6 +685,8 @@ const TICKETS: readonly Entry[] = [
 			{ flag: "timeout", value: "duration", about: "end the job after this time; default 20m" },
 		],
 		ids: ["job"],
+		// It runs spawn's operation for its job, whose codes spawn declares; a group member is refused first.
+		refuses: refusals(JOB_WORD, GROUP_RUN, ["BAD_REPO", "NOT_A_PROJECT", "PICTURE_NOT_A_FOLDER"]),
 		example:
 			"limen keeper spec/features/active/F012-demo/ticket.md --engine pi --provider pi-claude --model claude-opus-5-5 --thinking high --job a1b2c3d4",
 		movedBy: "R-066",
@@ -574,6 +708,7 @@ const SEAT: readonly Entry[] = [
 		summary: "the start queue and its CPU and memory reading",
 		schema: [],
 		ids: [],
+		refuses: [],
 		example: "limen seat queue",
 		handler: seatQueueCommand,
 	},
@@ -588,6 +723,8 @@ const SEAT: readonly Entry[] = [
 			{ flag: "uninstall", about: "remove that LaunchAgent" },
 		],
 		ids: [],
+		// The reap finalizes a dead job, whose group it reads; its own refusal is untyped until R-082.
+		refuses: refusals(RECORDED_GROUP),
 		example: "limen sweep",
 		movedBy: "R-032",
 		handler: sweepCommand,
@@ -600,6 +737,7 @@ const SEAT: readonly Entry[] = [
 		summary: "the seat-wide rules that hold now",
 		schema: [],
 		ids: [],
+		refuses: [],
 		example: "limen rule",
 		movedBy: "R-034",
 		handler: ruleCommand,
@@ -626,6 +764,8 @@ const SEAT: readonly Entry[] = [
 			{ positional: "text", type: "text", about: "the rule; every coordinator sees it in its turn" },
 		],
 		ids: [],
+		// Its refusals are untyped until R-034 cuts it.
+		refuses: [],
 		example: 'limen rule set claude-week --until 12h --start-priority 1 "Only urgent jobs until the reset"',
 		movedBy: "R-034",
 		handler: ruleSetCommand,
@@ -641,6 +781,8 @@ const SEAT: readonly Entry[] = [
 			{ positional: "reason", type: "text", optional: true, about: "why; each coordinator's end ping names it" },
 		],
 		ids: [],
+		// Its refusals are untyped until R-034 cuts it.
+		refuses: [],
 		example: 'limen rule end claude-week "the limit reset"',
 		movedBy: "R-034",
 		handler: ruleEndCommand,
@@ -657,6 +799,7 @@ const SEAT: readonly Entry[] = [
 			{ positional: "version", type: "word", about: "the version of the rule the timer ends" },
 		],
 		ids: [],
+		refuses: [],
 		example: "limen rule timer .limen/rules/claude-week 1763540000000-4242",
 		movedBy: "R-034",
 		handler: ruleTimerCommand,
@@ -672,6 +815,7 @@ const GITHUB: readonly Entry[] = [
 		summary: "bind this project's GitHub origin to this Herdr coordinator",
 		schema: [],
 		ids: [],
+		refuses: refusals(GITHUB_SEAT, ["NOT_A_PROJECT"]),
 		example: "limen github connect",
 		handler: githubConnectCommand,
 	},
@@ -683,6 +827,7 @@ const GITHUB: readonly Entry[] = [
 		summary: "remove this project's GitHub binding; past claims stay",
 		schema: [],
 		ids: [],
+		refuses: ["NOT_A_PROJECT"],
 		example: "limen github disconnect",
 		handler: githubDisconnectCommand,
 	},
@@ -694,6 +839,7 @@ const GITHUB: readonly Entry[] = [
 		summary: "the binding and the newest local copy of a handoff",
 		schema: [],
 		ids: [],
+		refuses: ["GITHUB_BINDING", "NOT_A_PROJECT"],
 		example: "limen github status",
 		handler: githubStatusCommand,
 	},
@@ -705,6 +851,8 @@ const GITHUB: readonly Entry[] = [
 		summary: "check that this seat runs the GitHub module safely",
 		schema: [],
 		ids: [],
+		// It reports a missing or wrong origin as a failed check, so only the binding itself refuses.
+		refuses: ["GITHUB_BINDING", "NOT_A_PROJECT"],
 		example: "limen github doctor",
 		handler: githubDoctorCommand,
 	},
@@ -717,6 +865,7 @@ const GITHUB: readonly Entry[] = [
 		summary: "check that the registered Herdr coordinator is live and interactive",
 		schema: [{ ...ROOT, optional: true, about: "the registered repository root; default this repository" }],
 		ids: [],
+		refuses: refusals(GITHUB_SEAT, ["NOT_A_PROJECT"]),
 		example: "limen github ensure",
 		handler: githubEnsureCommand,
 	},
@@ -729,6 +878,8 @@ const GITHUB: readonly Entry[] = [
 		summary: "run one polling pass over the registered projects",
 		schema: [],
 		ids: [],
+		// A project's failure ends the pass with its class and code, as the worst of them (src/integrations/github-poller.ts).
+		refuses: ["GITHUB_BINDING", "GITHUB_CONFLICT", "GITHUB_ORIGIN"],
 		example: "limen github poll",
 		handler: githubPollCommand,
 	},
@@ -741,6 +892,7 @@ const GITHUB: readonly Entry[] = [
 		summary: "hand one claim to the live coordinator of its project",
 		schema: [ROOT, CLAIM, NONCE],
 		ids: [],
+		refuses: refusals(GITHUB_SEAT, ["GITHUB_CONFLICT", "NOT_A_PROJECT"]),
 		example: "limen github deliver /srv/project 2468 0123456789abcdef0123456789abcdef",
 		handler: githubDeliverCommand,
 	},
@@ -754,6 +906,9 @@ const GITHUB: readonly Entry[] = [
 		abbreviated: true,
 		schema: [ROOT, CLAIM, ...DASHED_ROUTE],
 		ids: ["job"],
+		// It runs spawn's operation, whose codes spawn declares; the review's pinned branch, which spawn's apply creates
+		// only for it, must not exist yet (BRANCH_EXISTS).
+		refuses: refusals(GITHUB_CLAIM, ["BRANCH_EXISTS", "GITHUB_BASE_MOVED", "GITHUB_HEAD_MOVED", "GITHUB_ISSUE_REVIEW"]),
 		example:
 			"limen github review /srv/project 2468 --engine pi --provider pi-claude --model claude-opus-5-5 --thinking high",
 		handler: githubReviewCommand,
@@ -773,6 +928,8 @@ const GITHUB: readonly Entry[] = [
 			{ flag: "task", value: "instruction", required: true, dashValue: true, about: "what the job does" },
 		],
 		ids: ["job"],
+		// It runs spawn's operation, whose codes spawn declares (D-075).
+		refuses: refusals(GITHUB_CLAIM, ["NO_TASK"]),
 		example:
 			'limen github work /srv/project 2468 --engine pi --provider pi-claude --model claude-opus-5-5 --thinking high --task "Fix the typo"',
 		handler: githubWorkCommand,
@@ -786,6 +943,7 @@ const GITHUB: readonly Entry[] = [
 		summary: "answer one claim without a job; the poller posts the answer",
 		schema: [ROOT, CLAIM, NONCE, { positional: "answer", type: "text", about: "the answer to post" }],
 		ids: [],
+		refuses: refusals(GITHUB_SEAT, ["GITHUB_CONFLICT", "NOT_A_PROJECT"]),
 		example: 'limen github resolve /srv/project 2468 0123456789abcdef0123456789abcdef "Already fixed on main"',
 		handler: githubResolveCommand,
 	},
@@ -822,6 +980,28 @@ const GROUP: readonly Entry[] = [
 			{ removed: "tab" },
 		],
 		ids: [],
+		// It runs spawn's operation for each team's first job, whose codes spawn declares (D-075).
+		refuses: refusals(GROUP_RUN, [
+			"BAD_DURATION",
+			"BAD_ENGINE",
+			"BAD_EXTENSION",
+			"BAD_FEATURE",
+			"BAD_ROUND",
+			"BAD_TEAM",
+			"BAD_TEAM_EXTENSION",
+			"BAD_WORKERS",
+			"FINAL_NOT_LAST",
+			"GROUP_LEAD_HOOK",
+			"GROUP_LEAD_ONLY",
+			"GROUP_NO_LEAD",
+			"GROUP_NO_ROUTE",
+			"GROUP_PACKET_MISSING",
+			"GROUP_PACKET_UNCOMMITTED",
+			"GROUP_RUN_LIVE",
+			"GROUP_TIMEOUT_SHORT",
+			"NO_TEAM",
+			"NOT_A_PROJECT",
+		]),
 		example: "limen group start spec/features/active/F012-demo --team pi:pi-claude/claude-opus-5-5:high",
 		handler: groupStartCommand,
 	},
@@ -833,6 +1013,7 @@ const GROUP: readonly Entry[] = [
 		summary: "the group's round, deadline and each member's state; moves on a stuck round",
 		schema: [GROUP_ID, { removed: "json" }],
 		ids: [],
+		refuses: refusals(SELECTED_GROUP),
 		example: "limen group status 3f2a9c1e-7b4d-4e8a-9c0f-1a2b3c4d5e6f",
 		handler: groupStatusCommand,
 	},
@@ -848,6 +1029,7 @@ const GROUP: readonly Entry[] = [
 			{ positional: "finding", type: "text", about: "the finding, its check and its evidence" },
 		],
 		ids: [],
+		refuses: refusals(SELECTED_GROUP),
 		example: 'limen group publish "Finding: stale revisions conflict. Check: npm test"',
 		handler: groupPublishCommand,
 	},
@@ -859,6 +1041,7 @@ const GROUP: readonly Entry[] = [
 		summary: "stop every member job and start no more; the lead only",
 		schema: [GROUP_ID],
 		ids: [],
+		refuses: refusals(SELECTED_GROUP, ["GROUP_LEAD_ONLY"]),
 		example: "limen group stop 3f2a9c1e-7b4d-4e8a-9c0f-1a2b3c4d5e6f",
 		handler: groupStopCommand,
 	},
@@ -870,6 +1053,7 @@ const GROUP: readonly Entry[] = [
 		summary: "close a group whose members are over, so prune can remove their worktrees",
 		schema: [GROUP_ID],
 		ids: [],
+		refuses: refusals(SELECTED_GROUP, ["GROUP_LEAD_ONLY"]),
 		example: "limen group close 3f2a9c1e-7b4d-4e8a-9c0f-1a2b3c4d5e6f",
 		handler: groupCloseCommand,
 	},
@@ -888,6 +1072,8 @@ const GROUP: readonly Entry[] = [
 			{ flag: "timeout", value: "duration", about: "wait at most this long, such as 5s" },
 		],
 		ids: [],
+		// Only a member waits, and a member's group comes from its own environment, never from the project's root.
+		refuses: refusals(GROUP_RUN, ["BAD_DURATION", "GROUP_CONTEXT", "GROUP_ROSTER", "GROUP_WAIT_MEMBERS_ONLY"]),
 		example: "limen group wait --timeout 5s",
 		movedBy: "R-077",
 		handler: groupWaitCommand,
@@ -901,6 +1087,8 @@ const GROUP: readonly Entry[] = [
 		summary: "start the group's next round once every team of this one has ended",
 		schema: [{ positional: "group", type: "word", about: "the group's id" }],
 		ids: [],
+		// It runs continue's operation for each team's next job, whose codes continue declares (D-075).
+		refuses: refusals(IN_PROJECT, GROUP_RUN, ["GROUP_NO_ROUTE"]),
 		example: "limen group advance 3f2a9c1e-7b4d-4e8a-9c0f-1a2b3c4d5e6f",
 		handler: groupAdvanceCommand,
 	},
@@ -921,6 +1109,7 @@ const PICTURE: readonly Entry[] = [
 			{ removed: "out" },
 		],
 		ids: [],
+		refuses: refusals(MAP_FOLDER, ["NOT_A_PROJECT", "PICTURE_INVALID"]),
 		example: "limen picture build --strict",
 		handler: pictureBuildCommand,
 	},
@@ -932,6 +1121,7 @@ const PICTURE: readonly Entry[] = [
 		summary: "serve this project's job activity on 127.0.0.1 at /activity.json and /events",
 		schema: [{ flag: "port", value: "port", about: "the port; default 4747" }, { removed: "dir" }],
 		ids: [],
+		refuses: ["NOT_A_PROJECT"],
 		example: "limen picture serve --port 4747",
 		handler: pictureServeCommand,
 	},
@@ -946,6 +1136,8 @@ const WORKSPACE: readonly Entry[] = [
 		summary: "set up this folder outside Git as a workspace of the Git repositories in it",
 		schema: [],
 		ids: [],
+		// Its one refusal, a folder git knows, is untyped until R-082.
+		refuses: [],
 		example: "limen workspace init",
 		handler: workspaceInitCommand,
 	},

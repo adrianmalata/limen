@@ -74,7 +74,7 @@ test("PICTURE_INVALID: picture build --strict --json with an error diagnostic wr
 	assert.match(run.stdout, /^picture: \d+ places, \d+ edges\n$/);
 });
 
-test("picture build --json of a map with no error writes the model and says where", async (t) => {
+test("limen picture build: --json of a map with no error writes the model and says where", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const run = limen(p, ["picture", "build", "--strict", "--json", ".limen/model/picture.json"]);

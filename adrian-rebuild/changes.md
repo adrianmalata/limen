@@ -2,7 +2,7 @@
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
-R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024. -->
+R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025. -->
 
 # Changes
 
@@ -285,3 +285,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-07, M-11, M-06; `## Deployment` 2.3 and B.3)
 - Commit: R-024
 - Rollback: git revert $(git log --format=%H --grep='^R-024:' adrian-rebuild --)
+
+## 2026-11-22 R-025 Test coverage derived from the command registry
+- What: `src/registry.ts` (every entry declares `refuses`, its own refusal and usage codes, through named groups of the domain functions it calls; `status` and `show` are `change` until R-032), `src/operation.ts` (`SHARED_CODES`, the codes every command line can hit, declared once); the new `test/coverage.ts` (readers over the TypeScript syntax tree: the codes the code throws, by the language's scopes; the tests and whether each takes the shared snapshot before and after); `test/registry.test.ts` (scans: every refusal code declared, each declared code with a `CODE:` test, each `CODE:` test of a change command or a shared code comparing the snapshot, each command with a `limen <command>: …` success test, as ratchets of 70 codes, 35 tests and 29 commands for R-082 and R-083; `UNKNOWN_CLASS` by site; the T-04 test that every read command leaves a plant with a finished job and the seat folder unchanged, with each read's expected end); `test/known-files.ts` and `test/structure.test.ts` (the walks read only files git knows); `test/snapshot.ts`, `test/snapshot.test.ts`; 17 success tests renamed `limen <command>: …` and two test headers in `test/`
+- Why: T-28, T-29, T-38, D-045, D-075, D-076
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (710/710); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (17 test files); `node --test test/registry.test.ts` → exit 0
+- Measurement: measured
+- Commit: R-025
+- Rollback: git revert $(git log --format=%H --grep='^R-025:' adrian-rebuild --)

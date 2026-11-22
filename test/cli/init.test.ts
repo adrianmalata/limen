@@ -88,7 +88,7 @@ test("MISSING_TOOL: limen init inside a Herdr pane refuses with exit code 4 and 
 	);
 });
 
-test("limen init in a new repository writes the Pi extension stub and no .omp/ folder", async (t) => {
+test("limen init: in a new repository it writes the Pi extension stub and no .omp/ folder", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const fresh = join(p.parent, "fresh");

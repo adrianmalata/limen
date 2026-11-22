@@ -101,7 +101,7 @@ const OLD_JOB = {
 
 // T-28 (3): an operation that moves data loses nothing; every value of the older files is in the record or the
 // progress file, and every content file stays byte for byte.
-test("a valid older job becomes a record holding every value of its files, and its content files stay", async (t) => {
+test("limen migrate: a valid older job becomes a record holding every value of its files, and its content files stay", async (t) => {
 	const p = await project(t);
 	const id = "2026-11-01-f001-old-1a2b3c4d";
 	const dir = await oldFolder(p, id, OLD_JOB);

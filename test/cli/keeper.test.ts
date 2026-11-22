@@ -7,7 +7,7 @@ import { git, jobDir, jobFile, limen, plant, routed, startedJob, TICKET, waitJob
 
 // R-022 (`review.md` → Round 3): the keeper keyed its queries by the word given, so a job named by its token and as a
 // member of its group was read twice and stood twice in the keeper's task.
-test("keeper reads a job once when the command names it by its token and through its group", async (t) => {
+test("limen keeper: reads a job once when the command names it by its token and through its group", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const id = "2026-11-21-f001-demo-1a2b3c4d";

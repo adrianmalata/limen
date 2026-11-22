@@ -73,7 +73,7 @@ test("GROUP_WAIT_MEMBERS_ONLY: a group wait outside a team that gives no group i
 });
 
 // D-046 (5): a member waits again while its work is live, so its time limit is a success that names the same call.
-test("a member's group wait past its --timeout exits 0, says so and names the same wait in its one final line", async (t) => {
+test("limen group wait: a member's wait past its --timeout exits 0, says so and names the same wait in its one final line", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const run = await runningGroup(p);
@@ -224,7 +224,7 @@ test("NOT_MIGRATED: group start whose team spawn finds a job folder of an older 
 
 // T-38 (3): the team jobs after run.json are steps that run.json records (each team's member); before R-092 the same
 // start run again returned the open run and started no team (`group-control.ts:212-213`).
-test("group start run again on a run that has a team with no job starts that team and leaves the started one alone", async (t) => {
+test("limen group start: run again on a run that has a team with no job, it starts that team and leaves the started one alone", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const env = await registeredLead(p);
@@ -271,7 +271,7 @@ test("group start run again on a run whose team's job never ran starts a new job
 });
 
 // The step record is additive: a run.json written before R-092 has no startFailure and reads as it did.
-test("group status of a run written before R-092 shows the lines it showed before, with no Start line", async (t) => {
+test("limen group status: a run written before R-092 shows the lines it showed before, with no Start line", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const old = await partialRun(p);

@@ -1,6 +1,4 @@
-// `limen continue`: it finds the project from a subdirectory, its engine does not inherit the continue flag, and it
-// refuses a parent whose engine was removed, or a group worker whose worktree and branch are gone, leaving the shared
-// snapshot identical (T-38 (4)).
+// `limen continue`: its start, the transcript it copies with the same mode, its engine's environment and its refusals.
 import assert from "node:assert/strict";
 import { chmodSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -34,7 +32,7 @@ function ended(p: Plant, id: string): Promise<void> {
 	return until(jobDir(p, id), () => isTerminal(jobState(p, id)));
 }
 
-test("a continuation started from a subdirectory of the project continues its parent and ends done", async (t) => {
+test("limen continue: a continuation started from a subdirectory of the project continues its parent and ends done", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const parent = spawnJob(p, "commit");

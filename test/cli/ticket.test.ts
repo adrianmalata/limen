@@ -81,7 +81,7 @@ function section(board: string, heading: string): string[] {
 }
 
 // Gate 2 §6: a close leaves the board true. NOW drops the ticket and PROVEN names it with its date and its month.
-test("ticket done moves the ticket to its month with its landed date and commits it with a board whose NOW and PROVEN follow", async (t) => {
+test("limen ticket done: moves the ticket to its month with its landed date and commits it with a board whose NOW and PROVEN follow", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const board = join(p.root, "spec/build.md");

@@ -266,7 +266,7 @@ test("limen status ends its stdout with the success line", () => {
 	assert.deepEqual(readChecked(run), { class: "ok", code: null, next: null });
 });
 
-test("ticket new returns the number of the ticket it wrote in ids.ticket", () => {
+test("limen ticket new: returns the number of the ticket it wrote in ids.ticket", () => {
 	const run = limen(p, ["ticket", "new", "ids name the ticket"]);
 	assert.equal(run.status, 0, run.stderr);
 	const folders = readdirSync(join(p.root, "spec/features/planned"));

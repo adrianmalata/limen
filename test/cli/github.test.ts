@@ -1,6 +1,4 @@
-// `limen github poll`: a failure exits with the class of its cause; GitHub is the plant's fetch sink, with no network.
-// `limen github resolve`: the coordinator's no-job answer, as the poller reads it. `limen github review` and `work`:
-// a refusal comes before the claim's handoff gate, and a start that fails after it takes the gate away (T-38).
+// `limen github`: poll's failures and the poll lock, resolve's no-job answer, review and work at the handoff gate.
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
 import { chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises";
@@ -159,7 +157,7 @@ async function coordinatorWithClaim(p: Plant): Promise<Record<string, string>> {
 }
 
 // The poller reads the answer only from a file with one name (`readJobFile`), so the answer never has a second one.
-test("github resolve records the no-job answer under one name, and a second resolve of the claim refuses at its gate", async (t) => {
+test("limen github resolve: records the no-job answer under one name, and a second resolve of the claim refuses at its gate", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const env = await coordinatorWithClaim(p);
@@ -250,7 +248,7 @@ test("STEP_FAILED: github work whose job record cannot be published exits 4 and 
 	assert.deepEqual([run.status, readOutcome(run).code, snapshot(p.root)], [4, "STEP_FAILED", before], run.stderr);
 });
 
-test("github work run again after a start that failed before its job record starts the job", async (t) => {
+test("limen github work: run again after a start that failed before its job record, it starts the job", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const env = { ...(await coordinatorWithClaim(p)), LIMEN_LOCK_WAIT_MS: "100" };

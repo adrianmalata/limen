@@ -20,6 +20,24 @@ import { hasCode } from "./system-error.ts";
 export const STATE_CHANGED = "STATE_CHANGED";
 
 /**
+ * The codes every command can end with, declared once here and in no registry entry (D-075, T-28 (1)): the runner's,
+ * for a fact that changed since `validate`, a lock `apply` waited for too long (A-018), a step that failed after the
+ * first write and a refusal made too late; and those of the path every command line takes before its own code runs:
+ * the shared parser's usage error, an unknown command, the line of a removed name (src/old-names.ts), and the plain
+ * `Error` of an untyped refusal (src/outcome.ts), until R-082 types every one.
+ */
+export const SHARED_CODES: readonly string[] = [
+	STATE_CHANGED,
+	"LOCK_TIMEOUT",
+	"STEP_FAILED",
+	"REFUSED_AFTER_VALIDATE",
+	"BAD_ARGUMENT",
+	"UNKNOWN_COMMAND",
+	"REMOVED",
+	"UNTYPED",
+];
+
+/**
  * What `validate` reads the state through. It has reads only, and no method that writes: the type test in
  * test/operation.test.ts fails to compile once one is added. `hold` is the one way a fact reaches `apply`'s re-check.
  */

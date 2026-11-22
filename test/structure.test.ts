@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, posix, relative } from "node:path";
@@ -11,26 +10,13 @@ import { throughRunner } from "../src/operation.ts";
 import { templateHistoryText } from "../src/project/inherit.ts";
 import { REGISTRY } from "../src/registry.ts";
 import { importsOf } from "./imports.ts";
-import { knownFiles, SKIPPED } from "./known-files.ts";
+import { knownFiles, knownFilesBelow } from "./known-files.ts";
 
 // The fixture's git and the listing of the repository must not depend on the laptop's own git configuration.
 process.env.GIT_CONFIG_GLOBAL = "/dev/null";
 process.env.GIT_CONFIG_NOSYSTEM = "1";
 
 const root = new URL("..", import.meta.url).pathname;
-
-async function filesBelow(dir: string): Promise<string[]> {
-	const entries = await readdir(dir, { withFileTypes: true });
-	const paths = await Promise.all(
-		entries
-			.filter((entry) => !SKIPPED.has(entry.name))
-			.map(async (entry) => {
-				const path = join(dir, entry.name);
-				return entry.isDirectory() ? filesBelow(path) : [path];
-			}),
-	);
-	return paths.flat();
-}
 
 /** The basename of every TypeScript file of the repository at `repo`. */
 async function typeScriptNames(repo: string): Promise<string[]> {
@@ -74,11 +60,20 @@ test("a tracked TypeScript file deleted from the working tree and an untracked o
 	assert.deepEqual(await typeScriptNames(repo), ["name.ts"]);
 });
 
-/** The files below each folder of the repository root that exists. */
-async function filesIn(folders: readonly string[]): Promise<string[]> {
-	const present = folders.map((folder) => join(root, folder)).filter((path) => existsSync(path));
-	return (await Promise.all(present.map(filesBelow))).flat();
+/** The files git knows below each of `folders` of the repository at `repo` (D-032, D-075). */
+function filesIn(folders: readonly string[], repo = root): Promise<string[]> {
+	return knownFilesBelow(repo, folders);
 }
+
+test("the walks of the scans read no file git ignores, such as an editor's swap file in a scanned folder", async (t) => {
+	const repo = await fixtureRepo(t, ["seat/tool.ts", "seat/.tool.ts.swp", "src/a.ts", "src/.a.ts.swp", "docs/b.ts"]);
+	await writeFile(join(repo, ".gitignore"), ".*.swp\n");
+	execFileSync("git", ["add", ".gitignore", "seat/tool.ts"], { cwd: repo });
+	assert.deepEqual((await filesIn(["seat", "src", "bin"], repo)).map((path) => relative(repo, path)).sort(), [
+		"seat/tool.ts",
+		"src/a.ts",
+	]);
+});
 
 test("D-010: no file in seat/ or bin/ is a shell script ending in .sh", async () => {
 	const scripts = (await filesIn(["seat", "bin"])).filter((path) => path.endsWith(".sh"));
@@ -100,17 +95,20 @@ test("no TypeScript file in src/ or hook/ loads a module with a dynamic import",
 	assert.deepEqual(dynamic, []);
 });
 
-/** The text of every file below each folder that exists, by its path from the repository root. */
-async function sources(folders: readonly string[]): Promise<ReadonlyArray<{ path: string; text: string }>> {
-	const paths = await filesIn(folders);
-	return Promise.all(paths.map(async (path) => ({ path: relative(root, path), text: await readFile(path, "utf8") })));
+/** The text of each file below `folders` that git knows and the working tree holds, by its path from the root. */
+async function knownSources(
+	folders: readonly string[],
+	repo = root,
+): Promise<ReadonlyArray<{ path: string; text: string }>> {
+	const paths = await filesIn(folders, repo);
+	return Promise.all(paths.map(async (path) => ({ path: relative(repo, path), text: await readFile(path, "utf8") })));
 }
 
 /** How often `literal` occurs in the text of every file below `folders`, and in the file `only`. */
 async function occurrences(folders: readonly string[], literal: string, only: string): Promise<[number, number]> {
 	let all = 0;
 	let inOnly = 0;
-	for (const { path, text } of await sources(folders)) {
+	for (const { path, text } of await knownSources(folders)) {
 		const found = text.split(literal).length - 1;
 		all += found;
 		inOnly += path === only ? found : 0;
@@ -123,7 +121,7 @@ async function occurrences(folders: readonly string[], literal: string, only: st
 test("T-02: process.exitCode and process.exit appear in src/, hook/ and bin/ only in src/main.ts and bin/limen, with literal codes 0-5", async () => {
 	const elsewhere: string[] = [];
 	const outside: string[] = [];
-	for (const { path, text } of await sources(["src", "hook", "bin"])) {
+	for (const { path, text } of await knownSources(["src", "hook", "bin"])) {
 		if (text.includes("process.exit") && path !== "src/main.ts" && path !== "bin/limen") {
 			elsewhere.push(path);
 		}
@@ -139,7 +137,7 @@ test("T-02: process.exitCode and process.exit appear in src/, hook/ and bin/ onl
 // T-25: one module writes the final line, so its shape cannot drift between commands; the scan finds a writer
 // elsewhere by the start of the object it serialises.
 test("T-26 (4): only src/outcome.ts builds the final line in src/, hook/ and bin/", async () => {
-	const builders = (await sources(["src", "hook", "bin"]))
+	const builders = (await knownSources(["src", "hook", "bin"]))
 		.filter(({ path, text }) => path !== "src/outcome.ts" && /JSON\.stringify\(\{ ?class/.test(text))
 		.map(({ path }) => path);
 	assert.deepEqual(builders, []);
@@ -168,7 +166,8 @@ test("T-01: the untyped throw new Error( sites in src/ and hook/ stay at most th
 /**
  * T-38's ratchet: the change commands without `movedBy` whose handler does not go through the runner of
  * src/operation.ts yet. The list may only shrink; R-082 brings it to zero, and a ticket that rewrites one of these
- * commands moves it onto the runner (D-070 (2)).
+ * commands moves it onto the runner (D-070 (2)). `status` and `show` are change commands only while they reap dead jobs
+ * (D-045 (6.2)), so they leave it when R-032 makes them read commands again.
  */
 const OUTSIDE_RUNNER = [
 	"board",
@@ -184,6 +183,8 @@ const OUTSIDE_RUNNER = [
 	"init",
 	"land",
 	"migrate",
+	"show",
+	"status",
 	"steer",
 	"ticket new",
 	"unwatch",
@@ -201,14 +202,6 @@ test("T-38: every change command without movedBy goes through the runner, except
 
 /** The folders whose code runs as Limen. */
 const RUNTIME = ["src", "hook", "bin", "seat"] as const;
-
-/** The text of each file below `folders` that git knows and the working tree holds, by its path from the root. */
-async function knownSources(folders: readonly string[]): Promise<ReadonlyArray<{ path: string; text: string }>> {
-	const paths = (await knownFiles(root))
-		.map((path) => relative(root, path))
-		.filter((path) => folders.some((folder) => path.startsWith(`${folder}/`)));
-	return Promise.all(paths.map(async (path) => ({ path, text: await readFile(join(root, path), "utf8") })));
-}
 
 // T-27 (2): data from outside becomes a typed value only in src/boundary.ts. A ratchet until R-082 brings the count to
 // zero: the 41 sites at R-015's commit, the parent of R-016, less the 3 that R-016 moved into src/boundary.ts (the

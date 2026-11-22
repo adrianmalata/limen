@@ -198,7 +198,7 @@ test("wakes of jobs that end while muted arrive after /limen on, in one turn, ea
 	assert.equal(heard.map(([wake]) => wake?.event).join(), "user,followUp");
 });
 
-test("limen watch and unwatch move a job's wake to another session", async () => {
+test("limen watch: watch and unwatch move a job's wake to another session", async () => {
 	const other = coordinator("other", "other", "block\n");
 	const moved = job("block", "w moved");
 	assert.equal(limen(p, ["watch", moved]).status, 1, "watch needs a session to route the wake to");

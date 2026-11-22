@@ -1,7 +1,7 @@
-// The files of a repository that git knows, for the scans of the structure and configuration tests.
+// The files of a repository that git knows, for the scans of the structure, registry and configuration tests.
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -25,4 +25,14 @@ export async function knownFiles(repo: string): Promise<string[]> {
 		.filter((path) => path !== "" && !path.split("/").some((part) => SKIPPED.has(part)))
 		.map((path) => join(repo, path))
 		.filter((path) => existsSync(path));
+}
+
+/**
+ * The files of `knownFiles` below one of `folders`, each a path from the root of the repository at `repo`, so that a
+ * scan of those folders reads no ignored file, such as an editor's swap file (D-032).
+ */
+export async function knownFilesBelow(repo: string, folders: readonly string[]): Promise<string[]> {
+	return (await knownFiles(repo)).filter((path) =>
+		folders.some((folder) => relative(repo, path).startsWith(`${folder}/`)),
+	);
 }

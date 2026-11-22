@@ -56,7 +56,7 @@ test("each spawn refusal exits with its class's code, names its cause and its ow
 	}
 });
 
-test("a detached job runs in its own worktree from the base with the exact task and a clean engine environment", async () => {
+test("limen spawn: a detached job runs in its own worktree from the base with the exact task and a clean engine environment", async () => {
 	const base = git(p.root, "rev-parse", "HEAD");
 	const task = `block\ncommit\nsay all done\n\nTicket: ${TICKET}  \n\t'quoted' $HOME \`tick\`\n`;
 	const caller = {

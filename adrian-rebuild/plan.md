@@ -72,7 +72,9 @@ wspólna migawka stanu w testach; bramka 676/676 po trzech rundach recenzji; czt
 D-071–D-076 (R-097: limit subskrypcji jako `quota`; zakres i wygląd `limen stats`, R-098 po R-031; deklaracje odmów
 w rejestrze i testy sukcesu `limen <polecenie>:`; noc tylko w etapie 2 do 9:00), R-097, R-024 i R-025 gotowe na noc;
 noc 22.11: R-024 zamknięty (`limen stats` i jeden czytnik transkryptów przez walidatory; bramka 690/690, trzy rundy
-recenzji z PASS). -->
+recenzji z PASS); limit 5 h przerwał przebieg 1 w R-025, przebieg 2 zamknął R-025 (deklaracje odmów `refuses`
+w rejestrze, skany kodów i testów przez drzewo składni, zapadki 70/35/29, test T-04 dla poleceń `read`; bramka
+710/710, trzy rundy recenzji: FAIL, PASS, PASS). -->
 
 
 
@@ -1309,7 +1311,7 @@ Columns:
 | R-096 | One wake per event: the extra wake of the held-gate queue test, found and removed | 2 | T-29, D-067 | R-023, R-095 | S | delegated | night | — | — | — | done |
 | R-097 | A failure on the subscription limit is `quota`, in the migration and at finalize | 2 | A-016, D-057, D-071 | R-021 | S | delegated | night | — | — | 2.3 | ready |
 | R-024 | `limen stats` over records and transcripts | 2 | H-01, H-20, §2, T-33, D-072, D-073 | R-021, R-023 | M | delegated | night | — | pi | 2.3 | done |
-| R-025 | Test coverage derived from the command registry | 2 | T-28, T-29, D-045, D-046, D-075, D-076 | R-014, R-023, R-092 | M | delegated | night | — | — | — | ready |
+| R-025 | Test coverage derived from the command registry | 2 | T-28, T-29, D-045, D-046, D-075, D-076 | R-014, R-023, R-092 | M | delegated | night | — | — | — | done |
 | R-026 | Every job runs in its own systemd user scope | 3 | A-029, A-052, T-43 | R-020, R-021 | L | delegated | night | — | systemd | 3.2, 3.7, 3.8 | planned |
 | R-027 | The reaper ends a job only after its process group is gone | 3 | A-005, A-056 | R-026 | M | delegated | night | — | — | — | planned |
 | R-028 | SIGTERM reaches the engine; a signal without a stop request is a failure | 3 | A-020, A-052 | R-026 | M | delegated | night | — | — | — | planned |
@@ -1982,8 +1984,8 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 ## State
 
 Updated 2026-11-22, night run (until 09:00), rebuild stage 5 in plan stage 2: stage 1 is closed at `a0.1.1`
-(deployed on 2026-11-20, with B.2 closed by D-050); stage 2 has R-015–R-024, R-089 and R-092–R-096 done, and R-025
-and R-097 left before the tag `a0.2.0`. The newest entries are at the end of this section, from
+(deployed on 2026-11-20, with B.2 closed by D-050); stage 2 has R-015–R-025, R-089 and R-092–R-096 done, and R-097
+left before the tag `a0.2.0`. The newest entries are at the end of this section, from
 "Day session of 2026-11-21, continued (`limen-rebuild-16`", and the night's in "Night run of 2026-11-22".
 
 Handover of 2026-11-19 (D-033, at 37 % context, after the commit `R-014:`): `limen-rebuild-5` started
@@ -2860,6 +2862,21 @@ lowest `ready` ID first: R-024, R-025, R-097):
   in `test/job/statistics.test.ts` (`ticket.md` → `## Decisions`). Open points for gate 5.2 (`outcome.md`): the
   fourth copy of the ISO-time pattern (T-25 (2)), the fake engine's non-Pi transcript line, the older-Pi lines that
   the stricter validators name under `Not read` (B.3, M-07).
+- Run 1 ended at 02:09 with exit 1 on the subscription's 5-hour limit (its result: `usage_limit_reached`), during
+  R-025's first round of fixes, whose fresh implementer had only read files. `night.mjs` started run 2 at 02:39.
+- R-025 `done` (delegated; run 1: the implementation and review round 1 FAIL with one blocking finding; run 2: both
+  rounds of fixes by fresh implementers, rounds 2 and 3 PASS): every registry entry declares `refuses`, `SHARED_CODES`
+  in `src/operation.ts`, the scans of `test/registry.test.ts` through `test/coverage.ts` (the TypeScript syntax tree,
+  names by the language's scopes), the ratchets `WITHOUT_CODE_TEST` 70, `WITHOUT_SNAPSHOT` 35, `WITHOUT_SUCCESS_TEST` 29
+  (R-082, R-083) and `UNKNOWN_CLASS` by site, the T-04 read test, `status` and `show` `change` until R-032, the walks
+  through `knownFilesBelow`. Round 2's first reply was rejected by `review-verdict.mjs` for its form (AC-9 over bullet
+  lines); a fresh reviewer replied again with the tree unchanged. The main session's gate 710/710; `fails-before.mjs`
+  exit 0 (17 files). Night default for Adrian to confirm (`ticket.md` → `## Decisions`, round 1): `SHARED_CODES` holds
+  D-075's five codes and `UNKNOWN_COMMAND`, `REMOVED` and `UNTYPED`; the implementer's technical choices are
+  `outcome.md` → Deviations 6–11 (category A (b)). Open points for gate 5.2 (`outcome.md`): scan (b)3 holds a test by
+  its code, so `WITHOUT_SNAPSHOT` holds unit tests that run no command (R-082 decides whether the scan holds a test by
+  the command it runs); the snapshot count does not read whether the two snapshots are compared; three renamed tests
+  that combine mechanisms and two unprefixed `REMOVED` proofs are R-083's.
 
 Active ticket: none.
 

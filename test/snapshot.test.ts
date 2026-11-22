@@ -98,3 +98,12 @@ test("a folder named in also is digested too", async (t) => {
 	await writeFile(join(root, ".git/hooks/post-commit"), "#!/bin/sh\n");
 	assert.notDeepEqual(snapshot(root, [".git/hooks"]).files, before.files);
 });
+
+// The read test of test/registry.test.ts digests a test project's seat this way (D-045 (6.3)).
+test("the seat's folder beside the root, named in also as ../.limen, is digested too", async (t) => {
+	const root = await project(t);
+	await mkdir(join(root, "../.limen"), { recursive: true });
+	const before = snapshot(root, ["../.limen"]);
+	await writeFile(join(root, "../.limen/start-reading.json"), "{}\n");
+	assert.notDeepEqual(snapshot(root, ["../.limen"]).files, before.files);
+});
