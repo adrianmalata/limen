@@ -1,8 +1,9 @@
 <!-- PL: Ticket R-030 (A-001): niewylądowana praca zakończonego joba przeżywa. Prune nigdy nie usuwa brudnego
 worktree ani worktree joba z niewylądowanymi commitami, dopóki job nie zostanie rozwiązany; nowe `limen abandon <id>`
-zapisuje stan na gałęzi `limen/abandon/<id>` i dopiero wtedy usuwa worktree; spawn workera odmawia (`UNLANDED_WORK`),
-dopóki taki job istnieje, a `limen status` je wymienia. Stan: napisany 22.11 przy `9da2fde` z inwentarza
-`evidence/inventories/R-030.md`, gotowy na noc. -->
+zapisuje stan na gałęzi `limen/abandon/<id>`, dopiero wtedy usuwa worktree i zamyka kartę Herdr joba; spawn workera
+odmawia (`UNLANDED_WORK`), dopóki taki job istnieje, a `limen status` je wymienia. Stan: napisany 22.11 przy `9da2fde`
+z inwentarza `evidence/inventories/R-030.md`, tego samego dnia sprawdzony ponownie z `taste.md` (T-04, T-18, T-19),
+gotowy na noc. -->
 
 # R-030 Unlanded work survives: `limen abandon`, a guarded prune, a refusing spawn
 
@@ -24,7 +25,9 @@ with an untracked file, then `limen prune` → `pruned 1 finished worktree`, exi
 in `needs-decision` does not block worker spawns for other tickets (T-05 (5))." T-28 (3), quoted: "Operations that
 cannot be undone or that move data […]: also a test of running them again and a test that nothing is lost (z. 29,
 A-002)." The neighbour R-031 adds the `landed` and `abandoned` markers to the record and moves retired records to an
-archive (A-002's Decision); R-032 brings the sweep and read-only reads.
+archive (A-002's Decision); R-032 brings the sweep and read-only reads. T-18, quoted: "closing Herdr tabs is part of
+the `cleaned` step of `land`, `ticket done`, `ticket drop` and `abandon`"; T-19 gives the summary of `abandon`: "give
+up on a job and keep its work on a branch". T-04, quoted: "Read commands […] never write and never wait."
 
 Facts at `9da2fde` (the read-only inventory `adrian-rebuild/evidence/inventories/R-030.md`; the main session checked
 the ones it quotes):
@@ -83,9 +86,11 @@ no project hook runs and the job's own branch does not move, and the branch crea
 refs/heads/limen/abandon/<id> <commit> ""` (create-only, so two runs cannot both write it); a job whose worktree is
 gone gets the branch at its own branch's tip; (2) the worktree, if it is still there and its state equals the
 commit's tree, is removed by prune's own removal (rename, `git worktree prune`, emptying the trash); a worktree that
-changed after the commit is kept and named; (3) it prints the branch and the commit. Run again after a stop between (1)
-and (2), it finishes (2); run again after both, it prints the branch and exits 0. The commit uses the repository's
-configured identity; its message is `limen abandon <id>`.
+changed after the commit is kept and named; (3) the job's Herdr tab, if one is open, is closed through the existing
+tab closer (T-18: closing Herdr tabs is part of abandon's `cleaned` step); (4) it prints the branch and the commit. Run
+again after a stop between (1) and (3), it finishes the remaining steps; run again after all of them, it prints the
+branch and exits 0. The commit uses the repository's configured identity; its message is `limen abandon <id>`. Its
+registry summary is T-19's wording: "give up on a job and keep its work on a branch".
 
 (c) Spawn: every spawn of role `worker` (`limen spawn`, with `--branch` too, GitHub work, group workers) refuses with
 `UNLANDED_WORK` while any job of the project has unresolved unlanded work; the check runs in `validateSpawn` under the
@@ -95,7 +100,8 @@ keeper and team-coordinator spawns do not refuse: they work on a candidate.
 
 (d) `limen status`: a section "Unlanded work (spawn refuses until each is continued or abandoned)" lists every finished
 job with unresolved unlanded work, whatever its age and migrated records included, each with its changed-file count,
-its unlanded-commit count and the two commands.
+its unlanded-commit count and the two commands. It reads each worktree with `git --no-optional-locks status`, as
+`worktreeState` does, so the listing refreshes no index (T-04; R-032 makes `status` a read).
 
 (e) Text: `docs/jobs.md` (`:44`, `:134`, `:138-142`, `:152`, `:154`), `templates/agents.md` (`:201`, `:104`, `:202`:
 a bad candidate is abandoned with `limen abandon <id>`), and `docs/commands.md` (`:201`, `:221-230`, and the sections
@@ -168,3 +174,7 @@ Settled by the documents when the ticket was written (2026-11-22, the main sessi
    the worktree (ignored files go with it).
 5. The refusal's `next` is `limen status`, which lists every blocking job with both commands; it prefers neither
    resolution, since only the coordinator or Adrian can choose between continuing and abandoning.
+6. Read again on 2026-11-22 against `taste.md`, at Adrian's request: abandon closes the job's Herdr tab (T-18), its
+   summary is T-19's wording, and the status listing reads worktrees without optional locks (T-04). Abandon's steps
+   are found again from git state when it runs again (the branch, the worktree, the tab), not recorded in the record,
+   because a terminal record cannot be written before R-031 (T-38 (3) asks that a rerun continue).

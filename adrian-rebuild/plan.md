@@ -86,7 +86,8 @@ w następnym commicie); bramka 5.2 rozstrzygnięta (D-078–D-082: domyślne dec
 dalej odrzuca nieznane pole, nowy ticket R-100 w etapie 3 przed R-029 i notatki dla siedmiu ticketów, tag a0.2.0
 zostaje na 56f8168); etap 3 zaczęła limen-rebuild-19: cztery inwentarze tylko do odczytu (R-026, R-030, R-033,
 R-100), R-030, R-100 i R-026 gotowe na noc jako trzy niezależne gałęzie, R-033 czeka na odpowiedzi Adriana na
-Q-32–Q-34 (treść powiadomienia, nazwa konta, instalacja jednostek). -->
+Q-32 i Q-34 (układ powiadomienia, konto i jednostka systemowa czy użytkownika); Q-33 wycofane, bo gate 2 §0.5
+trzyma nazwy kont poza repo. -->
 
 
 
@@ -2062,7 +2063,7 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 Updated 2026-11-22 by day (`limen-rebuild-19`), rebuild stage 5 in plan stage 3: stage 1 is closed at `a0.1.1`
 (deployed on 2026-11-20, with B.2 closed by D-050); stage 2 is closed at `a0.2.0` (gate 5.2 decided, D-078–D-082);
-stage 3 has started: R-026, R-030 and R-100 are `ready` for the night, R-033 waits for Q-32–Q-34. The newest entries
+stage 3 has started: R-026, R-030 and R-100 are `ready` for the night, R-033 waits for Q-32 and Q-34. The newest entries
 are at the end of this section: the close of stage 2 in "Close of stage 2", the gate in "Gate 5.2 decided", and the
 start of stage 3 in "Start of stage 3".
 
@@ -3124,24 +3125,33 @@ the terminal being active; context 7 % at the start):
   (`## Decisions` 1–5: the wrapper inside `limen-job-<id>.scope`, the finisher ends the scope after every terminal
   transition, `contain.ts` goes, the optional record field `scope`, no unscoped fallback); notes for R-028, R-036,
   R-087, R-050 and R-060 in `## Tickets`. Three independent branches for the night now.
-- Asked in the conversation, with a push (Adrian's answers become D-083 onwards; R-033's `ticket.md` follows them):
-  - Q-32 (R-033, the alert's text, T-18): a) one line, no title: `synchronizer failed:quota
-    2026-11-16-f001-work-a-37c02ed6` (recommended: the same line on the phone and in the unit's log, the kind in the
-    machine form of the record and `limen stats`); b) the ntfy title `synchronizer: failed (quota)`, the job id as
-    the body.
-  - Q-33 (R-033, the alerts account's name): 1. fixed in code, `limen-alerts` (recommended: no seat file, one name
-    everywhere; step 3.3 creates the account by that name); 2. chosen at 3.3 and written to a root-owned seat file the
-    deployment script reads.
-  - Q-34 (R-033, installing the units, D-010): 1. R-033 builds the install in `seat/deploy.ts` (typed definitions, a
-    golden test, `systemd-analyze verify`, enable, back to the previous SHA with exit 4 on an error); the alerts units
-    are installed only once the account and the topic file exist, and until then the deployment names what is missing
-    and `limen status` warns; R-033 grows from M to L (recommended: D-010's path; R-032 then adds only its own units);
-    2. R-033 ships the definitions and a golden test only, installed by hand at 3.3, and R-032 builds the install.
+- Asked in the conversation, with a push; then, at Adrian's request, asked again after the session read
+  `input/gate-2-decisions.md`, `input/zasady-budowy-harnessu.md` and `taste.md` (Part B in full, Part A searched for
+  the questions' subjects). Adrian's answers become D-083 onwards; R-033's `ticket.md` follows them:
+  - Q-32 (R-033, the alert's layout; the content is fixed: project as its folder's base name, so no path leaves the
+    seat (A-066), the kind `failed:<kind>`, the job id, English (T-13), at most 100 characters (T-10)): a) one line,
+    no title: `synchronizer failed:quota 2026-11-16-f001-work-a-37c02ed6` (recommended: the same line on the phone and
+    in the unit's log); b) the ntfy title `synchronizer: failed (quota)`, the job id as the body.
+  - Q-33 withdrawn: gate 2 §0.5 keeps account names out of tracked files and G2 has Adrian choose them before the seat
+    changes, so the first recommendation (`limen-alerts` fixed in code) contradicted the documents; the name is given
+    on the seat when the alerts are installed.
+  - Q-34 (R-033, where the alerts run, restated): 1. a system unit and timer, installed by root with a seat tool that
+    takes the account name as an argument (D-010: generated from typed definitions, `systemd-analyze verify` before
+    enabling), `User=` that account, the topic by `LoadCredential=` from a root-owned 0600 file; `limen status`
+    checks the unit (`systemctl is-active`, `is-failed`) and warns (A-066); `seat/deploy.ts` re-renders an installed
+    unit at each tag with the account it already holds; R-033 grows from M to L (recommended); 2. user units on the
+    alerts account, installed by the alerts tool run as that account (A-024's pattern for the sweep, no root but
+    lingering), the topic in a 0600 `EnvironmentFile=` owned by that account; the agents' `limen status` cannot see
+    another account's user units, so its warning needs a file the alerts account writes where the agents can read it.
   - Told, not asked: the alerts account gets only traverse rights (ACL `--x`) on the path to each project's records
-    and read rights on the project registry, the narrowest access that reads the records (priority 1).
+    and read rights on the project registry (priority 1); events that are no job record (`no-coordinator`,
+    `unattributed-engine`, `uncovered-commit`, timer failures of T-02) come with the tickets that create them; R-033
+    sends `failed:<kind>` from the records.
+- R-030 corrected after the same reading: abandon closes the job's Herdr tab (T-18), its summary is T-19's wording,
+  and the status listing reads worktrees without optional locks (T-04).
 
 Next (by day):
-1. R-033 `ready` for the night once Adrian answers Q-32–Q-34: its `ticket.md` from `evidence/inventories/R-033.md`.
+1. R-033 `ready` for the night once Adrian answers Q-32 and Q-34: its `ticket.md` from `evidence/inventories/R-033.md`.
    R-029 waits for R-100 (D-080).
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
