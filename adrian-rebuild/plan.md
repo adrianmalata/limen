@@ -85,7 +85,8 @@ a0.2.0 na commicie `Stage 2: close`; `check.mjs` na tym commicie zgłaszał dwa 
 w następnym commicie); bramka 5.2 rozstrzygnięta (D-078–D-082: domyślne decyzje nocne etapu 2 potwierdzone, rekord
 dalej odrzuca nieznane pole, nowy ticket R-100 w etapie 3 przed R-029 i notatki dla siedmiu ticketów, tag a0.2.0
 zostaje na 56f8168); etap 3 zaczęła limen-rebuild-19: cztery inwentarze tylko do odczytu (R-026, R-030, R-033,
-R-100), R-030 i R-100 gotowe na noc jako dwie niezależne gałęzie, R-026 i R-033 w przygotowaniu. -->
+R-100), R-030, R-100 i R-026 gotowe na noc jako trzy niezależne gałęzie, R-033 czeka na odpowiedzi Adriana na
+Q-32–Q-34 (treść powiadomienia, nazwa konta, instalacja jednostek). -->
 
 
 
@@ -1359,7 +1360,7 @@ Columns:
 | R-099 | The round-3 notes of R-092: a stale handoff gate, the class of an incomplete stop, the snapshot's git | 2 | T-38, T-02, D-077 | R-092 | S | delegated | night | — | — | — | done |
 | R-024 | `limen stats` over records and transcripts | 2 | H-01, H-20, §2, T-33, D-072, D-073 | R-021, R-023 | M | delegated | night | — | pi | 2.3 | done |
 | R-025 | Test coverage derived from the command registry | 2 | T-28, T-29, D-045, D-046, D-075, D-076 | R-014, R-023, R-092 | M | delegated | night | — | — | — | done |
-| R-026 | Every job runs in its own systemd user scope | 3 | A-029, A-052, T-43 | R-020, R-021 | L | delegated | night | — | systemd | 3.2, 3.7, 3.8 | planned |
+| R-026 | Every job runs in its own systemd user scope | 3 | A-029, A-052, T-43 | R-020, R-021 | L | delegated | night | — | systemd | 3.2, 3.7, 3.8 | ready |
 | R-027 | The reaper ends a job only after its process group is gone | 3 | A-005, A-056 | R-026 | M | delegated | night | — | — | — | planned |
 | R-028 | SIGTERM reaches the engine; a signal without a stop request is a failure | 3 | A-020, A-052 | R-026 | M | delegated | night | — | — | — | planned |
 | R-029 | One recorded failure cause per job | 3 | A-016, E-9, T-31, T-32, D-055 | R-017, R-021, R-100 | M | delegated | night | — | bridge | 3.4 | planned |
@@ -1563,6 +1564,13 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
 - R-082 (D-080; R-025 `outcome.md` → Open points): scan (b)3 holds a test by the command it runs, not by its code, so
   the unit tests that run no command (the parser's, the lock's, the runner's, the resolver's) leave
   `WITHOUT_SNAPSHOT` and their codes are proved by a command's refusal test that compares the snapshot.
+- R-028, R-036, R-087, R-050, R-060 (R-026 `ticket.md` → Out of scope, 2026-11-22): every job runs in
+  `limen-job-<id>.scope`, and its record's optional `scope` holds `unit`, `cgroup`, `memoryPeakBytes`,
+  `cpuMicroseconds` and `oomKills`. R-028 maps a signal with `oomKills` above 0 to kind `oom` (A-052); R-036 reads the
+  scope's `cpu.stat` for the stall and records the peak CPU rate from its samples (M-09); R-087's allow-list keeps the
+  user-bus variables (`XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS`), which a job that spawns jobs needs for its
+  children's scopes, and the fake scope's marker in tests; R-050's coordinator runs in no `limen-job-*` scope; R-060
+  tells job scopes by that prefix.
 
 ## Deployment
 
@@ -2054,7 +2062,7 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 Updated 2026-11-22 by day (`limen-rebuild-19`), rebuild stage 5 in plan stage 3: stage 1 is closed at `a0.1.1`
 (deployed on 2026-11-20, with B.2 closed by D-050); stage 2 is closed at `a0.2.0` (gate 5.2 decided, D-078–D-082);
-stage 3 has started: R-030 and R-100 are `ready` for the night, R-026 and R-033 are being written. The newest entries
+stage 3 has started: R-026, R-030 and R-100 are `ready` for the night, R-033 waits for Q-32–Q-34. The newest entries
 are at the end of this section: the close of stage 2 in "Close of stage 2", the gate in "Gate 5.2 decided", and the
 start of stage 3 in "Start of stage 3".
 
@@ -3112,10 +3120,29 @@ the terminal being active; context 7 % at the start):
   branches (R-100 → R-029; R-030 → R-031), D-054 (1). `check.mjs` exit 0 (2 ready).
 - R-100's reach: D-080's eight code checks go through `hasCode`; the 17 lines that type an error as
   `NodeJS.ErrnoException` become a ratchet list for R-082 (the plan's ratchet convention), not part of R-100.
+- R-026 `ready`, its `ticket.md` written at `24c0957` from its inventory, every choice settled by the documents
+  (`## Decisions` 1–5: the wrapper inside `limen-job-<id>.scope`, the finisher ends the scope after every terminal
+  transition, `contain.ts` goes, the optional record field `scope`, no unscoped fallback); notes for R-028, R-036,
+  R-087, R-050 and R-060 in `## Tickets`. Three independent branches for the night now.
+- Asked in the conversation, with a push (Adrian's answers become D-083 onwards; R-033's `ticket.md` follows them):
+  - Q-32 (R-033, the alert's text, T-18): a) one line, no title: `synchronizer failed:quota
+    2026-11-16-f001-work-a-37c02ed6` (recommended: the same line on the phone and in the unit's log, the kind in the
+    machine form of the record and `limen stats`); b) the ntfy title `synchronizer: failed (quota)`, the job id as
+    the body.
+  - Q-33 (R-033, the alerts account's name): 1. fixed in code, `limen-alerts` (recommended: no seat file, one name
+    everywhere; step 3.3 creates the account by that name); 2. chosen at 3.3 and written to a root-owned seat file the
+    deployment script reads.
+  - Q-34 (R-033, installing the units, D-010): 1. R-033 builds the install in `seat/deploy.ts` (typed definitions, a
+    golden test, `systemd-analyze verify`, enable, back to the previous SHA with exit 4 on an error); the alerts units
+    are installed only once the account and the topic file exist, and until then the deployment names what is missing
+    and `limen status` warns; R-033 grows from M to L (recommended: D-010's path; R-032 then adds only its own units);
+    2. R-033 ships the definitions and a golden test only, installed by hand at 3.3, and R-032 builds the install.
+  - Told, not asked: the alerts account gets only traverse rights (ACL `--x`) on the path to each project's records
+    and read rights on the project registry, the narrowest access that reads the records (priority 1).
 
 Next (by day):
-1. R-026 and R-033 `ready` for the night (D-054 (1)), from their inventories; R-033 waits for Adrian's answers to the
-   questions asked in the conversation (the alert's text, the alerts account's name). R-029 waits for R-100 (D-080).
+1. R-033 `ready` for the night once Adrian answers Q-32–Q-34: its `ticket.md` from `evidence/inventories/R-033.md`.
+   R-029 waits for R-100 (D-080).
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
    D-047 and D-054 were.
