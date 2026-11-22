@@ -89,7 +89,8 @@ R-100), cztery tickety gotowe na noc (R-026, R-030, R-033, R-100); Q-33 wycofane
 poza repo; D-083 (przed pytaniem o decyzję sesja przeszukuje cztery źródła, wymusza to hook), D-084
 (jedna linia powiadomienia), D-085 (powiadomienia jako jednostka systemowa instalowana przez roota); przekazanie do
 limen-rebuild-20, która zbudowała hook D-083 (tools/decision-guard.mjs, 63 testy, trzy rundy recenzji PASS; uwagi
-rundy 3 poprawione bez czwartej rundy, D-086); blok hooks do .claude/settings.local.json dopisuje Adrian. -->
+rundy 3 poprawione bez czwartej rundy, D-086); blok hooks do .claude/settings.local.json dopisuje Adrian po powrocie
+z wyjazdu, a sesja dzienna bierze tymczasem tickety etapu 3. -->
 
 
 
@@ -3210,12 +3211,35 @@ redundant, the terminal being active):
   the file).
 
 Next (by day):
-1. Adrian adds the `hooks` block to `.claude/settings.local.json` (a `PreToolUse` entry, matcher
-   `PushNotification|Write|Edit`, command `node "$CLAUDE_PROJECT_DIR"/adrian-rebuild/tools/decision-guard.mjs`) and
-   accepts it in `/hooks` or restarts the session; night runs load it at start. The first real block settles whether
-   Claude Code marks a blocked call with `is_error` (`evidence/decision-guard/outcome.md` → Deviations).
-2. The night run of stage 3 takes the four `ready` tickets in protocol order (R-026, R-030, R-033, R-100); it is
-   started as the night mode says, after the preflight. R-029 waits for R-100 (D-080).
+1. After his return from the trip (Adrian, 2026-11-22: "Zapisz mi to na zrobienie po powrocie z wyjazdu, teraz działaj
+   z zadaniami dalej"), Adrian adds the `hooks` block below to `.claude/settings.local.json` as a top-level key (into
+   an existing `"hooks"` key's `"PreToolUse"` array if the file has one), then accepts it in `/hooks` or restarts the
+   session; night runs load it at start. The session that is running then gives him this block in full in its message
+   (memory: intervention info in the latest message). After it, the session tests it live with a push naming `Q-00`
+   and no search, which must be blocked; the transcript then settles whether Claude Code marks a blocked call with
+   `is_error` (`evidence/decision-guard/outcome.md` → Deviations). Until then the guard is not active, and the
+   memory rule alone holds the search.
+
+   ```json
+   "hooks": {
+     "PreToolUse": [
+       {
+         "matcher": "PushNotification|Write|Edit",
+         "hooks": [
+           {
+             "type": "command",
+             "command": "node \"$CLAUDE_PROJECT_DIR\"/adrian-rebuild/tools/decision-guard.mjs"
+           }
+         ]
+       }
+     ]
+   }
+   ```
+2. The four `ready` tickets of stage 3, in protocol order (R-026, R-030, R-033, R-100): by day, at Adrian's word
+   ("teraz działaj z zadaniami dalej", 2026-11-22), the main session takes them in delegated mode by the ticket
+   protocol (`Run` = `night` means a night run may take a ticket, not that only a night run may); whatever is left
+   goes to the next night run, started as the night mode says (D-024), after the preflight. R-029 waits for R-100
+   (D-080).
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
    D-047 and D-054 were.
