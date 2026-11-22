@@ -80,7 +80,10 @@ Q-26 → D-077: nowy ticket naprawczy R-099 (uwagi rundy 3 R-092) gotowy i drugi
 Adriana; R-099 zamknięty w nocy (przejęcie osieroconej bramki przekazania GitHub pod blokadą jobów, gałąź recenzji po
 rekordzie joba, `github resolve` pod tą blokadą, klasa `GROUP_STOP_INCOMPLETE` według przyczyny, `git()` migawki
 zgłasza błędy; bramka 733/733, recenzja FAIL, PASS, PASS), więc etap 2 ma 19 z 19 ticketów zamkniętych;
-przekazanie do limen-rebuild-18 przed zamknięciem etapu 2 i bramką 5.2. -->
+przekazanie do limen-rebuild-18, która zamknęła etap 2 (bramka 733/733 dwukrotnie, M-10 150,8 s, `check.mjs` bez
+błędów, lokalny tag a0.2.0 na commicie `Stage 2: close`); bramka 5.2 czeka na odpowiedzi Adriana na Q-27–Q-30
+(domyślne decyzje nocne, format rekordu przy nieznanym polu, rozmieszczenie otwartych punktów z nowym ticketem R-100,
+przejście do etapu 3). -->
 
 
 
@@ -1999,11 +2002,12 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-22, night run (until 09:00), rebuild stage 5 in plan stage 2: stage 1 is closed at `a0.1.1`
+Updated 2026-11-22 by day (`limen-rebuild-18`), rebuild stage 5 in plan stage 2: stage 1 is closed at `a0.1.1`
 (deployed on 2026-11-20, with B.2 closed by D-050); stage 2 has all 19 tickets done (R-015–R-025, R-089,
-R-092–R-097, R-099), and its close, gate 5.2 and the tag `a0.2.0` wait for the day ("Gate 5.2 summary" below). The newest entries are at the end of this section, from
-"Day session of 2026-11-21, continued (`limen-rebuild-16`", and the night's in "Night run of 2026-11-22" and "Night
-run of 2026-11-22, the runner's second start".
+R-092–R-097, R-099) and is closed: the commit `Stage 2: close` carries the local tag `a0.2.0`, and gate 5.2 waits for
+Adrian's answers to Q-27–Q-30 ("Close of stage 2" near the end of this section). The newest entries are at the end of
+this section, from "Day session of 2026-11-21, continued (`limen-rebuild-16`", the night's in "Night run of
+2026-11-22" and "Night run of 2026-11-22, the runner's second start", and the close in "Close of stage 2".
 
 Handover of 2026-11-19 (D-033, at 37 % context, after the commit `R-014:`): `limen-rebuild-5` started
 `limen-rebuild-6` in `tmux` in remote-control mode (14:10) and ended. WSL booted at 10:34 on 2026-11-19, after the
@@ -2973,6 +2977,54 @@ Night run of 2026-11-22, the runner's second start (until 09:00; `night.mjs` run
 - Stage 2 has no ticket left again, so the night ends with the reason `done` (`.night/status.json`); the gate summary
   above now counts 19 tickets with R-099.
 
+Close of stage 2 (2026-11-22, `limen-rebuild-18`, by day, `## Stages` → Closing a stage; its `close-previous` printed
+`handover: closed tmux session limen-rebuild-17` and one `handover: stopped claude …` line and exited 0; its takeover
+push was skipped as redundant, the terminal being active; context 9 % at the start):
+- At `224afe6` (the tree clean, `HEAD` pushed, `.night/status.json` `done`) the gate exits 0 with 733/733 twice (once
+  alone in 151.4 s, once through the gate-time tool), `check.mjs` reports 0 errors and Biome is clean on
+  `adrian-rebuild`; M-10: 150.8 s (`evidence/gate-time-a0.2.0.md`; 82.2 s at a0.1.1 with 253 tests).
+- The commit `Stage 2: close` and the local annotated tag `a0.2.0` on it; the tag's full SHA is in the gate reply and
+  is the argument of `## Deployment` 2.0. The gate summary is "Gate 5.2 summary" above, with R-099 (19 tickets).
+- Asked at gate 5.2 in the conversation, with a push (Adrian's answers become D-078 onwards):
+  - Q-27: the night defaults of stage 2 (R-019 `outcome.md` → `## Night defaults` 1–17, among them `LOCK_TIMEOUT`'s
+    empty `next` and the code `LOCK_LOST`; R-021's and R-022's `## Night defaults` and R-021's two deviations; R-024's
+    direct test in `test/job/statistics.test.ts`; R-025's `SHARED_CODES` with `UNKNOWN_COMMAND`, `REMOVED` and
+    `UNTYPED` and its Deviations 6–11; R-099's F1, F2, F3 and G1). Options: 1. confirm all (recommended: each passed
+    review, and none closes a door a later ticket needs); 2. confirm all but the ones named; 3. revisit them one by one.
+  - Q-28: R-021's format question (review round 2, finding 4): records refuse a field they do not know, so a reader
+    older than a record reads it as damaged. Options: 1. keep the refusal (recommended: a deployment runs with no job
+    running and `/reload` follows at once, so no record of the new code meets an old hook; T-27 (2), and a breaking
+    change raises the schema version); 2. readers ignore an unknown field; 3. readers ignore it and `limen status`
+    names it.
+  - Q-29: the placement of stage 2's open points: a new fix ticket R-100 and notes for eight tickets, as proposed
+    below. Options: 1. as proposed (recommended); 2. without R-100, its items as notes for R-029 and R-082; 3. another
+    placement, named.
+  - Q-30: go on to stage 3 in a new session, which writes the tickets of stage 3 `ready` by day (D-074) for the next
+    night. Options: 1. go on (recommended); 2. a fix of stage 2 first (a PATCH tag `a0.2.1`).
+- Proposal of Q-29 (each line: the open point, its source, the proposed place):
+  - A new fix ticket R-100 (S, delegated, night, stage 3, before R-029; T-25 (2)): one definition per pattern that
+    stage 2 left in copies: the ISO-time pattern of `src/job/record.ts`, `src/lock.ts`, `src/job/migration.ts` and
+    `src/job/usage.ts` in one module that also checks the ranges (a month 13 passes the form today; R-024 Open point
+    2); the 429 rule of `src/job/listing.ts:280` through `isRateLimit` (R-097); the eight inline error-code checks
+    through `hasCode` (R-093); `seat/deploy.ts`'s own `jobFolders` through the resolver's listing (R-022 Open point 1,
+    its last part).
+  - R-031 (archive): a job retired before the poller saw it past `starting` leaves a gate that no rule tells from a
+    crash's (R-099 Open point 2); the mixed shared-token report lines (R-095 Open point 1, already named there).
+  - R-032 (sweep): a `starting` record with no pid after a crash between the record and the wrapper's start (R-099
+    Open point 7), and `.limen/.publishing-<id>` left by a crash before its rename (R-099 Open point 8).
+  - R-033 (alerts): the bell now needs `node` on its service's `PATH` (R-021 Open point 3), for seat step 3.3.
+  - R-038 (fake engine): its `{"task": …}` line is no Pi entry, so `limen stats` names it under `Not read` (R-024
+    Open point 3); a message a hook sends during `agent_settled` has no test of its own (R-096 Open point 1).
+  - R-051 (wakes): the own listings of `.limen/jobs/` in `hook/wake.ts` (`:323`, `:885`, `:1169`) and
+    `src/job/wake-delivery.ts:306` go through the resolver's listing (R-022 Open point 1).
+  - R-058 (GitHub text): `limen github status` prints the claim copy's `job` field unchecked (R-099 Open point 9).
+  - R-082 (debt): scan (b)3 holds a test by the command it runs, not by its code, so unit tests that run no command
+    leave `WITHOUT_SNAPSHOT` (R-025); already named there: `QUEUE_RECORD_UNREADABLE`'s class (R-095), `github resolve`
+    on a crash's gate (R-099 Open point 5), the poller's Herdr stderr (R-023 Open point 2, with R-059).
+  - No change (accepted as each `outcome.md` records it): R-019 Open points 2–6, R-021 Open points 1, 2 and 5, R-022
+    Open point 2, R-023 Open points 3 and 4, R-024 Open points 1, 4, 5 and 7 (7 is B.3's, M-07), R-025's (R-083's
+    already), R-095 Open points 2 and 3, R-099 Open points 3, 4 and 6.
+
 Active ticket: none.
 
 Resolved (Q-26 → D-077), asked in the conversation with a push: R-092's round-3 notes 1, 2, 6 and the template line of
@@ -2985,10 +3037,10 @@ documents:
   (recommended); 2. also only spawn, continue and stop; 3. every change command without `movedBy` now.
 
 Next (by day):
-1. The night's second run ended with `done` after R-099 (committed and pushed as `R-099:`). In the morning: check
-   that its commit is pushed and the tree is clean; the close of stage 2 and gate 5.2 by phone with the "Gate 5.2
-   summary" above (the night defaults and open points, R-099's included); the tag `a0.2.0`; then the tickets of stage 3
-   `ready` by day (D-074). The day session hands over first (D-047; `limen-rebuild-17` is at 40 % context).
+1. Stage 2 is closed and tagged `a0.2.0` ("Close of stage 2" above). Gate 5.2: Adrian's answers to Q-27–Q-30 become
+   D-078 onwards, with their consequences in the same commit (for Q-29 option 1: R-100's row in `## Tickets` and
+   the notes of R-031, R-032, R-033, R-038, R-051, R-058 and R-082 in its notes list). Then stage 3 starts in a new
+   session (the rebuild prompt, stage 5), which makes the tickets of stage 3 `ready` by day (D-074).
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
    D-047 and D-054 were.
