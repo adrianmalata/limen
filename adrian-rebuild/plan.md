@@ -86,9 +86,10 @@ w następnym commicie); bramka 5.2 rozstrzygnięta (D-078–D-082: domyślne dec
 dalej odrzuca nieznane pole, nowy ticket R-100 w etapie 3 przed R-029 i notatki dla siedmiu ticketów, tag a0.2.0
 zostaje na 56f8168); etap 3 zaczęła limen-rebuild-19: cztery inwentarze tylko do odczytu (R-026, R-030, R-033,
 R-100), cztery tickety gotowe na noc (R-026, R-030, R-033, R-100); Q-33 wycofane, bo gate 2 §0.5 trzyma nazwy kont
-poza repo; D-083 (przed pytaniem o decyzję sesja przeszukuje cztery źródła, wymusza to hook do zbudowania), D-084
+poza repo; D-083 (przed pytaniem o decyzję sesja przeszukuje cztery źródła, wymusza to hook), D-084
 (jedna linia powiadomienia), D-085 (powiadomienia jako jednostka systemowa instalowana przez roota); przekazanie do
-limen-rebuild-20, która zaczyna od hooka D-083. -->
+limen-rebuild-20, która zbudowała hook D-083 (tools/decision-guard.mjs, 63 testy, trzy rundy recenzji PASS; uwagi
+rundy 3 poprawione bez czwartej rundy, D-086); blok hooks do .claude/settings.local.json dopisuje Adrian. -->
 
 
 
@@ -1009,6 +1010,12 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   a root-owned 0600 file; `limen status` warns when the timer is not active or the service failed (A-066);
   `seat/deploy.ts` re-renders installed units at each tag with the account they hold, and returns to the previous SHA
   with exit 4 when the verification fails. R-033 grows from M to L. Check: R-033's criteria; `## Deployment` 3.3.
+- 2026-11-22 D-086 (Adrian: "zgodnie z rekomendacjami"; Q-36 a and Q-37 a, after review round 3 of D-083's decision
+  guard, with both rounds of fixes spent): round 3's two notes are fixed by the main session without a fourth review,
+  as D-047 (a) was. (1) In the guard, any long option without `=` takes the next word as its argument, a reading that
+  can only miss a search, never count one that did not happen; (2) the wide line of its `ticket.md` is wrapped
+  (D-053 (2) applied to a rebuild tool's `ticket.md`). Check: `node --test adrian-rebuild/tools/test-decision-guard.mjs`;
+  `evidence/decision-guard/review.md` → Round 3.
 
 ### Gate 2 §2, copied
 
@@ -2068,7 +2075,7 @@ Every stage:
 |---|---|
 | everyone: reading | `git status`, `git diff`, `git log`, `git show`, `git ls-files`, `git rev-parse`, `git cat-file`, `git grep`, `git for-each-ref`, `ls`, `cat`, `head`, `tail`, `wc`, `grep`, `find` (without `-delete` and `-exec`), `sed -n`, `sort`, `uniq`, `cmp`, `diff`, `file`, `command -v` |
 | reviewer: checks | `node --test <test file>`, `node bin/limen <args>` on a test fixture (never the full gate, D-015) |
-| main session, implementer: checks | `node adrian-rebuild/tools/gate.mjs`, `npm run check`, `npm run typecheck`, `npx tsc --noEmit`, `npx biome check --error-on-warnings <path>`, `node --test <test file>`, `node adrian-rebuild/tools/check.mjs`, `node --test adrian-rebuild/tools/test-changes-entries.mjs`, `node --test adrian-rebuild/tools/test-review-guard.mjs`, `node --test adrian-rebuild/tools/test-fails-before.mjs`, `node --test adrian-rebuild/tools/test-review-verdict.mjs`, `node --test adrian-rebuild/tools/test-night.mjs`, `node --test adrian-rebuild/tools/test-tool-calls.mjs`, `node --test adrian-rebuild/tools/test-handover.mjs`, `node --test adrian-rebuild/tools/test-ticket-rules.mjs`, `sh adrian-rebuild/tools/test-pre-push.sh`, `node bin/limen <args>` on a test fixture |
+| main session, implementer: checks | `node adrian-rebuild/tools/gate.mjs`, `npm run check`, `npm run typecheck`, `npx tsc --noEmit`, `npx biome check --error-on-warnings <path>`, `node --test <test file>`, `node adrian-rebuild/tools/check.mjs`, `node --test adrian-rebuild/tools/test-changes-entries.mjs`, `node --test adrian-rebuild/tools/test-review-guard.mjs`, `node --test adrian-rebuild/tools/test-fails-before.mjs`, `node --test adrian-rebuild/tools/test-review-verdict.mjs`, `node --test adrian-rebuild/tools/test-night.mjs`, `node --test adrian-rebuild/tools/test-tool-calls.mjs`, `node --test adrian-rebuild/tools/test-handover.mjs`, `node --test adrian-rebuild/tools/test-ticket-rules.mjs`, `node --test adrian-rebuild/tools/test-decision-guard.mjs`, `sh adrian-rebuild/tools/test-pre-push.sh`, `node bin/limen <args>` on a test fixture |
 | main session, implementer: changes | `npx biome format --write <path>`, `npm ci`; `git rm <path>`, `git rm -r <path>` and `git mv <old> <new>` on the paths a ticket's `## Change` names (the cuts of stage 1, R-042 and R-059 replace files, R-083 renames test files, and others); every deletion and move goes through them, so the list stays the same every night (D-014) |
 | main session only | `node adrian-rebuild/tools/review-guard.mjs snapshot --out <file>`, `snapshot --git --out <file>`, `diff --out <file>`, `compare <file>` and `compare --git <file> <ticket.md>`; `node adrian-rebuild/tools/fails-before.mjs`; `node adrian-rebuild/tools/review-verdict.mjs <reply> <ticket.md>`; `git restore --source=HEAD -- <path>` and `git apply --include=<path> <diff>` (after a void review); `git add <paths>` (`git add -A -- <paths>` for deletions and renames), `git commit`, `git push origin adrian-rebuild`; `sh adrian-rebuild/tools/install-hooks.sh` (after a move or a new clone); `node adrian-rebuild/tools/handover.mjs start <n>` and `node adrian-rebuild/tools/handover.mjs close-previous` (by day, D-047); at the close of a stage `git tag <tag> <sha>` (local), the gate-time tool of R-011 (`node adrian-rebuild/tools/gate-time.mjs --out <file>`) and, from stage 4, `node adrian-rebuild/tools/context-size.mjs <ref>` |
 
@@ -2089,11 +2096,11 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-22 by day (`limen-rebuild-19`), rebuild stage 5 in plan stage 3: stage 1 is closed at `a0.1.1`
+Updated 2026-11-22 by day (`limen-rebuild-20`), rebuild stage 5 in plan stage 3: stage 1 is closed at `a0.1.1`
 (deployed on 2026-11-20, with B.2 closed by D-050); stage 2 is closed at `a0.2.0` (gate 5.2 decided, D-078–D-082);
-stage 3 has started: R-026, R-030 and R-100 are `ready` for the night, R-033 waits for Q-32 and Q-34. The newest entries
-are at the end of this section: the close of stage 2 in "Close of stage 2", the gate in "Gate 5.2 decided", and the
-start of stage 3 in "Start of stage 3".
+stage 3 has started: R-026, R-030, R-033 and R-100 are `ready` for the night, and D-083's decision guard is built
+(D-086). The newest entries are at the end of this section: the close of stage 2 in "Close of stage 2", the gate in
+"Gate 5.2 decided", the start of stage 3 in "Start of stage 3", and the guard in "D-083's decision guard".
 
 Handover of 2026-11-19 (D-033, at 37 % context, after the commit `R-014:`): `limen-rebuild-5` started
 `limen-rebuild-6` in `tmux` in remote-control mode (14:10) and ended. WSL booted at 10:34 on 2026-11-19, after the
@@ -3185,11 +3192,28 @@ the terminal being active; context 7 % at the start):
   inventory; `## Deployment` 3.3 follows D-085; the R-059 note no longer names the bell. Four tickets `ready` for the
   night: R-026, R-030, R-033, R-100 (`check.mjs` exit 0).
 
+D-083's decision guard (2026-11-22, `limen-rebuild-20`, by day; its `close-previous` printed `handover: closed tmux
+session limen-rebuild-19` and one `handover: stopped claude …` line and exited 0; its takeover push was skipped as
+redundant, the terminal being active):
+- `tools/decision-guard.mjs` and `tools/test-decision-guard.mjs` `done` (`evidence/decision-guard/`): 63 tests, each
+  earlier version of the tool failing its new tests (24 of 24 before the tool, then 15, 7 and 1 of 63 for the tools of
+  review rounds 1–3); 42 one-at-a-time mutations each fail a test. Review PASS in rounds 1–3 (11, 5 and 2 notes):
+  two rounds of fixes, one note accepted (a hook block's `is_error` is not checked; it fails safe), one rejected (an
+  internal-error branch no input reaches); round 3's two notes fixed without a fourth review (Q-36 a, Q-37 a →
+  D-086, "zgodnie z rekomendacjami"; asked after a search of the four sources, with a push).
+- A trial before review round 1 on this session's own transcript found that a split by a regular expression missed
+  the session's commonest forms (`sed -n 'a,bp;c,dp'`, `grep 'a\|b'`); the lexer replaced it. A trial after the fixes
+  named all four sources after the real push of Q-36 and Q-37, since nothing was searched after it.
+- One command was refused by the permissions (an `rm -rf` of a scratchpad folder, a deny rule); the same run went to
+  a fresh folder without `rm`.
+- The `hooks` block for `.claude/settings.local.json` was given to Adrian in the conversation (D-016: only he writes
+  the file).
+
 Next (by day):
-1. D-083's decision guard, the main session's work outside the ticket list: `adrian-rebuild/tools/decision-guard.mjs`
-   and `adrian-rebuild/tools/test-decision-guard.mjs` as D-083 says, a review by `rebuild-reviewer`, a commit `D-083:
-   …`; then the exact `hooks` block for Adrian to add to `.claude/settings.local.json` (D-016), given in full in the
-   message (memory: intervention info in the latest message).
+1. Adrian adds the `hooks` block to `.claude/settings.local.json` (a `PreToolUse` entry, matcher
+   `PushNotification|Write|Edit`, command `node "$CLAUDE_PROJECT_DIR"/adrian-rebuild/tools/decision-guard.mjs`) and
+   accepts it in `/hooks` or restarts the session; night runs load it at start. The first real block settles whether
+   Claude Code marks a blocked call with `is_error` (`evidence/decision-guard/outcome.md` → Deviations).
 2. The night run of stage 3 takes the four `ready` tickets in protocol order (R-026, R-030, R-033, R-100); it is
    started as the night mode says, after the preflight. R-029 waits for R-100 (D-080).
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
