@@ -84,7 +84,8 @@ przekazanie do limen-rebuild-18, która zamknęła etap 2 (bramka 733/733 dwukro
 a0.2.0 na commicie `Stage 2: close`; `check.mjs` na tym commicie zgłaszał dwa błędy tekstu planu, poprawione
 w następnym commicie); bramka 5.2 rozstrzygnięta (D-078–D-082: domyślne decyzje nocne etapu 2 potwierdzone, rekord
 dalej odrzuca nieznane pole, nowy ticket R-100 w etapie 3 przed R-029 i notatki dla siedmiu ticketów, tag a0.2.0
-zostaje na 56f8168); etap 3 zaczyna nowa sesja. -->
+zostaje na 56f8168); etap 3 zaczęła limen-rebuild-19: cztery inwentarze tylko do odczytu (R-026, R-030, R-033,
+R-100), R-030 i R-100 gotowe na noc jako dwie niezależne gałęzie, R-026 i R-033 w przygotowaniu. -->
 
 
 
@@ -1362,7 +1363,7 @@ Columns:
 | R-027 | The reaper ends a job only after its process group is gone | 3 | A-005, A-056 | R-026 | M | delegated | night | — | — | — | planned |
 | R-028 | SIGTERM reaches the engine; a signal without a stop request is a failure | 3 | A-020, A-052 | R-026 | M | delegated | night | — | — | — | planned |
 | R-029 | One recorded failure cause per job | 3 | A-016, E-9, T-31, T-32, D-055 | R-017, R-021, R-100 | M | delegated | night | — | bridge | 3.4 | planned |
-| R-030 | Unlanded work survives: `limen abandon`, a guarded prune, a refusing spawn | 3 | A-001 | R-023, R-092 | M | delegated | night | yes | — | — | planned |
+| R-030 | Unlanded work survives: `limen abandon`, a guarded prune, a refusing spawn | 3 | A-001 | R-023, R-092 | M | delegated | night | yes | — | — | ready |
 | R-031 | `landed` and `abandoned` markers; retire moves records to the archive | 3 | A-002, §6 | R-030 | M | delegated | night | yes | — | — | planned |
 | R-032 | `limen seat sweep` runs on a timer; read commands never write or wait | 3 | A-024, T-04, T-18, A-017, §6, D-045 | R-012, R-027, R-031 | L | delegated | night | yes | systemd | 3.1 | planned |
 | R-033 | Alerts from their own account: failures and escalations only | 3 | A-066, A-054, T-18 | R-021 | M | delegated | night | yes | systemd | 3.3 | planned |
@@ -1372,7 +1373,7 @@ Columns:
 | R-037 | Land runs as recorded steps with an atomic closing commit | 3 | A-021, A-057, T-18, T-28 | R-023, R-031, R-092 | L | delegated | night | yes | herdr | 3.9 | planned |
 | R-087 | The job environment is an allow-list; git and gh in a job hold no credential (T1) | 3 | A-004, A-061, E-4, D-017 | R-015, R-021, R-026 | M | delegated | night | — | pi, bridge | 3.10 | planned |
 | R-098 | `limen stats` per landed ticket and per coordinator turn | 3 | §2, A-078, A-037, D-072 | R-024, R-031 | M | delegated | night | — | pi | B.3, B.4 | planned |
-| R-100 | One definition of the ISO time, the 429 rule, the error-code check and the jobs listing | 3 | T-25, D-080 | R-022, R-093, R-097 | S | delegated | night | — | — | — | planned |
+| R-100 | One definition of the ISO time, the 429 rule, the error-code check and the jobs listing | 3 | T-25, D-080 | R-022, R-093, R-097 | S | delegated | night | — | — | — | ready |
 | R-038 | The fake engine shows the model's view under the bridge | 4 | T-31, A-051 | R-017 | M | delegated | night | — | bridge | 4.1 | planned |
 | R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16 | R-021, R-038 | L | delegated | night | yes | pi, bridge | 4.2 | planned |
 | R-040 | Role texts come from the package, in three registers | 4 | A-038, A-039, A-042, D-005 | R-001, R-039 | M | delegated | night | yes | — | — | planned |
@@ -2051,12 +2052,11 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-22 by day (`limen-rebuild-18`), rebuild stage 5 in plan stage 2: stage 1 is closed at `a0.1.1`
-(deployed on 2026-11-20, with B.2 closed by D-050); stage 2 has all 19 tickets done (R-015–R-025, R-089,
-R-092–R-097, R-099) and is closed: the commit `Stage 2: close` carries the local tag `a0.2.0`, and gate 5.2 is
-decided (D-078–D-082): stage 3 starts in a new session. The newest entries are at the end of this section, from "Day
-session of 2026-11-21, continued (`limen-rebuild-16`", the night's in "Night run of 2026-11-22" and "Night run of
-2026-11-22, the runner's second start", the close in "Close of stage 2" and the gate in "Gate 5.2 decided".
+Updated 2026-11-22 by day (`limen-rebuild-19`), rebuild stage 5 in plan stage 3: stage 1 is closed at `a0.1.1`
+(deployed on 2026-11-20, with B.2 closed by D-050); stage 2 is closed at `a0.2.0` (gate 5.2 decided, D-078–D-082);
+stage 3 has started: R-030 and R-100 are `ready` for the night, R-026 and R-033 are being written. The newest entries
+are at the end of this section: the close of stage 2 in "Close of stage 2", the gate in "Gate 5.2 decided", and the
+start of stage 3 in "Start of stage 3".
 
 Handover of 2026-11-19 (D-033, at 37 % context, after the commit `R-014:`): `limen-rebuild-5` started
 `limen-rebuild-6` in `tmux` in remote-control mode (14:10) and ended. WSL booted at 10:34 on 2026-11-19, after the
@@ -3102,12 +3102,20 @@ documents:
 - Q-19 (R-092's scope beyond D-061's three): 1. also spawn, continue, stop, group stop, github review and github work
   (recommended); 2. also only spawn, continue and stop; 3. every change command without `movedBy` now.
 
+Start of stage 3 (2026-11-22, `limen-rebuild-19`, by day; its `close-previous` printed `handover: closed tmux session
+limen-rebuild-18` and one `handover: stopped claude …` line and exited 0; its takeover push was skipped as redundant,
+the terminal being active; context 7 % at the start):
+- Four read-only inventories at `9da2fde` (`Explore` agents, in parallel): `evidence/inventories/R-026.md`, `R-030.md`,
+  `R-033.md`, `R-100.md`.
+- R-100 and R-030 `ready`, their `ticket.md` written at `9da2fde` from the inventories, with no grep criteria (D-025);
+  each `## Decisions` records the main session's readings, settled by the documents. They are two independent
+  branches (R-100 → R-029; R-030 → R-031), D-054 (1). `check.mjs` exit 0 (2 ready).
+- R-100's reach: D-080's eight code checks go through `hasCode`; the 17 lines that type an error as
+  `NodeJS.ErrnoException` become a ratchet list for R-082 (the plan's ratchet convention), not part of R-100.
+
 Next (by day):
-1. Stage 3 (a0.3.0) starts in a new session (D-081). By day it makes the tickets of stage 3 `ready` for the next
-   night (D-074): their `ticket.md` written from read-only inventories in `evidence/inventories/`, as R-024's and
-   R-025's were, with no grep criteria (D-025), on at least two independent branches (D-054 (1)). The tickets whose
-   dependencies are all `done` now: R-026 (R-020, R-021), R-030 (R-023, R-092), R-033 (R-021) and R-100 (R-022,
-   R-093, R-097); R-029 waits for R-100 (D-080).
+1. R-026 and R-033 `ready` for the night (D-054 (1)), from their inventories; R-033 waits for Adrian's answers to the
+   questions asked in the conversation (the alert's text, the alerts account's name). R-029 waits for R-100 (D-080).
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
    D-047 and D-054 were.
