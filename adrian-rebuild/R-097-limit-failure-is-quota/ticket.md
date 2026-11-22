@@ -1,7 +1,8 @@
 <!-- PL: Ticket R-097 (D-071, A-016, D-057 (4)): awaria joba na limicie subskrypcji („You've hit your … limit”) dostaje
 rodzaj `quota`, a nie `engine-error`. Poprawka jednej funkcji `failureKind`, wspólnej dla migracji rekordów i
 `finalize`, z testem na tekście z audytu, który pada przed zmianą; bez tego krok 2.3 na seacie (12 awarii na limicie)
-się nie zgodzi, a jednorazowa migracja zapisze błędną historię. Stan: napisany 21.11 w dzień; gotowy (ready). -->
+się nie zgodzi, a jednorazowa migracja zapisze błędną historię. Stan: napisany 21.11 w dzień; wdrożony w nocy 22.11,
+z decyzją rundy poprawek 1 w `## Decisions`. -->
 
 # R-097 A failure on the subscription limit is `quota`, in the migration and at finalize
 
@@ -92,3 +93,13 @@ written on the laptop's fixtures only.
 ## Decisions
 
 - 2026-11-21 D-071 (Adrian): quoted in `## Problem`.
+- 2026-11-22, the night session (a fact, not a decision): the facts of `## Problem` hold at `399dc4f` (R-024 and
+  R-025 done after this ticket was written): `failureKind` is at `src/job/record.ts:597`, its 429 rule at `:605`, and
+  `test/job/record.test.ts` and `test/job/finalize.test.ts` exist. Since R-025, `test/registry.test.ts` scans the test
+  names (T-29 (2)) and the refusal codes; this ticket adds no refusal code.
+- 2026-11-22, review round 1 (`review.md` → Round 1, verdict PASS with notes), the first round of fixes, for a fresh
+  implementer (D-026 (2)): (1) The comments that explain the `null` reset time (`src/job/record.ts`, at
+  `SUBSCRIPTION_LIMIT`, and the new test of `test/cli/migrate.test.ts`) give its true reason: the weekly text names a
+  date, so the reason is not a missing date but D-057 (4) for the migration (the reset time stays `null`) and R-029
+  for finalize (the reset time will come from the provider's field, not from the text) (T-30). No test changes its
+  assertions. `outcome.md` records the round. Not fixed, with the reason in `review.md`: findings 2 and 3.

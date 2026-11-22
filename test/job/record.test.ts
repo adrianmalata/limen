@@ -1,4 +1,4 @@
-// src/job/record.ts: the job's record.json, its reads and the one function that writes it.
+// src/job/record.ts: the job's record.json, its reads, the one function that writes it, and a failure's kind.
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
@@ -7,6 +7,7 @@ import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import {
 	emptyRecord,
+	failureFrom,
 	type JobRecord,
 	jobFolders,
 	publishRecord,
@@ -135,6 +136,37 @@ test("T-01: the side failures of a terminal transition are written in the same r
 	const record = await readRecord(dir);
 	assert.deepEqual([record?.state, record?.sideFailures], ["done", [failure]]);
 	assert.equal(typeof record?.finishedAt, "string", "the terminal transition records its finish time");
+});
+
+// D-071: the provider's text of the subscription limit, in the stop reason the engine ends on (`error: <text>` or
+// `aborted: <text>`); the 5-hour limit's text is the one of audit.md, gate 2 §1, Q1.
+test("failureFrom names an engine stop reason that says a subscription limit was hit quota, with no reset time", () => {
+	const limits = [
+		"error: You've hit your session limit · resets 3pm (UTC)",
+		"error: You've hit your weekly limit · resets Nov 23, 5pm",
+		"error: You've hit your limit · resets 3pm (UTC)",
+		"aborted: You've hit your session limit · resets 3pm (UTC)",
+	];
+	assert.deepEqual(
+		limits.map((detail) => failureFrom(detail)),
+		limits.map((detail) => ({ kind: "quota", detail, resetAt: null })),
+	);
+});
+
+test("failureFrom keeps an engine stop reason that names no subscription limit engine-error", () => {
+	const others = [
+		"error",
+		"error: 500 Internal server error",
+		"error: 529 overloaded_error: Overloaded",
+		"error: prompt is too long: 1048576 tokens > 1000000 maximum",
+		"error: the tool output hit the size limit",
+		"error: Claude Code process exited with code 1",
+		"aborted: Request was aborted.",
+	];
+	assert.deepEqual(
+		others.map((detail) => failureFrom(detail).kind),
+		others.map(() => "engine-error"),
+	);
 });
 
 test("BAD_DATA: a damaged record gives a typed error that names the file and the field", async (t) => {

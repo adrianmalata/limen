@@ -594,17 +594,30 @@ const FAILURE_PATTERNS: ReadonlyArray<readonly [RegExp, FailureKind]> = [
 	[/^worker exited with code /, "exit"],
 	[/^process group interrupted\b/, "signal"],
 ];
+/**
+ * The provider's text when a subscription limit is hit (D-071): "You've hit your session limit · resets <hour> (UTC)"
+ * for the 5-hour limit (audit.md, gate 2 §1, Q1), "You've hit your weekly limit · …" for the weekly one, as the
+ * seat's quota extension matches it (docs/seat/quota-resume.ts). The reset time stays null even where the text names
+ * one: the migration fills in only the kind (D-057 (4)), and finalize will take it from the provider's field, not from
+ * this text (R-029).
+ */
+const SUBSCRIPTION_LIMIT = /hit your (?:[\w-]+ )?limit/i;
 function failureKind(detail: string): FailureKind | null {
 	const text = detail.trim();
 	const known = FAILURE_PATTERNS.find(([pattern]) => pattern.test(text))?.[1];
 	if (known) {
 		return known;
 	}
-	// The engine's own stop reasons (`isFailedStopReason`, src/job/finalize.ts); a 429 with a rate limit is the quota.
+	// The engine's own stop reasons (`isFailedStopReason`, src/job/finalize.ts): the subscription limit or a 429 with a
+	// rate limit is the quota.
 	if (/^(?:error|aborted)(?::|$)/.test(text)) {
-		return /\b429\b/.test(text) && /rate_limit_error|rate limit/i.test(text) ? "quota" : "engine-error";
+		return SUBSCRIPTION_LIMIT.test(text) || isRateLimit(text) ? "quota" : "engine-error";
 	}
 	return null;
+}
+/** A 429 of the provider's API with its rate-limit error. */
+function isRateLimit(text: string): boolean {
+	return /\b429\b/.test(text) && /rate_limit_error|rate limit/i.test(text);
 }
 
 /** Appends one Limen line to the job's log, which is appended to and never rewritten. */

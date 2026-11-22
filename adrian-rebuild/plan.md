@@ -74,7 +74,9 @@ w rejestrze i testy sukcesu `limen <polecenie>:`; noc tylko w etapie 2 do 9:00),
 noc 22.11: R-024 zamknięty (`limen stats` i jeden czytnik transkryptów przez walidatory; bramka 690/690, trzy rundy
 recenzji z PASS); limit 5 h przerwał przebieg 1 w R-025, przebieg 2 zamknął R-025 (deklaracje odmów `refuses`
 w rejestrze, skany kodów i testów przez drzewo składni, zapadki 70/35/29, test T-04 dla poleceń `read`; bramka
-710/710, trzy rundy recenzji: FAIL, PASS, PASS). -->
+710/710, trzy rundy recenzji: FAIL, PASS, PASS) i R-097 (awaria na limicie subskrypcji jako `quota`; bramka
+714/714), więc etap 2 ma wszystkie 18 ticketów zamknięte, a w `## State` czeka gotowe podsumowanie bramki 5.2. -->
+
 
 
 
@@ -1309,7 +1311,7 @@ Columns:
 | R-094 | A queued wrapper ends when its job folder is gone; tests stop their wrappers | 2 | T-01, T-29, D-063 | R-093 | S | delegated | night | — | — | — | done |
 | R-095 | The round-3 notes of R-022 and R-094: the shared-token report, `keeper`'s de-duplication, the record check | 2 | T-01, T-29, T-30, D-065 | R-022, R-094 | S | delegated | night | — | — | — | done |
 | R-096 | One wake per event: the extra wake of the held-gate queue test, found and removed | 2 | T-29, D-067 | R-023, R-095 | S | delegated | night | — | — | — | done |
-| R-097 | A failure on the subscription limit is `quota`, in the migration and at finalize | 2 | A-016, D-057, D-071 | R-021 | S | delegated | night | — | — | 2.3 | ready |
+| R-097 | A failure on the subscription limit is `quota`, in the migration and at finalize | 2 | A-016, D-057, D-071 | R-021 | S | delegated | night | — | — | 2.3 | done |
 | R-024 | `limen stats` over records and transcripts | 2 | H-01, H-20, §2, T-33, D-072, D-073 | R-021, R-023 | M | delegated | night | — | pi | 2.3 | done |
 | R-025 | Test coverage derived from the command registry | 2 | T-28, T-29, D-045, D-046, D-075, D-076 | R-014, R-023, R-092 | M | delegated | night | — | — | — | done |
 | R-026 | Every job runs in its own systemd user scope | 3 | A-029, A-052, T-43 | R-020, R-021 | L | delegated | night | — | systemd | 3.2, 3.7, 3.8 | planned |
@@ -1984,8 +1986,8 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 ## State
 
 Updated 2026-11-22, night run (until 09:00), rebuild stage 5 in plan stage 2: stage 1 is closed at `a0.1.1`
-(deployed on 2026-11-20, with B.2 closed by D-050); stage 2 has R-015–R-025, R-089 and R-092–R-096 done, and R-097
-left before the tag `a0.2.0`. The newest entries are at the end of this section, from
+(deployed on 2026-11-20, with B.2 closed by D-050); stage 2 has all 18 tickets done (R-015–R-025, R-089,
+R-092–R-097), and its close, gate 5.2 and the tag `a0.2.0` wait for the day ("Gate 5.2 summary" below). The newest entries are at the end of this section, from
 "Day session of 2026-11-21, continued (`limen-rebuild-16`", and the night's in "Night run of 2026-11-22".
 
 Handover of 2026-11-19 (D-033, at 37 % context, after the commit `R-014:`): `limen-rebuild-5` started
@@ -2876,7 +2878,43 @@ lowest `ready` ID first: R-024, R-025, R-097):
   `outcome.md` → Deviations 6–11 (category A (b)). Open points for gate 5.2 (`outcome.md`): scan (b)3 holds a test by
   its code, so `WITHOUT_SNAPSHOT` holds unit tests that run no command (R-082 decides whether the scan holds a test by
   the command it runs); the snapshot count does not read whether the two snapshots are compared; three renamed tests
-  that combine mechanisms and two unprefixed `REMOVED` proofs are R-083's.
+  that combine mechanisms and two unprefixed `REMOVED` proofs are R-083's. Committed and pushed as `399dc4f`.
+- R-097 `done` (delegated): `failureKind` (`src/job/record.ts`) calls an engine stop reason that says a subscription
+  limit was hit (`SUBSCRIPTION_LIMIT`, the pattern of fact 6) `quota`, in the migration and at finalize; the reset
+  time stays `null`. Review round 1 PASS with three notes (one fixed in a round of fixes: the comments' reason for the
+  `null` reset time, D-057 (4) and R-029; two with no change), round 2 PASS with no findings. The main session's gate
+  714/714 twice; `fails-before.mjs` exit 0 twice (three files). Open point for gate 5.2 (`outcome.md`): the older copy
+  of the 429 rule in `src/job/listing.ts` (T-25 (2)), outside the ticket's change.
+- Stage 2 has no ticket left, so the night ends with the reason `done` (`.night/status.json`), with the gate summary
+  below (the night mode: no gate and no tag at night).
+
+Gate 5.2 summary (stage 2's tickets are done; the close and the gate are by day, with Adrian):
+- Close (for the day session, `## Stages` → Closing a stage): not run at night. The last gate is 714/714 at R-097's
+  tree; the close runs the gate twice (once through the gate-time tool, M-10), `check.mjs` and Biome on
+  `adrian-rebuild`, commits `Stage 2: close` and tags `a0.2.0` locally with Adrian.
+- Tickets: R-015–R-025, R-089 and R-092–R-097 done (18 of 18; R-092–R-097 are the stage's fix and follow-up tickets
+  from D-061–D-071). Gate 253/253 at a0.1.1 → 714/714.
+- Findings and rules addressed by stage 2 (each ticket's `## Problem` names how far): A-016 in part (R-097: the
+  `quota` kind; the reset time and resume are R-029 and R-034), A-017, A-018, A-055, A-058 and A-087 (R-019), A-019,
+  A-053, A-056 and S1+ (R-021), A-022 (R-018), A-083 (R-020, after R-008's part); H-01, H-20 and §2 (R-024); taste
+  rules T-01, T-02, T-03, T-12, T-20, T-25, T-26, T-27, T-28, T-29, T-30, T-32, T-33, T-37 and T-38 (from their rows in
+  `## Tickets`).
+- Unmeasured (`changes.md`): M-10 (R-017–R-021), M-01 (R-021–R-023, R-093), M-05 (R-022, R-023, R-089), M-07, M-11
+  and M-06 (R-024), M-11 (R-097); the seat steps 2.0–2.4 and B.3.
+- Fixed context before and after: not measured at stage 2, as at stage 1 (`context-size.mjs` from stage 4; the role
+  texts sit in Pi's system prompt, which the bridge drops, E-1).
+- Tag `a0.2.0`: local, on the commit `Stage 2: close`; its full SHA is the argument of `## Deployment` 2.0.
+- Seat steps: `## Deployment` 2.0 (deploy), 2.1 (`limen migrate --dry-run`, then `limen migrate`, with no job
+  running), 2.2 (no extension error after `/reload`), 2.3 (`limen stats` against gate 2's counts: 142 jobs, 18 failed,
+  12 of them `quota` by R-097), 2.4 (the `LIMEN_*` variables); then B.3. The projects stay stopped until a0.3.0
+  (D-012).
+- For Adrian's decision at the gate: Q-26 (R-092's round-3 notes; recommended: the fix ticket R-099, S, delegated,
+  night); the night defaults of R-024 (the direct test of `projectStatistics`) and R-025 (`SHARED_CODES` with
+  `UNKNOWN_COMMAND`, `REMOVED` and `UNTYPED`; the implementer's choices, `outcome.md` → Deviations 6–11); the open
+  points of R-019, R-021, R-022, R-023, R-095 and R-096 (as listed in the entries above) and of R-024, R-025 and R-097
+  (their `outcome.md` → Open points), of which three ask a ticket's scope: whether R-025's scan (b)3 holds a test by
+  the command it runs (for R-082), and the second copies of the ISO-time pattern (R-024) and of the 429 rule (R-097),
+  T-25 (2).
 
 Active ticket: none.
 
@@ -2893,10 +2931,10 @@ documents:
   (recommended); 2. also only spawn, continue and stop; 3. every change command without `movedBy` now.
 
 Next (by day):
-1. The night (D-074): the preflight (D-024), then `night.mjs --until 09:00`; it takes R-097, R-024 and R-025, all
-   `ready` with their `ticket.md`, in dependency order.
-2. In the morning: Q-26; the night's tickets; the close: tag `a0.2.0`, gate 5.2 by phone, with the night defaults
-   above; then the tickets of stage 3 `ready` by day (D-074).
+1. The night of 2026-11-22 is over (R-024, R-025 and R-097 done; the reason `done`). In the morning: check that
+   `399dc4f`'s successor, the commit `R-097:`, is pushed and the tree is clean; Q-26; the close of stage 2 and gate
+   5.2 by phone with the "Gate 5.2 summary" above (the night defaults and open points); the tag `a0.2.0`; then the
+   tickets of stage 3 `ready` by day (D-074).
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
    D-047 and D-054 were.

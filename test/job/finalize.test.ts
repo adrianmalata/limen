@@ -1,4 +1,4 @@
-// src/job/finalize.ts: the end of a job through its terminal transition, here the log line it writes.
+// src/job/finalize.ts: the end of a job through its terminal transition, here the log line and the failure it writes.
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,4 +22,15 @@ test("finalizeJob counts each steer left in the inbox in its log line, but not t
 		readFileSync(join(job, "log"), "utf8"),
 		/\] stopped: stopped by request; 1 steer\(s\) never delivered\n$/,
 	);
+});
+
+// D-071: the wrapper ends a job whose engine stopped on an error with that stop reason, `error: <the provider's text>`.
+test("finalizeJob records the failure kind quota for a job whose engine stopped on the subscription limit", async (t) => {
+	const job = join(mkdtempSync(join(tmpdir(), "limen-finalize-")), "job");
+	t.after(() => rmSync(join(job, ".."), { recursive: true, force: true }));
+	await writeRecord(job, { state: "running", identity: { pid: 4242, born: "123", bootId: null } });
+	const stopReason = "error: You've hit your session limit · resets 3pm (UTC)";
+	await finalizeJob(job, "failed", stopReason);
+	const record = await readRecord(job);
+	assert.deepEqual([record?.state, record?.failure], ["failed", { kind: "quota", detail: stopReason, resetAt: null }]);
 });

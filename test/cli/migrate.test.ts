@@ -396,6 +396,32 @@ test("a failed job's failure kind comes from its last failed: log line, else fro
 	);
 });
 
+// D-071: an older Limen wrote the subscription limit's engine error, `error: <the provider's text>`, into the job's
+// `stop-reason` and its last `failed:` log line; the 5-hour limit's text is the one of audit.md, gate 2 §1, Q1. The
+// reset time stays null even where the text names one, as the weekly limit's date: the migration fills in only the
+// kind (D-057 (4)).
+test("a failed job that hit the session or the weekly subscription limit migrates with the failure kind quota", async (t) => {
+	const p = await project(t);
+	const session = "error: You've hit your session limit · resets 3pm (UTC)";
+	const weekly = "error: You've hit your weekly limit · resets Nov 23, 5pm";
+	const failedOn = (text: string) => ({
+		state: "failed\n",
+		"task.md": "x\n",
+		log: `[limen 2026-11-07T10:00:00.000Z] assistant ${text}\n[limen 2026-11-07T10:00:01.000Z] failed: ${text}\n`,
+		"stop-reason": `${text}\n`,
+	});
+	const sessionJob = await oldFolder(p, "2026-11-07-session-1a2b3c4d", failedOn(session));
+	const weeklyJob = await oldFolder(p, "2026-11-07-weekly-5e6f7a8b", failedOn(weekly));
+	assert.equal(limen(p, ["migrate"]).status, 0);
+	assert.deepEqual(
+		[readRecordSync(sessionJob)?.failure, readRecordSync(weeklyJob)?.failure],
+		[
+			{ kind: "quota", detail: session, resetAt: null },
+			{ kind: "quota", detail: weekly, resetAt: null },
+		],
+	);
+});
+
 test("--dry-run prints what the migration would do and writes nothing", async (t) => {
 	const p = await project(t);
 	const id = "2026-11-08-dry-1a2b3c4d";

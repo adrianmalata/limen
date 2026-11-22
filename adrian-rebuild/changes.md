@@ -2,7 +2,7 @@
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
-R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025. -->
+R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025, R-097. -->
 
 # Changes
 
@@ -293,3 +293,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: measured
 - Commit: R-025
 - Rollback: git revert $(git log --format=%H --grep='^R-025:' adrian-rebuild --)
+
+## 2026-11-22 R-097 A failure on the subscription limit is `quota`, in the migration and at finalize
+- What: `src/job/record.ts` (`failureKind`, which the migration and `finalizeJob` share: an engine stop reason, `error: …` or `aborted: …`, that says a subscription limit was hit, `SUBSCRIPTION_LIMIT`, is `quota`; the 429 rule in `isRateLimit`; the reset time stays `null`); tests in `test/cli/migrate.test.ts` (the session and weekly limit texts migrate as `quota`), `test/job/finalize.test.ts` and `test/job/record.test.ts` (four matched texts, seven engine errors that stay `engine-error`)
+- Why: A-016, D-057, D-071
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (714/714); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (three test files); `node --test test/cli/migrate.test.ts` → exit 0
+- Measurement: unmeasured (plan.md → Measurement: M-11; `## Deployment` 2.3)
+- Commit: R-097
+- Rollback: git revert $(git log --format=%H --grep='^R-097:' adrian-rebuild --)
