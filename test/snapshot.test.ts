@@ -107,3 +107,20 @@ test("the seat's folder beside the root, named in also as ../.limen, is digested
 	await writeFile(join(root, "../.limen/start-reading.json"), "{}\n");
 	assert.notDeepEqual(snapshot(root, ["../.limen"]).files, before.files);
 });
+
+// `symbolic-ref -q HEAD` fails by design on a detached HEAD, which has no branch name; the snapshot reads that as empty.
+test("a detached HEAD, which names no branch, makes the snapshot differ in its refs", async (t) => {
+	const root = await project(t);
+	const before = snapshot(root);
+	git(root, "checkout", "-q", "--detach");
+	assert.notDeepEqual(snapshot(root).refs, before.refs);
+});
+
+// Before R-099 every git part read as "" when git failed, so two snapshots where git cannot run were equal, and a
+// refusal test there missed a new branch or worktree. A `.git` file that names no repository makes git fail there.
+test("a snapshot where git cannot run fails and names the git call", async (t) => {
+	const root = await project(t);
+	await rm(join(root, ".git"), { recursive: true, force: true });
+	await writeFile(join(root, ".git"), `gitdir: ${join(root, "..", "no-repository")}\n`);
+	assert.throws(() => snapshot(root), /git for-each-ref/);
+});

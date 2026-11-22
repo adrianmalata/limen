@@ -1,7 +1,11 @@
 <!-- PL: Ticket R-099 (D-077): poprawki czterech uwag rundy 3 recenzji R-092. Ponowne uruchomienie `github review`
 i `github work` pod blokadą jobów usuwa bramkę przekazania, którą zostawił crash bez rekordu joba; `GROUP_STOP_INCOMPLETE`
 dostaje klasę przyczyny; szablon kontraktu mapy mówi, że odmowa `--strict` nie zapisuje pliku; `git()` migawki testów
-zgłasza błąd gita. Stan: napisany 22.11 w nocy przy `50212ef`; gotowy (ready). -->
+zgłasza błąd gita. Stan: napisany 22.11 w nocy przy `50212ef`; zamknięty (done) tej samej nocy; po rundzie 1 recenzji (FAIL) w
+`## Decisions` poprawki F1–F8: gałąź recenzji dopiero po rekordzie joba, bramka zarchiwizowanego joba dalej odmawia,
+`github resolve` pod blokadą jobów, dokumentacja, testy klas zatrzymania, jeden skan znacznika, linia i komentarze;
+po rundzie 2 (PASS z uwagami) poprawki G1–G5: id joba z kopii claimu tylko w formacie id, dokumentacja blokady,
+testy porażki gałęzi recenzji i reguły odmowy, sprostowanie przesłanki F1. -->
 
 # R-099 The round-3 notes of R-092: a stale handoff gate, the class of an incomplete stop, the snapshot's git
 
@@ -97,3 +101,65 @@ None: a stale gate on the seat is removed by the first rerun of its claim.
 ## Decisions
 
 - 2026-11-22 D-077 (Adrian): quoted in `## Problem`.
+- 2026-11-22, night, review round 1 (`review.md` → Round 1: FAIL, one blocking finding): the first round of fixes, for
+  a fresh `rebuild-implementer` (D-026 (2)). The choices in F1–F3 are the main session's night defaults (category A of
+  D-054 (2)), for Adrian to confirm in the morning. Each mechanism gets a test that fails before its fix (T-29: one
+  mechanism per test; refusal tests compare the shared snapshot, T-38).
+  - F1 (finding 1, blocking): the review's branch (`branchAt`, which only `github review` passes) is made after the job
+    record is published, as a step after the first write whose failure ends the job `failed` with the reason, as a
+    failure to make the worktree does (`launchChecked`, before the worktree; T-38 (3)); `publishSpawn` then makes no
+    branch and needs no branch cleanup. So a crash between the gate and the record leaves no branch, and the rerun of
+    `github review` starts the job, as `github work`'s does; a crash after the record leaves a `starting` record with
+    no pid, which the reaper ends (A-056), and a rerun then names that job. A test: `github review` run again after a
+    crash that left the claim's gate with no job record starts the job. If the reorder breaks a guarantee that a test
+    or a comment names, stop with `BLOCKED` and that guarantee; do not fall back to deleting a branch.
+  - F2 (finding 2): a gate is stale only when, besides no job record and no no-job answer, the claim's copy that
+    validate reads (`claimPath`) names no job: the poller's reconcile writes `job` there once it sees the job's record
+    (`src/integrations/github-poller.ts:387-391`, `persist` → `mirror`), so a job that `limen prune --retire` removed
+    leaves a gate that is not stale. That gate refuses `GITHUB_HANDOFF_GATE` with a message that names the job and says
+    that a new job needs a new request on GitHub, `next: null`, and the same rule holds in `#removeStale`'s read under
+    the lock. A test: a gate whose claim copy names a job with no record refuses and leaves the snapshot identical.
+  - F3 (finding A): `github resolve` makes its gate and writes its answer in one hold of the jobs lock (`withLock` of
+    `jobsLock`, the lock only; its T-38 shape stays R-082's), so a take-over under that lock never meets a resolve
+    between its two writes; the comment at `src/integrations/github-claims.ts:150` says the new rule. Check first that
+    no caller of `recordNoJobAnswer` holds the jobs lock already. A test that fails before, if one can show it with no
+    waiting (T-31); otherwise `outcome.md` says why there is none.
+  - F4 (finding B): `docs/remote.md:163` says each case as the code has it: a `starting` record of the claim or a no-job
+    answer refuses `GITHUB_HANDOFF_GATE`; a running or finished job of the claim is named; a record of another shape
+    refuses `GITHUB_CONFLICT`; a gate whose claim copy names a job refuses (F2); and F1's order (no branch before the
+    record). The header of `src/integrations/github-claims.ts` says the same in short.
+  - F5 (findings 7 and C): a test per rule of `stopCause` through the stop of a member (a typed transient failure stays
+    `transient`, a plain `Error` is `environment`, `JOB_NO_PID` is `environment` with `limen sweep`), and a test that
+    asserts exit code 3 and the code `GROUP_STOP_INCOMPLETE` of the path where every member may still stop (T-02's
+    Check); with no wait longer than the stop's own, or through the shared wrapper on the error if a live member cannot
+    be planted without one, named in `outcome.md`.
+  - F6 (finding 5): one function scans the job records for the claim's marker, in the module that owns the marker;
+    `claimHasJob` and `matchedGithubJob` both use it (T-25 (2)).
+  - F7 (finding 4): `#removeStale` prints its line only when it removed a gate.
+  - F8 (finding 3): the test comments that cite `AC-7` name R-099 with it, or say the property in words (T-30).
+  - No change for finding 6 (`review.md` → Round 1). `outcome.md` is updated: the new tests, the deviations, and Open
+    points 1 and 2, which F2 and F3 close.
+- 2026-11-22, night, review round 2 (`review.md` → Round 2: PASS with four notes, two of which need a fix of code or
+  tests): the second and last round of fixes, for a fresh `rebuild-implementer` (D-026 (2)). After it, review round 3;
+  a finding of round 3 that needs another fix of code goes to Adrian (protocol step 6).
+  - Correction of F1 (finding 1): its sentence "a crash after the record leaves a `starting` record with no pid, which
+    the reaper ends (A-056), and a rerun then names that job" is false: the reaper skips a record that is not
+    `running` (`src/runtime/reap.ts:93`), and prune removes a `starting` record whose spawner is gone after the
+    10-minute grace (`src/runtime/pruning.ts:61-65`, `:175`). F1's change stands; the case is G5's open point.
+  - G1 (finding 2): F2's refusal names the job of the claim's copy only when the value has the form of a job id
+    (`JOB_ID`, `src/job/id.ts`); any other value refuses the same way, `GITHUB_HANDOFF_GATE` with `next: null`, with a
+    message that says the copy names a job and does not print the value, since a job can write that copy and the
+    message reaches the coordinator model. A test with a value that is no job id: the refusal, an identical snapshot,
+    and a message without the value.
+  - G2 (finding 3): `docs/remote.md:163` says which reads run under the jobs lock: validate decides the named job,
+    `GITHUB_CONFLICT` and the gate's refusals with no lock, and only the stale gate's facts (a job record of the claim,
+    the copy's job, the answer) are read again under it before the gate is removed.
+  - G3 (finding 4): a test that makes the review's branch step fail after the job record (for example a branch of that
+    name made between the apply and the step, through the seam of `startCheckedClaim`) and asserts the job's `failed`
+    end with the reason, the gate kept, and the command's exit code and `code`.
+  - G4 (C2): a test of `stopCause`'s refusal rule through the stop of a member (a refusal other than `JOB_NO_PID` is
+    the internal `REFUSED_AFTER_VALIDATE`), asserting the class and, through the shared wrapper or the CLI, exit code 5.
+  - G5 (finding 1 and C1): `outcome.md` says what the code does after a crash between the record and the wrapper's
+    start (`GITHUB_HANDOFF_GATE` until prune removes the `starting` record, then `BRANCH_EXISTS` for `github review`,
+    as at `HEAD`), as an open point, and records C1 (`.limen/.publishing-<id>` left by a crash between the gate and
+    the record, publication's own) as an open point.

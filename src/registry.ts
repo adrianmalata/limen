@@ -906,8 +906,8 @@ const GITHUB: readonly Entry[] = [
 		abbreviated: true,
 		schema: [ROOT, CLAIM, ...DASHED_ROUTE],
 		ids: ["job"],
-		// It runs spawn's operation, whose codes spawn declares; the review's pinned branch, which spawn's apply creates
-		// only for it, must not exist yet (BRANCH_EXISTS).
+		// It runs spawn's operation, whose codes spawn declares; the review's pinned branch, which the spawn makes only for
+		// it once the job's record names it, must not exist yet (BRANCH_EXISTS).
 		refuses: refusals(GITHUB_CLAIM, ["BRANCH_EXISTS", "GITHUB_BASE_MOVED", "GITHUB_HEAD_MOVED", "GITHUB_ISSUE_REVIEW"]),
 		example:
 			"limen github review /srv/project 2468 --engine pi --provider pi-claude --model claude-opus-5-5 --thinking high",

@@ -513,6 +513,11 @@ const UNKNOWN_CLASS: readonly { readonly file: string; readonly code: string; re
 		code: "GROUP_PARTIAL_START",
 		why: "its class is that of the team's failed start after stepFailure (src/operation.ts), which makes a refusal there REFUSED_AFTER_VALIDATE",
 	},
+	{
+		file: "src/job/group-control.ts",
+		code: "GROUP_STOP_INCOMPLETE",
+		why: "its class is that of a member's failed stop: environment for a running member with no pid, else the class after stepFailure (src/operation.ts), which makes a refusal there REFUSED_AFTER_VALIDATE",
+	},
 ];
 
 test("T-28 (1): every refusal and usage code of src/ and hook/ is declared by an entry or the shared list, and each declared code is thrown", async () => {
@@ -557,7 +562,6 @@ const WITHOUT_CODE_TEST: readonly string[] = [
 	"GITHUB_BINDING",
 	"GITHUB_CLAIM_MISMATCH",
 	"GITHUB_DISCONNECTED",
-	"GITHUB_HANDOFF_GATE",
 	"GITHUB_NOT_COORDINATOR",
 	"GITHUB_NO_CLAIM",
 	"GITHUB_ORIGIN",
@@ -675,7 +679,6 @@ const WITHOUT_SUCCESS_TEST: readonly string[] = [
 	"github doctor",
 	"github ensure",
 	"github poll",
-	"github review",
 	"github status",
 	"group advance",
 	"group close",

@@ -93,36 +93,45 @@ export const githubBranch = (claim: GithubClaim) =>
 	`limen/github-${claim.kind === "issue" ? "issue" : "pr"}-${claim.pr}-${claim.id}`;
 
 /**
- * The job that answers the claim: the one record whose task starts with the claim's marker, when its shape is a pinned
- * review or a work job on the claim's branch. Any other shape with the marker throws.
+ * The first job folder of the project, in `jobFolders` order, whose task starts with the claim's marker: the one scan
+ * for the claim's job, in any state and of any shape, which `matchedGithubJob` and the handoff gate both read.
+ */
+export async function markedJob(root: string, claim: GithubClaim): Promise<string | undefined> {
+	const jobsRoot = join(root, ".limen/jobs");
+	for (const id of await jobFolders(jobsRoot)) {
+		if ((await readJobFile(join(jobsRoot, id, "task.md"), 4096)).startsWith(`${githubMarker(claim)}\n`)) {
+			return id;
+		}
+	}
+	return undefined;
+}
+
+/**
+ * The job that answers the claim: the one record whose task starts with the claim's marker (`markedJob`), when its
+ * shape is a pinned review or a work job on the claim's branch. Any other shape with the marker throws.
  */
 export async function matchedGithubJob(
 	root: string,
 	claim: GithubClaim,
 ): Promise<{ id: string; branch: string; state: string; review: boolean } | undefined> {
-	const jobsRoot = join(root, ".limen/jobs");
-	for (const id of await jobFolders(jobsRoot)) {
-		const dir = join(jobsRoot, id);
-		if (!(await readJobFile(join(dir, "task.md"), 4096)).startsWith(`${githubMarker(claim)}\n`)) {
-			continue;
-		}
-		// The record is read under the poller's rule: a regular file with one name, through its validators.
-		const record = await readRecord(dir);
-		if (!record || record.state === "starting") {
-			return undefined; // the wrapper has not run the job yet
-		}
-		const { candidate, base, branch, role } = record;
-		const isReview = claim.kind !== "issue" && candidate === claim.head && base === claim.base;
-		const isWork =
-			!candidate && /^[0-9a-f]{40}$/.test(base ?? "") && role === "worker" && branch === githubBranch(claim);
-		if (!isReview && !isWork) {
-			throw refused(
-				"GITHUB_CONFLICT",
-				`conflicting job ${id} for ${githubMarker(claim)}; inspect it before retrying`,
-				`limen show ${id}`,
-			);
-		}
-		return { id, branch: branch ?? "", state: record.state, review: isReview };
+	const id = await markedJob(root, claim);
+	if (id === undefined) {
+		return undefined;
 	}
-	return undefined;
+	// The record is read under the poller's rule: a regular file with one name, through its validators.
+	const record = await readRecord(join(root, ".limen/jobs", id));
+	if (!record || record.state === "starting") {
+		return undefined; // the wrapper has not run the job yet
+	}
+	const { candidate, base, branch, role } = record;
+	const isReview = claim.kind !== "issue" && candidate === claim.head && base === claim.base;
+	const isWork = !candidate && /^[0-9a-f]{40}$/.test(base ?? "") && role === "worker" && branch === githubBranch(claim);
+	if (!isReview && !isWork) {
+		throw refused(
+			"GITHUB_CONFLICT",
+			`conflicting job ${id} for ${githubMarker(claim)}; inspect it before retrying`,
+			`limen show ${id}`,
+		);
+	}
+	return { id, branch: branch ?? "", state: record.state, review: isReview };
 }

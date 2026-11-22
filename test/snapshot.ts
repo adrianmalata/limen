@@ -6,8 +6,8 @@
 // wrapper exited (`waitJob` of test/plant.ts), and a job that must stay running given as a record whose owner is a
 // process that writes nothing. A live wrapper writes its log and `progress.json` (through a temp file and a rename),
 // so a snapshot taken beside it races it: a file can go between the listing and its read, or change between two
-// snapshots.
-import { execFileSync } from "node:child_process";
+// snapshots. A git call that fails throws, so a snapshot where git cannot run never reads as an empty, equal one.
+import { type SpawnSyncReturns, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
@@ -29,9 +29,9 @@ export type Snapshot = {
 const DIGESTED = [".limen", "spec"] as const;
 
 /**
- * The snapshot of the project at `root`. `also` names more folders, from the root, to digest: one under it, such as
- * `.git/hooks` for a command that once wrote hooks, or the seat's folder beside a test project, `../.limen`
- * (test/plant.ts). Outside a Git repository the git parts are empty.
+ * The snapshot of the project at `root`, a Git repository. `also` names more folders, from the root, to digest: one
+ * under it, such as `.git/hooks` for a command that once wrote hooks, or the seat's folder beside a test project,
+ * `../.limen` (test/plant.ts). A git call that fails throws, except the name of a detached HEAD (`headName`).
  */
 export function snapshot(root: string, also: readonly string[] = []): Snapshot {
 	const files: Record<string, string> = {};
@@ -42,7 +42,7 @@ export function snapshot(root: string, also: readonly string[] = []): Snapshot {
 	return {
 		refs: [
 			git(root, ["for-each-ref", "--format=%(refname) %(objectname)"]),
-			git(root, ["symbolic-ref", "-q", "HEAD"]),
+			headName(root),
 			git(root, ["rev-parse", "-q", "--verify", "HEAD"]),
 		].join(""),
 		worktrees: git(root, ["worktree", "list", "--porcelain"]),
@@ -82,15 +82,38 @@ function digest(root: string, dir: string, files: Record<string, string>): void 
 	}
 }
 
-/** The output of git in `root`, or "" when git fails there, as outside a repository or for a detached HEAD's name. */
+/**
+ * The branch HEAD names, or "" for a detached HEAD: `symbolic-ref -q` then exits 1 with no output and no message, by
+ * design. Any other failure of git throws, as in `git`.
+ */
+function headName(root: string): string {
+	const run = gitRun(root, ["symbolic-ref", "-q", "HEAD"]);
+	return run.status === 1 && run.stdout === "" && run.stderr === "" ? "" : output(root, run);
+}
+
+/** The output of the git call `args` in `root`; a call that fails throws with its exit code and git's message. */
 function git(root: string, args: readonly string[]): string {
-	try {
-		return execFileSync("git", ["-C", root, ...args], {
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "ignore"],
-			env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" },
-		});
-	} catch {
-		return "";
+	return output(root, gitRun(root, args));
+}
+
+/** A finished git call with the arguments it ran. */
+type GitRun = SpawnSyncReturns<string> & { readonly args: readonly string[] };
+
+/** Runs git in `root` with `args`, without the user's or the system's git configuration. */
+function gitRun(root: string, args: readonly string[]): GitRun {
+	const run = spawnSync("git", ["-C", root, ...args], {
+		encoding: "utf8",
+		stdio: ["ignore", "pipe", "pipe"],
+		env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" },
+	});
+	return { ...run, args };
+}
+
+/** The stdout of a git call that exited 0; any other end of it throws. */
+function output(root: string, run: GitRun): string {
+	if (run.status === 0) {
+		return run.stdout;
 	}
+	const reason = run.error?.message ?? (run.stderr.trim() || `exit code ${run.status ?? run.signal}`);
+	throw new Error(`snapshot: git ${run.args.join(" ")} failed in ${root}: ${reason}`);
 }

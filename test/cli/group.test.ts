@@ -2,12 +2,14 @@
 // the same wait. `limen group start` and `limen group stop` refuse before they write (T-38 (1)); a start's team jobs are
 // recorded steps that the same start run again continues, and a stop's failure after its first write is no refusal.
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { groupWaitCommand, waitCapped } from "../../src/commands/group-wait.ts";
 import { main } from "../../src/main.ts";
 import type { Parsed } from "../../src/parser.ts";
+import { platform } from "../../src/platform/platform.ts";
 import { REGISTRY } from "../../src/registry.ts";
 import { withEnvironment } from "../environment.ts";
 import { outputText, readOutcome } from "../final-line.ts";
@@ -407,15 +409,17 @@ async function unstoppable(p: Plant) {
 }
 
 // Before R-092 a member that could not be stopped was a refusal after the stopped flag, the slots, the member stops and
-// stop-report.json; after its first write a stop's failure takes the class T-02 gives it.
-test("GROUP_STOP_INCOMPLETE: group stop of a member it cannot stop exits 3, names the same stop in next and reports the member", async (t) => {
+// stop-report.json; after its first write a stop's failure takes the class T-02 gives its cause. Before R-099 that
+// class was transient here too, so a timer retried a stop that every rerun ends the same way: a record that runs with
+// no pid names no process to signal, a state of the seat's files that the sweep ends (A-056).
+test("GROUP_STOP_INCOMPLETE: group stop of a member that runs with no pid exits 4, names limen sweep in next and reports the member", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const { run, stop, report } = await unstoppable(p);
 	const first = stop();
 	assert.deepEqual(
 		[first.status, readOutcome(first), (await runOf(p, run.id)).stopped, (await report()).length],
-		[3, { class: "transient", code: "GROUP_STOP_INCOMPLETE", next: `limen group stop ${run.id}` }, true, 1],
+		[4, { class: "environment", code: "GROUP_STOP_INCOMPLETE", next: "limen sweep" }, true, 1],
 		first.stderr,
 	);
 });
@@ -431,5 +435,44 @@ test("group stop run again after GROUP_STOP_INCOMPLETE takes the same steps and 
 		[second.status, readOutcome(second), await report()],
 		[first.status, readOutcome(first), firstReport],
 		second.stderr,
+	);
+});
+
+/**
+ * A run whose one member runs as a process that outlives the stop's wait: a child of this test, in the test's process
+ * group, so the stop's signal to the group the member's pid would lead reaches no process, as for a member that the
+ * stop asked to end and that has not ended yet. The plant's environment names the child, so its cleanup ends it.
+ */
+async function lingering(p: Plant) {
+	const run = await partialRun(p);
+	const child = spawn("sleep", ["300"], { env: p.env, stdio: "ignore" });
+	const found = await platform.processInfo(child.pid ?? 0);
+	assert.equal(found.kind, "present", "the member's process runs");
+	const identity = {
+		pid: child.pid ?? 0,
+		born: found.kind === "present" ? found.process.born : null,
+		bootId: platform.bootId() ?? null,
+	};
+	await writeRecord(join(p.root, ".limen/jobs", MEMBER), {
+		state: "running",
+		label: "team-1",
+		group: run.id,
+		team: "team-1",
+		identity,
+	});
+	return run;
+}
+
+// T-02: a member that the stop signalled and that has not ended within the stop's wait may still end, and the same
+// stop run again stops or checks it again, so the stop exits 3, which a timer retries. The one wait is the stop's own.
+test("GROUP_STOP_INCOMPLETE: group stop of a member still live after the stop's wait exits 3 and names the same stop in next", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const run = await lingering(p);
+	const stop = limen(p, ["group", "stop", run.id], { env: { PI_SESSION_ID: LEAD_SESSION } });
+	assert.deepEqual(
+		[stop.status, readOutcome(stop)],
+		[3, { class: "transient", code: "GROUP_STOP_INCOMPLETE", next: `limen group stop ${run.id}` }],
+		stop.stderr,
 	);
 });

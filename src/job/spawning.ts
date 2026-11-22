@@ -1,9 +1,10 @@
 // The spawn of a job (T-26 (2)): `limen spawn`, keeper, group start and the GitHub jobs start one through
 // `startSpawn`, and continue shares its preamble, handshake and versions. A spawn is an operation of T-38
 // (src/operation.ts): its validate makes every check and writes nothing, its apply names and publishes the job under
-// the jobs lock after reading again what the checks relied on, and only then are its worktree made and its wrapper
-// started, a failure of which ends the published job `failed`, so its record names what happened (T-38 (3)). The text
-// a spawn reports goes to `out`, and the shared wrapper prints it when the command ends (D-061 (3)).
+// the jobs lock after reading again what the checks relied on, and only then are the GitHub review's branch and the
+// worktree made and the wrapper started, a failure of which ends the published job `failed`, so its record names what
+// happened (T-38 (3)). The text a spawn reports goes to `out`, and the shared wrapper prints it when the command ends
+// (D-061 (3)).
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
@@ -24,7 +25,6 @@ import {
 	branchExists,
 	commitHasFile,
 	createBranch,
-	deleteBranch,
 	isBranchName,
 	repoRoot,
 	resolveCommit,
@@ -64,7 +64,8 @@ import { currentNotificationSession, herdrWakePane } from "./watching.ts";
 /**
  * A spawn as its flags give it, before any check: the handler reads it from the command line, and keeper, group start
  * and the GitHub jobs build it themselves (T-26). The four route fields are required (D-043). `branchAt`, which no flag
- * gives, is the GitHub review's: `branch` does not exist yet, and the spawn's apply creates it at that commit.
+ * gives, is the GitHub review's: `branch` does not exist yet, and the spawn makes it at that commit once the job's
+ * record names it, before the worktree (`launchChecked`).
  */
 export type SpawnRequest = {
 	readonly task: readonly string[];
@@ -240,10 +241,11 @@ export type SpawnPlan = {
 	readonly candidate: string | undefined;
 	readonly branchAt: string | undefined;
 };
-/** A job spawn's apply published: its id and folder, the worktree to make, and its member slot in a group. */
+/** A job spawn's apply published: its id and folder, the branch its record names, the worktree to make, its slot. */
 export type SpawnedRecord = {
 	readonly id: string;
 	readonly jobDir: string;
+	readonly branch: string;
 	readonly worktree: WorktreePlan;
 	readonly member: GroupMember | undefined;
 };
@@ -399,8 +401,8 @@ async function checkMemberSlot(view: StateView, group: SpawnGroup | undefined): 
 }
 /**
  * The apply of a spawn, under the jobs lock after the re-check (T-38 (2)): the jobs folder, the job's id, its member
- * slot, the folder of job worktrees, the GitHub review's branch, then the published record. A failure after the branch
- * exists removes it, since no record names it yet.
+ * slot, the folder of job worktrees, then the published record. It makes no branch, so a crash before the record leaves
+ * none that no record names.
  */
 async function publishSpawn(plan: SpawnPlan): Promise<SpawnedRecord> {
 	const { options, group, place, jobsRoot } = plan;
@@ -415,41 +417,33 @@ async function publishSpawn(plan: SpawnPlan): Promise<SpawnedRecord> {
 	const worktreeRoot = `${dirname(repository)}/.${basename(repository)}-limen-worktrees`;
 	await mkdir(worktreeRoot, { recursive: true });
 	const worktree = worktreePlan(plan.worktree, `${worktreeRoot}/${id}`, branch, plan.baseCommit);
-	if (plan.branchAt) {
-		createBranch(repository, branch, plan.branchAt);
-	}
 	const jobDir = `${jobsRoot}/${id}`;
-	try {
-		const taskBody = await jobTaskBody(plan, plan.candidate, member);
-		await publishSpawnedJob(plan, {
-			jobDir,
-			id,
-			taskBody,
-			branch,
-			worktree: worktree.path,
-			base: plan.base,
-			role: plan.role,
-			member,
-			candidate: plan.candidate,
-		});
-	} catch (error) {
-		throw await cleanedUp(error, async () => {
-			if (plan.branchAt) {
-				deleteBranch(repository, branch);
-			}
-		});
-	}
-	return { id, jobDir, worktree, member };
+	const taskBody = await jobTaskBody(plan, plan.candidate, member);
+	await publishSpawnedJob(plan, {
+		jobDir,
+		id,
+		taskBody,
+		branch,
+		worktree: worktree.path,
+		base: plan.base,
+		role: plan.role,
+		member,
+		candidate: plan.candidate,
+	});
+	return { id, jobDir, branch, worktree, member };
 }
 /**
- * The steps after a spawn's apply: the job's record exists, so a failure to make its worktree or start its wrapper
- * ends it `failed` with the reason (T-38 (3)). Returns the job's id.
+ * The steps after a spawn's apply: the job's record exists, so a failure to make the GitHub review's branch, the
+ * worktree or the wrapper ends it `failed` with the reason (T-38 (3)). Returns the job's id.
  */
 async function launchChecked(checked: Checked<SpawnPlan, SpawnedRecord>): Promise<string> {
 	const { plan } = checked;
 	const { options, group, place } = plan;
-	const { jobDir, id, worktree: planned, member } = await checked.apply();
+	const { jobDir, id, branch, worktree: planned, member } = await checked.apply();
 	try {
+		if (plan.branchAt) {
+			createBranch(place.repository, branch, plan.branchAt);
+		}
 		const worktree = executeWorktree(place.repository, planned);
 		const setup = {
 			LIMEN_SETUP_KEEP: place.currentRoot,
@@ -740,7 +734,7 @@ async function chooseWorktree(
 		throw usageError("BAD_BRANCH", `--branch ${JSON.stringify(branch)} is no name git takes for a branch`);
 	}
 	if (input.branchAt !== undefined) {
-		// The GitHub review's branch: apply creates it, so it must not exist yet.
+		// The GitHub review's branch: the spawn makes it once the job's record names it, so it must not exist yet.
 		await view.hold(`branch ${branch} in ${root}`, () => {
 			if (branchExists(root, branch)) {
 				throw refused(

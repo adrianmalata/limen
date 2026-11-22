@@ -2,7 +2,7 @@
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
-R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025, R-097. -->
+R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025, R-097, R-099. -->
 
 # Changes
 
@@ -301,3 +301,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-11; `## Deployment` 2.3)
 - Commit: R-097
 - Rollback: git revert $(git log --format=%H --grep='^R-097:' adrian-rebuild --)
+
+## 2026-11-22 R-099 The round-3 notes of R-092: a stale handoff gate, the class of an incomplete stop, the snapshot's git
+- What: `src/integrations/github-claims.ts` (`github review` and `github work` take over, under the jobs lock, a handoff gate with no job record of the claim, no job in the claim's copy and no no-job answer; the copy's job printed only in the form of a job id; a failed start leaves its gate under that lock; `github resolve` makes its gate and answer in one hold of it; `checkedClaimJob` and `startCheckedClaim`); `src/integrations/github-review.ts` (`markedJob`, the one scan for the claim's marker); `src/job/spawning.ts` (the review's branch is made after the job record, in `launchChecked`); `src/job/group-control.ts` (`GROUP_STOP_INCOMPLETE` takes its cause's class: `transient` while a rerun can stop each member, `environment` with `limen sweep` for a member with no pid, the step class otherwise; `incompleteStop`, `stopCause`, `stopMemberJob`); `src/registry.ts` (a comment); `test/snapshot.ts` (`git()` throws on a git failure, except `symbolic-ref -q HEAD` on a detached HEAD); `templates/picture/CONTRACT.md:91`; `docs/remote.md`, `docs/groups.md`, `docs/commands.md`; tests in `test/cli/github.test.ts`, `test/cli/group.test.ts`, `test/integrations/github-claims.test.ts`, `test/job/group-control.test.ts` (new), `test/snapshot.test.ts`, `test/registry.test.ts`, with `pullRequestOrigin` in `test/plant.ts`
+- Why: T-38, T-02, D-077
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (733/733); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (six test files); `node --test test/cli/group.test.ts` → exit 0; `node --test test/snapshot.test.ts` → exit 0
+- Measurement: measured
+- Commit: R-099
+- Rollback: git revert $(git log --format=%H --grep='^R-099:' adrian-rebuild --)

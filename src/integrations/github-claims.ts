@@ -2,8 +2,14 @@
 // the handoff of one claim to that coordinator, the job it starts for a claim, and its answer without a job. The
 // poller (src/integrations/github-poller.ts) runs the CLI for the handoff; the coordinator runs the rest. The job of a
 // claim (`github review`, `github work`) is an operation of T-38 (src/operation.ts): its validate makes the claim's
-// checks and the spawn's before the claim's handoff gate exists, and a start that fails before a job record answers
-// the claim takes the gate and the review's branch away again, so nothing needs recovery by hand.
+// checks and the spawn's before the claim's handoff gate exists, and a start that fails before a job record carries
+// the claim takes the gate away again; the review's branch is made only after that record, so no start that ends
+// before it leaves one. A handoff writes its gate and its job record, and `github resolve` its gate and its answer,
+// under the jobs lock, and a gate leaves only under it. So a rerun names a job of the claim that runs or ended, refuses
+// GITHUB_CONFLICT for a record of the claim in another shape, and GITHUB_HANDOFF_GATE for a gate with a `starting`
+// record of the claim, a no-job answer, or a job that the claim's copy names, all read with no lock; a gate with none
+// of them, read again under that lock, was left by a crash between the gate and the record, and the rerun takes it
+// over with no recovery by hand.
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { chmod, chown, mkdir, readdir, readFile, rm, rmdir } from "node:fs/promises";
@@ -12,17 +18,12 @@ import { join } from "node:path";
 import { inspect } from "node:util";
 import { atomicWrite } from "../atomic-write.ts";
 import { exception } from "../config.ts";
+import { JOB_ID } from "../job/id.ts";
+import { jobsLock } from "../job/reference.ts";
 import { checkedSpawn, type SpawnedRecord, type SpawnPlan, startChecked } from "../job/spawning.ts";
+import { withLock } from "../lock.ts";
 import { type Checked, cleanedUp, runOperation, type StateView, stateChanged } from "../operation.ts";
-import {
-	type CommandText,
-	environmentError,
-	failureOf,
-	JOB_STARTED,
-	refused,
-	type Success,
-	usageError,
-} from "../outcome.ts";
+import { type CommandText, environmentError, JOB_STARTED, refused, type Success, usageError } from "../outcome.ts";
 import { repoRoot } from "../project/git.ts";
 import { hasCode } from "../system-error.ts";
 import { withPollLock } from "./github-poller.ts";
@@ -40,6 +41,7 @@ import {
 	HANDOFF_NONCE,
 	type HerdrAgentRow,
 	liveCoordinator,
+	markedJob,
 	matchedGithubJob,
 	originRepository,
 	readBinding,
@@ -150,19 +152,22 @@ export async function recordNoJobAnswer(
 	) {
 		throw new Error("GitHub claim has a job or does not match binding");
 	}
-	// A no-job decision and a job are mutually exclusive for this claim: the gate's `mkdir` decides, once.
-	const gate = handoffGate(root, claim);
-	await mkdir(join(githubDir(root), "inflight"), { recursive: true });
-	await mkdir(gate);
-	await mkdir(join(githubDir(root), "outcomes"), { recursive: true });
-	// Not `exclusive`: its link gives the file a second name for a moment, and the poller's `readJobFile`
-	// (src/job/record.ts) reads only a file with one name, so a crash in that moment would hide the answer for ever. The
-	// gate above is the exclusion.
-	await atomicWrite(
-		join(githubDir(root), "outcomes", `${claim.id}.json`),
-		`${JSON.stringify({ repo: binding.repo, id: claim.id, coordinator: binding.coordinator, nonce, answer: answer.trim() })}\n`,
-		{ mode: 0o660 },
-	);
+	// A no-job decision and a job are mutually exclusive for this claim: the gate's `mkdir` decides, once. The gate and
+	// the answer are written in one hold of the jobs lock, under which a rerun of review or work takes a stale gate over
+	// (`HandoffGate`), so that rerun never reads this gate before its answer exists and takes it for a crash's.
+	await withLock(jobsLock(root), async () => {
+		await mkdir(join(githubDir(root), "inflight"), { recursive: true });
+		await mkdir(handoffGate(root, claim));
+		await mkdir(join(githubDir(root), "outcomes"), { recursive: true });
+		// Not `exclusive`: its link gives the file a second name for a moment, and the poller's `readJobFile`
+		// (src/job/record.ts) reads only a file with one name, so a crash in that moment would hide the answer for ever.
+		// The gate above is the exclusion.
+		await atomicWrite(
+			answerPath(root, claim),
+			`${JSON.stringify({ repo: binding.repo, id: claim.id, coordinator: binding.coordinator, nonce, answer: answer.trim() })}\n`,
+			{ mode: 0o660 },
+		);
+	});
 	return "coordinator no-job answer recorded; awaiting poller receipt";
 }
 
@@ -227,11 +232,31 @@ export async function startClaimJob(
 	out: CommandText,
 	again: string | null = null,
 ): Promise<Success> {
+	return startCheckedClaim(await checkedClaimJob(mode, registered, claimWord, job, out, again), out);
+}
+
+/** A validated job of a claim: what its validate decided, which `startCheckedClaim` carries out. */
+export type CheckedClaim = { readonly plan: ClaimPlan };
+
+/** The validate of a claim's job (T-38 (1)): every check, and nothing written; `startClaimJob`'s arguments. */
+export async function checkedClaimJob(
+	mode: "review" | "work",
+	registered: string,
+	claimWord: string,
+	job: ClaimJob | undefined,
+	out: CommandText,
+	again: string | null = null,
+): Promise<CheckedClaim> {
 	const plan = await runOperation<ClaimPlan, ClaimPlan>({
 		validate: (view) => validateClaimJob(view, mode, registered, claimWord, job, out, again),
 		apply: async (plan) => plan,
 		again,
 	});
+	return { plan };
+}
+
+/** The writes of a validated claim's job (`startAtGate`), or the job that already answers it; the job's id to `out`. */
+export async function startCheckedClaim({ plan }: CheckedClaim, out: CommandText): Promise<Success> {
 	const id = plan.kind === "answered" ? plan.id : await startAtGate(plan);
 	out.line(id);
 	return { next: null, ids: { job: id }, text: JOB_STARTED };
@@ -287,12 +312,9 @@ async function validateClaimJob(
 	if (found) {
 		return { kind: "answered", id: found.id };
 	}
-	if (view.exists(handoffGate(root, claim))) {
-		throw refused(
-			"GITHUB_HANDOFF_GATE",
-			`claim ${claim.id} already entered a handoff with no job that answers it yet; run limen status --all and look for the job of this claim`,
-			"limen status --all",
-		);
+	const stale = view.exists(handoffGate(root, claim));
+	if (stale) {
+		await refuseHeldGate(view, root, claim);
 	}
 	// Do not move a branch already used by a job. GitHub exposes the fork's PR head through refs/pull/N/head.
 	const review = job.task || claim.kind === "issue" ? undefined : claim;
@@ -300,7 +322,7 @@ async function validateClaimJob(
 		fetchPinnedReview(root, review);
 	}
 	// Spawn names a durable job id; the poller independently reconciles the record before posting a start receipt.
-	const gate = new HandoffGate(root, claim);
+	const gate = new HandoffGate(root, claim, stale, out);
 	const spawn = await checkedSpawn(
 		{
 			task: [githubJobInstruction(claim, job.task)],
@@ -318,45 +340,98 @@ async function validateClaimJob(
 }
 
 /**
+ * Refuses a handoff gate, which exists, that a handoff or a no-job answer got through: a job record that carries the
+ * claim, in any state (a live handoff's record is `starting` until its wrapper runs, so no job answers the claim yet);
+ * a job that the claim's copy names, which the poller writes there once it sees the job's record, so a job whose
+ * folder `limen prune --retire` removed still holds its gate; or the answer of `github resolve`. A gate with none of
+ * them is stale, and validate goes on; the spawn's apply reads all three again under the jobs lock (`HandoffGate`).
+ * The message names the copy's job only in the form of a job id: a job runs as the coordinator's account, so it can
+ * write the copy, and the message reaches the coordinator's model.
+ */
+async function refuseHeldGate(view: StateView, root: string, claim: GithubClaim): Promise<void> {
+	if (await claimHasJob(root, claim)) {
+		throw refused(
+			"GITHUB_HANDOFF_GATE",
+			`claim ${claim.id} already entered a handoff with no job that answers it yet; run limen status --all and look for the job of this claim`,
+			"limen status --all",
+		);
+	}
+	const named: unknown = claim.job;
+	if (typeof named === "string" && JOB_ID.test(named)) {
+		throw refused(
+			"GITHUB_HANDOFF_GATE",
+			`claim ${claim.id} already had job ${named}, which ${claimPath(root, claim.id)} names and no job record holds any more; a new job needs a new request on GitHub`,
+		);
+	}
+	if (named !== undefined) {
+		throw refused(
+			"GITHUB_HANDOFF_GATE",
+			`${claimPath(root, claim.id)} names a job of claim ${claim.id} by a value that is no job id, not printed here, and no job record holds it; a new job needs a new request on GitHub`,
+		);
+	}
+	if (view.exists(answerPath(root, claim))) {
+		throw refused(
+			"GITHUB_HANDOFF_GATE",
+			`claim ${claim.id} has a no-job answer in ${answerPath(root, claim)}, which the poller posts; a job needs a new request on GitHub`,
+		);
+	}
+}
+
+/**
  * The writes of a claim's job: the spawn's apply, whose first write, after its re-check under the jobs lock, is the
  * claim's handoff gate (`HandoffGate`), so a changed state ends the handoff before it writes anything (T-38 (2)). A
- * failure after the gate and before a job record answers the claim takes the gate away again, and the spawn's apply has
- * removed the review's branch it made, so a rerun starts over; once a record answers the claim, the gate stays, and a
- * rerun names that job. A cleanup that fails is added to the failure (`cleanedUp`). Returns the job's id.
+ * failure after the gate and before a job record carries the claim takes the gate away again, and no review's branch
+ * exists yet, since the spawn makes it after the record, so a rerun starts over; once a record carries the claim, the
+ * gate stays, and a rerun names that job. A cleanup that fails is added to the failure (`cleanedUp`). Returns the id.
  */
 async function startAtGate(plan: Extract<ClaimPlan, { kind: "start" }>): Promise<string> {
-	const { root, claim, gate } = plan;
+	const { gate } = plan;
 	try {
 		const started = await startChecked(plan.spawn);
 		return started.ids?.job ?? "";
 	} catch (error) {
 		throw await cleanedUp(error, async () => {
-			if (gate.entered && !(await claimAnswered(root, claim))) {
-				await gate.leave();
+			if (gate.entered) {
+				await gate.leaveWithoutJob();
 			}
 		});
 	}
 }
 
 /**
- * The claim's handoff gate: a folder whose `mkdir` lets one job or one no-job answer through. A handoff that entered it
- * and fails before a job answers the claim leaves it, and the folder of gates too when this handoff made it.
+ * The claim's handoff gate: a folder whose `mkdir` lets one job or one no-job answer through. A handoff enters it and
+ * writes its job record under the jobs lock, `github resolve` enters it and writes its answer under that lock, and it
+ * leaves only under that lock while no job record carries the claim, so a gate that a read under the lock finds with no
+ * job record, no no-job answer and no job in the claim's copy is stale: a crash between the gate and the record left
+ * it. A handoff that entered it and fails before a job record carries the claim leaves it, and the folder of gates too
+ * when this handoff made it.
  */
 class HandoffGate {
 	readonly #root: string;
 	readonly #claim: GithubClaim;
+	/** Whether validate found the gate with no job record of the claim, no job in its copy and no no-job answer. */
+	readonly #stale: boolean;
+	readonly #out: CommandText;
 	#entered = false;
 	#madeFolder = false;
-	constructor(root: string, claim: GithubClaim) {
+	constructor(root: string, claim: GithubClaim, stale: boolean, out: CommandText) {
 		this.#root = root;
 		this.#claim = claim;
+		this.#stale = stale;
+		this.#out = out;
 	}
 	/** Whether this handoff entered the gate. */
 	get entered(): boolean {
 		return this.#entered;
 	}
-	/** Enters the gate; one another handoff or a no-job answer entered since validate is a change (STATE_CHANGED). */
+	/**
+	 * Enters the gate, under the jobs lock of the spawn's apply; a stale gate is removed first (`removeStale`). One
+	 * another handoff or a no-job answer entered since validate is a change (STATE_CHANGED).
+	 */
 	async enter(): Promise<void> {
+		if (this.#stale) {
+			await this.#removeStale();
+		}
 		this.#madeFolder = (await mkdir(join(githubDir(this.#root), "inflight"), { recursive: true })) !== undefined;
 		try {
 			await mkdir(handoffGate(this.#root, this.#claim));
@@ -368,12 +443,44 @@ class HandoffGate {
 		}
 		this.#entered = true;
 	}
-	/** Leaves the gate, and removes the folder of gates when this handoff made it and it holds no other gate. */
-	async leave(): Promise<void> {
-		await rm(handoffGate(this.#root, this.#claim), { recursive: true, force: true });
-		if (this.#madeFolder) {
-			await removeEmptyFolder(join(githubDir(this.#root), "inflight"));
+	/**
+	 * Removes the stale gate validate found, once a read under the jobs lock still finds no job record of the claim, no
+	 * job in its copy and no no-job answer; a live handoff holds that lock from its gate to its record, and a resolve
+	 * from its gate to its answer, so neither gate is removed here (T-38 (2)). What validate did not find, found now, is
+	 * a change since validate (STATE_CHANGED), with nothing written. A gate already gone, which a failed start's cleanup
+	 * took under the same lock, leaves nothing to remove or to report.
+	 */
+	async #removeStale(): Promise<void> {
+		const root = this.#root;
+		const claim = this.#claim;
+		const copy = claimOf(await readFile(claimPath(root, claim.id), "utf8"));
+		if ((await claimHasJob(root, claim)) || copy.job !== undefined || existsSync(answerPath(root, claim))) {
+			throw stateChanged(`the handoff gate of claim ${claim.id}`);
 		}
+		const gate = handoffGate(root, claim);
+		if (!existsSync(gate)) {
+			return;
+		}
+		await rm(gate, { recursive: true, force: true });
+		this.#out.line(
+			`removed the handoff gate of claim ${claim.id}, which a start that ended before its job record left`,
+		);
+	}
+	/**
+	 * Leaves the gate after a failed start, under the jobs lock, unless a job record carries the claim by then, so a
+	 * rerun that reads the gate under that lock never meets a gate that leaves; it removes the folder of gates too when
+	 * this handoff made it and it holds no other gate.
+	 */
+	async leaveWithoutJob(): Promise<void> {
+		await withLock(jobsLock(this.#root), async () => {
+			if (await claimHasJob(this.#root, this.#claim)) {
+				return;
+			}
+			await rm(handoffGate(this.#root, this.#claim), { recursive: true, force: true });
+			if (this.#madeFolder) {
+				await removeEmptyFolder(join(githubDir(this.#root), "inflight"));
+			}
+		});
 	}
 }
 
@@ -388,16 +495,18 @@ async function removeEmptyFolder(path: string): Promise<void> {
 	}
 }
 
-/** Whether a job record answers `claim`: one that matches it, or one that conflicts with it, which a person reads. */
-async function claimAnswered(root: string, claim: GithubClaim): Promise<boolean> {
-	try {
-		return (await matchedGithubJob(root, claim)) !== undefined;
-	} catch (error) {
-		if (failureOf(error).code === "GITHUB_CONFLICT") {
-			return true;
-		}
-		throw error;
-	}
+/**
+ * Whether a job record of the project carries the claim's marker (`markedJob`), in any state and of any shape: the
+ * record a handoff writes right after the gate, also while it is `starting` and `matchedGithubJob` names no job yet, and
+ * one that conflicts with the claim, which a person reads.
+ */
+async function claimHasJob(root: string, claim: GithubClaim): Promise<boolean> {
+	return (await markedJob(root, claim)) !== undefined;
+}
+
+/** Where `github resolve` writes the claim's no-job answer, which the poller posts. */
+function answerPath(root: string, claim: GithubClaim): string {
+	return join(githubDir(root), "outcomes", `${claim.id}.json`);
 }
 
 /** The claim in the checkout's status copy `text`, as the poller wrote it. */
@@ -534,7 +643,7 @@ function git(root: string, args: string[]): string {
 /**
  * Checks that the PR's base and head on GitHub are still the claim's, then fetches both commits with no ref and no
  * FETCH_HEAD, so a refusal after it leaves no ref: commits with no ref are no state a snapshot or a person sees, and
- * the review's branch is made only by the spawn's apply.
+ * the review's branch is made only by the spawn, once the job's record names it.
  */
 export function fetchPinnedReview(
 	root: string,

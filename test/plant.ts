@@ -481,6 +481,40 @@ export async function pathWithOldGit(plant: Plant): Promise<string> {
 	return `${folder}:${plant.env.PATH}`;
 }
 
+/**
+ * Pull request `pr` of the plant as GitHub serves it, from a local remote in GitHub's place: a clone of the plant whose
+ * `refs/pull/<pr>/head` is one commit past `main`. Returns the base, the head and a PATH whose first `git` reads
+ * `origin` in `ls-remote` and `fetch` as that remote, so a review's checks reach no network, and passes every call to
+ * the plant's git; `git remote get-url origin` still names what the plant set.
+ */
+export async function pullRequestOrigin(
+	plant: Plant,
+	pr: number,
+): Promise<{ readonly base: string; readonly head: string; readonly path: string }> {
+	const remote = join(plant.parent, "remote");
+	git(plant.parent, "clone", "-q", plant.root, remote);
+	git(remote, "checkout", "-qb", "pull");
+	const identity = ["-c", "user.name=Limen Test", "-c", "user.email=limen@example.test"];
+	git(remote, ...identity, "commit", "-q", "--allow-empty", "-m", "the pull request");
+	const head = git(remote, "rev-parse", "pull");
+	git(remote, "update-ref", `refs/pull/${pr}/head`, head);
+	const base = git(remote, "rev-parse", "main");
+	const folder = join(plant.parent, "pull-request-origin");
+	await mkdir(folder);
+	const script = [
+		"#!/bin/sh",
+		'if [ "$1" = ls-remote ] || [ "$1" = fetch ]; then',
+		"\tfor arg do",
+		"\t\tshift",
+		`\t\tif [ "$arg" = origin ]; then set -- "$@" '${remote}'; else set -- "$@" "$arg"; fi`,
+		"\tdone",
+		"fi",
+		`PATH='${plant.env.PATH}' exec git "$@"`,
+	].join("\n");
+	await writeFile(join(folder, "git"), `${script}\n`, { mode: 0o755 });
+	return { base, head, path: `${folder}:${plant.env.PATH}` };
+}
+
 export function git(cwd: string, ...args: readonly string[]): string {
 	return execFileSync("git", args, {
 		cwd,

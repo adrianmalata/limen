@@ -77,7 +77,10 @@ w rejestrze, skany kodów i testów przez drzewo składni, zapadki 70/35/29, tes
 710/710, trzy rundy recenzji: FAIL, PASS, PASS) i R-097 (awaria na limicie subskrypcji jako `quota`; bramka
 714/714), więc etap 2 ma wszystkie 18 ticketów zamknięte, a w `## State` czeka gotowe podsumowanie bramki 5.2;
 Q-26 → D-077: nowy ticket naprawczy R-099 (uwagi rundy 3 R-092) gotowy i drugi przebieg runnera do 9:00 za zgodą
-Adriana. -->
+Adriana; R-099 zamknięty w nocy (przejęcie osieroconej bramki przekazania GitHub pod blokadą jobów, gałąź recenzji po
+rekordzie joba, `github resolve` pod tą blokadą, klasa `GROUP_STOP_INCOMPLETE` według przyczyny, `git()` migawki
+zgłasza błędy; bramka 733/733, recenzja FAIL, PASS, PASS), więc etap 2 ma 19 z 19 ticketów zamkniętych. -->
+
 
 
 
@@ -1321,7 +1324,7 @@ Columns:
 | R-095 | The round-3 notes of R-022 and R-094: the shared-token report, `keeper`'s de-duplication, the record check | 2 | T-01, T-29, T-30, D-065 | R-022, R-094 | S | delegated | night | — | — | — | done |
 | R-096 | One wake per event: the extra wake of the held-gate queue test, found and removed | 2 | T-29, D-067 | R-023, R-095 | S | delegated | night | — | — | — | done |
 | R-097 | A failure on the subscription limit is `quota`, in the migration and at finalize | 2 | A-016, D-057, D-071 | R-021 | S | delegated | night | — | — | 2.3 | done |
-| R-099 | The round-3 notes of R-092: a stale handoff gate, the class of an incomplete stop, the snapshot's git | 2 | T-38, T-02, D-077 | R-092 | S | delegated | night | — | — | — | ready |
+| R-099 | The round-3 notes of R-092: a stale handoff gate, the class of an incomplete stop, the snapshot's git | 2 | T-38, T-02, D-077 | R-092 | S | delegated | night | — | — | — | done |
 | R-024 | `limen stats` over records and transcripts | 2 | H-01, H-20, §2, T-33, D-072, D-073 | R-021, R-023 | M | delegated | night | — | pi | 2.3 | done |
 | R-025 | Test coverage derived from the command registry | 2 | T-28, T-29, D-045, D-046, D-075, D-076 | R-014, R-023, R-092 | M | delegated | night | — | — | — | done |
 | R-026 | Every job runs in its own systemd user scope | 3 | A-029, A-052, T-43 | R-020, R-021 | L | delegated | night | — | systemd | 3.2, 3.7, 3.8 | planned |
@@ -1996,9 +1999,10 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 ## State
 
 Updated 2026-11-22, night run (until 09:00), rebuild stage 5 in plan stage 2: stage 1 is closed at `a0.1.1`
-(deployed on 2026-11-20, with B.2 closed by D-050); stage 2 has all 18 tickets done (R-015–R-025, R-089,
-R-092–R-097), and its close, gate 5.2 and the tag `a0.2.0` wait for the day ("Gate 5.2 summary" below). The newest entries are at the end of this section, from
-"Day session of 2026-11-21, continued (`limen-rebuild-16`", and the night's in "Night run of 2026-11-22".
+(deployed on 2026-11-20, with B.2 closed by D-050); stage 2 has all 19 tickets done (R-015–R-025, R-089,
+R-092–R-097, R-099), and its close, gate 5.2 and the tag `a0.2.0` wait for the day ("Gate 5.2 summary" below). The newest entries are at the end of this section, from
+"Day session of 2026-11-21, continued (`limen-rebuild-16`", and the night's in "Night run of 2026-11-22" and "Night
+run of 2026-11-22, the runner's second start".
 
 Handover of 2026-11-19 (D-033, at 37 % context, after the commit `R-014:`): `limen-rebuild-5` started
 `limen-rebuild-6` in `tmux` in remote-control mode (14:10) and ended. WSL booted at 10:34 on 2026-11-19, after the
@@ -2899,11 +2903,11 @@ lowest `ready` ID first: R-024, R-025, R-097):
   below (the night mode: no gate and no tag at night).
 
 Gate 5.2 summary (stage 2's tickets are done; the close and the gate are by day, with Adrian):
-- Close (for the day session, `## Stages` → Closing a stage): not run at night. The last gate is 714/714 at R-097's
+- Close (for the day session, `## Stages` → Closing a stage): not run at night. The last gate is 733/733 at R-099's
   tree; the close runs the gate twice (once through the gate-time tool, M-10), `check.mjs` and Biome on
   `adrian-rebuild`, commits `Stage 2: close` and tags `a0.2.0` locally with Adrian.
-- Tickets: R-015–R-025, R-089 and R-092–R-097 done (18 of 18; R-092–R-097 are the stage's fix and follow-up tickets
-  from D-061–D-071). Gate 253/253 at a0.1.1 → 714/714.
+- Tickets: R-015–R-025, R-089, R-092–R-097 and R-099 done (19 of 19; R-092–R-097 and R-099 are the stage's fix and
+  follow-up tickets from D-061–D-071 and D-077). Gate 253/253 at a0.1.1 → 733/733 (R-099's final tree).
 - Findings and rules addressed by stage 2 (each ticket's `## Problem` names how far): A-016 in part (R-097: the
   `quota` kind; the reset time and resume are R-029 and R-034), A-017, A-018, A-055, A-058 and A-087 (R-019), A-019,
   A-053, A-056 and S1+ (R-021), A-022 (R-018), A-083 (R-020, after R-008's part); H-01, H-20 and §2 (R-024); taste
@@ -2918,13 +2922,14 @@ Gate 5.2 summary (stage 2's tickets are done; the close and the gate are by day,
   running), 2.2 (no extension error after `/reload`), 2.3 (`limen stats` against gate 2's counts: 142 jobs, 18 failed,
   12 of them `quota` by R-097), 2.4 (the `LIMEN_*` variables); then B.3. The projects stay stopped until a0.3.0
   (D-012).
-- For Adrian's decision at the gate: Q-26 (R-092's round-3 notes; recommended: the fix ticket R-099, S, delegated,
-  night); the night defaults of R-024 (the direct test of `projectStatistics`) and R-025 (`SHARED_CODES` with
-  `UNKNOWN_COMMAND`, `REMOVED` and `UNTYPED`; the implementer's choices, `outcome.md` → Deviations 6–11); the open
-  points of R-019, R-021, R-022, R-023, R-095 and R-096 (as listed in the entries above) and of R-024, R-025 and R-097
-  (their `outcome.md` → Open points), of which three ask a ticket's scope: whether R-025's scan (b)3 holds a test by
-  the command it runs (for R-082), and the second copies of the ISO-time pattern (R-024) and of the 429 rule (R-097),
-  T-25 (2).
+- For Adrian's decision at the gate: the night defaults of R-024 (the direct test of `projectStatistics`), R-025
+  (`SHARED_CODES` with `UNKNOWN_COMMAND`, `REMOVED` and `UNTYPED`; the implementer's choices, `outcome.md` →
+  Deviations 6–11) and R-099 (F1–F3 and G1, `ticket.md` → `## Decisions`; F3 reaches beyond its `## Out of scope`);
+  the open points of R-019, R-021, R-022, R-023, R-095 and R-096 (as listed in the entries above) and of R-024, R-025,
+  R-097 and R-099 (their `outcome.md` → Open points), of which four ask a ticket's scope: whether R-025's scan (b)3
+  holds a test by the command it runs (for R-082), the second copies of the ISO-time pattern (R-024) and of the 429
+  rule (R-097), T-25 (2), and where `limen github status`'s unchecked print of the claim copy's `job` goes (R-099's
+  Open point 9, no ticket row names it). Q-26 was resolved by D-077 (R-099, done).
 
 The main session `limen-rebuild-17`, at night with Adrian's consent (D-077):
 - Q-26 → D-077 (Adrian, about 00:10: "Zgadzam się na nowy ticket nocny R-099"); his "tak" (about 00:20) to starting
@@ -2934,6 +2939,38 @@ The main session `limen-rebuild-17`, at night with Adrian's consent (D-077):
   D-025); the D-024 preflight, then `night.mjs --until 09:00`. Stage 2 now holds R-099 too: the gate summary above
   counts 18 tickets without it.
 - A correction: R-092's commit `6556e38` was made at 00:05, not at 00:20 as an entry above says.
+
+Night run of 2026-11-22, the runner's second start (until 09:00; `night.mjs` run 1 started at 04:29:05, from
+`4cc9eb0`, the tree clean and pushed):
+- R-099 `active` (delegated, from 04:35). The implementer's `DONE` at about 05:02; `compare --git` exit 0; the main
+  session's gate 722/722, `fails-before.mjs` exit 0 (six files). Review round 1: the first reply rejected by
+  `review-verdict.mjs` for its form (AC-6), a fresh reviewer's reply FAIL with one blocking finding (`github review`
+  after a crash refuses `BRANCH_EXISTS`); fixes F1–F8 in `ticket.md` → `## Decisions` (F1–F3 night defaults), for the
+  first round of fixes by a fresh implementer (from about 05:50).
+- The first round of fixes `DONE` at about 06:00; `compare --git` exit 0; the main session's gate 730/730,
+  `fails-before.mjs` exit 0. Review round 2: the first reply rejected for its form (bullet lines), a fresh reviewer's
+  reply PASS with four notes, two needing code or tests (F2's message prints an unchecked field of the claim's copy;
+  no test of the review branch's failure after the record); fixes G1–G5 for the second and last round of fixes (from
+  about 06:30).
+- R-099 `done` (delegated; review FAIL, PASS, PASS with two rounds of fixes by fresh implementers, D-026 (2); one
+  reply each in rounds 1 and 2 rejected by `review-verdict.mjs` for its form and given again by a fresh reviewer with
+  the tree unchanged): `github review` and `github work` take over, under the jobs lock, a handoff gate with no job
+  record of the claim, no job in the claim's copy and no no-job answer; the review's branch is made after the job
+  record; `github resolve` makes its gate and answer in one hold of the jobs lock; the copy's job is printed only in
+  the form of a job id; `GROUP_STOP_INCOMPLETE` takes its cause's class (exit 3, 4 or 5, each tested); the snapshot's
+  `git()` throws on a git failure; `templates/picture/CONTRACT.md:91`. Round 3's two notes (`docs/` only) fixed by the
+  main session (D-053 (2)). The main session's gate 733/733 on the final tree; `fails-before.mjs` exit 0 (six files).
+  Night defaults for Adrian to confirm (`ticket.md` → `## Decisions`, rounds 1 and 2): F1 (the review's branch after
+  the record, not a deletion of a stale branch), F2 (a gate whose claim copy names a job stays, so a job retired by
+  `limen prune --retire` gets no second job), F3 (`github resolve` under the jobs lock, beyond `## Out of scope`'s "the
+  rest of `github`", since the take-over would otherwise weaken the gate's exclusion), G1 (the copy's job printed only
+  as a job id). Open points for gate 5.2 (`outcome.md` → Open points 2, 5, 7–9): a job retired before the poller saw
+  it past `starting`; `github resolve` on a crash's gate fails at its `mkdir` (R-082); a crash between the record and
+  the wrapper's start (`GITHUB_HANDOFF_GATE` until prune, then `BRANCH_EXISTS` for `github review`, as at `HEAD`);
+  `.limen/.publishing-<id>` left by a crash (publication's ticket); `limen github status` prints the copy's `job`
+  field unchecked, as at `HEAD` (no ticket row names it).
+- Stage 2 has no ticket left again, so the night ends with the reason `done` (`.night/status.json`); the gate summary
+  above now counts 19 tickets with R-099.
 
 Active ticket: none.
 
@@ -2947,9 +2984,9 @@ documents:
   (recommended); 2. also only spawn, continue and stop; 3. every change command without `movedBy` now.
 
 Next (by day):
-1. The night's second run (from about 04:35, until 09:00): R-099, the only `ready` ticket. In the morning: check
+1. The night's second run ended with `done` after R-099 (committed and pushed as `R-099:`). In the morning: check
    that its commit is pushed and the tree is clean; the close of stage 2 and gate 5.2 by phone with the "Gate 5.2
-   summary" above (the night defaults and open points, R-099 added); the tag `a0.2.0`; then the tickets of stage 3
+   summary" above (the night defaults and open points, R-099's included); the tag `a0.2.0`; then the tickets of stage 3
    `ready` by day (D-074). The day session hands over first (D-047; `limen-rebuild-17` is at 40 % context).
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as

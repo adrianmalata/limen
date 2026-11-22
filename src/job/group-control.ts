@@ -12,7 +12,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { atomicRename } from "../atomic-write.ts";
 import { transport } from "../config.ts";
 import { type Checked, cleanedUp, runOperation, type StateView, stepFailure } from "../operation.ts";
-import { type CommandText, failureOf, LimenError, refused, usageError } from "../outcome.ts";
+import { type CommandText, type FailureClass, failureOf, LimenError, refused, usageError } from "../outcome.ts";
 import { commitHasFile, headCommit, repoRoot, worktreeState } from "../project/git.ts";
 import { preflightEngine, resolveSpawnEngine } from "../runtime/engine.ts";
 import { normalizeWorkerExtensions } from "../runtime/worker-extensions.ts";
@@ -522,8 +522,8 @@ async function leadGroup(given: string | undefined, cwd: string, command: string
  * `limen group stop`, an operation of T-38: its validate refuses a caller that is not the lead, and its apply sets the
  * run's stopped flag under the cabinet lock, which blocks new launches. Then its idempotent steps: the launch lock
  * drains, each reserved slot ends, each live member stops, and `stop-report.json` names what did not. A member it
- * could not confirm stopped is no refusal: the stop fails as transient (T-02), and the same stop run again finishes
- * it. Each member's stop line goes to `out`.
+ * could not confirm stopped is no refusal: the stop fails with the class of that member's cause (`incompleteStop`).
+ * Each member's stop line goes to `out`.
  */
 export async function stopGroup(given: string | undefined, cwd: string, out: CommandText): Promise<void> {
 	const stopped = await runOperation({
@@ -540,14 +540,45 @@ export async function stopGroup(given: string | undefined, cwd: string, out: Com
 		throw stepFailure(error);
 	});
 	if (failures.length) {
-		throw new LimenError({
-			class: "transient",
-			code: "GROUP_STOP_INCOMPLETE",
-			message: `group ${run.feature} (${run.id}) blocked new launches but some jobs could not be stopped:\n${failures.join("\n")}\nRun limen group status ${run.id}, then limen group stop ${run.id} again`,
-			next: `limen group stop ${run.id}`,
-		});
+		throw incompleteStop(run, failures);
 	}
 	out.line("group stopped; recovery work and unread events retained until close");
+}
+/**
+ * A member a stop could not confirm stopped: its line in `stop-report.json`, the class T-02 gives its cause, and, for
+ * a cause that no stop changes, what the owner runs first.
+ */
+export type MemberFailure = {
+	readonly line: string;
+	/** `transient` while the same stop run again can still stop the member; otherwise its cause's class. */
+	readonly class: FailureClass;
+	readonly remedy?: { readonly next: string; readonly text: string };
+};
+/**
+ * The failure of a stop that could not confirm every member stopped, after its first write (T-38 (3)). While the same
+ * stop run again can still stop each member, it is transient with that stop in `next`, which a timer retries (T-02).
+ * Otherwise a rerun ends the same way, so it takes the class of the first cause no rerun changes, which rings at once,
+ * and `next` names what the owner runs: the cause's remedy, or the same stop once the cause is fixed.
+ */
+export function incompleteStop(run: Pick<GroupRun, "id" | "feature">, failures: readonly MemberFailure[]): LimenError {
+	const again = `limen group stop ${run.id}`;
+	const lines = failures.map(({ line }) => line).join("\n");
+	const lasting = failures.find((failure) => failure.class !== "transient");
+	if (lasting === undefined) {
+		return new LimenError({
+			class: "transient",
+			code: "GROUP_STOP_INCOMPLETE",
+			message: `group ${run.feature} (${run.id}) blocked new launches but some jobs could not be stopped:\n${lines}\nRun limen group status ${run.id}, then ${again} again`,
+			next: again,
+		});
+	}
+	const remedy = lasting.remedy?.text ?? "Fix the cause above";
+	return new LimenError({
+		class: lasting.class,
+		code: "GROUP_STOP_INCOMPLETE",
+		message: `group ${run.feature} (${run.id}) blocked new launches but some jobs could not be stopped, and the same stop run again ends the same way:\n${lines}\n${remedy}, then run ${again} again`,
+		next: lasting.remedy?.next ?? again,
+	});
 }
 /**
  * The steps of a stop after its stopped flag, each one idempotent: the launch lock drains, then each member's reserved
@@ -556,9 +587,9 @@ export async function stopGroup(given: string | undefined, cwd: string, out: Com
 async function stopMembers(
 	stopped: GroupRun,
 	out: CommandText,
-): Promise<{ readonly run: GroupRun; readonly failures: readonly string[] }> {
+): Promise<{ readonly run: GroupRun; readonly failures: readonly MemberFailure[] }> {
 	const run = await groupLock(`${groupPath(stopped)}/launch`, () => readRun(stopped.root, stopped.id), "wait");
-	const failures: string[] = [];
+	const failures: MemberFailure[] = [];
 	for (const member of run.members) {
 		await stopReservedSlot(run, member);
 		const failure = await stopMemberJob(run, member, out);
@@ -566,7 +597,7 @@ async function stopMembers(
 			failures.push(failure);
 		}
 	}
-	await saveJson(`${groupPath(run)}/stop-report.json`, { at: Date.now(), failures });
+	await saveJson(`${groupPath(run)}/stop-report.json`, { at: Date.now(), failures: failures.map(({ line }) => line) });
 	return { run, failures };
 }
 /**
@@ -580,23 +611,52 @@ async function stopReservedSlot(run: GroupRun, member: GroupMember): Promise<voi
 		set: (record) => ({ group: record.group ?? run.id, team: record.team ?? member.team }),
 	});
 }
-/** Stops a live member job and waits up to 6 s for it to end. Returns why it is not confirmed stopped. */
-async function stopMemberJob(run: GroupRun, member: GroupMember, out: CommandText): Promise<string | undefined> {
+/**
+ * The stop of one member job, with the member's id, the reason and the project's root: `stopJob` in Limen's own calls.
+ * The tests' injection point (D-029), since no state of the files makes `stopJob` end transiently there with no wait;
+ * no setting chooses it (T-03).
+ */
+export type MemberStop = (id: string, reason: string, root: string) => Promise<string>;
+/**
+ * Stops a live member job and waits up to 6 s for it to end. Returns why it is not confirmed stopped: a member still
+ * live after the wait may end yet, and the same stop run again stops or checks it again, so that failure is transient;
+ * a stop that failed has the class of its cause (`stopCause`).
+ */
+export async function stopMemberJob(
+	run: Pick<GroupRun, "root">,
+	member: GroupMember,
+	out: CommandText,
+	stop: MemberStop = stopJob,
+): Promise<MemberFailure | undefined> {
 	if (!(await memberLive(run.root, member))) {
 		return;
 	}
+	const name = `${member.team} ${member.role} (${member.id})`;
 	try {
-		out.line(await stopJob(member.id, "group stopped by lead", run.root));
+		out.line(await stop(member.id, "group stopped by lead", run.root));
 		const until = Date.now() + 6_000;
 		let live = await memberLive(run.root, member);
 		while (live && Date.now() < until) {
 			await delay(100);
 			live = await memberLive(run.root, member);
 		}
-		return live ? `${member.team} ${member.role} (${member.id}): not confirmed stopped (${live})` : undefined;
+		return live ? { line: `${name}: not confirmed stopped (${live})`, class: "transient" } : undefined;
 	} catch (error) {
-		return `${member.team} ${member.role} (${member.id}): ${error instanceof Error ? error.message : String(error)}`;
+		return { line: `${name}: ${error instanceof Error ? error.message : String(error)}`, ...stopCause(error) };
 	}
+}
+/**
+ * The class T-02 gives the cause of a member stop that failed, and its remedy. A running record with no pid names no
+ * process, so every stop refuses it (JOB_NO_PID, src/job/stopping.ts): that is the seat's state, which the sweep ends,
+ * since it ends a running job whose process is unknown (A-056). Any other failure keeps the class a step's failure has
+ * (`stepFailure`), so a refusal there is the internal REFUSED_AFTER_VALIDATE.
+ */
+function stopCause(error: unknown): Pick<MemberFailure, "class" | "remedy"> {
+	if (error instanceof LimenError && error.code === "JOB_NO_PID") {
+		const text = "No stop can signal a job whose record names no process; limen sweep ends such a job";
+		return { class: "environment", remedy: { next: "limen sweep", text } };
+	}
+	return { class: failureOf(stepFailure(error)).class };
 }
 /**
  * `limen group close`: marks the run closed once every member job is over and no member worktree holds uncommitted Git
