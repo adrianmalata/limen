@@ -80,10 +80,10 @@ Q-26 → D-077: nowy ticket naprawczy R-099 (uwagi rundy 3 R-092) gotowy i drugi
 Adriana; R-099 zamknięty w nocy (przejęcie osieroconej bramki przekazania GitHub pod blokadą jobów, gałąź recenzji po
 rekordzie joba, `github resolve` pod tą blokadą, klasa `GROUP_STOP_INCOMPLETE` według przyczyny, `git()` migawki
 zgłasza błędy; bramka 733/733, recenzja FAIL, PASS, PASS), więc etap 2 ma 19 z 19 ticketów zamkniętych;
-przekazanie do limen-rebuild-18, która zamknęła etap 2 (bramka 733/733 dwukrotnie, M-10 150,8 s, `check.mjs` bez
-błędów, lokalny tag a0.2.0 na commicie `Stage 2: close`); bramka 5.2 czeka na odpowiedzi Adriana na Q-27–Q-30
-(domyślne decyzje nocne, format rekordu przy nieznanym polu, rozmieszczenie otwartych punktów z nowym ticketem R-100,
-przejście do etapu 3). -->
+przekazanie do limen-rebuild-18, która zamknęła etap 2 (bramka 733/733 dwukrotnie, M-10 150,8 s, lokalny tag
+a0.2.0 na commicie `Stage 2: close`; `check.mjs` na tym commicie zgłaszał dwa błędy tekstu planu, poprawione
+w następnym commicie); bramka 5.2 czeka na odpowiedzi Adriana na Q-27–Q-31 (domyślne decyzje nocne, format rekordu
+przy nieznanym polu, rozmieszczenie otwartych punktów z nowym ticketem R-100, przejście do etapu 3, tag a0.2.0). -->
 
 
 
@@ -2005,7 +2005,7 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 Updated 2026-11-22 by day (`limen-rebuild-18`), rebuild stage 5 in plan stage 2: stage 1 is closed at `a0.1.1`
 (deployed on 2026-11-20, with B.2 closed by D-050); stage 2 has all 19 tickets done (R-015–R-025, R-089,
 R-092–R-097, R-099) and is closed: the commit `Stage 2: close` carries the local tag `a0.2.0`, and gate 5.2 waits for
-Adrian's answers to Q-27–Q-30 ("Close of stage 2" near the end of this section). The newest entries are at the end of
+Adrian's answers to Q-27–Q-31 ("Close of stage 2" near the end of this section). The newest entries are at the end of
 this section, from "Day session of 2026-11-21, continued (`limen-rebuild-16`", the night's in "Night run of
 2026-11-22" and "Night run of 2026-11-22, the runner's second start", and the close in "Close of stage 2".
 
@@ -2983,14 +2983,25 @@ push was skipped as redundant, the terminal being active; context 9 % at the sta
 - At `224afe6` (the tree clean, `HEAD` pushed, `.night/status.json` `done`) the gate exits 0 with 733/733 twice (once
   alone in 151.4 s, once through the gate-time tool), `check.mjs` reports 0 errors and Biome is clean on
   `adrian-rebuild`; M-10: 150.8 s (`evidence/gate-time-a0.2.0.md`; 82.2 s at a0.1.1 with 253 tests).
-- The commit `Stage 2: close` and the local annotated tag `a0.2.0` on it; the tag's full SHA is in the gate reply and
-  is the argument of `## Deployment` 2.0. The gate summary is "Gate 5.2 summary" above, with R-099 (19 tickets).
+- The commit `Stage 2: close` (`56f8168`) and the local annotated tag `a0.2.0` on it; the tag's full SHA is in the
+  gate reply and is the argument of `## Deployment` 2.0. The gate summary is "Gate 5.2 summary" above, with R-099 (19
+  tickets).
+- A slip at the close: `check.mjs` ran on the close commit's text before `git commit` and reported 2 errors (a
+  `path:line` reference to a file that `rebuild-base` lacks, and a filler word of T-17, both in this entry), but the
+  command chain piped it into `tail`, whose exit 0 let the commit, the push and the tag run. The next commit fixes
+  the two lines, after which `check.mjs` exits 0. The tag stays on `56f8168`: moving it (`git tag -f`) is on the
+  deny list and is Adrian's (Q-31), and the code under the tag is that of `224afe6`, which the gate passed twice
+  (the close commit changes only `plan.md` and adds `evidence/gate-time-a0.2.0.md`). Rule from now on: `check.mjs`
+  and the gate run as their own command, and their exit code is read before any commit.
+  - Q-31: the tag `a0.2.0` on `56f8168`, whose `check.mjs` reports those 2 text errors. Options: 1. keep it
+    (recommended: the deployed tree is the gated code, and nothing in `plan.md` reaches the seat); 2. a PATCH tag
+    `a0.2.1` on the fix commit, which the session can make itself (a new tag deletes nothing), and 2.0 deploys it.
 - Asked at gate 5.2 in the conversation, with a push (Adrian's answers become D-078 onwards):
   - Q-27: the night defaults of stage 2 (R-019 `outcome.md` → `## Night defaults` 1–17, among them `LOCK_TIMEOUT`'s
     empty `next` and the code `LOCK_LOST`; R-021's and R-022's `## Night defaults` and R-021's two deviations; R-024's
     direct test in `test/job/statistics.test.ts`; R-025's `SHARED_CODES` with `UNKNOWN_COMMAND`, `REMOVED` and
     `UNTYPED` and its Deviations 6–11; R-099's F1, F2, F3 and G1). Options: 1. confirm all (recommended: each passed
-    review, and none closes a door a later ticket needs); 2. confirm all but the ones named; 3. revisit them one by one.
+    review, and none closes a door that a ticket of a coming stage needs); 2. confirm all but the ones named; 3. revisit them one by one.
   - Q-28: R-021's format question (review round 2, finding 4): records refuse a field they do not know, so a reader
     older than a record reads it as damaged. Options: 1. keep the refusal (recommended: a deployment runs with no job
     running and `/reload` follows at once, so no record of the new code meets an old hook; T-27 (2), and a breaking
@@ -3005,7 +3016,7 @@ push was skipped as redundant, the terminal being active; context 9 % at the sta
   - A new fix ticket R-100 (S, delegated, night, stage 3, before R-029; T-25 (2)): one definition per pattern that
     stage 2 left in copies: the ISO-time pattern of `src/job/record.ts`, `src/lock.ts`, `src/job/migration.ts` and
     `src/job/usage.ts` in one module that also checks the ranges (a month 13 passes the form today; R-024 Open point
-    2); the 429 rule of `src/job/listing.ts:280` through `isRateLimit` (R-097); the eight inline error-code checks
+    2); the older copy of the 429 rule in `src/job/listing.ts` through `isRateLimit` (R-097); the eight inline error-code checks
     through `hasCode` (R-093); `seat/deploy.ts`'s own `jobFolders` through the resolver's listing (R-022 Open point 1,
     its last part).
   - R-031 (archive): a job retired before the poller saw it past `starting` leaves a gate that no rule tells from a
@@ -3037,7 +3048,7 @@ documents:
   (recommended); 2. also only spawn, continue and stop; 3. every change command without `movedBy` now.
 
 Next (by day):
-1. Stage 2 is closed and tagged `a0.2.0` ("Close of stage 2" above). Gate 5.2: Adrian's answers to Q-27–Q-30 become
+1. Stage 2 is closed and tagged `a0.2.0` ("Close of stage 2" above). Gate 5.2: Adrian's answers to Q-27–Q-31 become
    D-078 onwards, with their consequences in the same commit (for Q-29 option 1: R-100's row in `## Tickets` and
    the notes of R-031, R-032, R-033, R-038, R-051, R-058 and R-082 in its notes list). Then stage 3 starts in a new
    session (the rebuild prompt, stage 5), which makes the tickets of stage 3 `ready` by day (D-074).
