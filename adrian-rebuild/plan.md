@@ -85,9 +85,10 @@ a0.2.0 na commicie `Stage 2: close`; `check.mjs` na tym commicie zgłaszał dwa 
 w następnym commicie); bramka 5.2 rozstrzygnięta (D-078–D-082: domyślne decyzje nocne etapu 2 potwierdzone, rekord
 dalej odrzuca nieznane pole, nowy ticket R-100 w etapie 3 przed R-029 i notatki dla siedmiu ticketów, tag a0.2.0
 zostaje na 56f8168); etap 3 zaczęła limen-rebuild-19: cztery inwentarze tylko do odczytu (R-026, R-030, R-033,
-R-100), R-030, R-100 i R-026 gotowe na noc jako trzy niezależne gałęzie, R-033 czeka na odpowiedzi Adriana na
-Q-32 i Q-34 (układ powiadomienia, konto i jednostka systemowa czy użytkownika); Q-33 wycofane, bo gate 2 §0.5
-trzyma nazwy kont poza repo. -->
+R-100), cztery tickety gotowe na noc (R-026, R-030, R-033, R-100); Q-33 wycofane, bo gate 2 §0.5 trzyma nazwy kont
+poza repo; D-083 (przed pytaniem o decyzję sesja przeszukuje cztery źródła, wymusza to hook do zbudowania), D-084
+(jedna linia powiadomienia), D-085 (powiadomienia jako jednostka systemowa instalowana przez roota); przekazanie do
+limen-rebuild-20, która zaczyna od hooka D-083. -->
 
 
 
@@ -983,6 +984,31 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   (`Stage 2: close`), whose code is that of the gated `224afe6`; its two text errors of `check.mjs` are fixed in
   `1bdad58`, and `## Deployment` 2.0 deploys `56f816820786d77e7cd13485ea20bb7fc78dd9d3`. Check: `git rev-parse
   a0.2.0^{commit}`.
+- 2026-11-22 D-083 (Adrian: "wszystko zgodnie z rekomendacjami"; Q-35, option 1; his request after Q-33, which the
+  documents settled): before any decision question the session searches `input/gate-2-decisions.md`, `taste.md`,
+  `input/zasady-budowy-harnessu.md` and `plan.md` → `## Decisions`, asks only what none of them settles, and names in
+  the question what it checked. A hook enforces the search: `adrian-rebuild/tools/decision-guard.mjs` as a
+  `PreToolUse` hook on `PushNotification` whose message names a question id (`Q-NN`) and on `Write` or `Edit` of
+  `adrian-rebuild/.night/questions.md`; it reads the session transcript (`transcript_path` of the hook input) and exits
+  2, naming what is missing, unless the session has read (`Read`) or searched (`Grep`, or a Bash `grep`, `sed -n`,
+  `cat` naming the path) each of the four files since the previous decision question of the session; a push without a
+  `Q-NN` passes. It proves the search, not its use (z. 14); the content rule lives in the session's memory. Its test
+  `adrian-rebuild/tools/test-decision-guard.mjs` (fixture transcripts: no search blocks; a search before the previous
+  question does not count; a search of all four passes; a push without `Q-NN` passes; a `questions.md` write without a
+  search blocks), a review by `rebuild-reviewer`, outside the ticket list, as D-047 and D-054 were; then the session
+  gives Adrian the exact `hooks` block for `.claude/settings.local.json`, which only he writes (D-016), and night runs
+  load it too. Check: `node --test adrian-rebuild/tools/test-decision-guard.mjs`.
+- 2026-11-22 D-084 (Adrian, the same message; Q-32, variant a): an alert is one line with no ntfy title,
+  `<project's folder base name> failed:<kind> <job id>`, e.g. `synchronizer failed:quota
+  2026-11-16-f001-work-a-37c02ed6`; plain English (T-13), at most 100 characters (T-10), no path, label or job text
+  (A-066). Check: R-033's golden test of the line.
+- 2026-11-22 D-085 (Adrian, the same message; Q-34, option 1): the alerts run as a system service and timer on their
+  own account (`User=` that account), installed by root with `node /opt/limen/seat/alerts.ts install --account <name>`,
+  so the account name stays on the seat (gate 2 §0.5); the units are generated from typed definitions and verified with
+  `systemd-analyze verify` before they are enabled (D-010); the ntfy topic reaches the service by `LoadCredential=` from
+  a root-owned 0600 file; `limen status` warns when the timer is not active or the service failed (A-066);
+  `seat/deploy.ts` re-renders installed units at each tag with the account they hold, and returns to the previous SHA
+  with exit 4 when the verification fails. R-033 grows from M to L. Check: R-033's criteria; `## Deployment` 3.3.
 
 ### Gate 2 §2, copied
 
@@ -1368,7 +1394,7 @@ Columns:
 | R-030 | Unlanded work survives: `limen abandon`, a guarded prune, a refusing spawn | 3 | A-001 | R-023, R-092 | M | delegated | night | yes | — | — | ready |
 | R-031 | `landed` and `abandoned` markers; retire moves records to the archive | 3 | A-002, §6 | R-030 | M | delegated | night | yes | — | — | planned |
 | R-032 | `limen seat sweep` runs on a timer; read commands never write or wait | 3 | A-024, T-04, T-18, A-017, §6, D-045 | R-012, R-027, R-031 | L | delegated | night | yes | systemd | 3.1 | planned |
-| R-033 | Alerts from their own account: failures and escalations only | 3 | A-066, A-054, T-18 | R-021 | M | delegated | night | yes | systemd | 3.3 | planned |
+| R-033 | Alerts from their own account: failures and escalations only | 3 | A-066, A-054, T-18, D-084, D-085 | R-021 | L | delegated | night | yes | systemd | 3.3 | ready |
 | R-034 | Resume after the quota limit in code; seat rules are cut | 3 | A-016, A-010, A-068, §6 | R-029, R-032, R-033 | L | delegated | night | yes | systemd | 3.4, 3.5 | planned |
 | R-035 | Start-queue thresholds: a diagnosis at 30 min, a failure at 2 h | 3 | A-036 | R-026, R-033 | M | delegated | night | — | systemd | 3.8 | planned |
 | R-036 | Stall is measured over the whole job scope | 3 | A-059 | R-026 | M | delegated | night | — | systemd | 3.8 | planned |
@@ -1543,7 +1569,7 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   runs its plan and apply without it, so its re-check does not exclude a concurrent `ticket done`.
 - R-025 (R-018 review round 2, note 5; T-29 (5)): `test/cli/github.test.ts` opens with two header lines, and the
   header of `test/cli/continue.test.ts` does not name its transcript-mode test.
-- R-059: no shell scripts (D-010): `docs/seat/bell.sh` and `docs/seat/github-setup.sh` become TypeScript in `seat/`,
+- R-059: no shell scripts (D-010; R-033 replaces the bell): `docs/seat/github-setup.sh` becomes TypeScript in `seat/`,
   and every unit calls `node /opt/limen/seat/<tool>.ts`.
 - R-031 (D-080; R-099 `outcome.md` → Open point 2): a job whose record leaves `.limen/jobs/` before the poller saw it
   past `starting` leaves a GitHub handoff gate that no rule tells from a crash's, so a rerun of the claim's command
@@ -1746,9 +1772,11 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
 - **3.2** From a Herdr pane on the agents' account, `systemd-run --user --scope true` exits 0 (item 12); during a trial
   job, `systemd-cgls` shows the engine and its tools in the job's scope (R-026).
 - **3.3** Alerts: choose the new account names for every account of item 1 (the alerts account is the first), and
-  create the alerts account (item 1); install its unit with the ntfy
-  topic as a credential (mode 0600); install the ntfy app on the phone and subscribe (item 11); the first run sends
-  nothing for old jobs (R-033).
+  create the alerts account (item 1); as root, write the ntfy topic to `/etc/limen/alerts-topic` (root-owned, mode
+  0600) and run `node /opt/limen/seat/alerts.ts install --account <name>`, which grants the read rights, writes and
+  verifies the units (`limen-alerts.service` runs `/usr/bin/node`) and enables the timer (D-085); install the ntfy app
+  on the phone and subscribe (item 11); the first run sends nothing for old jobs, `limen status` shows no alerts
+  warning, and a test failure of a trial job sends one line `<project> failed:<kind> <job id>` (D-084) (R-033).
 - **3.4** At the next real 5-hour limit, whenever it comes (nothing waits for it; the fake engine's tests cover the
   mechanism): the job's record has kind `quota` and a reset time, exactly one resume runs 5 minutes after the reset
   (A-010, A-016), and the record shows whether a `rate_limit_event` arrived (`kendex:rate-limit`) for the 5-hour and
@@ -3149,10 +3177,21 @@ the terminal being active; context 7 % at the start):
     sends `failed:<kind>` from the records.
 - R-030 corrected after the same reading: abandon closes the job's Herdr tab (T-18), its summary is T-19's wording,
   and the status listing reads worktrees without optional locks (T-04).
+- Q-35 asked after Adrian's request to enforce the search of the sources before a decision question, preferably by a
+  hook: 1. a hook plus the session's memory (recommended); 2. the memory only. The memory rule was written at once
+  (`feedback-search-sources-before-asking`).
+- Adrian: "wszystko zgodnie z rekomendacjami" → D-083 (Q-35, the hook), D-084 (Q-32 a, the alert's line), D-085
+  (Q-34 1, a system unit installed by root). R-033 `ready` (now L), its `ticket.md` written at `e39ccd0` from its
+  inventory; `## Deployment` 3.3 follows D-085; the R-059 note no longer names the bell. Four tickets `ready` for the
+  night: R-026, R-030, R-033, R-100 (`check.mjs` exit 0).
 
 Next (by day):
-1. R-033 `ready` for the night once Adrian answers Q-32 and Q-34: its `ticket.md` from `evidence/inventories/R-033.md`.
-   R-029 waits for R-100 (D-080).
+1. D-083's decision guard, the main session's work outside the ticket list: `adrian-rebuild/tools/decision-guard.mjs`
+   and `adrian-rebuild/tools/test-decision-guard.mjs` as D-083 says, a review by `rebuild-reviewer`, a commit `D-083:
+   …`; then the exact `hooks` block for Adrian to add to `.claude/settings.local.json` (D-016), given in full in the
+   message (memory: intervention info in the latest message).
+2. The night run of stage 3 takes the four `ready` tickets in protocol order (R-026, R-030, R-033, R-100); it is
+   started as the night mode says, after the preflight. R-029 waits for R-100 (D-080).
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
    D-047 and D-054 were.
@@ -3248,3 +3287,9 @@ start 19` and ends its turn. By day: the next session's first acts are a push no
 over at the start of stage 3, then `node adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into this
 section, then `Next` 1: the tickets of stage 3 `ready` by day for the next night (D-074, D-081). The handover after it
 is `limen-rebuild-20`.
+
+Handover of 2026-11-22 (D-047, at 42 % context, after the commit of R-033's `ticket.md` and D-083–D-085, with the
+tree clean and pushed): `limen-rebuild-19` starts `limen-rebuild-20` with `node adrian-rebuild/tools/handover.mjs
+start 20` and ends its turn. By day: the next session's first acts are a push notification to Adrian that it takes
+over at D-083's decision guard, then `node adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into this
+section, then `Next` 1. The handover after it is `limen-rebuild-21`.
