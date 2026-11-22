@@ -1178,6 +1178,7 @@ the sources itself.
 | E-14 | Does each Pi user message reach the request intact (§7 B, revision 2; A-086) | Yes, as far as the bridge goes: no truncation, length cap, escaping or rewriting of user or custom text (its rewrites touch only the AGENTS text, the skills hint and tool names). When the session is reused, consecutive user messages are joined in order with a blank line into one prompt (text blocks of one message joined with a newline); on a rewrite each message is its own record, stored unchanged. The bridge has no size limit; a Claude Code limit on one prompt, and whether a leading `/` is parsed as a command, are engine-side. Until settled, the context message never starts with `/`. | A-086, A-051 | partly: size limit and verbatim delivery of a ~100 KB message are seat checks |
 | E-15 | What `CLAUDE_BRIDGE_ISOLATED=1` turns off (Adrian, 2026-11-17; D-005) | In isolated mode the bridge forwards no `AGENTS*` file at all (`bridge@5.0.3/src/agents-md.ts#L75`), reads no project `.pi/` settings, no `.pi/claude-bridge.json` and no project `APPEND_SYSTEM.md`, and never searches `PATH` for `claude` (`bridge@5.0.3/src/claude-executable.ts#L25-L28`). Its only configuration is `claude-bridge.json` in the Pi agent directory (`bridge@5.0.3/src/config.ts#L322-L328`), plus an explicitly configured executable; with none, it falls back to the SDK's bundled default binary. It does not change Claude Code's own setting sources, so Claude Code is still expected to load `CLAUDE.md` (E-7). Consequences for jobs: the A-042 fallback applies (the project's `AGENTS.md`, if present, goes into the Limen context message), and the launcher passes the Claude Code path and the bridge settings explicitly, from a location the agents' account cannot write (A-025). | A-042, A-086, A-025 | yes for the bridge; `CLAUDE.md` in isolated mode is a seat check (item 12) |
 | E-16 | How a Limen custom message reaches the coordinator (A-034, revision 4) | `pi.sendMessage(msg, { deliverAs: "followUp", triggerTurn: true })`: when the session is idle, Pi starts a new run with the message (`pi-coding-agent@1.5.1/dist/core/agent-session.js#L1946-L1972`, `sendCustomMessage` → `_startRun`; held until `agent_settled` has been emitted when it arrives during that event); when a run is active, the message goes to the follow-up queue (`agent.followUp`) and enters only when the agent would otherwise stop, i.e. after the current turn's tool calls and steers (`pi-agent-core@1.5.1/dist/agent-loop.js#L196-L202`), in the same run. This matches today's wake semantics (`hook/wake.ts:442-446`: `sendUserMessage` when idle, `deliverAs: "followUp"` when busy) and the pattern of `hook/group-peer.ts:132-135`. The message is stored with role `custom`, so the session's `user` entries stay Adrian's own. | A-034, T-16, T-05 | yes (code) |
+| E-17 | What Pi does on SIGTERM and SIGHUP in the mode Limen runs (R-028; the main session, 2026-11-22) | Limen runs Pi with `--mode json`, its print mode, which handles SIGTERM and SIGHUP (`pi-coding-agent@1.5.1/dist/modes/print-mode.js#L34-L54`): each signal first kills Pi's tracked detached children; the first one then disposes the runtime and exits 143 (TERM) or 129 (HUP), and a second one exits at once. Print mode has no SIGINT handler. The bash tool starts each command detached on Linux (`pi-coding-agent@1.5.1/dist/core/tools/bash.js#L77`), so a TERM to Pi's process group does not reach a tool's group, and Pi's handler kills it. The wrapper therefore sees the engine end with code 143 and no signal after a TERM, while a SIGKILL (an OOM kill) arrives as the signal. | A-020, A-052 | yes (code) |
 
 **Consequences (main session, 2026-11-17).**
 - **A-086 (critical, `fix`; Adrian, gate 2 revision 2):** E-1 means that on the seat's only route Limen's role
@@ -1440,15 +1441,15 @@ Columns:
 | R-024 | `limen stats` over records and transcripts | 2 | H-01, H-20, §2, T-33, D-072, D-073 | R-021, R-023 | M | delegated | night | — | pi | 2.3 | done |
 | R-025 | Test coverage derived from the command registry | 2 | T-28, T-29, D-045, D-046, D-075, D-076 | R-014, R-023, R-092 | M | delegated | night | — | — | — | done |
 | R-026 | Every job runs in its own systemd user scope | 3 | A-029, A-052, T-43 | R-020, R-021 | L | delegated | night | — | systemd | 3.2, 3.7, 3.8 | done |
-| R-027 | The reaper ends a job only after its process group is gone | 3 | A-005, A-056 | R-026 | M | delegated | night | — | — | — | planned |
-| R-028 | SIGTERM reaches the engine; a signal without a stop request is a failure | 3 | A-020, A-052 | R-026 | M | delegated | night | — | — | — | planned |
+| R-027 | The reaper ends a job only after its process group is gone | 3 | A-005, A-056 | R-026 | M | delegated | night | — | systemd | 3.2 | ready |
+| R-028 | SIGTERM reaches the engine; a signal without a stop request is a failure | 3 | A-020, A-052 | R-026 | M | delegated | night | — | pi | 3.8 | ready |
 | R-029 | One recorded failure cause per job | 3 | A-016, E-9, T-31, T-32, D-055 | R-017, R-021, R-100 | M | delegated | night | — | bridge | 3.4 | planned |
 | R-030 | Unlanded work survives: `limen abandon`, a guarded prune, a refusing spawn | 3 | A-001 | R-023, R-092 | M | delegated | night | yes | herdr | 3.6 | done |
-| R-031 | `landed` and `abandoned` markers; retire moves records to the archive | 3 | A-002, §6 | R-030 | M | delegated | night | yes | — | — | planned |
+| R-031 | `landed` and `abandoned` markers; retire moves records to the archive | 3 | A-002, §6 | R-030 | L | delegated | night | yes | — | 3.6 | ready |
 | R-032 | `limen seat sweep` runs on a timer; read commands never write or wait | 3 | A-024, T-04, T-18, A-017, §6, D-045 | R-012, R-027, R-031 | L | delegated | night | yes | systemd | 3.1 | planned |
 | R-033 | Alerts from their own account: failures and escalations only | 3 | A-066, A-054, T-18, D-084, D-085 | R-021 | L | delegated | night | yes | systemd | 3.3 | done |
 | R-034 | Resume after the quota limit in code; seat rules are cut | 3 | A-016, A-010, A-068, §6 | R-029, R-032, R-033 | L | delegated | night | yes | systemd | 3.4, 3.5 | planned |
-| R-035 | Start-queue thresholds: a diagnosis at 30 min, a failure at 2 h | 3 | A-036 | R-026, R-033 | M | delegated | night | — | systemd | 3.8 | planned |
+| R-035 | Start-queue thresholds: a diagnosis at 30 min, a failure at 2 h | 3 | A-036 | R-026, R-033 | L | delegated | night | — | systemd | 3.8 | ready |
 | R-036 | Stall is measured over the whole job scope | 3 | A-059 | R-026 | M | delegated | night | — | systemd | 3.8 | planned |
 | R-037 | Land runs as recorded steps with an atomic closing commit | 3 | A-021, A-057, T-18, T-28 | R-023, R-031, R-092 | L | delegated | night | yes | herdr | 3.9 | planned |
 | R-087 | The job environment is an allow-list; git and gh in a job hold no credential (T1) | 3 | A-004, A-061, E-4, D-017 | R-015, R-021, R-026 | M | delegated | night | — | pi, bridge | 3.10 | planned |
@@ -1641,6 +1642,12 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   `GIT_FAILED` and Git's words only; a gitlink path that holds a tab is cut at it in the `kept` line. The sweep's prune
   checks a gitlink only where a nested `.git` is there, names the worktree in that failure, and reads `-z` entries
   whole.
+- R-032 (R-027 `ticket.md` → Out of scope, 2026-11-22): R-027 ends a dead wrapper's scope before `failed`, but three
+  paths still read the wrapper alone or trust a scope's end: the deployment gate of `seat/deploy.ts`, the
+  migration's `folderLive` and the other `liveJob` callers treat a dead wrapper with a live engine as not running; a
+  terminal job of any finisher whose scope end failed keeps its processes, and nothing checks it again; prune removes
+  a terminal job's clean worktree while its scope may still be active (`jobKeeps`, `src/runtime/pruning.ts`). The sweep
+  checks the scope of every job it reads, and escalates a job whose scope cannot be ended.
 - R-033 (D-080; R-021 `outcome.md` → Open points): since R-021 the bell needs `node` on its service's `PATH`; the
   alerts that replace it, and seat step 3.3, name what their service runs.
 - R-035 (D-090; R-033 `review.md` → Round 3, notes 2 and 3): two items in `seat/alerts.ts`: a project the alerts first
@@ -1853,7 +1860,10 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
 - **3.2** From a Herdr pane on the agents' account, `systemd-run --user --scope true` exits 0 (item 12); during a trial
   job, `systemd-cgls` shows the engine and its tools in the job's scope, and `systemctl --user is-active --quiet
   limen-job-<id>.scope` exits 0 while the job runs and 3 after it ended, as it does for a unit name that never
-  existed: R-026 takes exit 3 as a scope that is gone (R-026 review round 2, note 8).
+  existed: R-026 takes exit 3 as a scope that is gone (R-026 review round 2, note 8). A second trial job whose wrapper
+  alone is killed (`kill -KILL` of the pid `limen show <id>` prints) is ended by the next reap: its record stays
+  `running` until `systemd-cgls` shows its scope gone, then is `failed` with a log line that names the checks, and no
+  process of the job is left (R-027).
 - **3.3** Alerts: choose the new account names for every account of item 1 (the alerts account is the first), and
   create the alerts account (item 1); as root, write the ntfy topic to `/etc/limen/alerts-topic` (root-owned, mode
   0600) and run `node /opt/limen/seat/alerts.ts install --account <name>`, which grants the read rights, writes and
@@ -1871,7 +1881,12 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
   jobs it marked and which it left without a marker.
 - **3.7** Reboot test: jobs survive a Herdr restart (`systemd-cgls` before and after) (item 13; R-026).
 - **3.8** A trial job's record holds the peak memory and CPU of its scope, and a job that runs only `sleep 300` ends
-  with kind `stall` (R-026, R-035, R-036).
+  with kind `stall` (R-026, R-036). `limen stop <id>` of a trial job ends it `stopped` with its reason; `kill -TERM` of
+  a second trial job's wrapper alone (its pid from `limen show <id>`) ends it `failed`, kind `signal`, with one alert
+  `<project> failed:signal <id>`, and its log shows Pi's exit 143 within the grace (E-17; R-028). A gate file that
+  holds a third trial job (`cpuIdle` 100, `diagnoseAfter` `1m`, `failAfter` `3m`) gives one coordinator wake with the
+  diagnosis and one alert `<project> queue <id>` after a minute, and `failed:queue` after three (R-035); then the
+  gate file is restored.
 - **3.9** Land closes the job's Herdr tab in its `cleaned` step (R-037).
 - **3.10** A trial job reaches Claude with the allow-listed environment; inside it, `env` shows only the allow-listed
   names, `git config --get credential.helper` prints nothing, `gh auth status` reports no login, and
@@ -2173,13 +2188,13 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-22 by day (`limen-rebuild-21`), rebuild stage 5 in plan stage 3: stage 1 is closed at `a0.1.1`
+Updated 2026-11-22 by day (`limen-rebuild-22`), rebuild stage 5 in plan stage 3: stage 1 is closed at `a0.1.1`
 (deployed on 2026-11-20, with B.2 closed by D-050); stage 2 is closed at `a0.2.0` (gate 5.2 decided, D-078–D-082);
-stage 3 has started: R-026, R-030 and R-033 are `done` (by day), R-100 is `ready`, and D-083's decision guard is
-built (D-086); the night of D-091 (until 09:00, five tickets) is prepared by `limen-rebuild-22` (`Next` 2). The newest
-entries are at the end of this section: the close of stage 2 in "Close of stage 2", the gate in "Gate 5.2 decided",
-the start of stage 3 in "Start of stage 3", the guard and R-026 in "D-083's decision guard", and R-030 and R-033 (with
-D-087–D-091) in "R-030".
+stage 3 has started: R-026, R-030 and R-033 are `done` (by day), R-027, R-028, R-031, R-035 and R-100 are `ready`
+for the night of D-091 (until 09:00), and D-083's decision guard is built (D-086). The newest entries are at the end
+of this section: the close of stage 2 in "Close of stage 2", the gate in "Gate 5.2 decided", the start of stage 3 in
+"Start of stage 3", the guard and R-026 in "D-083's decision guard", R-030 and R-033 (with D-087–D-091) in "R-030",
+and the night's preparation in "The night of D-091 prepared".
 
 Handover of 2026-11-19 (D-033, at 37 % context, after the commit `R-014:`): `limen-rebuild-5` started
 `limen-rebuild-6` in `tmux` in remote-control mode (14:10) and ended. WSL booted at 10:34 on 2026-11-19, after the
@@ -3379,6 +3394,32 @@ the terminal being active; context 8 % at the start):
   `limen status` warns. The main session's gate 834/834 on the final tree; `fails-before.mjs` exit 0 (six files).
   Unmeasured: the real systemd side, the ACLs and the phone (`## Deployment` 3.3).
 
+The night of D-091 prepared (2026-11-22, `limen-rebuild-22`, by day, Adrian at the terminal; its `close-previous`
+printed `handover: closed tmux session limen-rebuild-21` and one `handover: stopped claude …` line and exited 0; its
+takeover push was skipped as redundant, the terminal being active; context 8 % at the start):
+- Four read-only inventories at `9a370ae` (`Explore` agents, in parallel), their reports taken from the agents'
+  hand-backs by a script, unchanged but for three wrapped lines: `evidence/inventories/R-027.md`, `R-028.md`,
+  `R-031.md`, `R-035.md`.
+- R-100's `ticket.md` checked again at `9a370ae` (D-025: each scan pattern of its `## Change` run with `git grep`):
+  R-033 moved `absent` into `seat/registries.ts`, already through `hasCode`, so seven of D-080's eight code checks
+  remain; `seat/alerts.ts` lists job folders through `jobFolderNames` and joins `JOB_FOLDER_READERS`, whose import
+  pattern must accept a seat file's path; the facts' lines moved to `HEAD`; the 17 `NodeJS.ErrnoException` lines are
+  the same set (its `## Decisions` 5).
+- R-027, R-028, R-031 and R-035 `ready`, their `ticket.md` written at `9a370ae` from the inventories, with no grep
+  criteria; every open question of the inventories (13, 15, 16 and 14) settled by the documents and recorded in each
+  `## Decisions` as the main session's reading, so none was asked: A-005 read as the job's scope since R-026; A-052's
+  "recorded" request decides `stopped` (a TERM to the wrapper alone, or a user-manager restart, is `failed:signal`);
+  `oom` replaces `signal` and `reaped` only, so a `quota` end keeps its resume; A-002's markers as optional record
+  fields with one write-once writer, retire under the jobs lock into `.limen/archive/<YYYY-MM>/`, the migration's
+  evidence being land's own closing commit; A-036's diagnosis in the record and the coordinator's wake, the phone line
+  `<project> queue <job id>` (A-066, D-084), the thresholds in the gate file, a durable `queueWait` field.
+- Plan changes that follow T-28 (5) and the tickets: R-027's API `systemd`, seat 3.2; R-028's API `pi`, seat 3.8;
+  R-031 and R-035 size L (were M); R-031's seat column 3.6; steps 3.2 and 3.8 name the trials; engine fact E-17 (Pi's
+  print mode exits 143 on TERM, from the vendored source, checked by the main session); a note for R-032 (the paths
+  that still trust a dead wrapper or a scope's end).
+- One grace for stop, exhaustion and the reaper: R-027 makes it one constant at 5 s, R-028 sets A-020's 10 s, so the
+  two tickets run in either order.
+
 Next (by day):
 1. After his return from the trip (Adrian, 2026-11-22: "Zapisz mi to na zrobienie po powrocie z wyjazdu, teraz działaj
    z zadaniami dalej"), Adrian adds the `hooks` block below to `.claude/settings.local.json` as a top-level key (into
@@ -3404,17 +3445,14 @@ Next (by day):
      ]
    }
    ```
-2. The night of D-091 (2026-11-22/23, until 09:00), prepared by the next day session (`limen-rebuild-22`), in this
-   order: (a) read-only inventories of R-027, R-028, R-031 and R-035 at `HEAD` (`Explore` agents in parallel, into
-   `evidence/inventories/`), and R-100's `ticket.md` checked again at `HEAD` (it was written at `9da2fde`; R-033 moved
-   `absent` and deploy's jobs listing into `seat/registries.ts` and `seat/tool-outcome.ts`, and `seat/alerts.ts` is a
-   new place its scans cover; run each of its scan criteria at `HEAD`, D-025); (b) the four `ticket.md` written, each
-   status `ready`, with no grep criteria unless run at `HEAD`, every deleted or moved path in its own backticks (D-089),
-   R-035 with D-090's two items; `check.mjs` exit 0, then one commit and a push; (c) the D-024 preflight (the runner's
-   tests, the pushed SHA, a clean tree, a `claude -p` that lists both subagent definitions), its results shown to
-   Adrian, then `mkdir -p adrian-rebuild/.night` and `nohup node adrian-rebuild/tools/night.mjs --until 09:00` with
-   its output to `adrian-rebuild/.night/launcher.log`; from then on the session changes nothing in the repository
-   until Adrian writes (D-024). R-036 and R-087 stay for the day; R-029 waits for R-100 (D-080).
+2. The night of D-091 (2026-11-22/23, until 09:00): (a) and (b) are done ("The night of D-091 prepared"); what is
+   left is (c), the D-024 preflight (the runner's tests, the pushed SHA, a clean tree, a `claude -p` that lists both
+   subagent definitions), its results shown to Adrian, then `mkdir -p adrian-rebuild/.night` and `nohup node
+   adrian-rebuild/tools/night.mjs --until 09:00` with its output to `adrian-rebuild/.night/launcher.log`; from then on
+   the session changes nothing in the repository until Adrian writes (D-024). The night takes the `ready` tickets in
+   protocol order: R-027, R-028, R-031, R-035, R-100. R-036 and R-087 stay for the day; R-029 waits for R-100 (D-080).
+   The day session after the night (`limen-rebuild-23`) starts from `.night/status.json`, `.night/questions.md` and
+   the night's entry in this section.
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
    D-047 and D-054 were.
