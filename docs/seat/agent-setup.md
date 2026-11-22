@@ -12,7 +12,7 @@
 | 3 | Worker without sudo | agent | root |
 | 4 | Tools and logins | agent, then HUMAN logins | root, worker |
 | 5 | Project and `limen init` | agent | worker |
-| 6 | Phone bell | agent, then HUMAN pairs | root, worker |
+| 6 | Phone: Moshi and the alerts | agent, then HUMAN pairs and subscribes | root, worker |
 | 7 | Herdr coordinator | HUMAN | coordinator pane |
 | 8 | Prune timer | agent | root |
 | 9 | Preview | agent, HUMAN gate | worker, root |
@@ -33,7 +33,8 @@ PROJECT_REPO=     # OWNER/REPO on github.com
 PROJECT_BRANCH=   # an existing work branch, not only the default branch
 LIMEN_REV=        # 40-hex Limen commit on main that contains this file; the human picks it
 MODEL_FLAGS=      # --provider P --model M --thinking T (flags that both pi and limen spawn take; limen spawn also requires --engine pi)
-BELL=moshi        # moshi, or ntfy if the phone does not use Moshi
+MOSHI=yes         # yes when the phone takes Moshi's agent hooks; the alerts (ntfy) run on every seat
+ALERTS=           # Unix user of the alerts: an account of its own, never WORKER; the human picks the name
 # The agent writes these during the run.
 SEAT_HOST=        # phase 2: the full MagicDNS name
 APP_ID=           # phase 11: the human gives it; not a secret
@@ -74,7 +75,7 @@ PEM_SOURCE=/root/limen-app.pem       # root-only file; never in a worker home
 
 - **HUMAN · laptop:** the laptop has `ssh`, `curl`, Tailscale, Herdr 0.9.3, and Limen ([setup](../setup.md)). Limen runs on the Mac and, from phase 4 on, on the seat too.
 - **HUMAN · laptop:** three different key pairs exist at `ADMIN_KEY`, `BREAK_GLASS_KEY`, and `WORKER_KEY`, each with its `.pub` file. To make a missing pair: `ssh-keygen -t ed25519 -f $ADMIN_KEY` (and the same for the other two paths).
-- **HUMAN · phone:** Tailscale and Moshi (or the ntfy app).
+- **HUMAN · phone:** Tailscale, the ntfy app (for the alerts), and Moshi when `MOSHI` is `yes`.
 - **Check:** mac$ `herdr --version` prints `herdr 0.9.3`; `command -v limen` prints a path; `ssh-keygen -lf $ADMIN_KEY.pub; ssh-keygen -lf $BREAK_GLASS_KEY.pub; ssh-keygen -lf $WORKER_KEY.pub` prints three different `SHA256:` fingerprints; `test -f $ADMIN_KEY && test -f $BREAK_GLASS_KEY && test -f $WORKER_KEY` exits 0. **STOP** if not.
 
 ## 1 · CPU, box, and break-glass SSH
@@ -147,9 +148,11 @@ install -o root -g root -m 0755 /root/install/herdr /usr/local/bin/herdr
 
 Each checkout where `limen init` runs is its own plant, with its own `.limen/` job files. A plant can live on the Mac, on the seat, or on both. Never copy `.limen/` between machines. A job is visible only on the machine that started it. Only a seat plant gets GitHub doorbell wakes.
 
-## 6 · Phone bell
+## 6 · Phone: Moshi and the alerts
 
-Moshi has two separate features. **Host setup** (Easy Pair) gives the phone SSH access to the seat. **Agent hooks** ring the phone when an agent needs you. This phase sets up agent hooks only. The hook token is not an SSH key.
+Two channels reach the phone. Moshi's **agent hooks** ring it when an agent needs you (when `MOSHI` is `yes`). The **alerts** send one line for each failed job of every registered project, on every seat: they are the only escalation path to the human. Moshi has a second feature, **Host setup** (Easy Pair), which gives the phone SSH access to the seat; this phase does not set it up. The hook token is not an SSH key.
+
+Moshi, when `MOSHI` is `yes`:
 
 - Moshi: root$ install `moshi-hook` 0.3.19 for this CPU. Checksum source: [checksums.txt](https://cdn.getmoshi.app/hook/v0.3.19/checksums.txt).
 ```sh
@@ -167,7 +170,15 @@ chown root:root /usr/local/bin/moshi-hook && chmod 0755 /usr/local/bin/moshi-hoo
 - **HUMAN · phone:** in Moshi, open Settings → **Hooks** (Agent Hooks), not Integrations, and copy the pairing token.
 - **HUMAN · laptop:** pair on the seat, not in the Mac Keychain. The command asks for the token and does not echo it: `ssh -t $SEAT_HOST 'read -rsp "Moshi token: " token; echo; moshi-hook pair --store file --name $SEAT_NAME --token "$token"'`
 - **Check:** worker$ `moshi-hook status` says paired and the daemon runs. **STOP** on `unpaired`. This proves the pairing only.
-- ntfy instead: the HUMAN subscribes the phone to a long random topic, then runs mac$ `curl -d test https://ntfy.sh/TOPIC`; the phone must buzz. root$ `install -m 0644 /opt/limen/docs/seat/limen-bell.service /opt/limen/docs/seat/limen-bell.timer /etc/systemd/system/ && install -d /etc/systemd/system/limen-bell.service.d && printf '[Service]\nUser=%s\nEnvironment=LIMEN_ROOT=%s\nExecStart=\nExecStart=/opt/limen/docs/seat/bell.sh\n' $WORKER $PROJECT_DIR > /etc/systemd/system/limen-bell.service.d/override.conf`. **HUMAN**, as root in their own terminal: add `Environment=NTFY_TOPIC=TOPIC` to that file. root$ `systemctl daemon-reload && systemctl enable --now limen-bell.timer`. **Check:** root$ `systemctl is-active limen-bell.timer` is `active`. **STOP** if not.
+
+The alerts, on every seat. An alert is one line with no title, `<project folder's base name> failed:<kind> <job id>`, such as `synchronizer failed:quota 2026-11-16-f001-work-a-37c02ed6`: no path, label or job text leaves the seat, and `limen status` over SSH gives the details. A job that ends `done` sends nothing. They run every minute as `limen-alerts.service` on the `ALERTS` account, which reads the job records and cannot write any file of `WORKER`; the topic reaches them only as a systemd credential.
+
+- **HUMAN · phone:** in the ntfy app, subscribe to a long random topic. **HUMAN · laptop:** `curl -d test https://ntfy.sh/TOPIC`; the phone must buzz.
+- root$ `useradd --system --no-create-home --shell /usr/sbin/nologin $ALERTS && install -d -o root -g root -m 0755 /etc/limen && install -o root -g root -m 0600 /dev/null /etc/limen/alerts-topic && command -v setfacl`. `setfacl` comes with the package `acl`; the install checks it too.
+- **HUMAN**, as root in their own terminal: write the topic into `/etc/limen/alerts-topic` with an editor, so that it stays out of the shell history.
+- root$ `node /opt/limen/seat/alerts.ts install --account $ALERTS`. It refuses unless it runs as root, the account exists and is the alerts' own (not uid 0, and not `WORKER`, whose home holds the registry), the topic file is root's with mode 0600, and the registry names a project. It grants `ALERTS` traverse rights (`--x`) by ACL on each folder above the registry and above each registered project's `.limen/jobs`, read and traverse (`r-x`) on `.limen/jobs`, and read on the registry; it writes `limen-alerts.service` and `limen-alerts.timer` into `/etc/systemd/system/` where they differ, verifies them with `systemd-analyze verify`, reloads systemd every time and enables the timer. Run again, it changes nothing that is in place.
+- **Check:** root$ `systemctl is-active limen-alerts.timer` is `active`; after two minutes `systemctl show -p Result limen-alerts.service` is `Result=success`, and `journalctl -u limen-alerts.service --no-pager` shows `first run: … recorded as reported, none sent` once; worker$ `cd $PROJECT_DIR && limen status` prints no `Alerts not working` block. **STOP** if not.
+- `limen init` in a new project rewrites `~/.limen/projects`, which drops its ACL, and a new project has no rights yet: run the install again after it. Until then each run names what it cannot read and fails, and `limen status` says so.
 
 ## 7 · Herdr coordinator
 
@@ -250,6 +261,6 @@ WORKER=$WORKER APP_ID=$APP_ID PEM_SOURCE=$PEM_SOURCE LIMEN_REPO=$LIMEN_REPO LIME
 
 ## Upgrade
 
-1. With the doorbell: root$ the phase 12 block with the new `LIMEN_REV`. It disables and stops the timer, moves `/opt/limen`, and keeps the CLI and the poller on one release. Without the doorbell: root$ `node /opt/limen/seat/deploy.ts <full sha>`. The script refuses while any job of a project registered on the seat runs, checks that the commit is on `origin/adrian-rebuild` and that the checkout is clean before it checks the commit out detached, and returns `/opt/limen` to the previous commit when anything fails after that.
+1. With the doorbell: root$ the phase 12 block with the new `LIMEN_REV`. It disables and stops the timer, moves `/opt/limen`, and keeps the CLI and the poller on one release. Without the doorbell: root$ `node /opt/limen/seat/deploy.ts <full sha>`. The script refuses while any job of a project registered on the seat runs, checks that the commit is on `origin/adrian-rebuild` and that the checkout is clean before it checks the commit out detached, and returns `/opt/limen` to the previous commit when anything fails after that. When the alerts are installed, the new release writes their units again for the account in `User=` of `limen-alerts.service`, verifies and reloads them; a failed verification also returns `/opt/limen` to the previous commit.
 2. **HUMAN:** restart the coordinator in its pane, so that it loads the new release. Then run the phase 4 Check; **STOP** on any mismatch. With the doorbell, then run phases 13 and 14.
 3. New pinned versions: take the hash for both CPU types from the vendor source that phase 4 or phase 6 names. Never compute a hash yourself.

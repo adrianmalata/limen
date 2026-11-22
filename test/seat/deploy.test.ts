@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -79,13 +79,32 @@ async function fixture(t: TestContext): Promise<Fixture> {
 	return { dir, repo, passwd, registry, project, tools, older, newer, side };
 }
 
+/** The installed service of the alerts in the fixture's unit folder, which a fixture has only when a test writes it. */
+const alertsService = (f: Fixture) => join(f.dir, "units", "limen-alerts.service");
+/** A units step that fails loudly: a test that does not install the alerts never gets to it. */
+const NO_UNITS_STEP = (account: string): Verification => ({
+	name: "alerts units",
+	argv: [process.execPath, "-e", `console.error("the units step ran for ${account}"); process.exit(9)`],
+	timeoutMs: BOUND_MS,
+});
+
 function deployTo(
 	f: Fixture,
 	sha: string,
 	verifications: readonly Verification[] = [],
 	env: NodeJS.ProcessEnv = process.env,
+	alertsUnits: (account: string) => Verification = NO_UNITS_STEP,
 ) {
-	return runDeploy({ args: [sha], repo: f.repo, passwd: f.passwd, now: () => NOW, verifications, env });
+	return runDeploy({
+		args: [sha],
+		repo: f.repo,
+		passwd: f.passwd,
+		now: () => NOW,
+		verifications,
+		env,
+		alertsService: alertsService(f),
+		alertsUnits,
+	});
 }
 const head = (f: Fixture) => git(f.repo, "rev-parse", "HEAD");
 const tags = (f: Fixture) => git(f.repo, "tag", "--list");
@@ -344,4 +363,62 @@ test("a registered root whose .limen cannot be read refuses the deployment with 
 	const run = await deployTo(f, f.newer);
 	assert.deepEqual([run.code, head(f), tags(f), fetched(f)], [4, f.older, "", f.older], run.stderr);
 	assert.ok(run.stderr.includes(`cannot read ${join(loop, ".limen")}: ELOOP`), run.stderr);
+});
+
+/** Writes an installed alerts service into the fixture's unit folder, with `user` as its User= line. */
+async function installAlerts(f: Fixture, user: string): Promise<void> {
+	await mkdir(join(f.dir, "units"), { recursive: true });
+	await writeFile(alertsService(f), `[Unit]\nDescription=alerts\n\n[Service]\nType=oneshot\n${user}\n`);
+}
+
+// D-085: the units of the new tag come from the new tag's code, so the step runs as its own process in the checkout.
+test("D-085: an installed alerts service makes the deployment run the new checkout's units step for the account in its User=", async (t) => {
+	const f = await fixture(t);
+	await installAlerts(f, "User=alerts-test");
+	const seen = join(f.dir, "units-step");
+	const step = (account: string): Verification => ({
+		name: "alerts units",
+		argv: [
+			process.execPath,
+			"-e",
+			`const fs = process.getBuiltinModule("node:fs");
+fs.writeFileSync(${JSON.stringify(seen)}, ${JSON.stringify(account)} + " " + fs.readFileSync("newer.txt", "utf8"));
+console.log("limen-alerts.service: rewritten");`,
+		],
+		timeoutMs: BOUND_MS,
+	});
+	const run = await deployTo(f, f.newer, [], process.env, step);
+	assert.deepEqual([run.code, head(f), tags(f)], [0, f.newer, TAG], run.stderr);
+	assert.equal(await readFile(seen, "utf8"), "alerts-test newer\n");
+	assert.ok(run.stdout.split("\n").includes("alerts: limen-alerts.service: rewritten"), run.stdout);
+});
+
+test("D-085: a failed alerts units step returns the checkout to the previous commit and exits 4 with no tag", async (t) => {
+	const f = await fixture(t);
+	await installAlerts(f, "User=alerts-test");
+	const fails = (): Verification => ({
+		name: "alerts units",
+		argv: [process.execPath, "-e", 'console.error("systemd-analyze verify failed"); process.exit(4)'],
+		timeoutMs: BOUND_MS,
+	});
+	const run = await deployTo(f, f.newer, [], process.env, fails);
+	assert.deepEqual([run.code, head(f), tags(f)], [4, f.older, ""], run.stderr);
+	assert.ok(run.stderr.includes('verification "alerts units" failed'), run.stderr);
+	assert.ok(run.stderr.includes(`back at the previous commit ${f.older}`), run.stderr);
+});
+
+test("D-085: without an installed alerts service the deployment says the alerts are not installed and names the install command", async (t) => {
+	const f = await fixture(t);
+	const run = await deployTo(f, f.newer);
+	assert.equal(run.code, 0, run.stderr);
+	const install = `node ${join(f.repo, "seat", "alerts.ts")} install --account <account>`;
+	assert.ok(run.stdout.split("\n").includes(`alerts: not installed; to install them, as root: ${install}`), run.stdout);
+});
+
+test("an installed alerts service with no account in User= refuses the deployment with exit 4 before the checkout", async (t) => {
+	const f = await fixture(t);
+	await installAlerts(f, "Type=simple");
+	const run = await deployTo(f, f.newer);
+	assert.deepEqual([run.code, head(f), tags(f)], [4, f.older, ""], run.stderr);
+	assert.ok(run.stderr.includes(alertsService(f)), run.stderr);
 });

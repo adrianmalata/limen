@@ -3,7 +3,9 @@ Narzędzie `seat/alerts.ts` działa jako usługa i timer systemowe (`User=` kont
 `LoadCredential=`), czyta rekordy wszystkich zarejestrowanych projektów tylko do odczytu, wysyła jedną linię
 `<projekt> failed:<rodzaj> <id joba>` i pamięta wysłane we własnym katalogu stanu; pierwsze uruchomienie niczego nie
 wysyła. Instaluje je root jednym poleceniem, deploy odświeża jednostki, `limen status` ostrzega; stary dzwonek znika.
-Stan: napisany 22.11 przy `e39ccd0` z inwentarza `evidence/inventories/R-033.md`, gotowy na noc. -->
+Stan: napisany 22.11 przy `e39ccd0` z inwentarza `evidence/inventories/R-033.md`; przy starcie (22.11, `3fec0d2`)
+dopisana notka o zmianach z R-026 i R-030; po rundzie 1 recenzji poprawki F1–F6 w `## Decisions`, Rollback
+uzupełniony o usunięcie jednostek; po rundzie 2 jedna poprawka G1 (prawdziwa przyczyna w linii podsumowania). -->
 
 # R-033 Alerts from their own account: failures and escalations only
 
@@ -101,8 +103,8 @@ SHA with exit 4, as D-010 says. When the alerts are not installed it says so and
 `active` or `systemctl is-failed limen-alerts.service` prints `failed`, naming which; the probe of a system unit lives in
 the platform adapter (fact 2; if R-026 has landed, its scan of `systemctl` outside `src/platform/` holds it).
 
-(f) The old bell goes: `git rm docs/seat/bell.sh docs/seat/bell.ts docs/seat/limen-bell.service
-docs/seat/limen-bell.timer test/seat/bell.test.ts`; the fixture of `test/structure.test.ts:819`, `:828` takes another
+(f) The old bell goes, each path by `git rm`: `docs/seat/bell.sh`, `docs/seat/bell.ts`, `docs/seat/limen-bell.service`,
+`docs/seat/limen-bell.timer`, `test/seat/bell.test.ts` (D-089: one path per backtick span); the fixture of `test/structure.test.ts:819`, `:828` takes another
 path; `docs/seat/README.md`, `docs/seat/agent-setup.md`, `docs/remote.md` and `docs/jobs.md` describe the alerts.
 
 (g) Tests (T-29: `test/seat/alerts.test.ts`, `test/seat/units.test.ts`, `test/seat/deploy.test.ts`,
@@ -154,8 +156,11 @@ line sent), a new failed job, and a second run (one line). The installation is `
 
 ## Rollback
 
-`git revert $(git log --format=%H --grep='^R-033:' adrian-rebuild --)`; on the seat, `systemctl disable --now
-limen-alerts.timer` (Adrian, as root).
+`git revert $(git log --format=%H --grep='^R-033:' adrian-rebuild --)`; on the seat, before the revert's deployment
+(Adrian, as root): `systemctl disable --now limen-alerts.timer`, then remove `/etc/systemd/system/limen-alerts.service`
+and `/etc/systemd/system/limen-alerts.timer` and run `systemctl daemon-reload`, because `seat/deploy.ts` runs the new
+checkout's units step while the service file exists, and a checkout without `seat/alerts.ts` fails that step (review
+round 1, note 2).
 
 ## Decisions
 
@@ -168,3 +173,41 @@ limen-alerts.timer` (Adrian, as root).
   3. The timer runs every minute, as the sweep does (A-024); a failure needs no faster alert.
   4. Rights are traverse-only ACLs plus read on the registries and the jobs folders, the narrowest access that reads
      the records (priority 1); the install grants them because it already runs as root.
+- 2026-11-22, at the start (the main session, `limen-rebuild-21`, `HEAD` `3fec0d2`): two tickets landed after the facts
+  above, so their line numbers are those of `e39ccd0`; read the current files. R-026: the GitHub doctor's system-unit
+  probes moved into the platform adapter (`systemUnitProperty`, `systemUnitState` in `src/platform/platform.ts`, whose
+  query union holds `is-enabled` and `is-active` but not `is-failed`), `test/structure.test.ts` bans the `systemctl`
+  literal outside `src/platform/`, and records gained the optional field `scope`. R-030: `src/project/summary.ts` gained
+  the `Unlanded work` block of `limen status`, and `test/cli/status.test.ts` its tests.
+- 2026-11-22 D-089 (Adrian, Q-40): the void of the implementer's run by the form of (f) is accepted; (f) names each
+  path in its own backticks.
+
+Review round 1 (2026-11-22, by day; `review.md` → Round 1, verdict PASS with eight notes): the findings to fix, for
+the first round of fixes by the resumed implementer; the main session's reading, not a night default:
+- F1 (T-01: no silent false success; the ticket's Risk, "the run names it and fails"; note 1): a run that reads no
+  project at all exits 4 with one line that names the cause (no registry found, or every registry closed), so the
+  service fails and `limen status` warns; `install` refuses with exit 1 when it finds no registered project, before it
+  grants or enables anything. Tests, each failing before the fix.
+- F2 (T-29, T-28 (3); note 3): a test for each of the three behaviours that no test proves: migrated records written
+  after the first run send nothing; an older folder written after the first run sends nothing; a registry the run
+  cannot traverse is skipped while one it can see but not read fails the run (Deviation 5). Each must fail when its
+  behaviour is removed.
+- F3 (note 4): `install` and `units` run `systemctl daemon-reload` every time, whether or not a unit changed, so a
+  retry after a failed reload loads the units; the verification of a changed unit stays as Deviation 4 has it. A test
+  with a fake `systemctl` whose first reload fails.
+- F4 (G2: the alerts run "from their own account"; note 5): `install` refuses with exit 1 an account of uid 0 and an
+  account whose home holds a Limen registry (an agents' account), naming the account. A test of each refusal.
+- F5 (T-25: one definition; note 6): one `requiredText` and one `counted` in the shared seat module, used by
+  `seat/alerts.ts` and `seat/deploy.ts`.
+- F6 (T-10; note 8): the units' header comment is at most 100 characters.
+- The main session: the Rollback above (note 2) and the rows of `setfacl`, `systemd-analyze` and `systemctl` in
+  `plan.md` → `## System requirements` (note 7). Deviations 1–9 are accepted as written (4 and 5 as F3 and F1 narrow
+  them); Open points 3–6 stay in `outcome.md`.
+
+Review round 2 (2026-11-22, by day; `review.md` → Round 2, verdict PASS): one finding to fix, for the second and last
+round of fixes by the resumed implementer; the main session's reading, not a night default:
+- G1 (z. 10, T-01: a message says what is wrong; note 7): the summary line of a run that reads no project names the
+  cause that holds: an unreadable registry or an unreadable project line counts before a closed home and before an
+  empty registry, so on the seat, where `/root/.limen/projects` is always closed, an unreadable agents' registry is
+  named as unreadable. Tests of both mixed cases (an unreadable registry beside a closed one; a read registry whose
+  every project line is unreadable), each failing before the fix.

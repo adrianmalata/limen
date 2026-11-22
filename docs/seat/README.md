@@ -4,7 +4,7 @@ Operator checklist and the current setup steps. Limen does not run these. Copy t
 
 The seat owns the project copy (the Git checkout), the worktrees, and the job files in `.limen/jobs/`. The laptop is only a window.
 
-Units next to this file: `bell.sh`, `limen-bell.{service,timer}`, `limen-prune.{service,timer}`, and the Pi extensions `coordinator-handoff.ts`, `quota-resume.ts` and `statusline.ts`.
+Units next to this file: `limen-prune.{service,timer}`, and the Pi extensions `coordinator-handoff.ts`, `quota-resume.ts` and `statusline.ts`. The alerts' units are written by `seat/alerts.ts` (below).
 
 ## Box
 
@@ -22,17 +22,23 @@ Units next to this file: `bell.sh`, `limen-bell.{service,timer}`, `limen-prune.{
 6. Start a persistent Herdr session (or `herdr server` under systemd) so attach works with the lid closed. Turn on lingering for the account (root: `loginctl enable-linger <account>`): every job runs in its own systemd user scope, so the account's user instance must run, and `systemd-run --user --scope true` must exit 0 from a Herdr pane. `limen init` checks it.
 7. `herdr integration install pi`: Herdr's Pi integration serves the coordinator pane. First smoke job: `limen spawn --detached`.
 
-## Bell
+## Alerts
 
-Prefer **Moshi** if the phone already gets Herdr pings: pair `moshi-hook` on the box (`--store file` on Linux), `service install`, `loginctl enable-linger`.
+The alerts send one line to the phone through the public ntfy relay for each failed job of every registered project: `<project folder's base name> failed:<kind> <job id>`, such as `synchronizer failed:quota 2026-11-16-f001-work-a-37c02ed6`, with no title. No path, label or job text leaves the seat; `limen status` over SSH gives the details. A job that ends `done` sends nothing. They are the only escalation path to the owner, so they belong to every seat, and `limen status` warns while their timer is not active or their last run failed.
 
-ntfy is the fallback when Moshi is not in play:
+They run every minute as `limen-alerts.service`, a system service on an account of their own: `/usr/bin/node /opt/limen/seat/alerts.ts run` reads the registries and the job records, and keeps the events it reported in its own state folder (`StateDirectory=limen-alerts`), so it writes no file of the agents' account. The topic reaches it only as the systemd credential `topic` (`LoadCredential=topic:/etc/limen/alerts-topic`). An event is reported only after ntfy took it, so a failed send comes again on the next run; a project or a record it cannot read is named in the journal, the run fails, and the other projects still alert. A run that reads no project at all fails too, naming why: a registry or a registered project it could not read (counted first, since root's own registry is always closed to it), registries that name no project, every registry in a home closed to it, or no registry.
 
-1. On the phone: ntfy app, subscribe to a long random topic. From the Mac: `curl -d test https://ntfy.sh/$topic` — phone must buzz **before** you move the coordinator.
-2. Use `bell.sh` in the Limen checkout on the box, not a copy: it runs `bell.ts` beside it with `node`, which reads the job records through Limen's record module, so `node` must be on the service's `PATH`.
-3. Drop-in for `limen-bell.service`: `User`, `LIMEN_ROOT` (the project that contains `.limen`), `NTFY_TOPIC`, `ExecStart` → that script.
-4. `systemctl enable --now limen-bell.timer`
-5. `limen spawn --detached --engine pi --provider <provider> --model <model> --thinking <level> "echo seat-smoke && exit"` from the project. Close the SSH session. Phone should ring. `cat .limen/jobs/<id>/notify/bell` exists. Re-run the script: no second ping.
+Install, as root, once:
+
+1. On the phone: the ntfy app, subscribed to a long random topic. From the laptop: `curl -d test https://ntfy.sh/$topic`; the phone must buzz.
+2. Create the alerts account: `useradd --system --no-create-home --shell /usr/sbin/nologin <account>`; the name stays on the seat.
+3. Write the topic into `/etc/limen/alerts-topic`, a file of root's with mode 0600 (`install -d -m 0755 /etc/limen && install -o root -g root -m 0600 /dev/null /etc/limen/alerts-topic`, then an editor).
+4. `node /opt/limen/seat/alerts.ts install --account <account>`. It refuses unless it runs as root, the account exists and is the alerts' own (not uid 0, and its home holds no Limen registry, as an agents' account does), the topic file is root's with mode 0600, and a registry names a project; it needs `setfacl` (the package `acl`). It grants the account traverse rights (`--x`) by ACL on each folder above every registry and every registered project's `.limen/jobs`, read and traverse (`r-x`) on `.limen/jobs` and read on each registry; then it writes `limen-alerts.service` and `limen-alerts.timer` into `/etc/systemd/system/` where they differ, verifies them with `systemd-analyze verify` (a failure puts the earlier units back), reloads systemd every time (so a reload that failed before is done now) and enables the timer. Run again, it changes nothing that is in place.
+5. The first run records the failures that are there already and sends nothing. `limen status` in a project prints no `Alerts not working` block, and a job that fails sends one line.
+
+`limen init` in a new project rewrites the registry, which drops its ACL, and the new project has no rights yet: run the install again after it. `node /opt/limen/seat/deploy.ts <sha>` writes the units of the new release again for the account in their `User=`. To stop the alerts: `systemctl disable --now limen-alerts.timer`.
+
+Moshi rings the phone when an agent needs you, through Herdr's agent hooks: pair `moshi-hook` on the box (`--store file` on Linux), `service install`, `loginctl enable-linger`.
 
 ## Pi extensions
 
@@ -63,7 +69,7 @@ Preview: on the seat, bind the app to `127.0.0.1`, then `tailscale serve 3000`. 
 
 ## Prove, in this order
 
-1. Detached job finishes with the lid closed; phone rings; `limen show <id>` on the box says `done`.
+1. Detached job finishes with the lid closed; `limen show <id>` on the box says `done`. A detached job that fails sends one alert to the phone.
 2. `herdr --remote` → `limen status` shows that same id.
 3. Preview URL opens on the Mac. No `git pull`.
 

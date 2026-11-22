@@ -2,11 +2,11 @@
 // liveness and signals of a process and of a process group, the CPU and memory readings of the start gate, the boot id
 // that a lock's owner record carries (D-056 (1)), and the systemd user scopes every job runs in (A-029): a start in a
 // new scope, the end of a scope, a process's own cgroup, a scope's readings, and the probe of `limen init`; and what the
-// system manager says of a unit, which the GitHub doctor reads. The policies built on them (birth checks, the stall
-// rule, the start gate's thresholds, the lock's owner check, the names of Limen's scopes and when one ends) stay with
-// their callers. Linux is the one implementation; another operating system is another implementation with its own
-// tests. A member exists only with an implementation: the scheduler install comes with R-032, and notifications stay
-// Herdr's (src/integrations/herdr.ts).
+// system manager says of a unit, which the GitHub doctor and the alerts' warning of `limen status` read. The policies
+// built on them (birth checks, the stall rule, the start gate's thresholds, the lock's owner check, the names of
+// Limen's scopes and when one ends) stay with their callers. Linux is the one implementation; another operating system
+// is another implementation with its own tests. A member exists only with an implementation: the scheduler install
+// comes with R-032, and notifications stay Herdr's (src/integrations/herdr.ts).
 import { linux } from "./linux.ts";
 
 /** A process as the system reports it; `born` is its start time in clock ticks since boot, which a reused pid lacks. */
@@ -111,8 +111,11 @@ export interface Platform {
 	scopeReadings(cgroup: string): Promise<ScopeReadings>;
 	/** The property `property` of the system manager's unit `unit` as it prints it; undefined when the call fails. */
 	systemUnitProperty(unit: string, property: string): string | undefined;
-	/** What the system manager prints for `is-enabled` or `is-active` of its unit `unit`; undefined when it says no. */
-	systemUnitState(unit: string, query: "is-enabled" | "is-active"): string | undefined;
+	/**
+	 * What the system manager prints for `is-enabled`, `is-active` or `is-failed` of its unit `unit`; undefined when it
+	 * says no, so `is-failed` gives `failed` only for a unit that failed.
+	 */
+	systemUnitState(unit: string, query: "is-enabled" | "is-active" | "is-failed"): string | undefined;
 }
 
 /** The implementation in use. */

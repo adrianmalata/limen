@@ -1,10 +1,10 @@
 // The summary of this project (`limen status`): what runs, what landed, what waits for a decision, in the last 7 days,
-// every finished job whose unlanded work blocks a worker spawn, whatever its age (A-001), and with `--all` every record
-// and one row for each job (D-038).
+// every finished job whose unlanded work blocks a worker spawn, whatever its age (A-001), whether the seat's alerts run
+// (A-066), and with `--all` every record and one row for each job (D-038).
 import { spawnSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
-import { relative, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { ignoredSettings } from "../config.ts";
 import { herdrBinary } from "../integrations/herdr.ts";
 import { type GroupIdentity, jobMembership } from "../job/group-cabinet.ts";
@@ -13,8 +13,10 @@ import { orderedJobs, RECENT_MS, renderJobDirectory, shownState } from "../job/l
 import { jobFolders, readRecord } from "../job/record.ts";
 import { unlandedSummary, unlandedWork } from "../job/unlanded.ts";
 import type { ShownJob } from "../job/view.ts";
+import { platform } from "../platform/platform.ts";
 import { confirmDeadJobs } from "../runtime/reap.ts";
 import { limenRoot, unlandedBranches, workspaceRepository, workspaceRoot } from "./git.ts";
+import { packageRoot } from "./inherit.ts";
 import { listLeftovers } from "./leftovers.ts";
 
 const text = (path: string) =>
@@ -127,6 +129,7 @@ export async function projectStatus(cwd: string, all: boolean): Promise<string> 
 		...(decide.length ? decide : ["  none"]),
 		...(await unlandedLines(root)),
 		...(scan.uncertain.length ? ["Unconfirmed jobs:", ...scan.uncertain] : []),
+		...alertsLines(),
 		...leftoverLines(root),
 		...environmentLines(),
 		...(all ? [] : [`Older: ${scan.older} record${scan.older === 1 ? "" : "s"} (limen status --all)`]),
@@ -162,6 +165,29 @@ async function jobRows(root: string, jobsRoot: string, ids: readonly string[]): 
 		order.map(async ([id]) => (await renderJobDirectory(root, jobsRoot, id, "row")).compact),
 	);
 	return [`Jobs (${rows.length}):`, ...(rows.length ? rows : ["  none"])];
+}
+
+/**
+ * What keeps the seat's alerts from sending (A-066): their timer is not active, or their last run failed; each with
+ * what root runs next. The alerts are the owner's only escalation path, so status says when they do not run; empty
+ * when the timer is active and the service has not failed.
+ */
+function alertsLines(): string[] {
+	const problems = [
+		...(platform.systemUnitState("limen-alerts.timer", "is-active") === "active"
+			? []
+			: [
+					"  limen-alerts.timer is not active; as root, install the alerts:",
+					`    node ${join(packageRoot(), "seat", "alerts.ts")} install --account <account>`,
+				]),
+		...(platform.systemUnitState("limen-alerts.service", "is-failed") === "failed"
+			? ["  limen-alerts.service failed; as root, read why:", "    journalctl -u limen-alerts.service"]
+			: []),
+	];
+	const count = problems.length / 2;
+	return count === 0
+		? []
+		: [`Alerts not working (${count}); no failed job reaches the phone until each is fixed:`, ...problems];
 }
 
 /** The leftover files of cut features, for the owner to check before the drop (A-042); empty when there are none. */

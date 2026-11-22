@@ -93,7 +93,10 @@ rundy 3 poprawione bez czwartej rundy, D-086); blok hooks do .claude/settings.lo
 z wyjazdu, a sesja dzienna bierze tymczasem tickety etapu 3: R-026 zamknięty za dnia (każdy job we własnym scope
 systemd, bramka 752/752, trzy rundy recenzji PASS); przekazanie do limen-rebuild-21, która zamknęła R-030 za dnia
 (limen abandon, prune bez utraty niewylądowanej pracy, odmowa spawnu UNLANDED_WORK; pięć rund recenzji, trzecia i
-czwarta runda poprawek z decyzji Adriana D-087 i D-088, bramka 787/787); zostają R-033 i R-100. -->
+czwarta runda poprawek z decyzji Adriana D-087 i D-088, bramka 787/787) i R-033 (powiadomienia z własnego konta
+zamiast dzwonka, trzy rundy recenzji PASS, bramka 834/834; dwie uwagi do R-035, D-090); noc do 9:00 z pięcioma
+ticketami (D-091) przygotowuje limen-rebuild-22. -->
+
 
 
 
@@ -1029,6 +1032,24 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   when it touches only text, or goes to the notes of the ticket that rewrites that part; a new blocking finding goes
   to Adrian; there is no
   fifth round. Check: `node --test test/cli/abandon.test.ts`; `R-030-unlanded-work-survives/review.md` → Round 4.
+- 2026-11-22 D-089 (Adrian: "rekomendowane"; Q-40, option 1; the precedent is D-035): `compare --git` voided R-033's
+  implementer run only because `## Change` (f) named its five `git rm` deletions in one backtick span with spaces,
+  which `changePaths` does not read; HEAD, the refs, git's config, hooks and the reserved paths were unchanged. Adrian
+  accepted the run. The main session writes each path in its own backticks in (f), takes a new `snapshot --git` and
+  runs `compare --git` again, which must exit 0. Rule: `## Change` names every deleted or moved path in its own
+  backtick span, with no spaces. Check: `node adrian-rebuild/tools/review-guard.mjs compare --git
+  node_modules/.rebuild-review/R-033.git adrian-rebuild/R-033-alerts/ticket.md`.
+- 2026-11-22 D-090 (Adrian: "uwagi do R-035"; Q-41, option 1): R-033's review round 3 notes 2 and 3 become two items
+  of R-035, which changes `seat/alerts.ts` in stage 3, before `a0.3.0` and the alerts' install (3.3): (1) a project
+  the alerts first read after their first run, and the install run again after `limen init`, mark that project's
+  existing failures as reported without sending them (A-054); (2) the summary of a run that reads no project counts
+  an unreadable project once, however many registries list it. R-033 is committed without them. Check: R-035's
+  `ticket.md` → `## Change`; `R-033-alerts/review.md` → Round 3.
+- 2026-11-22 D-091 (Adrian: "na noc pięć ticketów, potwierdzam godzinę 9:00"): the night of 2026-11-22/23 runs until
+  09:00 with five tickets of stage 3 made `ready` by day: R-027, R-028, R-031, R-035 (with D-090's items) and R-100,
+  whose `ticket.md` is checked again at `HEAD` after R-033 (D-025); R-036 and R-087 stay for the day. This is Adrian's
+  request of D-024: the day session that prepares the tickets runs the D-024 preflight, shows its results, and starts
+  `night.mjs --until 09:00`. Check: `## State`; `.night/status.json` in the morning.
 - 2026-11-22 D-088 (Adrian: "zgodnie z rekomendacją"; Q-39, option 1, after R-030's review round 4 found a new
   blocking finding; a further exception to `## Agents`, step 6, for R-030 only): a fourth round of fixes by the resumed
   implementer with one item, I1: one function decides whether a worktree holds state the project's repository cannot
@@ -1201,6 +1222,7 @@ check it, and a missing tool or another version exits with code 4 naming both ve
 | Claude Code | the version Adrian pins at installation (5.3), recorded here then; updated only by the seat script after the contracts pass | R-049 (D-017); the bridge gets its path (R-048) | root, in a root directory (5.3); the agents' copy removed (5.20) |
 | systemd user instance with lingering | scopes and timers work (`systemd-run --user --scope true`) | R-026, R-032 | root enables lingering (3.1) |
 | Herdr | 0.9.3 on the seat | R-020 (T-12: tools found in use) | the seat |
+| setfacl, systemd-analyze, systemctl (system manager) | present for root: the alerts' install grants ACLs, verifies and enables system units | R-033 (`SEAT_TOOLS` in `seat/alerts.ts`) | the seat (Ubuntu's `acl` and `systemd`) |
 
 ## Stages
 
@@ -1424,7 +1446,7 @@ Columns:
 | R-030 | Unlanded work survives: `limen abandon`, a guarded prune, a refusing spawn | 3 | A-001 | R-023, R-092 | M | delegated | night | yes | herdr | 3.6 | done |
 | R-031 | `landed` and `abandoned` markers; retire moves records to the archive | 3 | A-002, §6 | R-030 | M | delegated | night | yes | — | — | planned |
 | R-032 | `limen seat sweep` runs on a timer; read commands never write or wait | 3 | A-024, T-04, T-18, A-017, §6, D-045 | R-012, R-027, R-031 | L | delegated | night | yes | systemd | 3.1 | planned |
-| R-033 | Alerts from their own account: failures and escalations only | 3 | A-066, A-054, T-18, D-084, D-085 | R-021 | L | delegated | night | yes | systemd | 3.3 | ready |
+| R-033 | Alerts from their own account: failures and escalations only | 3 | A-066, A-054, T-18, D-084, D-085 | R-021 | L | delegated | night | yes | systemd | 3.3 | done |
 | R-034 | Resume after the quota limit in code; seat rules are cut | 3 | A-016, A-010, A-068, §6 | R-029, R-032, R-033 | L | delegated | night | yes | systemd | 3.4, 3.5 | planned |
 | R-035 | Start-queue thresholds: a diagnosis at 30 min, a failure at 2 h | 3 | A-036 | R-026, R-033 | M | delegated | night | — | systemd | 3.8 | planned |
 | R-036 | Stall is measured over the whole job scope | 3 | A-059 | R-026 | M | delegated | night | — | systemd | 3.8 | planned |
@@ -1621,6 +1643,10 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   whole.
 - R-033 (D-080; R-021 `outcome.md` → Open points): since R-021 the bell needs `node` on its service's `PATH`; the
   alerts that replace it, and seat step 3.3, name what their service runs.
+- R-035 (D-090; R-033 `review.md` → Round 3, notes 2 and 3): two items in `seat/alerts.ts`: a project the alerts first
+  read after their first run, and an install run again after `limen init`, mark that project's existing failures as
+  reported without sending them (A-054); the summary of a run that reads no project counts an unreadable project once,
+  however many registries list it. Each with a test that fails before it.
 - R-038 (D-080; R-024 Open point 3, R-096 Open point 1): the fake engine writes `{"task": …}` into its transcript,
   which is no Pi entry, so `limen stats` over a fake job names it under `Not read`; and a message a hook sends while
   `agent_settled` is emitted, which starts a new run as Pi's `prompt` defers it, has no test of its own.
@@ -2149,10 +2175,11 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 Updated 2026-11-22 by day (`limen-rebuild-21`), rebuild stage 5 in plan stage 3: stage 1 is closed at `a0.1.1`
 (deployed on 2026-11-20, with B.2 closed by D-050); stage 2 is closed at `a0.2.0` (gate 5.2 decided, D-078–D-082);
-stage 3 has started: R-026 and R-030 are `done` (by day), R-033 and R-100 are `ready`, and D-083's decision guard is
-built (D-086). The newest entries are at the end of this section: the close of stage 2 in "Close of stage 2", the gate
-in "Gate 5.2 decided", the start of stage 3 in "Start of stage 3", the guard and R-026 in "D-083's decision guard",
-and R-030 (with D-087 and D-088) in "R-030".
+stage 3 has started: R-026, R-030 and R-033 are `done` (by day), R-100 is `ready`, and D-083's decision guard is
+built (D-086); the night of D-091 (until 09:00, five tickets) is prepared by `limen-rebuild-22` (`Next` 2). The newest
+entries are at the end of this section: the close of stage 2 in "Close of stage 2", the gate in "Gate 5.2 decided",
+the start of stage 3 in "Start of stage 3", the guard and R-026 in "D-083's decision guard", and R-030 and R-033 (with
+D-087–D-091) in "R-030".
 
 Handover of 2026-11-19 (D-033, at 37 % context, after the commit `R-014:`): `limen-rebuild-5` started
 `limen-rebuild-6` in `tmux` in remote-control mode (14:10) and ended. WSL booted at 10:34 on 2026-11-19, after the
@@ -3315,6 +3342,42 @@ the terminal being active; context 8 % at the start):
   the job's own branch takes it over); `limen status` lists the jobs. The main session's gate 787/787 on the final tree
   (184.7 s); `fails-before.mjs` exit 0 (twelve files). Round 5's text note fixed by the main session (`docs/jobs.md:147`,
   D-053 (2)); its notes 2–4 go to R-032's notes (D-087's rule). Unmeasured: M-10, M-06 (step 3.6, with its Herdr check).
+- Commit `R-030:` (`3fec0d2`), pushed; the tree clean; context 27 %.
+- R-033 `active` (delegated, from 18:45); a note in its `ticket.md` → `## Decisions` names what R-026 and R-030 changed
+  since its facts. The implementer's `DONE` (its gate 821/821 twice); `compare --git` exit 1: the index holds the five
+  `git rm` deletions of `## Change` (f) (`docs/seat/bell.sh`, `bell.ts`, `limen-bell.service`, `limen-bell.timer`,
+  `test/seat/bell.test.ts`), which the guard does not read as named, because (f) writes them in one backtick span with
+  spaces and `changePaths` reads only spans without whitespace; nothing else differs (HEAD, refs, config, hooks,
+  reserved paths). The ticket's form is the main session's slip. By `## Agents`, step 3, the run is void and Adrian
+  decides: Q-40 asked in the conversation, with a push.
+  - Q-40: 1. accept the run, as D-035 did: the main session writes each of the five paths in its own backticks in
+    (f), takes a new `snapshot --git`, runs `compare --git` again (it must exit 0), and goes on with the gate
+    (recommended); 2. void it: restore the tree to `HEAD` and run a fresh implementer on the corrected ticket.
+- Adrian: "rekomendowane" → D-089 (Q-40 option 1): (f) names each path in its own backticks, a new `snapshot --git`,
+  then `compare --git` again.
+- `compare --git` exit 0; gate 821/821; `fails-before.mjs` exit 0 (six files). Review round 1 PASS with eight notes:
+  fixes F1–F6 (a run that reads no project fails, the install refuses with no project and refuses root and an agents'
+  account, a reload every time, the missing tests, one `requiredText`, a header of at most 100 characters); the main
+  session fixed the Rollback (remove the units and reload before the revert's deployment) and added the row of
+  `setfacl`, `systemd-analyze`, `systemctl` to `## System requirements`. Round 1 of fixes: gate 832/832. Review round
+  2 PASS; fix G1 (the summary names the true cause). Round 2 of fixes: gate 834/834, `fails-before.mjs` exit 0.
+  Review round 3 PASS with two notes that need code (`review.md` → Round 3, notes 2 and 3) and one text note, fixed by
+  the main session (`docs/seat/README.md:29`). Both rounds of fixes are spent: Q-41 asked in the conversation, with a
+  push. Adrian also asked whether the night can start (2026-11-22, 19:58): not before R-033's commit, R-100's
+  `ticket.md` checked again at `HEAD` (R-033 moved `absent` and deploy's jobs listing into `seat/`, and
+  `seat/alerts.ts` is a new place its scans cover), the tickets of R-031 and R-035 written `ready`, and the D-024
+  preflight in the next session (this one is at 31 %); the end time is his.
+  - Q-41: 1. notes 2 and 3 become two items of R-035, which adds the `queue` event to `seat/alerts.ts` in stage 3, so
+    both are fixed before `a0.3.0` and the alerts' install (3.3) (recommended); 2. a third round of fixes for R-033 now,
+    on D-044's pattern; 3. a separate S fix ticket in stage 3.
+- Adrian: "uwagi do R-035, na noc pięć ticketów, potwierdzam godzinę 9:00" → D-090 (Q-41 option 1; the two items in
+  R-035's note in `## Tickets`) and D-091 (the night until 09:00 with R-027, R-028, R-031, R-035 and R-100).
+- R-033 `done` (delegated; review PASS in rounds 1–3, with fixes F1–F6 and G1 by the resumed implementer): the alerts
+  of `seat/alerts.ts` replace the bell, as a system unit and timer on an account of their own (D-085), one line per
+  failure (D-084), the topic only from the credential; the install refuses root, an agents' account and a seat with no
+  project; a run that reads no project fails with its true cause; `seat/deploy.ts` runs the new checkout's units step;
+  `limen status` warns. The main session's gate 834/834 on the final tree; `fails-before.mjs` exit 0 (six files).
+  Unmeasured: the real systemd side, the ACLs and the phone (`## Deployment` 3.3).
 
 Next (by day):
 1. After his return from the trip (Adrian, 2026-11-22: "Zapisz mi to na zrobienie po powrocie z wyjazdu, teraz działaj
@@ -3341,11 +3404,17 @@ Next (by day):
      ]
    }
    ```
-2. The `ready` tickets of stage 3 left, in protocol order (R-033, R-100; R-026 and R-030 are `done`): by day, at Adrian's word
-   ("teraz działaj z zadaniami dalej", 2026-11-22), the main session takes them in delegated mode by the ticket
-   protocol (`Run` = `night` means a night run may take a ticket, not that only a night run may); whatever is left
-   goes to the next night run, started as the night mode says (D-024), after the preflight. R-029 waits for R-100
-   (D-080).
+2. The night of D-091 (2026-11-22/23, until 09:00), prepared by the next day session (`limen-rebuild-22`), in this
+   order: (a) read-only inventories of R-027, R-028, R-031 and R-035 at `HEAD` (`Explore` agents in parallel, into
+   `evidence/inventories/`), and R-100's `ticket.md` checked again at `HEAD` (it was written at `9da2fde`; R-033 moved
+   `absent` and deploy's jobs listing into `seat/registries.ts` and `seat/tool-outcome.ts`, and `seat/alerts.ts` is a
+   new place its scans cover; run each of its scan criteria at `HEAD`, D-025); (b) the four `ticket.md` written, each
+   status `ready`, with no grep criteria unless run at `HEAD`, every deleted or moved path in its own backticks (D-089),
+   R-035 with D-090's two items; `check.mjs` exit 0, then one commit and a push; (c) the D-024 preflight (the runner's
+   tests, the pushed SHA, a clean tree, a `claude -p` that lists both subagent definitions), its results shown to
+   Adrian, then `mkdir -p adrian-rebuild/.night` and `nohup node adrian-rebuild/tools/night.mjs --until 09:00` with
+   its output to `adrian-rebuild/.night/launcher.log`; from then on the session changes nothing in the repository
+   until Adrian writes (D-024). R-036 and R-087 stay for the day; R-029 waits for R-100 (D-080).
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
    D-047 and D-054 were.
@@ -3455,3 +3524,9 @@ R-030, then `node adrian-rebuild/tools/handover.mjs close-previous`, whose lines
 (R-030, R-033, R-100 by day, delegated); `Next` 1 waits for Adrian's return. The handover after it is
 `limen-rebuild-22`.
 
+Handover of 2026-11-22 (D-047, at 36 % context, after the commit `R-033:`, with the tree clean and pushed):
+`limen-rebuild-21` starts `limen-rebuild-22` with `node adrian-rebuild/tools/handover.mjs start 22` and ends its
+turn. By day, Adrian at the terminal: the next session's first acts are a push notification to Adrian that it takes
+over to prepare the night of D-091, then `node adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into
+this section, then `Next` 2 (a)–(c), ending with the start of `night.mjs --until 09:00`. The handover after it is
+`limen-rebuild-23`.

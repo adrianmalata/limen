@@ -817,7 +817,7 @@ test("the job-file scan finds a path literal, a template and a join that end in 
 			'const tab = join(dir, "herdr", "tab");',
 		].join("\n"),
 		"hook/progress.ts": 'const progress = resolve(job, "progress.json");\n',
-		"docs/seat/bell.sh": '#!/bin/sh\nstate=$(cat "$job/state")\nexec node "$here/bell.ts"\n',
+		"docs/seat/reader.sh": '#!/bin/sh\nstate=$(cat "$job/state")\nexec node "$here/reader.ts"\n',
 		"src/integrations/coordinator-registration.ts": 'const pid = join(dir, "pid");\n',
 		"test/outside.ts": `const state = ${below("state")};\n`,
 	};
@@ -826,7 +826,7 @@ test("the job-file scan finds a path literal, a template and a join that end in 
 		await writeFile(join(repo, path), text);
 	}
 	assert.deepEqual((await jobFileScan(repo)).sort(), [
-		"docs/seat/bell.sh:2: state",
+		"docs/seat/reader.sh:2: state",
 		"hook/progress.ts:1: progress.json",
 		"src/reader.ts:1: state",
 		"src/reader.ts:2: pid",

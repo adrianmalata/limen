@@ -55,11 +55,11 @@ Buy the box, then follow the [seat checklist](seat/README.md). Short version:
 
 1. Ubuntu LTS, 8 GB RAM, ≥150 GB disk, Tailscale, SSH key only. Node 24, Git, `gh`, `pi`, Herdr, `limen` linked from a clone of this repo.
 2. Clone the work **branch** (not only `origin/HEAD`). `limen init` in that checkout. Keys stay on the seat. This checkout is the only project copy that runs jobs.
-3. Bell: Moshi (`moshi-hook pair --store file`, `service install`, `loginctl enable-linger`). ntfy is fallback — [seat/](seat/README.md).
+3. Phone: the alerts (ntfy) on their own account, one line for each failed job, installed by root with `node /opt/limen/seat/alerts.ts install --account <account>`; Moshi (`moshi-hook pair --store file`, `service install`, `loginctl enable-linger`) for agents that need you — [seat/](seat/README.md).
 4. Persistent Herdr session on the box. Attach with `herdr --remote`. For the GitHub doorbell, the registered coordinator must stay available in that session; its jobs run detached, as every job does.
 5. `tailscale serve` for previews. `limen prune` on a timer. No unattended reboot.
 
-Do not move the coordinator until a detached job finishes with the lid closed and the phone rings. Do not run a coordinator on the Mac **and** the VPS during migration.
+Do not move the coordinator until a detached job finishes with the lid closed and a job that fails sends its alert to the phone. Do not run a coordinator on the Mac **and** the VPS during migration.
 
 ## Seat notes (stolen from the field, not required by Limen)
 
@@ -78,7 +78,7 @@ Limen reads process identity from `/proc/<pid>/stat` start ticks; `limen stop` u
 
 ## Traps (will bite on day one)
 
-- **Wake is not the bell.** Footer, toast, and `sendUserMessage` fire in the coordinator session *on the seat*. You are not looking at it. Moshi (`pair --store file` + linger) is the attention channel; ntfy is fallback. `host setup` is SSH/Mosh onto the box, not the hook. Do not wait for a Limen-owned notifier (`LIMEN_NOTIFY` does not exist).
+- **A wake is not an alert.** Footer, toast, and `sendUserMessage` fire in the coordinator session *on the seat*. You are not looking at it. The alerts send one ntfy line for each failed job, and only failures: `<project> failed:<kind> <job id>`, with the details in `limen status`. Moshi (`pair --store file` + linger) rings for agents that need you. `host setup` is SSH/Mosh onto the box, not the hook. `LIMEN_NOTIFY` does not exist.
 - **Every job is detached.** Inside Herdr a job gets a tab that follows its log, and nobody types into it: correct a running job with `limen steer`, and give a finished one more work with `limen continue`. The GitHub doorbell starts its jobs the same way.
 - **Herdr `done` is unseen idle**, not process exit. On a seat you attach twice a day, so almost every coordinator tab reads `done`. A job's state comes from its wrapper, never from Herdr's state word.
 - **A laptop clone is not a Limen root.** Attach; do not `limen spawn` from it. That is a second cabinet.
@@ -169,10 +169,10 @@ Accepted claims and cursors live under `/var/lib/limen-github/state/<sha256-of-a
 ## When you come back
 
 1. Walk through the [seat checklist](seat/README.md). Ubuntu LTS, 8 GB / 150 GB+, public SSH key-only, Tailscale MagicDNS.
-2. Pair Moshi on the box (`--store file`, linger) **before** moving the coordinator. ntfy only if Moshi is out.
+2. Install the alerts as root (`node /opt/limen/seat/alerts.ts install --account <account>`, [seat/](seat/README.md)) and pair Moshi on the box (`--store file`, linger) **before** moving the coordinator.
 3. Node 24, Git, `gh`, `pi`, Herdr, `limen` (`npm link` from `~/limen`). Checkout the work branch. `limen init`.
 4. Persistent Herdr session. `herdr --remote alice` (or your `Host` alias). First smoke: `--detached`.
-5. Prove, in order: lid-closed `--detached` job → phone rings → `limen status` on attach shows the same id → `tailscale serve` preview opens on the Mac.
+5. Prove, in order: lid-closed `--detached` job → a job that fails sends its alert to the phone → `limen status` on attach shows the same id → `tailscale serve` preview opens on the Mac.
 6. Only then live on the seat. The opt-in PR doorbell needs the separate App-user setup above. `LIMEN_SPAWN` and `LIMEN_NOTIFY` do not exist.
 
 ## Related

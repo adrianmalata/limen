@@ -1,16 +1,29 @@
 // `limen status` lists the leftover files of cut features in the project it reports on, the Limen variables of its
-// environment that it no longer reads or reads only until a ticket, names a running job's note, and lists the finished
-// jobs whose unlanded work makes a worker spawn refuse (A-001).
+// environment that it no longer reads or reads only until a ticket, names a running job's note, lists the finished
+// jobs whose unlanded work makes a worker spawn refuse (A-001), and warns when the alerts do not run (A-066).
 import assert from "node:assert/strict";
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { outputText, readOutcome } from "../final-line.ts";
-import { editRecord, git, jobDir, jobRecord, limen, plant, release, spawnJob, until, waitJob } from "../plant.ts";
+import {
+	editRecord,
+	git,
+	jobDir,
+	jobRecord,
+	limen,
+	type Plant,
+	plant,
+	release,
+	spawnJob,
+	until,
+	waitJob,
+} from "../plant.ts";
 
 const AGENTS_TEMPLATE = fileURLToPath(new URL("../../templates/agents.md", import.meta.url));
 const STUB_TEMPLATE = fileURLToPath(new URL("../../templates/limen-extension.ts", import.meta.url));
+const ALERTS_TOOL = fileURLToPath(new URL("../../seat/alerts.ts", import.meta.url));
 const HEADER = "Leftover files (1); check them, then run limen init --drop-leftovers:";
 
 test("limen status lists an AGENTS.md identical to the package's template as a leftover file before Older", async (t) => {
@@ -258,4 +271,68 @@ test("limen status exits 4 with GIT_FAILED when git cannot read a finished job's
 	const message = outputText(run);
 	assert.ok(message.startsWith(`the worktree ${worktree} of job ${id} cannot be read: `), message);
 	assert.match(message, /index file/);
+});
+
+/**
+ * The plant's PATH with a systemctl first that says `timer` for `is-active limen-alerts.timer` and `service` for
+ * `is-failed limen-alerts.service`, with systemd's exit codes, and passes every other call to the plant's own.
+ */
+function pathWithAlerts(p: Plant, timer: "active" | "inactive", service: "failed" | "inactive"): string {
+	const folder = join(p.parent, `alerts-${timer}-${service}`);
+	mkdirSync(folder);
+	const script = [
+		"#!/bin/sh",
+		'case "$*" in',
+		`"is-active limen-alerts.timer") echo ${timer}; [ ${timer} = active ] && exit 0; exit 3 ;;`,
+		`"is-failed limen-alerts.service") echo ${service}; [ ${service} = failed ] && exit 0; exit 1 ;;`,
+		"esac",
+		`exec ${join(p.bin, "systemctl")} "$@"`,
+	];
+	writeFileSync(join(folder, "systemctl"), `${script.join("\n")}\n`, { mode: 0o755 });
+	return `${folder}:${p.env.PATH}`;
+}
+
+/** The lines of `stdout` from the alerts' warning on, up to the next line that is not part of it. */
+function alertsBlock(stdout: string): string[] {
+	const lines = stdout.split("\n");
+	const at = lines.findIndex((line) => line.startsWith("Alerts not working"));
+	if (at < 0) {
+		return [];
+	}
+	const end = lines.findIndex((line, index) => index > at && !line.startsWith("  "));
+	return lines.slice(at, end < 0 ? undefined : end);
+}
+
+// A-066: the alerts are the owner's only escalation path, so status says when they do not run.
+test("A-066: limen status warns that limen-alerts.timer is not active and names the install command", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const run = limen(p, ["status"], { env: { PATH: pathWithAlerts(p, "inactive", "inactive") } });
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(alertsBlock(run.stdout), [
+		"Alerts not working (1); no failed job reaches the phone until each is fixed:",
+		"  limen-alerts.timer is not active; as root, install the alerts:",
+		`    node ${ALERTS_TOOL} install --account <account>`,
+	]);
+});
+
+test("A-066: limen status warns that limen-alerts.service failed and names where to read why", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const run = limen(p, ["status"], { env: { PATH: pathWithAlerts(p, "active", "failed") } });
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(alertsBlock(run.stdout), [
+		"Alerts not working (1); no failed job reaches the phone until each is fixed:",
+		"  limen-alerts.service failed; as root, read why:",
+		"    journalctl -u limen-alerts.service",
+	]);
+});
+
+test("limen status prints no alerts warning when the timer is active and the service has not failed", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const run = limen(p, ["status"], { env: { PATH: pathWithAlerts(p, "active", "inactive") } });
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(alertsBlock(run.stdout), []);
+	assert.ok(run.stdout.includes("Older: 0 records"), run.stdout);
 });

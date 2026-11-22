@@ -2,7 +2,7 @@
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
-R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025, R-097, R-099, R-026, R-030. -->
+R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025, R-097, R-099, R-026, R-030, R-033. -->
 
 # Changes
 
@@ -325,4 +325,12 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-10, M-06; `## Deployment` 3.6)
 - Commit: R-030
 - Rollback: git revert $(git log --format=%H --grep='^R-030:' adrian-rebuild --)
+
+## 2026-11-22 R-033 Alerts from their own account: failures and escalations only
+- What: `seat/alerts.ts` (new: `run` reads every registered project's records read-only and sends one line `<project base name> failed:<kind> <job id>` to ntfy, the topic only from the systemd credential, the first run sending nothing and a run that reads no project failing with its cause; `install` as root grants traverse and read ACLs, refuses root, an agents' account and a seat with no project, writes, verifies and enables the units; `units` re-renders them, with a reload every time); `seat/units.ts` (new: the typed unit definitions); `seat/registries.ts` and `seat/tool-outcome.ts` (new: the registry lookup and the failure type both seat tools share); `seat/deploy.ts` (runs the new checkout's units step when the alerts are installed); `src/project/summary.ts` with `src/platform/platform.ts` (`limen status` warns when the timer is not active or the service failed); `src/config.ts` (the test knob `LIMEN_ALERTS_URL`); `docs/seat/bell.sh`, `docs/seat/bell.ts`, `docs/seat/limen-bell.service`, `docs/seat/limen-bell.timer`, `test/seat/bell.test.ts` removed; tests in `test/seat/` (`alerts.test.ts`, `units.test.ts` new; `deploy.test.ts`), `test/cli/status.test.ts`, `test/config.test.ts`, `test/structure.test.ts`; `docs/seat/README.md`, `docs/seat/agent-setup.md`, `docs/remote.md`, `docs/jobs.md`
+- Why: A-066, A-054, T-18, T-01, T-25, D-084, D-085, D-089, D-090
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (834/834); `node adrian-rebuild/tools/fails-before.mjs` → exit 0; `node --test test/seat/alerts.test.ts` → exit 0; `node --test test/seat/units.test.ts` → exit 0
+- Measurement: unmeasured (plan.md → Measurement: M-10, M-08; `## Deployment` 3.3)
+- Commit: R-033
+- Rollback: git revert $(git log --format=%H --grep='^R-033:' adrian-rebuild --) (+ on the seat before the revert's deployment: disable the timer, remove both units, `systemctl daemon-reload`)
 
