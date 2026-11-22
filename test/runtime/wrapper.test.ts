@@ -1,4 +1,6 @@
-// src/runtime/wrapper.ts: a queued job's wrapper whose job folder is removed ends before its setup and its engine run.
+// src/runtime/wrapper.ts: a queued job's wrapper whose job folder is removed ends before its setup and its engine run,
+// a wrapper outside its job's systemd user scope ends the job before it runs anything, and an exhaustion whose scope
+// cannot be ended still kills its process group.
 import assert from "node:assert/strict";
 import { existsSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
@@ -8,7 +10,20 @@ import { setTimeout as delay } from "node:timers/promises";
 import type { Identity } from "../../src/job/record.ts";
 import { platform } from "../../src/platform/platform.ts";
 import { ownerState } from "../../src/runtime/reap.ts";
-import { jobDir, jobFile, jobRecord, plant, spawnJob, until, waitJob } from "../plant.ts";
+import {
+	jobDir,
+	jobFile,
+	jobRecord,
+	limen,
+	pathWithFailingScopeEnd,
+	pathWithUnscopedRun,
+	plant,
+	routed,
+	spawnJob,
+	startedJob,
+	until,
+	waitJob,
+} from "../plant.ts";
 
 /**
  * How long the test waits for the wrapper and its process group to end. A passing wrapper exits at its next poll
@@ -18,6 +33,8 @@ import { jobDir, jobFile, jobRecord, plant, spawnJob, until, waitJob } from "../
 const EXIT_BOUND_MS = 10_000;
 /** How often the test reads the wrapper's process again: an exit raises no file event. */
 const EXIT_CHECK_MS = 20;
+/** How long an exhausted job's wrapper and group may take to end: the group's grace of 5 s, and far above it for load. */
+const GRACE_BOUND_MS = 20_000;
 
 /**
  * Whether the wrapper `identity` names and every process of its group ended within `boundMs`. The wrapper leads its
@@ -59,4 +76,37 @@ test("a queued wrapper whose job folder is removed exits without running its set
 		{ exited, folder: existsSync(dir), prunedWorktree: !existsSync(worktree) },
 		{ exited: true, folder: false, prunedWorktree: false },
 	);
+});
+
+// A-029: outside its scope the job's end could not reach what the engine detaches, so the wrapper runs nothing.
+test("a wrapper that does not run in its job's systemd user scope ends the job failed and starts no engine", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const run = limen(p, ["spawn", ...routed(["--label", "outside"]), "say never"], {
+		env: { PATH: await pathWithUnscopedRun(p) },
+	});
+	assert.equal(run.status, 0, run.stderr);
+	const id = startedJob(run);
+	assert.equal(waitJob(p, id), "failed");
+	assert.deepEqual(
+		[jobRecord(p, id)?.failure?.detail.startsWith("not in its scope: "), jobFile(p, id, "fake-argv.json")],
+		[true, ""],
+	);
+});
+
+// A-029, R-026 Deviation 1: an exhaustion ends the job's scope after the group's grace instead of killing its own group,
+// which the wrapper leads; when that end fails, the group's KILL still ends an engine that ignores TERM, and the wrapper.
+test("an exhausted job whose scope cannot be ended kills its process group after the grace, an engine that ignores TERM included", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const run = limen(p, ["spawn", ...routed(["--label", "deaf", "--timeout", "1s"]), "deaf\nblock"], {
+		env: { PATH: await pathWithFailingScopeEnd(p) },
+	});
+	assert.equal(run.status, 0, run.stderr);
+	const id = startedJob(run);
+	await until(jobDir(p, id), () => jobRecord(p, id)?.state === "failed");
+	const identity = jobRecord(p, id)?.identity;
+	assert.ok(identity?.pid && identity.born, "the record names the job's wrapper");
+	const gone = await ended(identity, GRACE_BOUND_MS);
+	assert.deepEqual([gone, / was not ended: Failed to connect to bus/.test(jobFile(p, id, "log"))], [true, true]);
 });

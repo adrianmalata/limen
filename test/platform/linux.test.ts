@@ -1,7 +1,16 @@
-// The parsers of src/platform/linux.ts on fixture text: /proc/<pid>/stat, ps, /proc/meminfo and the boot id.
+// The parsers of src/platform/linux.ts on fixture text: /proc/<pid>/stat, ps, /proc/meminfo, the boot id, a process's
+// cgroup and a scope's readings.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseBootId, parseMeminfo, parseProcessTable, parseStat } from "../../src/platform/linux.ts";
+import {
+	parseBootId,
+	parseCgroup,
+	parseCounter,
+	parseKeyed,
+	parseMeminfo,
+	parseProcessTable,
+	parseStat,
+} from "../../src/platform/linux.ts";
 
 /** A stat line: the fields after the command are state, parent, group, session, then fields 7-21, start ticks last. */
 const stat = (pid: number, command: string, state: string, startTicks: string) =>
@@ -64,5 +73,36 @@ test("meminfo gives MemAvailable and MemTotal in KiB, and nothing when either li
 	assert.deepEqual(
 		[parseMeminfo(meminfo), parseMeminfo("MemTotal:       16303428 kB\n")],
 		[{ availableKib: 8_151_714, totalKib: 16_303_428 }, undefined],
+	);
+});
+
+test("a process's cgroup is the path of the cgroup v2 line of /proc/<pid>/cgroup, and nothing without that line", () => {
+	const scope = "/user.slice/user-1000.slice/user@1000.service/app.slice/limen-job-2026-11-22-f001-a-1a2b3c4d.scope";
+	const hybrid = `12:memory:/user.slice\n1:name=systemd:/user.slice\n0::${scope}\n`;
+	assert.deepEqual(
+		[parseCgroup(`0::${scope}\n`), parseCgroup(hybrid), parseCgroup("12:memory:/user.slice\n"), parseCgroup("")],
+		[scope, scope, undefined, undefined],
+	);
+});
+
+test("a scope's memory peak, CPU time and OOM kills read from memory.peak, cpu.stat and memory.events", () => {
+	const cpu = "usage_usec 2500000\nuser_usec 2000000\nsystem_usec 500000\n";
+	const events = "low 0\nhigh 0\nmax 3\noom 1\noom_kill 2\noom_group_kill 0\n";
+	assert.deepEqual(
+		[parseCounter("52428800\n"), parseKeyed(cpu, "usage_usec"), parseKeyed(events, "oom_kill")],
+		[52_428_800, 2_500_000, 2],
+	);
+});
+
+test("a scope's reading is null for a file that is gone or holds no number of its own", () => {
+	assert.deepEqual(
+		[
+			parseCounter(undefined),
+			parseCounter("max\n"),
+			parseKeyed(undefined, "usage_usec"),
+			parseKeyed("oom_group_kill 4\n", "oom_kill"),
+			parseKeyed("usage_usec -1\n", "usage_usec"),
+		],
+		[null, null, null, null, null],
 	);
 });

@@ -1,6 +1,6 @@
 // S2 · Herdr. A fake Herdr (written below to the plant) records every call and keeps its role spaces and tabs in a
 // state file; a coordinator pane hears a job's start notice, its wake and the rule pings through `agent prompt` and
-// Herdr's socket API.
+// Herdr's socket API, and a job's end closes its tab.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -19,6 +19,7 @@ import {
 	type Plant,
 	plant,
 	routed,
+	scopeCalls,
 	start,
 	startedJob,
 	until,
@@ -117,6 +118,19 @@ test("in Herdr a spawn with no mode flag runs detached under its --timeout; queu
 	const sent = [...named("agent", "prompt").map((args) => args[3] ?? ""), ...asked].filter((text) => text.includes(id));
 	assert.equal(sent.map((text) => text.includes(") started after ")).join(), "true,false", "each sent once");
 	assert.ok(asked.at(-1)?.includes(`Final message:\n${FINAL.text.repeat(12)}\n\n`), "whole, by socket");
+});
+
+// A-029: the job's end starts the tab's closer and then ends the job's systemd user scope; the closer runs in a scope
+// of its own, so it still closes the tab.
+test("a job's end closes its Herdr tab from a systemd user scope of its own", async () => {
+	const run = limen(p, ["spawn", ...routed(["--label", "closed tab"]), "say closed"], { env });
+	const id = startedJob(run);
+	await until(jobDir(p, id), () => jobState(p, id) === "done");
+	const tab = jobFile(p, id, "herdr/tab");
+	await until(herdr, () => named("tab", "close").some((args) => args[2] === tab));
+	const closer =
+		/^--user --scope --quiet --collect --unit=limen-run-[0-9a-f]{8}\.scope -- \S+ --no-warnings --input-type=module --eval import \{ closeJobTab \}/;
+	assert.ok(scopeCalls(p, "systemd-run").some((words) => closer.test(words) && words.includes(jobDir(p, id))));
 });
 
 test("a rule set, change, end and end time ping each live coordinator pane once (F951); a dead timer's rule still ends", async () => {

@@ -74,7 +74,7 @@ These are operational facts that keep a seat alive. They are not Limen features.
 
 ## Linux process identity
 
-Limen reads process identity from `/proc/<pid>/stat` start ticks; `limen stop` and detached process containment use it. A restricted or unreadable process table leaves an advisory rather than proof of an owned child: the job shows the note `advisory`, and the coordinator that follows it gets one wake about it.
+Limen reads process identity from `/proc/<pid>/stat` start ticks; `limen stop` uses it, and the end of a job stops every process of its systemd user scope. A restricted or unreadable process table leaves an advisory rather than proof of an owned child: the job shows the note `advisory`, and the coordinator that follows it gets one wake about it.
 
 ## Traps (will bite on day one)
 

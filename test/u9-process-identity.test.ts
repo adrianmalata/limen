@@ -1,33 +1,38 @@
-// U9: a recorded process is the same process only while its pid, its start time and its boot all match (A-056). A
-// recycled pid with another start time is a stranger: containment never signals it and names it in the cleanup note;
-// the recorded process is signaled. The reaper treats a stranger, another boot and a missing identity as a dead owner.
+// U9: a recorded process is the same process only while its pid, its start time and its boot all match (A-056). The
+// reaper treats a stranger (a recycled pid with another start time), another boot and a missing identity as a dead
+// owner.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { type Identity, readRecord } from "../src/job/record.ts";
 import { platform } from "../src/platform/platform.ts";
-import { containEscapedDescendants } from "../src/runtime/contain.ts";
 import { ownerState, reapDeadJobs } from "../src/runtime/reap.ts";
-import { writeRecord } from "./plant.ts";
+import { withEnvironment } from "./environment.ts";
+import { fakeSystemd, writeRecord } from "./plant.ts";
 
 /** A sleeping child, its exit and its recorded identity; the test kills it when it ends. */
-async function sleeper(t: TestContext, detached: boolean) {
+async function sleeper(t: TestContext) {
 	const code = "Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0)";
-	const child = spawn(process.execPath, ["-e", code], { detached, stdio: "ignore" });
+	const child = spawn(process.execPath, ["-e", code], { stdio: "ignore" });
 	t.after(() => child.kill("SIGKILL"));
 	const [exited, info] = [once(child, "exit"), await platform.processInfo(child.pid ?? 0)];
 	assert.ok(info.kind === "present", "the child is present");
 	return { child, exited, info };
 }
 
-/** A jobs folder in the OS temporary folder, removed after the test. */
+/**
+ * A jobs folder in the OS temporary folder, removed after the test. The reaper ends each job's systemd user scope, so
+ * the test runs with the tests' systemd (test/plant.ts), never the machine's.
+ */
 async function jobsFolder(t: TestContext): Promise<string> {
 	const jobs = await mkdtemp(join(tmpdir(), "u9-jobs-"));
-	t.after(() => rm(jobs, { recursive: true, force: true }));
+	const systemd = await mkdtemp(join(tmpdir(), "u9-systemd-"));
+	t.after(() => Promise.all([jobs, systemd].map((folder) => rm(folder, { recursive: true, force: true }))));
+	withEnvironment(t, await fakeSystemd(systemd));
 	return jobs;
 }
 
@@ -45,20 +50,9 @@ async function own(): Promise<Identity> {
 	return { pid: process.pid, born: info.process.born, bootId: platform.bootId() ?? null };
 }
 
-test("a recycled pid with another birth is never signaled and is named for cleanup; the recorded birth is signaled", async (t) => {
-	const job = await mkdtemp(join(tmpdir(), "u9-"));
-	t.after(() => rm(job, { recursive: true, force: true }));
-	const { child, exited, info } = await sleeper(t, true);
-	await containEscapedDescendants(job, [{ ...info.process, born: "0.000000" }], "u9");
-	assert.deepEqual([child.exitCode, child.signalCode], [null, null], "the stranger is still running");
-	assert.match(await readFile(join(job, "cleanup"), "utf8"), new RegExp(`^${info.process.pid} 0\\.000000 `, "m"));
-	await containEscapedDescendants(job, [info.process], "u9");
-	assert.deepEqual(await exited, [null, "SIGTERM"]);
-});
-
 test("the reaper keeps a live owner and finalizes a dead owner and a stranger at its pid", async (t) => {
 	const jobs = await jobsFolder(t);
-	const { child, exited, info } = await sleeper(t, false);
+	const { child, exited, info } = await sleeper(t);
 	const bootId = platform.bootId() ?? null;
 	const owner = await running(jobs, "owner", { pid: info.process.pid, born: info.process.born, bootId });
 	// This live process is not that start time.

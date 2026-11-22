@@ -11,9 +11,9 @@ import { appendLimenLog, readRecord, textFile, transition, writeProgress } from 
 import { enqueueSteer } from "../job/steer-inbox.ts";
 import { platform } from "../platform/platform.ts";
 import { limitCount } from "../project/limits.ts";
-import { containEscapedDescendants, discoverEscapedDescendants, type JobProcess } from "./contain.ts";
 import { argvFor, jobProfile } from "./engine.ts";
 import { setUpJob, worktreeMissing } from "./job-setup.ts";
+import { jobScope } from "./launcher.ts";
 import { processIdentity } from "./reap.ts";
 import { observeToolStall, ownedToolDescendants, type ToolStallWatch, toolStallMs } from "./stalled-tool.ts";
 import { enterStartQueue, waitForStart } from "./start-queue.ts";
@@ -47,19 +47,31 @@ export async function runInternalJob(): Promise<void> {
 		await finalizeJob(jobDir, "failed", "group deadline or stop before engine launch");
 		return;
 	}
+	// The spawner started this process in the job's own scope (A-029); outside it, the job's end could not reach what
+	// the engine leaves behind, so the job fails before it runs anything.
+	const unit = jobScope(jobId);
+	const cgroup = platform.ownCgroup();
+	if (!cgroup?.endsWith(`/${unit}`)) {
+		await finalizeJob(
+			jobDir,
+			"failed",
+			`not in its scope: the wrapper runs in cgroup ${cgroup ?? "unknown"}, not ${unit}`,
+		);
+		return;
+	}
 	const preamble = await readFile(preambleFile, "utf8");
-	let confirmedToolStall = false;
 	let stopRequested = false;
 	let shutdownDeadline: number | undefined;
 	let exhausted: string | undefined;
-	let graceTimer: NodeJS.Timeout | undefined;
 	let tools = 0;
 	let pending = Promise.resolve();
 	const stop = new AbortController();
 	process.on("SIGTERM", () => {
 		stopRequested = true;
 		stop.abort();
-		if (!confirmedToolStall) {
+		// A stop's KILL of the group follows its TERM, so the Herdr wake must end before it; the wrapper's own TERM at an
+		// exhaustion has no KILL after it, since the end of the job's scope follows the group's grace instead.
+		if (!exhausted) {
 			shutdownDeadline ??= Date.now() + STOP_GRACE_MS - 500;
 		}
 	});
@@ -67,13 +79,15 @@ export async function runInternalJob(): Promise<void> {
 	const profile = jobProfile(record);
 	// A group member runs on its group's deadline, so it starts at once.
 	const queued = membership ? undefined : await enterStartQueue(jobDir, record);
-	// The handshake is the one transition to running, with this process's identity (A-056) and, for a queued job, its
-	// place in the queue. Spawn waits for it, not for the queue or setup, so it returns before prune and --prepare run.
+	// The handshake is the one transition to running, with this process's identity (A-056), its scope (A-029) and, for a
+	// queued job, its place in the queue. Spawn waits for it, not for the queue or setup, so it returns before prune and
+	// --prepare run.
 	// A job stopped or ended before it ran is no longer starting: the transition does not apply, and no engine starts.
+	const scope = { unit, cgroup, memoryPeakBytes: null, cpuMicroseconds: null, oomKills: null };
 	const running = await transition(jobDir, {
 		from: ["starting"],
 		to: "running",
-		set: { identity: await processIdentity(), queued: queued ?? null },
+		set: { identity: await processIdentity(), queued: queued ?? null, scope },
 	});
 	if (!running) {
 		return;
@@ -113,29 +127,25 @@ export async function runInternalJob(): Promise<void> {
 		? Math.max(1, Math.min(configuredTimeout, (membership.member?.deadline ?? membership.run.deadline) - Date.now()))
 		: configuredTimeout;
 	let exhaustionTermination = Promise.resolve();
-	const exhaust = (reason: string, captured?: readonly JobProcess[]) => {
+	// The engine has exited and the last of its stream is in the job's files: what the end of the scope waits for.
+	const settled = Promise.withResolvers<void>();
+	const exhaust = (reason: string) => {
 		if (exhausted || stopRequested) {
 			return;
 		}
-		confirmedToolStall = Boolean(captured);
 		exhausted = reason;
+		const graceEnd = Date.now() + STOP_GRACE_MS;
 		exhaustionTermination = (async () => {
-			// Capture before TERM while ancestry still proves ownership. A confirmed tool stall
-			// includes in-group descendants, not only children that escaped the wrapper group.
-			const descendants = captured ?? (await discoverEscapedDescendants(jobDir, process.pid, "during exhaustion"));
 			await appendLimenLog(jobDir, `${reason}; sending TERM`).catch(() => {});
-			if (!captured) {
-				shutdownDeadline = Date.now() + STOP_GRACE_MS - 500;
-			}
 			platform.signalProcessGroup(process.pid, "SIGTERM");
-			if (captured) {
-				await containEscapedDescendants(jobDir, descendants, "after stalled tool");
-			} else {
-				graceTimer = setTimeout(() => platform.signalProcessGroup(process.pid, "SIGKILL"), STOP_GRACE_MS);
-				graceTimer.unref();
-				void containEscapedDescendants(jobDir, descendants, "after exhaustion").catch(() => {});
-			}
-			await finalizeJob(jobDir, "failed", reason, { shutdownDeadline });
+			// The group gets its grace after the TERM; then the end of the job's scope kills what is left, the engine
+			// included when it ignored the TERM, and this wrapper with it (A-029). A KILL of this group would end the
+			// wrapper before it ends its scope, so it is only the fallback for an end of the scope that failed: then the
+			// engine still ends, and this wrapper's wait for it with it.
+			await finalizeJob(jobDir, "failed", reason, {
+				beforeScopeEnd: () => settledBy(settled.promise, graceEnd),
+				onScopeNotEnded: () => platform.signalProcessGroup(process.pid, "SIGKILL"),
+			});
 		})();
 	};
 	const provider = transport("LIMEN_PROVIDER");
@@ -283,7 +293,6 @@ export async function runInternalJob(): Promise<void> {
 		await clearUncertain();
 		exhaust(
 			`stalled tool ${seen.tool}: ${stallWatch.previous?.children.length ? "CPU-idle child" : "child exited"} for ${Math.round(toolStallMs() / 1000)}s`,
-			descendants,
 		);
 	};
 	const checkStall = () => {
@@ -317,15 +326,13 @@ export async function runInternalJob(): Promise<void> {
 	clearTimeout(timeout);
 	clearTimeout(deadlineSteer);
 	clearInterval(stallTimer);
-	if (graceTimer) {
-		clearTimeout(graceTimer);
-	}
 	apply(parser.flush());
 	await pending;
 	if (seen.stop) {
 		await transition(jobDir, { from: ["running"], set: { stopReason: seen.stop } });
 		await appendLimenLog(jobDir, `assistant ${seen.stop}`).catch(() => {});
 	}
+	settled.resolve();
 	if (exhausted) {
 		await exhaustionTermination;
 	} else if (stopRequested || result.signal === "SIGTERM" || result.signal === "SIGKILL") {
@@ -399,6 +406,15 @@ async function recordEvents(
 			await appendFile(`${jobDir}/log`, `${event.line}\n`);
 		}
 	}
+}
+/** Resolves once `done` does, or once `deadline` (epoch milliseconds) passes when that comes first. */
+async function settledBy(done: Promise<void>, deadline: number): Promise<void> {
+	let timer: NodeJS.Timeout | undefined;
+	const passed = new Promise<void>((resolve) => {
+		timer = setTimeout(resolve, Math.max(0, deadline - Date.now()));
+	});
+	await Promise.race([done, passed]);
+	clearTimeout(timer);
 }
 function requiredEnvironment(name: TransportName): string {
 	const value = transport(name);

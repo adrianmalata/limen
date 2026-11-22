@@ -8,9 +8,10 @@ Install Limen, define the project, and ask an agent to do the work.
 
 - **Operating system:** Linux. Limen supports no other operating system.
 - **Tools:** Node.js 24 or later; Git with `git worktree list --porcelain -z` (Git 2.36 or later); `tar`; `ps`.
+- **systemd:** a running systemd user instance for the account, so that `systemd-run --user --scope true` exits 0: every job runs in its own user scope. On a server, root keeps the instance running with lingering (`loginctl enable-linger <account>`).
 - **Engine:** Pi 1.5.1 (`pi`) on `PATH`, with the bridge `@vanillagreen/pi-claude-bridge` 5.0.3 for Claude models.
 - **Herdr:** 0.9.3, needed only when you run Limen inside a Herdr pane.
-- **Check:** `limen init` and `limen workspace init` check these tools first. When one is missing, or Git lacks the feature, the command exits with code 4 and names it. Limen records the versions on each job, but it does not yet refuse another version of Pi or the bridge.
+- **Check:** `limen init` and `limen workspace init` check these tools first. When one is missing, Git lacks the feature, or no user scope starts, the command exits with code 4 and names it. Limen records the versions on each job, but it does not yet refuse another version of Pi or the bridge.
 
 ## Install
 
@@ -134,7 +135,7 @@ limen spawn --engine <engine> \
   --label "what this changes · FNNN" 'Implement FNNN: <outcome>. Ticket: spec/features/active/FNNN-slug/ticket.md'
 ```
 
-This job is detached, also in Herdr: a log-tail tab, a 90-minute timeout (change it with `--timeout`), a tool-call cap and process containment. To correct a running job, use `limen steer`; to give a finished one more work, use `limen continue`. `--provider`, `--model`, and `--thinking` go to the selected engine as separate flag and value pairs. `limen continue` accepts the same flags.
+This job is detached, also in Herdr: a log-tail tab, a 90-minute timeout (change it with `--timeout`), a tool-call cap, and its own systemd user scope, whose every process ends with the job. To correct a running job, use `limen steer`; to give a finished one more work, use `limen continue`. `--provider`, `--model`, and `--thinking` go to the selected engine as separate flag and value pairs. `limen continue` accepts the same flags.
 
 ## Adjacent-repository workspaces
 

@@ -343,10 +343,12 @@ export async function claimMember(
 }
 /**
  * Runs `limen group advance` in its own process: a team job that ended may start the next round or finish the group.
- * Its environment holds no transport name of the finished job (`groupAdvanceEnvironment`).
+ * Its environment holds no transport name of the finished job (`groupAdvanceEnvironment`). It runs in a systemd user
+ * scope of its own, and resolves once it runs there, so the end of the finished job's scope that follows cannot end it;
+ * it rejects when it could not start.
  */
-export function startGroupAdvance(run: GroupRun): void {
-	startLimen(["group", "advance", run.id], { cwd: run.root, env: groupAdvanceEnvironment() });
+export async function startGroupAdvance(run: GroupRun): Promise<void> {
+	await startLimen(["group", "advance", run.id], { cwd: run.root, env: groupAdvanceEnvironment() });
 }
 export async function jobMembership(jobDir: string): Promise<GroupIdentity | undefined> {
 	const id = (await readRecord(jobDir))?.group;

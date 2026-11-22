@@ -226,11 +226,11 @@ WORKER=$WORKER APP_ID=$APP_ID PEM_SOURCE=$PEM_SOURCE LIMEN_REPO=$LIMEN_REPO LIME
 ```
 - **Check:** it exits 0 and prints a line that starts `Setup installed`; root$ `systemctl is-enabled limen-github.timer` prints `disabled` (setup runs `systemctl disable --now limen-github.timer`, so a reboot cannot start polling before phase 13 enables it); worker$ `test ! -r /etc/limen-github/app.pem` exits 0. **STOP** if not, and show the script's message.
 - **Check:** worker$ `cd $PROJECT_DIR && limen status` prints `Running (0):` with `  none` under it. **STOP** if it lists a job: wait until the jobs finish.
-- The installer added `WORKER` to the `limen-github` group. A process that started before that keeps its old groups. This includes the Herdr server and the user manager that linger keeps alive.
-- worker$ `herdr server stop`. This closes every pane.
+- The installer added `WORKER` to the `limen-github` group. A process that started before that keeps its old groups. This includes the Herdr server and the user manager that linger keeps alive, which also runs the systemd user scope of every job.
+- worker$ `herdr server stop`. This closes every pane; each job runs in its own user scope, outside Herdr, so a job keeps running.
 - **Check:** worker$ `id -nG` (a new SSH login) lists `limen-github`. **STOP** if not: the installer did not add the group.
 - **HUMAN · laptop:** `herdr --remote $WORKER@$SEAT_HOST`, open a tab, `cd $PROJECT_DIR`, pane$ `export LIMEN_COORDINATOR=1 && pi $MODEL_FLAGS`. Ask the coordinator to run `id -nG`.
-- If the pane's `id -nG` does not list `limen-github`, the Herdr server started from the old user manager. root$ `systemctl restart user@$(id -u $WORKER).service` (this also restarts the worker's user services, such as `moshi-hook`). Then the HUMAN attaches again and starts the coordinator again, as in the last step.
+- If the pane's `id -nG` does not list `limen-github`, the Herdr server started from the old user manager. root$ `systemctl restart user@$(id -u $WORKER).service` (this also restarts the worker's user services, such as `moshi-hook`, and ends every job, whose user scope that manager runs; the check above that no job runs comes first). Then the HUMAN attaches again and starts the coordinator again, as in the last step.
 - **HUMAN:** pane$ ask the coordinator to run `id -nG`, then `limen github connect`.
 - **Check:** `id -nG` lists `limen-github`; connect prints a line that starts `connected $PROJECT_REPO → Herdr`. **STOP** if not.
 

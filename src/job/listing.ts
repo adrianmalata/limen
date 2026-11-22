@@ -6,7 +6,7 @@ import { LimenError } from "../outcome.ts";
 import { liveDiffstat, workspaceRepository } from "../project/git.ts";
 import { type OwnerState, ownerState, startingJob } from "../runtime/reap.ts";
 import { queuedText } from "../runtime/start-queue.ts";
-import { derivePulse, type Job, type Pulse, parseJob, producedNothing, renderJob } from "./job.ts";
+import { derivePulse, isTerminal, type Job, type Pulse, parseJob, producedNothing, renderJob } from "./job.ts";
 import { type JobRecord, type Progress, readProgress, readRecord } from "./record.ts";
 import { modelLine, readSessionUsage, tokenLine } from "./usage.ts";
 import type { ShownJob } from "./view.ts";
@@ -181,6 +181,22 @@ function recordTexts(record: JobRecord): { openChecks: string; commits: string; 
 		sideFailures: record.sideFailures.map(({ channel, message }) => `${channel}: ${message}`).join("\n"),
 	};
 }
+/**
+ * The readings of a finished job's systemd user scope (M-09): its memory peak, its CPU time and its OOM kills, each
+ * `unknown` where its finisher could not read it; "" for a job that runs, or that never recorded its scope.
+ */
+function scopeText(record: JobRecord): string {
+	const scope = record.scope;
+	if (!scope || !isTerminal(record.state)) {
+		return "";
+	}
+	const shown = (value: number | null, text: (value: number) => string) => (value === null ? "unknown" : text(value));
+	return [
+		`memory peak ${shown(scope.memoryPeakBytes, (bytes) => `${(bytes / 1_048_576).toFixed(1)} MiB`)}`,
+		`CPU ${shown(scope.cpuMicroseconds, (micro) => `${(micro / 1_000_000).toFixed(1)} s`)}`,
+		`OOM kills ${shown(scope.oomKills, String)}`,
+	].join(" · ");
+}
 /** Who ran the spawn: the spawner line, else the job that spawned it. */
 function spawnedBy(record: JobRecord): string {
 	return record.spawner || (record.spawnedBy ? `job ${record.spawnedBy}` : "");
@@ -199,6 +215,7 @@ function jobBlocks(loaded: LoadedJob, facts: JobFacts): string[] {
 		["engine", engine && engine !== "pi" ? engine : ""],
 		["model", evidence.model],
 		["tokens", evidence.tokens],
+		["scope", detailed ? scopeText(record) : ""],
 		["advisory", facts.job.phase === "running" ? record.advisory?.text : ""],
 	];
 	for (const [name, value] of lines) {
@@ -265,6 +282,7 @@ function shownEvidence(loaded: LoadedJob, texts: ReturnType<typeof recordTexts>,
 		...(evidence.result ? { result: evidence.result } : {}),
 		...(evidence.model ? { model: evidence.model } : {}),
 		...(evidence.tokens ? { tokens: evidence.tokens } : {}),
+		...(detailed && scopeText(record) ? { scope: scopeText(record) } : {}),
 		...(evidence.cleanup ? { cleanup: evidence.cleanup } : {}),
 		...(evidence.herdrWake ? { herdrWake: evidence.herdrWake } : {}),
 		...(diffstat ? { diffstat } : {}),

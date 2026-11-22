@@ -1,10 +1,12 @@
 // The operating-system primitives Limen uses, as one interface (A-083): a process's identity, the process table,
-// liveness and signals of a process and of a process group, the CPU and memory readings of the start gate, and the
-// boot id that a lock's owner record carries (D-056 (1)). The policies built on them (the escaped-descendant walk,
-// birth checks, the stall rule, the start gate's thresholds, the lock's owner check) stay with their callers. Linux is
-// the one implementation; another operating system is another implementation with its own tests. A member exists only
-// with an implementation: the scheduler install comes with R-032, and notifications stay Herdr's
-// (src/integrations/herdr.ts).
+// liveness and signals of a process and of a process group, the CPU and memory readings of the start gate, the boot id
+// that a lock's owner record carries (D-056 (1)), and the systemd user scopes every job runs in (A-029): a start in a
+// new scope, the end of a scope, a process's own cgroup, a scope's readings, and the probe of `limen init`; and what the
+// system manager says of a unit, which the GitHub doctor reads. The policies built on them (birth checks, the stall
+// rule, the start gate's thresholds, the lock's owner check, the names of Limen's scopes and when one ends) stay with
+// their callers. Linux is the one implementation; another operating system is another implementation with its own
+// tests. A member exists only with an implementation: the scheduler install comes with R-032, and notifications stay
+// Herdr's (src/integrations/herdr.ts).
 import { linux } from "./linux.ts";
 
 /** A process as the system reports it; `born` is its start time in clock ticks since boot, which a reused pid lacks. */
@@ -34,6 +36,40 @@ export type SignalResult = "sent" | "missing" | "denied";
 export type CoreTimes = { readonly idle: number; readonly total: number };
 /** The memory the system can give to new work without swapping, and all of it, in KiB. */
 export type MemoryReading = { readonly availableKib: number; readonly totalKib: number };
+/** How a process ended: its exit code, or the signal that ended it. */
+export type ProcessEnd = { readonly code: number | null; readonly signal: NodeJS.Signals | null };
+/** What runs in a new user scope: the scope's unit, the program with its words, and its environment and folder. */
+export type ScopedStart = {
+	readonly unit: string;
+	readonly command: string;
+	readonly args: readonly string[];
+	readonly env: NodeJS.ProcessEnv;
+	readonly cwd?: string;
+};
+/** A process started in a new user scope: its pid, which the scope keeps as it runs the command in place; its end. */
+export type ScopedProcess = { readonly pid: number; readonly ended: Promise<ProcessEnd> };
+/**
+ * `ended`: every process left in the scope got SIGKILL; `gone`: no process is left in the scope, which ended or never
+ * started; `failed`: the system did not end it, as it says.
+ */
+export type ScopeEnd =
+	| { readonly kind: "ended" }
+	| { readonly kind: "gone" }
+	| { readonly kind: "failed"; readonly detail: string };
+/**
+ * `started`: a new user scope ran `true`; `missing`: the program that starts one is not on PATH; `failed`: it ran and
+ * failed, as it says.
+ */
+export type ScopeProbe =
+	| { readonly kind: "started" }
+	| { readonly kind: "missing" }
+	| { readonly kind: "failed"; readonly detail: string };
+/** A scope's readings from its cgroup (M-09, A-052): each null when its file is gone or holds no number. */
+export type ScopeReadings = {
+	readonly memoryPeakBytes: number | null;
+	readonly cpuMicroseconds: number | null;
+	readonly oomKills: number | null;
+};
 
 export interface Platform {
 	/** The identity of the process `pid`. */
@@ -56,6 +92,27 @@ export interface Platform {
 	memory(): MemoryReading | undefined;
 	/** The id of the current boot, which a reboot changes; undefined when the system does not give it. */
 	bootId(): string | undefined;
+	/**
+	 * Starts `start.command` detached, as the leader of its own process group, in the new systemd user scope
+	 * `start.unit`, which is collected once it ends; resolves once the command runs in that scope, and rejects when it
+	 * could not start there.
+	 */
+	startInScope(start: ScopedStart): Promise<ScopedProcess>;
+	/**
+	 * Sends SIGKILL to every process of the user scope `unit`, `setsid` and re-parented ones included; `cgroup`, when
+	 * known, lets a scope already gone end with nothing to do.
+	 */
+	endScope(unit: string, cgroup: string | undefined): ScopeEnd;
+	/** Whether a new user scope starts here, as `limen init` checks it (T-12). */
+	probeUserScope(): ScopeProbe;
+	/** The cgroup this process runs in, as a path of the cgroup v2 hierarchy; undefined when the system gives none. */
+	ownCgroup(): string | undefined;
+	/** The readings of the cgroup `cgroup`, a path of the cgroup v2 hierarchy as `ownCgroup` gives it. */
+	scopeReadings(cgroup: string): Promise<ScopeReadings>;
+	/** The property `property` of the system manager's unit `unit` as it prints it; undefined when the call fails. */
+	systemUnitProperty(unit: string, property: string): string | undefined;
+	/** What the system manager prints for `is-enabled` or `is-active` of its unit `unit`; undefined when it says no. */
+	systemUnitState(unit: string, query: "is-enabled" | "is-active"): string | undefined;
 }
 
 /** The implementation in use. */

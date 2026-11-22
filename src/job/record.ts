@@ -91,6 +91,18 @@ export type Queued = { readonly since: string; readonly detail: string | null; r
 export type Advisory = { readonly text: string; readonly at: string };
 /** Where the job's wake goes: the Herdr tab and pane of its coordinator, and its Pi session. */
 export type Origin = { readonly tab: string | null; readonly pane: string | null; readonly session: string | null };
+/**
+ * The systemd user scope the job runs in (A-029): its unit and its cgroup, which the wrapper writes in the transition
+ * to running, and the readings its finisher takes from that cgroup just before the terminal transition (M-09, A-052),
+ * each null until then and when it could not be read, as from a scope already gone.
+ */
+export type Scope = {
+	readonly unit: string;
+	readonly cgroup: string;
+	readonly memoryPeakBytes: number | null;
+	readonly cpuMicroseconds: number | null;
+	readonly oomKills: number | null;
+};
 /** The route a job runs on (D-043); an older record's engine stays as it was written (D-057 (2)). */
 export type Route = {
 	readonly engine: string | null;
@@ -146,6 +158,8 @@ export type JobRecord = Facts & {
 	readonly commits: readonly string[] | null;
 	/** The versions of the engine and the tools the job started with. */
 	readonly versions: string | null;
+	/** Set once the wrapper ran in the job's scope; a record from before R-026, or of a job that never ran, has none. */
+	readonly scope?: Scope;
 	/** Set on a record the migration wrote (D-057 (4)): history only. */
 	readonly migrated?: { readonly at: string };
 };
@@ -197,10 +211,15 @@ const RECORD_FIELDS = [
 	"openChecks",
 	"commits",
 	"versions",
+	"scope",
 	"migrated",
 ] as const;
 
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+/** A unit name of systemd for a scope. */
+const SCOPE_UNIT = /^[\w:.@-]+\.scope$/;
+/** A path of the cgroup v2 hierarchy: absolute, one line, with no `..` part. */
+const CGROUP = /^(?:\/(?!\.\.?(?:\/|$))[^/\n]+)+$/;
 const BORN = /^\d{1,20}$/;
 const MAX_PID = 2_147_483_647;
 
@@ -712,6 +731,17 @@ function migratedOf(value: unknown, field: string): { readonly at: string } {
 	const fields = object(["at"])(value, field);
 	return { at: isoTime(fields.get("at"), at(field, "at")) };
 }
+function scopeOf(value: unknown, field: string): Scope {
+	const fields = object(["unit", "cgroup", "memoryPeakBytes", "cpuMicroseconds", "oomKills"])(value, field);
+	const reading = nullOr(numberIn({ integer: true, min: 0 }));
+	return {
+		unit: matching(SCOPE_UNIT, "the unit of a systemd user scope")(fields.get("unit"), at(field, "unit")),
+		cgroup: matching(CGROUP, "a path of the cgroup v2 hierarchy")(fields.get("cgroup"), at(field, "cgroup")),
+		memoryPeakBytes: reading(fields.get("memoryPeakBytes"), at(field, "memoryPeakBytes")),
+		cpuMicroseconds: reading(fields.get("cpuMicroseconds"), at(field, "cpuMicroseconds")),
+		oomKills: reading(fields.get("oomKills"), at(field, "oomKills")),
+	};
+}
 
 /** Each field of the record with its validator, in the order the file holds them. */
 function recordOf(value: unknown, field: string): JobRecord {
@@ -719,6 +749,8 @@ function recordOf(value: unknown, field: string): JobRecord {
 	const read = <T>(key: (typeof RECORD_FIELDS)[number], validator: Validator<T>): T =>
 		validator(fields.get(key), at(field, key));
 	const text = nullOr(string);
+	// Fields added after the record's version are optional (`## Stages` → conventions, D-079).
+	const scope = fields.has("scope") ? { scope: read("scope", scopeOf) } : {};
 	const migrated = fields.has("migrated") ? { migrated: read("migrated", migratedOf) } : {};
 	return {
 		version: read("version", oneOf([RECORD_VERSION])),
@@ -754,6 +786,7 @@ function recordOf(value: unknown, field: string): JobRecord {
 		openChecks: read("openChecks", nullOr(arrayOf(string))),
 		commits: read("commits", nullOr(arrayOf(string))),
 		versions: read("versions", text),
+		...scope,
 		...migrated,
 	};
 }

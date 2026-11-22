@@ -5,6 +5,7 @@ import { closeSync, existsSync, openSync, readdirSync, readFileSync, writeSync }
 import { mkdir, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import {
 	engineEvents,
@@ -37,6 +38,18 @@ const alive = (pid: number) =>
 	/^[^Z]/.test(spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" }).stdout.trim());
 const wakes = (dir: string, id: string) =>
 	engineEvents(dir).filter((entry) => entry.event !== "notify" && entry.text?.includes(id)).length;
+/** How long a process that got SIGKILL may take to exit: milliseconds, so the bound only ends a wait for a live one. */
+const ORPHAN_EXIT_MS = 5_000;
+/** The processes of `pids` still alive once `boundMs` passed, read every 50 ms, since an exit raises no file event. */
+async function survivors(pids: readonly number[], boundMs: number): Promise<number[]> {
+	const deadline = Date.now() + boundMs;
+	let left = pids.filter(alive);
+	while (left.length > 0 && Date.now() < deadline) {
+		await delay(50);
+		left = left.filter(alive);
+	}
+	return left;
+}
 
 test("spawn returns before --prepare; prune keeps live, nested and starting work, drops and explains the rest", async () => {
 	// Spawn returns while its job's --prepare still waits on a FIFO.
@@ -100,9 +113,11 @@ test("spawn returns before --prepare; prune keeps live, nested and starting work
 	assert.equal(waitJob(p, live), "done");
 });
 
-test("a killed wrapper is reaped at once and a stopped job leaves no escaped child; each wakes the coordinator once", async () => {
+// A-029: the fake engine's `orphan` starts a child in a process group of its own, as `setsid` does, which no signal of
+// the job's group reaches; only the end of the job's systemd user scope, at every terminal transition, does.
+test("a killed wrapper is reaped at once; the orphan of a job that ends, is stopped or is reaped is dead after its end; each wakes the coordinator once", async () => {
 	const env = { PI_SESSION_ID: SESSION };
-	const killed = spawnJob(p, "block", [], { env });
+	const killed = spawnJob(p, "orphan\nblock", [], { env });
 	await until(jobDir(p, killed), () => existsSync(join(jobDir(p, killed), "fake-blocked-1")));
 	const pid = jobRecord(p, killed)?.identity?.pid ?? 0;
 	assert.ok(pid > 0, "the wrapper recorded its pid");
@@ -110,16 +125,17 @@ test("a killed wrapper is reaped at once and a stopped job leaves no escaped chi
 	// A young job: only the product's dead-pid confirmation window applies, never the startup grace.
 	const listed = limen(p, ["show", killed], { env: { LIMEN_REAP_CONFIRM_MS: "1" } });
 	assert.deepEqual([listed.status, jobState(p, killed)], [0, "failed"], listed.stderr);
-	await release(jobDir(p, killed));
 
 	const stopped = spawnJob(p, "orphan\nblock", [], { env });
 	await until(jobDir(p, stopped), () => existsSync(join(jobDir(p, stopped), "fake-blocked-1")));
-	const orphan = Number(jobFile(p, stopped, "fake-orphan"));
-	assert.ok(alive(orphan), "the orphan escaped into its own process group and runs");
+	assert.ok(alive(Number(jobFile(p, stopped, "fake-orphan"))), "the orphan left the job's process group and runs");
 	const stop = limen(p, ["stop", stopped, "s9"]);
 	assert.deepEqual([stop.status, jobState(p, stopped)], [0, "stopped"], stop.stderr);
-	const named = !alive(orphan) || jobFile(p, stopped, "cleanup").includes(`${orphan} `);
-	assert.ok(named, `orphan ${orphan} survived stop unnamed`);
+
+	const ended = spawnJob(p, "orphan", [], { env });
+	assert.equal(waitJob(p, ended), "done");
+	const orphans = [killed, stopped, ended].map((id) => Number(jobFile(p, id, "fake-orphan")));
+	assert.deepEqual(await survivors(orphans, ORPHAN_EXIT_MS), [], "every orphan is dead after its job's end");
 
 	const coordinator = join(p.parent, "coordinator");
 	await mkdir(coordinator);
@@ -129,11 +145,14 @@ test("a killed wrapper is reaped at once and a stopped job leaves no escaped chi
 		["--extension", WAKE, "--session-dir", join(coordinator, "session"), `@${join(coordinator, "task.md")}`],
 		{ cwd: p.root, env: { ...p.env, ...env }, stdio: "ignore" },
 	);
-	// A later job's wake orders the count: a duplicate for either earlier job would have arrived before it.
+	// A later job's wake orders the count: a duplicate for any earlier job would have arrived before it.
 	const last = spawnJob(p, "say last", [], { env });
 	assert.equal(waitJob(p, last), "done");
 	await until(coordinator, () => wakes(coordinator, last) > 0);
-	assert.deepEqual([wakes(coordinator, killed), wakes(coordinator, stopped)], [1, 1]);
+	assert.deepEqual(
+		[killed, stopped, ended].map((id) => wakes(coordinator, id)),
+		[1, 1, 1],
+	);
 	await release(coordinator);
 	await new Promise((resolve) => session.once("exit", resolve));
 });

@@ -6,7 +6,7 @@ import { mkdir } from "node:fs/promises";
 import { runOperation, stepFailure } from "../operation.ts";
 import { LimenError, refused } from "../outcome.ts";
 import { platform } from "../platform/platform.ts";
-import { containEscapedDescendants, discoverEscapedDescendants, waitForProcessGroup } from "../runtime/contain.ts";
+import { waitForProcessGroup } from "../runtime/reap.ts";
 import { finalizeJob, requestedTerminal } from "./finalize.ts";
 import { SESSION_ID } from "./job.ts";
 import { appendLimenLog, type JobRecord, readRecord, transition } from "./record.ts";
@@ -96,17 +96,11 @@ async function endJob({ id, jobDir, reason, state }: StopPlan, again: string | n
 	if (queued) {
 		await transition(jobDir, { from: ["running"], set: { stopRequested: reason } });
 	}
-	// Complete the bounded ownership snapshot while the parent chain is intact, then signal. A queued wrapper runs no
-	// engine child, so it has no process tree to search and an empty one is no attribution loss.
-	const escaped = queued ? [] : await discoverEscapedDescendants(jobDir, pid, "during stop");
+	// The wrapper's group gets TERM, then KILL when it still runs after its grace. A process outside the group, such as
+	// one the engine detached, is left to the end of the job's scope, which the winner of the transition sends after
+	// this grace (A-029).
 	const result = platform.signalProcessGroup(pid, "SIGTERM");
-	void containEscapedDescendants(jobDir, escaped, "after stop").catch((error: unknown) =>
-		appendLimenLog(
-			jobDir,
-			`escaped cleanup unconfirmed after stop: ${error instanceof Error ? error.message : String(error)}`,
-		),
-	);
-	void (async () => {
+	const grace = (async () => {
 		if (result !== "missing" && !(await waitForProcessGroup(pid, 5_000))) {
 			await appendLimenLog(jobDir, "TERM grace elapsed; sending KILL");
 			platform.signalProcessGroup(pid, "SIGKILL");
@@ -118,7 +112,7 @@ async function endJob({ id, jobDir, reason, state }: StopPlan, again: string | n
 	do {
 		await new Promise((resolve) => setTimeout(resolve, 25));
 	} while (queued && Date.now() < turn && (await stateOf(jobDir)) === "running");
-	if (!(await finalizeJob(jobDir, requestedTerminal(reason), reason))) {
+	if (!(await finalizeJob(jobDir, requestedTerminal(reason), reason, { beforeScopeEnd: () => grace }))) {
 		await markCallerDelivered(jobDir);
 		const settled = await stateOf(jobDir);
 		return queued ? `${settled} ${id}: ${reason}` : `${id} is already ${settled}`;

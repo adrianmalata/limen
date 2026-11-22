@@ -6,6 +6,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { testKnob } from "../config.ts";
 import type { CommandText } from "../outcome.ts";
+import { platform } from "../platform/platform.ts";
 import { bindingPath, liveCoordinator, originRepository, readBinding } from "./github-review.ts";
 import { herdrBinary } from "./herdr.ts";
 
@@ -256,10 +257,10 @@ async function checkPollerService({ seat, report }: Doctor, releaseSafe: boolean
 			!!unit?.includes(`ExecStart=${seat.node} ${seat.release}/bin/limen github poll`) &&
 			unit.includes("User=limen-github") &&
 			unit.includes("Environment=PATH=/usr/bin:/usr/local/bin") &&
-			command("systemctl", ["show", "-P", "FragmentPath", "limen-github.service"]) === seat.service &&
-			command("systemctl", ["show", "-P", "DropInPaths", "limen-github.service"]) === "" &&
-			command("systemctl", ["show", "-P", "User", "limen-github.service"]) === seat.poller &&
-			(command("systemctl", ["show", "-P", "ExecStart", "limen-github.service"]) ?? "").includes(
+			platform.systemUnitProperty("limen-github.service", "FragmentPath") === seat.service &&
+			platform.systemUnitProperty("limen-github.service", "DropInPaths") === "" &&
+			platform.systemUnitProperty("limen-github.service", "User") === seat.poller &&
+			(platform.systemUnitProperty("limen-github.service", "ExecStart") ?? "").includes(
 				`${seat.node} ${seat.release}/bin/limen github poll`,
 			),
 		"safe poller service command and PATH",
@@ -314,8 +315,8 @@ async function checkPollerSecrets({ seat, report, pollerUid, gid }: Doctor): Pro
 		"install /var/lib/limen-github/state as poller:poller mode 0700; keep parents non-worker-writable",
 	);
 	report(
-		command("systemctl", ["is-enabled", seat.timer]) === "enabled" &&
-			command("systemctl", ["is-active", seat.timer]) === "active",
+		platform.systemUnitState(seat.timer, "is-enabled") === "enabled" &&
+			platform.systemUnitState(seat.timer, "is-active") === "active",
 		"enabled active GitHub timer",
 		"systemctl daemon-reload && systemctl enable --now limen-github.timer; inspect journalctl -u limen-github.service",
 	);

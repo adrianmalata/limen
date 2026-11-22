@@ -1,8 +1,8 @@
 // The shared throwaway plant every scenario runs on: a temp Git repo after a real `limen init`, an environment built
-// from an allowlist, the scripted fake engine (test/fake-engine.mjs) as `pi`, and a fetch sink that records
-// every request a Limen process makes. Scenarios wait on file events and FIFOs; nothing here sleeps, and only a
-// process's exit, which raises no file event, is read again on a short interval (`waitJob`, and cleanup's listing of
-// the plant's processes).
+// from an allowlist, the scripted fake engine (test/fake-engine.mjs) as `pi`, the tests' systemd-run and systemctl
+// (`SYSTEMD_RUN`, `SYSTEMCTL`), and a fetch sink that records every request a Limen process makes. Scenarios wait on
+// file events and FIFOs; nothing here sleeps, and only a process's exit, which raises no file event, is read again on
+// a short interval (`waitJob`, and cleanup's listing of the plant's processes).
 import { type ChildProcess, execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, watch } from "node:fs";
 import { mkdir, mkdtemp, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
@@ -115,6 +115,160 @@ sources:
 ---
 `;
 
+/** The readings the tests' systemd-run writes into the folder of each scope it starts. */
+export const SCOPE_READINGS = { memoryPeakBytes: 52_428_800, cpuMicroseconds: 2_500_000, oomKills: 0 } as const;
+
+/** The cgroup the tests' systemd gives the scope `unit`: where a user scope of systemd's own lives. */
+export function fakeCgroup(unit: string): string {
+	const uid = process.getuid?.() ?? 0;
+	return `/user.slice/user-${uid}.slice/user@${uid}.service/app.slice/${unit}`;
+}
+/** The shell text of `fakeCgroup`, for the scripts below. */
+const CGROUP_OF_UNIT = "/user.slice/user-$(id -u).slice/user@$(id -u).service/app.slice";
+
+/**
+ * The tests' systemd-run (T-28 (5); the seat checks the real one in `## Deployment` 3.2, 3.7 and 3.8). It takes only
+ * the form Limen runs, `--user --scope [--quiet] [--collect] [--unit=<name>.scope] [--] <command>…`, and any other
+ * exits 1. It logs its words, makes the scope's folder below LIMEN_CGROUP_ROOT with `SCOPE_READINGS`, and runs the
+ * command in place, its pid kept, as a real scope does. The scope's processes are the command and all it starts: each
+ * inherits LIMEN_CGROUP, the scope's cgroup, which `setsid` and a new parent keep and only another scope replaces.
+ */
+const SYSTEMD_RUN = [
+	"#!/bin/sh",
+	"root=$LIMEN_CGROUP_ROOT",
+	`[ -n "$root" ] || { echo "systemd-run (tests): LIMEN_CGROUP_ROOT is not set" >&2; exit 1; }`,
+	`printf '%s\\n' "$*" >> "$root/systemd-run.log"`,
+	"user= scope= unit=run-tests$$.scope",
+	"while [ $# -gt 0 ]; do",
+	"\tcase $1 in",
+	"\t--user) user=1 ;;",
+	"\t--scope) scope=1 ;;",
+	"\t--quiet|--collect) ;;",
+	`\t--unit=*.scope) unit=$(printf '%s' "$1" | sed 's/^--unit=//') ;;`,
+	"\t--) shift; break ;;",
+	`\t-*) echo "systemd-run (tests): $1 is not emulated" >&2; exit 1 ;;`,
+	"\t*) break ;;",
+	"\tesac",
+	"\tshift",
+	"done",
+	'if [ -z "$user" ] || [ -z "$scope" ] || [ $# -eq 0 ]; then',
+	`\techo "systemd-run (tests): only --user --scope with a command is emulated" >&2`,
+	"\texit 1",
+	"fi",
+	`cgroup=${CGROUP_OF_UNIT}/$unit`,
+	'mkdir -p "$root$cgroup"',
+	`printf '%s\\n' ${SCOPE_READINGS.memoryPeakBytes} > "$root$cgroup/memory.peak"`,
+	`printf 'usage_usec %s\\nuser_usec 0\\nsystem_usec 0\\n' ${SCOPE_READINGS.cpuMicroseconds} > "$root$cgroup/cpu.stat"`,
+	`printf 'low 0\\nhigh 0\\nmax 0\\noom 0\\noom_kill %s\\n' ${SCOPE_READINGS.oomKills} > "$root$cgroup/memory.events"`,
+	"LIMEN_CGROUP=$cgroup",
+	"export LIMEN_CGROUP",
+	'exec "$@"',
+];
+/**
+ * The tests' systemctl: only `--user is-active --quiet <name>.scope` and `--user kill --signal=SIGKILL <name>.scope`,
+ * and any other call exits 1. It logs its words. A scope's processes are those whose environment holds its
+ * LIMEN_CGROUP and this systemd's LIMEN_CGROUP_ROOT. `is-active` exits 0 while the scope has a process and 3 when it
+ * has none, as systemd does for a scope that ended or never started. `kill` sends SIGKILL to each process of the scope
+ * and removes its folder, as systemd collects a scope once it is empty; with none, the scope is not loaded, as for
+ * systemd. Unlike systemd, a scope whose processes all ended by themselves keeps its folder until a `kill`.
+ */
+const SYSTEMCTL = [
+	"#!/bin/sh",
+	"root=$LIMEN_CGROUP_ROOT",
+	`[ -n "$root" ] || { echo "systemctl (tests): LIMEN_CGROUP_ROOT is not set" >&2; exit 1; }`,
+	`printf '%s\\n' "$*" >> "$root/systemctl.log"`,
+	'case "$#:$1:$2:$3:$4" in',
+	"4:--user:is-active:--quiet:*.scope) verb=is-active unit=$4 ;;",
+	"4:--user:kill:--signal=SIGKILL:*.scope) verb=kill unit=$4 ;;",
+	`*) echo "systemctl (tests): only --user is-active --quiet or kill --signal=SIGKILL <name>.scope is emulated" >&2; exit 1 ;;`,
+	"esac",
+	`cgroup=${CGROUP_OF_UNIT}/$unit`,
+	// The grep and the subshells of the listing carry the scope too; each has ended when the list is read.
+	'found=$(grep -lsxzF "LIMEN_CGROUP=$cgroup" /proc/[0-9]*/environ | xargs -r grep -lsxzF "LIMEN_CGROUP_ROOT=$root" | cut -d/ -f3)',
+	"members=",
+	"for pid in $found; do",
+	'\t[ "$pid" = $$ ] || ! kill -0 "$pid" 2>/dev/null || members="$members $pid"',
+	"done",
+	'if [ "$verb" = is-active ]; then',
+	'\t[ -n "$members" ] && exit 0',
+	"\texit 3",
+	"fi",
+	'rm -rf "$root$cgroup"',
+	'if [ -z "$members" ]; then',
+	`\techo "Failed to kill unit $unit: Unit $unit not loaded." >&2`,
+	"\texit 1",
+	"fi",
+	"kill -9 $members 2>/dev/null",
+	"exit 0",
+];
+
+/** Writes the tests' systemd-run and systemctl into `bin`. */
+async function writeSystemd(bin: string): Promise<void> {
+	await writeFile(join(bin, "systemd-run"), `${SYSTEMD_RUN.join("\n")}\n`, { mode: 0o755 });
+	await writeFile(join(bin, "systemctl"), `${SYSTEMCTL.join("\n")}\n`, { mode: 0o755 });
+}
+
+/**
+ * The tests' systemd in new folders below `folder`, for a test that runs Limen in its own process: the values of PATH
+ * and LIMEN_CGROUP_ROOT that put it first, for `withEnvironment` (test/environment.ts), so that no test reaches the
+ * machine's own systemd (`## Commands`, stage 3).
+ */
+export async function fakeSystemd(
+	folder: string,
+): Promise<{ readonly PATH: string; readonly LIMEN_CGROUP_ROOT: string }> {
+	const [bin, cgroups] = [join(folder, "systemd-bin"), join(folder, "cgroup")];
+	await Promise.all([mkdir(bin, { recursive: true }), mkdir(cgroups, { recursive: true })]);
+	await writeSystemd(bin);
+	return { PATH: `${bin}:${process.env.PATH ?? ""}`, LIMEN_CGROUP_ROOT: cgroups };
+}
+
+/** Each call of the tests' `program` that used the cgroup folder `cgroups`, as its words. */
+export function systemdCalls(cgroups: string, program: "systemd-run" | "systemctl"): string[] {
+	const log = join(cgroups, `${program}.log`);
+	return existsSync(log) ? readFileSync(log, "utf8").trim().split("\n") : [];
+}
+
+/** Each call of the plant's systemd-run or systemctl, as its words. */
+export function scopeCalls(plant: Plant, program: "systemd-run" | "systemctl"): string[] {
+	return systemdCalls(plant.env.LIMEN_CGROUP_ROOT ?? "", program);
+}
+
+/** A folder below `parent` whose systemd-run fails as on a host where the account's user instance does not run. */
+export async function failingSystemdRun(parent: string): Promise<string> {
+	const folder = join(parent, "failing-systemd-run");
+	await mkdir(folder, { recursive: true });
+	const script = ["#!/bin/sh", 'echo "Failed to connect to bus: No medium found" >&2', "exit 1"];
+	await writeFile(join(folder, "systemd-run"), `${script.join("\n")}\n`, { mode: 0o755 });
+	return folder;
+}
+
+/** The plant's PATH with a systemd-run first that fails as on a host without the account's user instance. */
+export async function pathWithFailingScope(plant: Plant): Promise<string> {
+	return `${await failingSystemdRun(plant.parent)}:${plant.env.PATH}`;
+}
+
+/** The plant's PATH with a systemctl first that fails every call, as it does when the user manager cannot be reached. */
+export async function pathWithFailingScopeEnd(plant: Plant): Promise<string> {
+	const folder = join(plant.parent, "failing-systemctl");
+	await mkdir(folder);
+	const script = ["#!/bin/sh", 'echo "Failed to connect to bus: No medium found" >&2', "exit 1"];
+	await writeFile(join(folder, "systemctl"), `${script.join("\n")}\n`, { mode: 0o755 });
+	return `${folder}:${plant.env.PATH}`;
+}
+
+/** The plant's PATH with a systemd-run first that runs the command in place in no scope at all. */
+export async function pathWithUnscopedRun(plant: Plant): Promise<string> {
+	const folder = join(plant.parent, "unscoped-systemd-run");
+	await mkdir(folder);
+	const script = [
+		"#!/bin/sh",
+		"while [ $# -gt 0 ]; do case $1 in --) shift; break ;; -*) shift ;; *) break ;; esac; done",
+		'exec "$@"',
+	];
+	await writeFile(join(folder, "systemd-run"), `${script.join("\n")}\n`, { mode: 0o755 });
+	return `${folder}:${plant.env.PATH}`;
+}
+
 /**
  * The plant's folder for the runner's git (D-060): a link to the first `git` on the PATH of the process that runs the
  * tests, so a plant meets the git the suite runs with, not the system's in /usr/bin. None when that git sits in the
@@ -137,10 +291,12 @@ export async function plant(): Promise<Plant> {
 	const parent = await realpath(await mkdtemp(join(tmpdir(), "limen-plant-")));
 	const root = join(parent, "repo");
 	const bin = join(parent, "bin");
-	await Promise.all([mkdir(bin), mkdir(join(parent, "home")), mkdir(join(parent, ".limen"))]);
+	const cgroups = join(parent, "cgroup");
+	await Promise.all([mkdir(bin), mkdir(join(parent, "home")), mkdir(join(parent, ".limen")), mkdir(cgroups)]);
 	// The seat's start gate settles for 1 ms instead of a minute, so the jobs of one test start one after another at once.
 	await writeFile(join(parent, ".limen", "start-gate.json"), '{"settle":"1ms"}\n');
 	await symlink(FAKE_ENGINE, join(bin, "pi"));
+	await writeSystemd(bin);
 	await writeFile(join(parent, "sink.mjs"), sinkSource(parent));
 	const nodeFolder = dirname(process.execPath);
 	const env = {
@@ -157,6 +313,8 @@ export async function plant(): Promise<Plant> {
 		// Without start-reading.json the reading is unknown and the gate is open; a test writes the file to close it.
 		LIMEN_START_READING: join(parent, "start-reading.json"),
 		LIMEN_START_POLL_MS: "50",
+		// The tests' systemd keeps each scope's readings and its logs here.
+		LIMEN_CGROUP_ROOT: cgroups,
 		NODE_NO_WARNINGS: "1",
 		NODE_OPTIONS: `--import=${join(parent, "sink.mjs")}`,
 	};

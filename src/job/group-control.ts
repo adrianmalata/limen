@@ -489,7 +489,11 @@ export async function showGroupStatus(given: string | undefined, cwd: string, ou
 	}
 	if (!run.finishedAt && !run.stopped) {
 		// A round whose last finish could not start the next one moves on here.
-		startGroupAdvance(run);
+		await startGroupAdvance(run).catch((error: unknown) =>
+			out.diagnostic(
+				`the group's next round could not start: ${error instanceof Error ? error.message : String(error)}`,
+			),
+		);
 	}
 }
 /**

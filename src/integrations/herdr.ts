@@ -1,4 +1,4 @@
-import { execFile, spawn, spawnSync } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { basename } from "node:path";
@@ -9,6 +9,7 @@ import { closedFeatures, closedJobFeatures } from "../job/job.ts";
 import { jobFolders, readRecord } from "../job/record.ts";
 import { type JobReference, resolveJob } from "../job/reference.ts";
 import { limenRoot } from "../project/git.ts";
+import { startOutsideJob } from "../runtime/launcher.ts";
 
 export type HerdrPlace = {
 	readonly workspace: string;
@@ -44,7 +45,11 @@ function errorCode(error: unknown): unknown {
 	return error.code;
 }
 
-/** Terminal jobs leave no open tabs. A detached closer does the close so finalize never waits on Herdr; the closer records the result in the job log. */
+/**
+ * Terminal jobs leave no open tabs. A detached closer does the close so finalize never waits on Herdr; the closer
+ * records the result in the job log. It runs in a systemd user scope of its own, so the end of the job's scope, which
+ * follows, does not end it (A-029).
+ */
 export async function settleJobTab(jobDir: string): Promise<void> {
 	const place = await readPlace(jobDir);
 	if (!place) {
@@ -55,16 +60,10 @@ export async function settleJobTab(jobDir: string): Promise<void> {
 		return skip(jobDir, "herdr is not available");
 	}
 	const closer = `import { closeJobTab } from ${JSON.stringify(import.meta.url)}; await closeJobTab(${JSON.stringify(herdr)}, ${JSON.stringify(jobDir)}, ${JSON.stringify(place.tab)});`;
-	try {
-		const child = spawn(process.execPath, ["--no-warnings", "--input-type=module", "--eval", closer], {
-			detached: true,
-			stdio: "ignore",
-		});
-		child.once("error", (error) => void skip(jobDir, `tab close could not start: ${error.message}`).catch(() => {}));
-		child.unref();
-	} catch (error) {
-		await skip(jobDir, error instanceof Error ? error.message : String(error));
-	}
+	const args = ["--no-warnings", "--input-type=module", "--eval", closer];
+	await startOutsideJob(process.execPath, args, { env: process.env }).catch((error: unknown) =>
+		skip(jobDir, `tab close could not start: ${error instanceof Error ? error.message : String(error)}`),
+	);
 }
 
 /** The detached closer: close the tab, retry a refusal once, and record the result in the job log. */

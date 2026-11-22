@@ -1,10 +1,12 @@
-// src/runtime/launcher.ts: a run of Limen's CLI gives its final line, read past the text for people before it.
+// src/runtime/launcher.ts: a run of Limen's CLI gives its final line, read past the text for people before it, and a
+// job's wrapper starts in the job's own systemd user scope.
 import assert from "node:assert/strict";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
 import { runLimen } from "../../src/runtime/launcher.ts";
+import { fakeCgroup, jobRecord, LIMEN, plant, scopeCalls, spawnJob, waitJob } from "../plant.ts";
 
 /** A stand-in for the CLI at another path, as the GitHub poller names it: a script that prints `body`'s lines. */
 async function standIn(t: TestContext, body: string): Promise<string> {
@@ -43,5 +45,19 @@ test("T-26: a run whose process left no final line is an internal failure, which
 	assert.deepEqual(
 		[ran.outcome, ran.output.stderr],
 		[{ class: "internal", code: "INTERNAL", next: null }, "sudo: a password is required\n"],
+	);
+});
+
+// A-029: the wrapper leaves the spawner's cgroup (a coordinator's Herdr pane), so --prepare, the engine, its tools and
+// whatever they detach run in the job's scope, which the job's end stops.
+test("a spawned job's wrapper starts in its own systemd user scope limen-job-<id>.scope, which its record names", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = spawnJob(p, "say in its scope");
+	assert.equal(waitJob(p, id), "done");
+	const unit = `limen-job-${id}.scope`;
+	assert.deepEqual(
+		[scopeCalls(p, "systemd-run").filter((words) => words.includes(unit)), jobRecord(p, id)?.scope?.cgroup],
+		[[`--user --scope --quiet --collect --unit=${unit} -- ${process.execPath} ${LIMEN}`], fakeCgroup(unit)],
 	);
 });

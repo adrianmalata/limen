@@ -128,10 +128,18 @@ async function endRule(rule: SeatRule, why: string): Promise<readonly string[] |
 	return broadcast(rule, "end", ruleText(rule, "end", why));
 }
 
+/**
+ * Starts the rule's timer in a systemd user scope of its own. A rule serves no job, so a timer that cannot start is
+ * one line on this command's stderr; the next command that finds the rule past its end starts a timer again.
+ */
 function startTimer(rule: SeatRule): void {
-	startLimen(["rule", "timer", ruleFolder(rule.name), rule.version], {
+	void startLimen(["rule", "timer", ruleFolder(rule.name), rule.version], {
 		env: { ...process.env, LIMEN_INTERNAL_RUN: undefined },
-	});
+	}).catch((error: unknown) =>
+		console.error(
+			`rule ${rule.name}: its timer could not start: ${error instanceof Error ? error.message : String(error)}`,
+		),
+	);
 }
 
 /**

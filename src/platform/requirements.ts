@@ -2,12 +2,15 @@
 // failure names the tool or the feature. `limen init` and `limen workspace init` run the check first, and the
 // coordinator start script of R-050 runs the same function. A failure is an environment error (exit code 4, T-02).
 // The versions of Pi, the bridge and Herdr are data: R-049 refuses another version of Pi and the bridge (T-32 (3)).
+// Every job runs in its own systemd user scope (A-029), so a host where no user scope starts is refused here, before
+// a spawn would fail on it.
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { herdrBinary } from "../integrations/herdr.ts";
 import { LimenError } from "../outcome.ts";
+import { platform } from "./platform.ts";
 
 /** The oldest Node major Limen runs on; `bin/limen` checks the same number before it can load this module. */
 export const NODE_MAJOR = 24;
@@ -101,12 +104,30 @@ function herdrFailure(): LimenError | undefined {
 	);
 }
 
+/** What a user scope is for and how a host gets one, for both failures of its probe. */
+const USER_SCOPE =
+	"every job runs in its own systemd user scope, which needs the account's systemd user instance; root keeps it running with lingering (loginctl enable-linger <account>).";
+
+/** A new user scope runs `true`: a host without the account's user instance runs no job (no unscoped run, A-029). */
+function userScopeFailure(): LimenError | undefined {
+	const probe = platform.probeUserScope();
+	if (probe.kind === "started") {
+		return;
+	}
+	if (probe.kind === "missing") {
+		return missingTool(`systemd-run is not on PATH; ${USER_SCOPE}`);
+	}
+	const message = `systemd-run --user --scope --quiet true failed: ${probe.detail}. Limen needs it: ${USER_SCOPE}`;
+	return new LimenError({ class: "environment", code: "MISSING_FEATURE", message, next: null });
+}
+
 /** The declared tools, each with its probe, in the order the check runs them. */
 export const REQUIREMENTS: readonly Requirement[] = [
 	{ tool: "node", probe: () => nodeFailure(process.versions.node) },
 	{ tool: "git", probe: gitFailure },
 	{ tool: "tar", probe: present("tar", "limen land unpacks the tickets of a job's branch with tar. Install tar.") },
 	{ tool: "ps", probe: present("ps", "Limen reads the process table with ps. Install ps (procps).") },
+	{ tool: "systemd-run", probe: userScopeFailure },
 	{ tool: "pi", probe: present("pi", `every job runs on Pi ${PI.version} (${PI.package}). Install it.`) },
 	{ tool: "herdr", probe: herdrFailure },
 ];

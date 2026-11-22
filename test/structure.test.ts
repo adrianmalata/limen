@@ -144,8 +144,9 @@ test("T-26 (4): only src/outcome.ts builds the final line in src/, hook/ and bin
 });
 
 // T-01 → Why: the author's side channels swallow their errors. A ratchet until R-082 brings both counts to zero: the
-// counts at R-013's parent commit, which a change may only lower.
-const SWALLOWED = { "catch {": 81, ".catch(() => {})": 27 } as const;
+// counts at R-013's parent commit, which a change may only lower; R-026 lowered `.catch(() => {})` to its own count, 19,
+// when the starts of the group's next round and of a rule's timer stopped swallowing a failure.
+const SWALLOWED = { "catch {": 81, ".catch(() => {})": 19 } as const;
 test("T-01: the catch-all sites in src/ and hook/ stay at most their baseline count, and src/outcome.ts has none", async () => {
 	for (const [literal, most] of Object.entries(SWALLOWED)) {
 		const [all, inOutcome] = await occurrences(["src", "hook"], literal, "src/outcome.ts");
@@ -906,24 +907,30 @@ test("T-32: no file of src/ or hook/ outside src/runtime/pi-api.ts declares a ty
 	);
 });
 
-/** The folder of the platform adapter (A-083), the only code that reads the operating system's process and load data. */
+/**
+ * The folder of the platform adapter (A-083), the only code that reads the operating system's process and load data,
+ * starts or ends a systemd user scope, and reads the cgroup hierarchy (A-029).
+ */
 const PLATFORM = "src/platform/";
 
 /**
  * Each operating-system read or signal in the code `text`, as `<path>:<line>: <match>`: a `/proc/` path, a `ps`
- * literal (the program a spawn names), a `cpus(` call, and `process.kill`.
+ * literal (the program a spawn names), a `cpus(` call, `process.kill`, the name `systemd-run`, a `systemctl` literal
+ * whatever its arguments are, a line that names `systemctl` with `--user` (a command in a shell string), and a path of
+ * the cgroup hierarchy. Prose that names `systemctl`, such as a fix a report gives root, is no call.
  */
 function platformCalls(path: string, text: string): string[] {
-	return text
-		.split("\n")
-		.flatMap((line, index) =>
-			[...line.matchAll(/\/proc\/|(["'`])ps\1|\bcpus\s*\(|\bprocess\.kill\b/g)].map(
-				(match) => `${path}:${index + 1}: ${match[0]}`,
-			),
+	const calls =
+		/\/proc\/|(["'`])ps\1|\bcpus\s*\(|\bprocess\.kill\b|\bsystemd-run\b|(["'`])systemctl\2|\/sys\/fs\/cgroup/g;
+	return text.split("\n").flatMap((line, index) => {
+		const user = /\bsystemctl\b/.test(line) && /--user\b/.test(line) ? ["systemctl --user"] : [];
+		return [...[...line.matchAll(calls)].map((match) => match[0]), ...user].map(
+			(match) => `${path}:${index + 1}: ${match}`,
 		);
+	});
 }
 
-test("the platform scan finds a /proc/ path, a ps literal, a cpus call and process.kill, and skips other text", () => {
+test("the platform scan finds a /proc/ path, a ps literal, a cpus call, process.kill, systemd-run, a systemctl literal or systemctl with --user, and a cgroup path, and skips other text", () => {
 	const fixture = [
 		'readFileSync("/proc/meminfo");',
 		'execFile("ps", ["-A"]);',
@@ -933,18 +940,29 @@ test("the platform scan finds a /proc/ path, a ps literal, a cpus call and proce
 		"// the CPUs of the seat",
 		"const options = { cpus: 2 };",
 		"child.kill();",
+		'spawn("systemd-run", ["--user", "--scope", "--", command]);',
+		'exec("systemctl --user kill --signal=SIGKILL " + unit);',
+		'readFile("/sys/fs/cgroup/user.slice/memory.peak");',
+		'command("systemctl", ["is-active", "limen-github.timer"]);',
+		"// the job's systemd user scope, which its end stops",
+		'report(ok, "enabled timer", "systemctl daemon-reload && systemctl enable --now limen-github.timer");',
 	].join("\n");
 	assert.deepEqual(platformCalls("fixture.ts", fixture), [
 		"fixture.ts:1: /proc/",
 		'fixture.ts:2: "ps"',
 		"fixture.ts:3: cpus(",
 		"fixture.ts:4: process.kill",
+		"fixture.ts:9: systemd-run",
+		"fixture.ts:10: systemctl --user",
+		"fixture.ts:11: /sys/fs/cgroup",
+		'fixture.ts:12: "systemctl"',
 	]);
 });
 
 // A-083: the platform adapter is an interface with one implementation, Linux; a second operating system is a second
-// implementation, so its reads and signals must not be spread over the code that calls them.
-test("A-083: outside src/platform/ no file of src/ or hook/ reads /proc/, names ps, calls cpus or signals with process.kill", async () => {
+// implementation, so its reads and signals must not be spread over the code that calls them. A-029: the same holds for
+// the systemd user scopes every job runs in.
+test("A-083: outside src/platform/ no file of src/ or hook/ reads /proc/, names ps, calls cpus, signals with process.kill, runs systemd-run or systemctl, or reads the cgroup hierarchy", async () => {
 	const found = (await knownSources(["src", "hook"]))
 		.filter(({ path }) => !path.startsWith(PLATFORM))
 		.flatMap(({ path, text }) => platformCalls(path, text));

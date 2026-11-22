@@ -2,7 +2,7 @@
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
-R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025, R-097, R-099. -->
+R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025, R-097, R-099, R-026. -->
 
 # Changes
 
@@ -309,3 +309,12 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: measured
 - Commit: R-099
 - Rollback: git revert $(git log --format=%H --grep='^R-099:' adrian-rebuild --)
+
+## 2026-11-22 R-026 Every job runs in its own systemd user scope
+- What: `src/runtime/launcher.ts` (every wrapper starts in `limen-job-<id>.scope` through `platform.startInScope`; `startLimen` runs the group advance and a rule's timer in `limen-run-<token>.scope` and rejects with the failure); `src/runtime/wrapper.ts` (the cgroup check before anything runs; exhaustion waits for the engine and falls back to its group KILL when the scope end fails); `src/job/finalize.ts` (the winner of every terminal transition reads the scope's readings, then ends the whole scope in a `finally`, `endJobScope`); `src/platform/linux.ts`, `src/platform/platform.ts` (`startInScope`, `endScope` with `gone` from `is-active` exit 3 or a missing cgroup folder, `scopeReadings`, `systemUnitProperty`, `systemUnitState`), `src/platform/requirements.ts` (`systemd-run`); `src/job/record.ts` (optional `scope`), `src/job/view.ts` (`limen show` prints the readings); `src/runtime/contain.ts` removed, `waitForProcessGroup` to `src/runtime/reap.ts`; `src/job/stopping.ts`, `spawning.ts`, `continuation.ts`, `listing.ts`, `group-cabinet.ts`, `group-control.ts`, `src/integrations/herdr.ts`, `src/integrations/github-doctor.ts`, `src/commands/rule.ts`, `src/config.ts`; the fakes of `systemd-run` and `systemctl` in `test/plant.ts`, the engine word `deaf` in `test/fake-engine.mjs`; tests in `test/runtime/`, `test/job/`, `test/platform/`, `test/cli/` (`show.test.ts` new), `test/s2-herdr.test.ts`, `test/s8-groups.test.ts`, `test/s9-housekeeping.test.ts`, `test/structure.test.ts` (the A-083 scan bans `systemd-run`, `"systemctl"` and `/sys/fs/cgroup` outside `src/platform/`), `test/u9-process-identity.test.ts`; `docs/jobs.md`, `docs/setup.md`, `docs/commands.md`, `docs/remote.md`, `docs/seat/README.md`, `docs/seat/agent-setup.md`, `CONTRIBUTING.md`, `templates/agents.md` with `templates/.history/agents.md`
+- Why: A-029, A-052, T-43
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (752/752); `node adrian-rebuild/tools/fails-before.mjs` → exit 0; `node --test test/s9-housekeeping.test.ts` → exit 0; `node --test test/job/finalize.test.ts` → exit 0
+- Measurement: unmeasured (plan.md → Measurement: M-09; `## Deployment` 3.2, 3.7, 3.8)
+- Commit: R-026
+- Rollback: git revert $(git log --format=%H --grep='^R-026:' adrian-rebuild --)
+

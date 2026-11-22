@@ -20,6 +20,7 @@ import {
 	type Plant,
 	plant,
 	release,
+	scopeCalls,
 	start,
 	startedJob,
 	TICKET,
@@ -230,6 +231,11 @@ test("a second group runs two routes through draft, critique and final, and the 
 	assert.equal(delivered().filter((entry) => entry.text?.includes(finished)).length, 1);
 	// Five team jobs start and end here; the lead hears none of it.
 	assert.ok(!delivered().some((entry) => entry.text?.includes("| lifecycle |")));
+	// A-029: a coordinator member's end starts the next round in a systemd user scope of its own, so the end of the
+	// member's scope, which follows, does not end it, and the rounds above ran.
+	const advances = scopeCalls(p, "systemd-run").filter((words) => words.endsWith(` group advance ${second}`));
+	const ownScope = /^--user --scope --quiet --collect --unit=limen-run-[0-9a-f]{8}\.scope -- /;
+	assert.ok(advances.length > 0 && advances.every((words) => ownScope.test(words)), advances.join("\n"));
 });
 
 test("close refuses a member with uncommitted work until it is clean", async () => {

@@ -1,8 +1,9 @@
 // `limen spawn`: the job it starts takes its time limit from the spawn, never from the spawner's environment, and its
 // task from the words after the flags; each refusal of its worktree and its group slot leaves the shared snapshot
-// identical (T-38 (4)).
+// identical (T-38 (4)); a job whose systemd user scope cannot start never runs.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { readdirSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -16,6 +17,7 @@ import {
 	jobState,
 	limen,
 	type Plant,
+	pathWithFailingScope,
 	plant,
 	routed,
 	spawnJob,
@@ -256,4 +258,21 @@ test("UNSAFE_HERDR_PANE_ID: a spawn whose HERDR_PANE_ID is not safe to route by 
 		[4, "UNSAFE_HERDR_PANE_ID", before],
 		run.stderr,
 	);
+});
+
+// A-029: no job runs outside its own systemd user scope, so a scope that does not start ends the spawn and its job.
+test("SCOPE_FAILED: a spawn whose systemd user scope cannot start exits 4, and its job ends failed with no engine run", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const run = limen(p, ["spawn", ...routed(["--label", "unscoped"]), "say never"], {
+		env: { PATH: await pathWithFailingScope(p) },
+	});
+	const [id = ""] = readdirSync(join(p.root, ".limen", "jobs"));
+	assert.deepEqual(
+		[run.status, readOutcome(run).class, readOutcome(run).code, jobState(p, id)],
+		[4, "environment", "SCOPE_FAILED", "failed"],
+		run.stderr,
+	);
+	const ended = /\] failed: failed to launch wrapper: the job's systemd user scope did not start: .+: it ended with /;
+	assert.deepEqual([jobFile(p, id, "fake-argv.json"), ended.test(jobFile(p, id, "log"))], ["", true]);
 });

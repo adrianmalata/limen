@@ -2,7 +2,8 @@
 // The one fake pi. It loads the real hook extensions Limen passes, runs the task text as a script, and records
 // what it saw in the record dir (the parent of --session-dir, so a job's own dir). Script lines:
 //   commit · fail <code> · error (assistant stop reason "error") · say <text> · tool <command> · block · orphan · finish <handoff, \n ends a line>
-//   · idle (a bash tool whose one child waits without CPU) · /<command> <args> (runs a command a hook registered, as a user typing it)
+//   · idle (a bash tool whose one child waits without CPU) · deaf (ignores SIGTERM from then on)
+//   · /<command> <args> (runs a command a hook registered, as a user typing it)
 // `block` writes fake-blocked-<n> and waits for one write to the FIFO fake-gate. Records: fake-argv.json, fake-env.json
 // (variable names), fake-task.txt, fake-system.txt (system prompt after before_agent_start), fake-context.txt (the hidden
 // context messages before_agent_start returned), fake-events.jsonl, and one transcript line per engine process in
@@ -160,6 +161,8 @@ for (const line of task.split("\n")) {
 	} else if (word === "idle") {
 		emit({ type: "tool_execution_start", toolName: "bash", args: { command: "sleep 600" } });
 		await new Promise((resolve) => spawn("sleep", ["600"], { stdio: "ignore" }).once("exit", resolve));
+	} else if (word === "deaf") {
+		process.on("SIGTERM", () => record({ event: "sigterm ignored" }));
 	} else if (word === "orphan") {
 		const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1e9)"], { detached: true, stdio: "ignore" });
 		child.unref();

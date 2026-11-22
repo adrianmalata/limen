@@ -90,7 +90,9 @@ poza repo; D-083 (przed pytaniem o decyzję sesja przeszukuje cztery źródła, 
 (jedna linia powiadomienia), D-085 (powiadomienia jako jednostka systemowa instalowana przez roota); przekazanie do
 limen-rebuild-20, która zbudowała hook D-083 (tools/decision-guard.mjs, 63 testy, trzy rundy recenzji PASS; uwagi
 rundy 3 poprawione bez czwartej rundy, D-086); blok hooks do .claude/settings.local.json dopisuje Adrian po powrocie
-z wyjazdu, a sesja dzienna bierze tymczasem tickety etapu 3. -->
+z wyjazdu, a sesja dzienna bierze tymczasem tickety etapu 3: R-026 zamknięty za dnia (każdy job we własnym scope
+systemd, bramka 752/752, trzy rundy recenzji PASS); przekazanie do limen-rebuild-21, która bierze R-030, R-033 i
+R-100. -->
 
 
 
@@ -1395,7 +1397,7 @@ Columns:
 | R-099 | The round-3 notes of R-092: a stale handoff gate, the class of an incomplete stop, the snapshot's git | 2 | T-38, T-02, D-077 | R-092 | S | delegated | night | — | — | — | done |
 | R-024 | `limen stats` over records and transcripts | 2 | H-01, H-20, §2, T-33, D-072, D-073 | R-021, R-023 | M | delegated | night | — | pi | 2.3 | done |
 | R-025 | Test coverage derived from the command registry | 2 | T-28, T-29, D-045, D-046, D-075, D-076 | R-014, R-023, R-092 | M | delegated | night | — | — | — | done |
-| R-026 | Every job runs in its own systemd user scope | 3 | A-029, A-052, T-43 | R-020, R-021 | L | delegated | night | — | systemd | 3.2, 3.7, 3.8 | ready |
+| R-026 | Every job runs in its own systemd user scope | 3 | A-029, A-052, T-43 | R-020, R-021 | L | delegated | night | — | systemd | 3.2, 3.7, 3.8 | done |
 | R-027 | The reaper ends a job only after its process group is gone | 3 | A-005, A-056 | R-026 | M | delegated | night | — | — | — | planned |
 | R-028 | SIGTERM reaches the engine; a signal without a stop request is a failure | 3 | A-020, A-052 | R-026 | M | delegated | night | — | — | — | planned |
 | R-029 | One recorded failure cause per job | 3 | A-016, E-9, T-31, T-32, D-055 | R-017, R-021, R-100 | M | delegated | night | — | bridge | 3.4 | planned |
@@ -1606,6 +1608,20 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   user-bus variables (`XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS`), which a job that spawns jobs needs for its
   children's scopes, and the fake scope's marker in tests; R-050's coordinator runs in no `limen-job-*` scope; R-060
   tells job scopes by that prefix.
+- R-060 (R-026 review round 1, note 5): since R-026 the A-083 scan of `test/structure.test.ts` bans the literal
+  `systemd-run` in `hook/`; T-42's guard, a hook that refuses `systemd-run --on-calendar`, needs its exemption there.
+- R-050, R-087 (R-026 review round 1, note 6; R-026 `outcome.md` → Open points): `src/platform/linux.ts` reads the
+  test knobs `LIMEN_CGROUP` and `LIMEN_CGROUP_ROOT` in production paths (the wrapper's in-scope check, the
+  finisher's readings through `cgroupFolder`, the scope's end), so on the seat a spawner's environment that held them
+  would make the scope's end `gone` without a kill or pass an unscoped wrapper. The fakes need both in the engine's
+  environment (the fake `systemctl` finds a scope's members by them), so R-087's allow-list keeps them for tests, as
+  the note above says; the guarantee is that the knobs are read only in test mode (T-03), which R-087 makes true, and
+  the coordinator's start script passes neither (R-050). (Corrected after R-026 review round 3, notes 4 and 5.)
+- R-034 (R-026 review round 2, note 9): since R-026 a rule's timer that cannot start writes "rule <name>: its timer
+  could not start: …" to stderr after the handler may have written its final line, which then is no longer the last
+  stderr line (T-02); R-034 cuts `limen rule`, and with it this path.
+- R-081 (R-026 `outcome.md` → Open points): `SECURITY.md:9` still describes the escaped-descendant check of the
+  removed `src/runtime/contain.ts`; the job's scope replaces it.
 
 ## Deployment
 
@@ -1778,7 +1794,9 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
   (Adrian, `systemctl disable --now`; item 5, done); what remains is to check that `systemctl list-timers --all` shows
   no `limen-prune` (R-032).
 - **3.2** From a Herdr pane on the agents' account, `systemd-run --user --scope true` exits 0 (item 12); during a trial
-  job, `systemd-cgls` shows the engine and its tools in the job's scope (R-026).
+  job, `systemd-cgls` shows the engine and its tools in the job's scope, and `systemctl --user is-active --quiet
+  limen-job-<id>.scope` exits 0 while the job runs and 3 after it ended, as it does for a unit name that never
+  existed: R-026 takes exit 3 as a scope that is gone (R-026 review round 2, note 8).
 - **3.3** Alerts: choose the new account names for every account of item 1 (the alerts account is the first), and
   create the alerts account (item 1); as root, write the ntfy topic to `/etc/limen/alerts-topic` (root-owned, mode
   0600) and run `node /opt/limen/seat/alerts.ts install --account <name>`, which grants the read rights, writes and
@@ -2099,9 +2117,10 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 Updated 2026-11-22 by day (`limen-rebuild-20`), rebuild stage 5 in plan stage 3: stage 1 is closed at `a0.1.1`
 (deployed on 2026-11-20, with B.2 closed by D-050); stage 2 is closed at `a0.2.0` (gate 5.2 decided, D-078–D-082);
-stage 3 has started: R-026, R-030, R-033 and R-100 are `ready` for the night, and D-083's decision guard is built
-(D-086). The newest entries are at the end of this section: the close of stage 2 in "Close of stage 2", the gate in
-"Gate 5.2 decided", the start of stage 3 in "Start of stage 3", and the guard in "D-083's decision guard".
+stage 3 has started: R-026 is `done` (by day), R-030, R-033 and R-100 are `ready`, and D-083's decision guard is
+built (D-086). The newest entries are at the end of this section: the close of stage 2 in "Close of stage 2", the gate
+in "Gate 5.2 decided", the start of stage 3 in "Start of stage 3", and the guard and R-026 in "D-083's decision
+guard".
 
 Handover of 2026-11-19 (D-033, at 37 % context, after the commit `R-014:`): `limen-rebuild-5` started
 `limen-rebuild-6` in `tmux` in remote-control mode (14:10) and ended. WSL booted at 10:34 on 2026-11-19, after the
@@ -3208,7 +3227,18 @@ redundant, the terminal being active):
 - One command was refused by the permissions (an `rm -rf` of a scratchpad folder, a deny rule); the same run went to
   a fresh folder without `rm`.
 - The `hooks` block for `.claude/settings.local.json` was given to Adrian in the conversation (D-016: only he writes
-  the file).
+  the file); he keeps it for his return from the trip (`Next` 1).
+- R-026 `done` by day (delegated, at Adrian's word, `Next` 2): every job's wrapper starts in
+  `limen-job-<id>.scope`, the winner of every terminal transition reads the scope's readings (record field `scope`,
+  shown by `limen show`) and ends the whole scope in a `finally`; follow-up processes start in
+  `limen-run-<token>.scope`; `contain.ts` goes; `limen init` refuses without a user manager. Gate 752/752 (the main
+  session's runs after each round); `fails-before.mjs` exit 0. Review PASS in rounds 1–3 (10, 11 and 5 notes): two
+  rounds of fixes by the resumed implementer (item 6 (a)–(f): the scope's end in `finally`, exhaustion's group KILL as
+  the fallback, no swallowed scope start, the `systemctl` literal banned outside the adapter with the GitHub doctor's
+  calls moved there, a scope that never existed is `gone` from facts, `endJobScope`; item 7 (g): one comment's
+  pointer), the main session's text fixes (`## Deployment` 3.2 gains the `is-active` check; notes for R-060, R-050,
+  R-087, R-034 and R-081 in `## Tickets`, the R-050/R-087 one corrected after round 3). Not checked here: that
+  `systemctl --user is-active` exits 3 for a scope that is gone (step 3.2). Unmeasured: M-09 (steps 3.2, 3.7, 3.8).
 
 Next (by day):
 1. After his return from the trip (Adrian, 2026-11-22: "Zapisz mi to na zrobienie po powrocie z wyjazdu, teraz działaj
@@ -3235,7 +3265,7 @@ Next (by day):
      ]
    }
    ```
-2. The four `ready` tickets of stage 3, in protocol order (R-026, R-030, R-033, R-100): by day, at Adrian's word
+2. The `ready` tickets of stage 3 left, in protocol order (R-030, R-033, R-100; R-026 is `done`): by day, at Adrian's word
    ("teraz działaj z zadaniami dalej", 2026-11-22), the main session takes them in delegated mode by the ticket
    protocol (`Run` = `night` means a night run may take a ticket, not that only a night run may); whatever is left
    goes to the next night run, started as the night mode says (D-024), after the preflight. R-029 waits for R-100
@@ -3341,3 +3371,11 @@ tree clean and pushed): `limen-rebuild-19` starts `limen-rebuild-20` with `node 
 start 20` and ends its turn. By day: the next session's first acts are a push notification to Adrian that it takes
 over at D-083's decision guard, then `node adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into this
 section, then `Next` 1. The handover after it is `limen-rebuild-21`.
+
+Handover of 2026-11-22 (D-047, at 34 % context, after the commit `R-026:`, with the tree clean and pushed):
+`limen-rebuild-20` starts `limen-rebuild-21` with `node adrian-rebuild/tools/handover.mjs start 21` and ends its
+turn. By day, Adrian away: the next session's first acts are a push notification to Adrian that it takes over at
+R-030, then `node adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into this section, then `Next` 2
+(R-030, R-033, R-100 by day, delegated); `Next` 1 waits for Adrian's return. The handover after it is
+`limen-rebuild-22`.
+

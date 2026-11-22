@@ -1,20 +1,26 @@
 // The end of a job (A-019, T-01): its terminal transition through the record's one writer (src/job/record.ts), then
-// what follows from it. Before the transition it counts the job's commits and collects the open note checks; a side
-// channel that fails there is written with the terminal state in `sideFailures`. The transition is the commit point:
-// a finisher that loses it writes nothing, and the group's events, the coordinator's Herdr wake and the job's tab,
-// which read the terminal record, follow only the winner; their failures go to the job's log, since nothing writes
-// the record after a terminal state.
+// what follows from it. Before the transition it counts the job's commits, collects the open note checks and reads its
+// scope's readings; a side channel that fails there is written with the terminal state in `sideFailures`. The
+// transition is the commit point: a finisher that loses it writes nothing, and the group's events, the coordinator's
+// Herdr wake, the next round of its group and the job's tab, which read the terminal record, follow only the winner;
+// their failures go to the job's log, since nothing writes the record after a terminal state. The winner's last step,
+// also after a step before it failed, ends the job's systemd user scope (A-029), so no process of the job outlives its
+// end, a detached one included; what the steps before it start runs in a scope of its own (src/runtime/launcher.ts).
 import { readdir, rm } from "node:fs/promises";
 import { TEMPORARY_NAME, temporaryWriter } from "../atomic-write.ts";
 import { promptCoordinator } from "../integrations/coordinator-wake.ts";
 import { settleJobTab } from "../integrations/herdr.ts";
-import { platform } from "../platform/platform.ts";
+import { platform, type ScopeReadings } from "../platform/platform.ts";
 import { commitList } from "../project/git.ts";
+import { jobScope } from "../runtime/launcher.ts";
 import { jobMembership, startGroupAdvance } from "./group-cabinet.ts";
 import { syncLifecycle } from "./group-events.ts";
 import type { TerminalState } from "./job.ts";
 import { appendLimenLog, failureFrom, type JobRecord, readRecord, type SideFailure, transition } from "./record.ts";
 import { noteCheckOpen } from "./task-note.ts";
+
+/** The readings of a scope that could not be read. */
+const UNREAD: ScopeReadings = { memoryPeakBytes: null, cpuMicroseconds: null, oomKills: null };
 
 export function isFailedStopReason(reason: string): boolean {
 	return reason === "error" || reason.startsWith("error: ") || reason === "aborted" || reason.startsWith("aborted: ");
@@ -26,6 +32,16 @@ export const requestedTerminal = (reason: string): "done" | "stopped" =>
 export type FinalizeOptions = {
 	readonly shutdownDeadline?: number | undefined;
 	readonly from?: readonly ("starting" | "running")[];
+	/**
+	 * What the winner waits for after the steps that follow the transition and before it ends the job's scope: the grace
+	 * of the job's process group after a TERM, so that the scope's SIGKILL meets only what the TERM left. None by default.
+	 */
+	readonly beforeScopeEnd?: () => Promise<void>;
+	/**
+	 * What the winner does when the end of the job's scope failed, after its log line: an exhaustion's KILL of the
+	 * wrapper's own group, so that an engine that ignores TERM still ends. None by default.
+	 */
+	readonly onScopeNotEnded?: () => void;
 };
 
 /**
@@ -50,6 +66,13 @@ export async function finalizeJob(
 	});
 	// A done the coordinator asked for (`done: <reason>`) already accepts what is open.
 	const open = state === "done" && !detail.startsWith("done:") ? noteCheckOpen(jobDir, record.worktree) : [];
+	// The scope's readings just before the transition, while its processes still hold it (`memory.peak` goes with it).
+	const readings = record.scope
+		? await platform.scopeReadings(record.scope.cgroup).catch((error: unknown) => {
+				sideFailures.push(sideFailure("scope readings", error));
+				return UNREAD;
+			})
+		: UNREAD;
 	const ended = await transition(jobDir, {
 		from,
 		to: state,
@@ -69,13 +92,39 @@ export async function finalizeJob(
 			commits,
 			queued: null,
 			sideFailures: [...current.sideFailures, ...sideFailures],
+			...(current.scope ? { scope: { ...current.scope, ...readings } } : {}),
 		}),
 	});
 	if (!ended) {
 		return false;
 	}
-	await afterEnd(jobDir, ended, options.shutdownDeadline);
+	// Any terminal transition stops the whole scope, also when a step after it rejects; the rejection goes on.
+	try {
+		await afterEnd(jobDir, ended, options.shutdownDeadline);
+		await options.beforeScopeEnd?.();
+	} finally {
+		await endJobScope(jobDir, ended, options.onScopeNotEnded);
+	}
 	return true;
+}
+
+/**
+ * Ends the job's scope: every process still in it gets SIGKILL, also one that left the job's process group or its
+ * parent (A-029). A job that never recorded its scope (it ended before it ran) is ended by its unit's name, since its
+ * wrapper may already run there; a scope that never started is gone, with nothing to log. When the finisher is the
+ * wrapper, which runs in that scope, this is its last act. An end that failed goes to the job's log, then to
+ * `notEnded`.
+ */
+async function endJobScope(jobDir: string, ended: JobRecord, notEnded: (() => void) | undefined): Promise<void> {
+	const unit = ended.scope?.unit ?? jobScope(ended.id);
+	const end = platform.endScope(unit, ended.scope?.cgroup);
+	if (end.kind === "failed") {
+		try {
+			await appendLimenLog(jobDir, `scope ${unit} was not ended: ${end.detail}`);
+		} finally {
+			notEnded?.();
+		}
+	}
 }
 
 /** What follows the terminal record: the group, leftover temps, the coordinator's Herdr wake, the job's tab. */
@@ -88,7 +137,9 @@ async function afterEnd(jobDir: string, ended: JobRecord, shutdownDeadline: numb
 			);
 		}
 		if (membership?.member?.role === "coordinator") {
-			startGroupAdvance(membership.run);
+			await startGroupAdvance(membership.run).catch((error: unknown) =>
+				appendLimenLog(jobDir, `the group's next round could not start: ${message(error)}`),
+			);
 		}
 	}
 	// A tmp whose writer still runs is an in-flight rename by a racing writer, not a leftover; deleting it makes that rename ENOENT and crashes the other process.

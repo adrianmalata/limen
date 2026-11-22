@@ -16,7 +16,7 @@ import { hunkBinary } from "../integrations/hunk.ts";
 import { type NameSource, refuseRemovedRole } from "../old-names.ts";
 import { type Checked, cleanedUp, type Operation, type StateView, stepFailure, validated } from "../operation.ts";
 import { type CommandText, environmentError, JOB_STARTED, refused, type Success, usageError } from "../outcome.ts";
-import { platform } from "../platform/platform.ts";
+import { type ProcessEnd, platform, type ScopedProcess } from "../platform/platform.ts";
 import {
 	addBranchWorktree,
 	addDetachedWorktree,
@@ -35,10 +35,9 @@ import {
 } from "../project/git.ts";
 import { readOptional } from "../project/inherit.ts";
 import { inheritedPlanning, ticketPointers } from "../project/planning.ts";
-import { waitForProcessGroup } from "../runtime/contain.ts";
 import { type EngineProfile, preflightEngine, resolveSpawnEngine } from "../runtime/engine.ts";
 import { launchWrapper } from "../runtime/launcher.ts";
-import { liveJob } from "../runtime/reap.ts";
+import { liveJob, waitForProcessGroup } from "../runtime/reap.ts";
 import { DEFAULT_PRIORITY, parsePriority, queuedLine } from "../runtime/start-queue.ts";
 import { normalizeWorkerExtensions } from "../runtime/worker-extensions.ts";
 import { hasCode } from "../system-error.ts";
@@ -680,9 +679,9 @@ async function startDetachedJob(plan: SpawnPlan, job: SpawnedJob, versions: Prom
 	if (options.timeoutMs) {
 		environment.LIMEN_TIMEOUT_MS = String(options.timeoutMs);
 	}
-	let wrapperPid: number;
+	let wrapper: ScopedProcess;
 	try {
-		wrapperPid = await launchWrapper(environment);
+		wrapper = await launchWrapper(id, environment);
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		throw await cleanedUp(error, async () => {
@@ -690,7 +689,7 @@ async function startDetachedJob(plan: SpawnPlan, job: SpawnedJob, versions: Prom
 			await finalizeJob(jobDir, "failed", `failed to launch wrapper: ${message}`);
 		});
 	}
-	await waitForHandshake(jobDir, wrapperPid);
+	await waitForHandshake(jobDir, wrapper);
 	if (group) {
 		await syncLifecycle(group.run, "skip");
 	}
@@ -931,31 +930,46 @@ async function liveJobUsesBranch(view: StateView, jobsRoot: string, branch: stri
 	}
 	return false;
 }
-/** The last Limen line of the job's log, without its time. */
+/**
+ * The terminal Limen line of the job's log, without its time: the end of a job that ended before its spawn returned.
+ * Lines after it, such as the end of its scope or its tab, do not say how it ended.
+ */
 function lastLimenDetail(jobDir: string): string {
 	const log = readOptional(`${jobDir}/log`) ?? "";
-	const line = log.split("\n").findLast((entry) => entry.startsWith("[limen ")) ?? "";
+	const line = log.split("\n").findLast((entry) => /^\[limen [^\]]*\] (?:done|failed|stopped):/.test(entry)) ?? "";
 	const close = line.indexOf("] ");
 	return close === -1 ? line : line.slice(close + 2);
 }
-/** Waits for the wrapper's handshake, its transition from starting (src/runtime/wrapper.ts); ends the job without it. */
-export async function waitForHandshake(jobDir: string, wrapperPid: number): Promise<void> {
+/**
+ * Waits for the wrapper's handshake, its transition from starting (src/runtime/wrapper.ts); ends the job without it: at
+ * its bound, or as soon as the wrapper's process ends with the job still starting, which no later handshake follows.
+ */
+export async function waitForHandshake(jobDir: string, wrapper: ScopedProcess): Promise<void> {
+	let end: ProcessEnd | undefined;
+	void wrapper.ended.then((value) => {
+		end = value;
+	});
 	const deadline = Date.now() + HANDSHAKE_MS;
-	while (Date.now() < deadline) {
+	while (Date.now() < deadline && end === undefined) {
 		if ((await readRecord(jobDir))?.state !== "starting") {
 			return;
 		}
 		await new Promise((resolve) => setTimeout(resolve, HANDSHAKE_POLL_MS));
 	}
-	platform.signalProcessGroup(wrapperPid, "SIGTERM");
-	if (!(await waitForProcessGroup(wrapperPid, 1_000))) {
-		platform.signalProcessGroup(wrapperPid, "SIGKILL");
-		await waitForProcessGroup(wrapperPid, 1_000);
+	// A wrapper that moved the job and then ended at once ran, so the record is read once more after its end.
+	if ((await readRecord(jobDir))?.state !== "starting") {
+		return;
 	}
+	platform.signalProcessGroup(wrapper.pid, "SIGTERM");
+	if (!(await waitForProcessGroup(wrapper.pid, 1_000))) {
+		platform.signalProcessGroup(wrapper.pid, "SIGKILL");
+		await waitForProcessGroup(wrapper.pid, 1_000);
+	}
+	const how = end === undefined ? "" : ` (it ended with ${end.signal ?? `exit code ${end.code ?? "unknown"}`})`;
 	throw await cleanedUp(
-		environmentError("WRAPPER_NOT_READY", "detached wrapper did not start; inspect the job record"),
+		environmentError("WRAPPER_NOT_READY", `detached wrapper did not start${how}; inspect the job record`),
 		async () => {
-			await finalizeJob(jobDir, "failed", "detached wrapper did not become ready");
+			await finalizeJob(jobDir, "failed", `detached wrapper did not become ready${how}`);
 		},
 	);
 }

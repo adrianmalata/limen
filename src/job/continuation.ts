@@ -8,6 +8,7 @@ import type { TransportName } from "../config.ts";
 import { openWatchTab } from "../integrations/herdr.ts";
 import { type Checked, cleanedUp, type StateView, stepFailure, validated } from "../operation.ts";
 import { type CommandText, JOB_STARTED, refused, type Success, usageError } from "../outcome.ts";
+import type { ScopedProcess } from "../platform/platform.ts";
 import {
 	addBranchWorktree,
 	branchCommit,
@@ -568,9 +569,9 @@ async function startDetachedContinuation(
 	if (continuation.model) {
 		environment.LIMEN_MODEL = continuation.model;
 	}
-	let wrapperPid: number;
+	let wrapper: ScopedProcess;
 	try {
-		wrapperPid = await launchWrapper(environment);
+		wrapper = await launchWrapper(id, environment);
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		throw await cleanedUp(error, async () => {
@@ -578,7 +579,7 @@ async function startDetachedContinuation(
 			await finalizeJob(jobDir, "failed", `failed to launch wrapper: ${message}`);
 		});
 	}
-	await waitForHandshake(jobDir, wrapperPid);
+	await waitForHandshake(jobDir, wrapper);
 	if (run) {
 		await syncLifecycle(run, "skip");
 	}

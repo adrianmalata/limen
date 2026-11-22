@@ -1,6 +1,8 @@
-import { type ProcessRow, platform } from "../platform/platform.ts";
+import { type ProcessInfo, type ProcessRow, platform } from "../platform/platform.ts";
 import { limitMs } from "../project/limits.ts";
-import type { JobProcess } from "./contain.ts";
+
+/** A process of a job's tree with the identity a check reads again: its pid, its group, its start time and command. */
+export type JobProcess = Pick<ProcessInfo, "pid" | "pgid" | "born" | "command">;
 
 const DEFAULT_TOOL_STALL_MS = 3 * 60_000;
 const PROCESS_SAMPLE_MS = 2_000;

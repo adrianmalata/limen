@@ -1,10 +1,15 @@
 // The one module that starts Limen's own CLI (D-061 (4), T-26 (4), T-25 (1)): a job's wrapper, which prints no final
 // line; a command started in the background, whose output nobody reads; and a command whose final line the caller
-// reads, through the client function `readOutcome`, never the text for people before it.
-import { spawn, spawnSync } from "node:child_process";
+// reads, through the client function `readOutcome`, never the text for people before it. It also names Limen's
+// systemd user scopes (A-029): a job's wrapper starts in the job's own scope, so the engine, its tools and whatever
+// they detach run there, outside the spawner's cgroup; what a job's end starts runs in a scope of its own, so the end
+// of the job's scope does not end it (src/job/finalize.ts).
+import { spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { type TransportName, wrapperEnvironment } from "../config.ts";
 import { LimenError, type Outcome, type Output, readOutcome } from "../outcome.ts";
+import { platform, type ScopedProcess } from "../platform/platform.ts";
 
 /** This package's entry point, which runs under this node. */
 const CLI = fileURLToPath(new URL("../../bin/limen", import.meta.url));
@@ -59,41 +64,61 @@ function finalOutcome(output: Output): Outcome {
 }
 
 /**
- * Starts the CLI with `args` in the background, detached, its output ignored: the group's next round and a rule's
- * timer. A start that fails is left to the next caller that starts it again: the next finished team job or
- * `limen group status`, and the next command that finds a rule past its end.
+ * The unit of the systemd user scope of the job `id` (A-029): one per job, named by its full id (T-20), so that every
+ * reader of the seat's scopes can tell a job's scope from any other.
  */
-export function startLimen(
-	args: readonly string[],
-	options: { readonly cwd?: string; readonly env: NodeJS.ProcessEnv },
-): void {
-	const child = spawn(process.execPath, [CLI, ...args], {
-		...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-		detached: true,
-		stdio: "ignore",
-		env: options.env,
-	});
-	child.once("error", () => {});
-	child.unref();
+export function jobScope(id: string): string {
+	return `limen-job-${id}.scope`;
 }
 
 /**
- * Starts a job's wrapper, the CLI's internal run, with what the spawner passes; it inherits no transport or removed name
- * (R-015), and it prints no final line, so nobody reads its output.
+ * Starts `command` with `args` detached in a new user scope of its own, `limen-run-<token>.scope`, so that the end of
+ * the job whose finisher started it does not end it; resolves once it runs there, so a finisher that awaits it ends the
+ * job's scope only after, and rejects when it could not start.
  */
-export async function launchWrapper(environment: Readonly<Partial<Record<TransportName, string>>>): Promise<number> {
-	const child = spawn(process.execPath, [CLI], {
-		detached: true,
-		stdio: "ignore",
-		env: wrapperEnvironment({ ...environment, LIMEN_INTERNAL_RUN: "1" }),
-	});
-	await new Promise<void>((resolve, reject) => {
-		child.once("spawn", resolve);
-		child.once("error", reject);
-	});
-	if (!child.pid) {
-		throw new Error("could not start the detached job wrapper");
-	}
-	child.unref();
-	return child.pid;
+export async function startOutsideJob(
+	command: string,
+	args: readonly string[],
+	options: { readonly cwd?: string; readonly env: NodeJS.ProcessEnv },
+): Promise<void> {
+	const unit = `limen-run-${randomBytes(4).toString("hex")}.scope`;
+	await platform.startInScope({ unit, command, args, ...options });
+}
+
+/**
+ * Starts the CLI with `args` in the background, detached, its output ignored: the group's next round and a rule's
+ * timer, each in a scope of its own (`startOutsideJob`); resolves once it runs there, and rejects with what the system
+ * said when it could not start. Each caller writes that failure where its work is read (T-01), and the next caller
+ * starts it again: the next finished team job or `limen group status`, and the next command that finds a rule past its
+ * end.
+ */
+export async function startLimen(
+	args: readonly string[],
+	options: { readonly cwd?: string; readonly env: NodeJS.ProcessEnv },
+): Promise<void> {
+	await startOutsideJob(process.execPath, [CLI, ...args], options);
+}
+
+/**
+ * Starts a job's wrapper, the CLI's internal run, with what the spawner passes, in the job's own user scope
+ * (`jobScope`); it inherits no transport or removed name (R-015), and it prints no final line, so nobody reads its
+ * output. A scope that cannot start is SCOPE_FAILED, an environment failure with what the system said: the job never
+ * runs outside its scope (A-029), and the host's user instance is the likely cause, which `limen init` checks.
+ */
+export async function launchWrapper(
+	id: string,
+	environment: Readonly<Partial<Record<TransportName, string>>>,
+): Promise<ScopedProcess> {
+	const env = wrapperEnvironment({ ...environment, LIMEN_INTERNAL_RUN: "1" });
+	return platform
+		.startInScope({ unit: jobScope(id), command: process.execPath, args: [CLI], env })
+		.catch((error: unknown) => {
+			throw new LimenError({
+				class: "environment",
+				code: "SCOPE_FAILED",
+				message: `the job's systemd user scope did not start: ${error instanceof Error ? error.message : String(error)}. Every job runs in its own user scope, which needs the account's systemd user instance; root keeps it running with lingering (loginctl enable-linger <account>)`,
+				next: null,
+				cause: error,
+			});
+		});
 }

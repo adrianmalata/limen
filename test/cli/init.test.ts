@@ -1,12 +1,12 @@
-// `limen init` checks the system requirements first, writes the Pi extension stub, and `limen init --drop-leftovers`
-// removes the leftover files of cut features.
+// `limen init` checks the system requirements first, a systemd user scope among them, writes the Pi extension stub,
+// and `limen init --drop-leftovers` removes the leftover files of cut features.
 import assert from "node:assert/strict";
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { outputText, readOutcome } from "../final-line.ts";
-import { limen, type Plant, pathWithOldGit, pathWithout, plant, repository } from "../plant.ts";
+import { limen, type Plant, pathWithFailingScope, pathWithOldGit, pathWithout, plant, repository } from "../plant.ts";
 
 const template = (name: string) => fileURLToPath(new URL(`../../templates/${name}`, import.meta.url));
 
@@ -75,6 +75,17 @@ test("MISSING_TOOL: limen init refuses with exit code 4 and names pi when pi is 
 		[run.status, run.code, /^pi is not on PATH/m.test(run.text), run.wrote],
 		[4, "MISSING_TOOL", true, false],
 	);
+});
+
+// A-029: every job runs in its own systemd user scope, and a host without the account's user instance starts none.
+test("MISSING_FEATURE: limen init refuses with exit code 4 and names lingering when no systemd user scope starts", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const run = await initFresh(p, { PATH: await pathWithFailingScope(p) });
+	const named = /^systemd-run --user --scope --quiet true failed: .+ \(loginctl enable-linger <account>\)/m.test(
+		run.text,
+	);
+	assert.deepEqual([run.status, run.code, named, run.wrote], [4, "MISSING_FEATURE", true, false], run.text);
 });
 
 // The plant turns Herdr off (LIMEN_HERDR=0), which is how a pane without the herdr binary looks to Limen.

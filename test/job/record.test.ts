@@ -1,4 +1,5 @@
-// src/job/record.ts: the job's record.json, its reads, the one function that writes it, and a failure's kind.
+// src/job/record.ts: the job's record.json, its reads, the one function that writes it, a failure's kind, and the
+// optional scope of a record.
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
@@ -242,4 +243,30 @@ test("NOT_MIGRATED: a folder with an older state file and no record refuses the 
 	for (const error of [await thrown(() => readRecord(join(jobs, "old"))), await thrown(() => jobFolders(jobs))]) {
 		assert.deepEqual([error.class, error.code, error.next], ["environment", "NOT_MIGRATED", "limen migrate --dry-run"]);
 	}
+});
+
+/** A scope as a finisher writes it: the wrapper's unit and cgroup, and the readings of its end. */
+const SCOPE = {
+	unit: `limen-job-${ID}.scope`,
+	cgroup: `/user.slice/user-1000.slice/user@1000.service/app.slice/limen-job-${ID}.scope`,
+	memoryPeakBytes: 52_428_800,
+	cpuMicroseconds: 2_500_000,
+	oomKills: 0,
+} as const;
+
+// D-079: `record.json` changes additively, so a record written before R-026 reads as before.
+test("a record reads with its optional scope, and a record without one reads with none", async (t) => {
+	const scoped = await recorded(t, { ...RUNNING, scope: SCOPE });
+	const plain = await readRecord(await recorded(t, RUNNING));
+	assert.deepEqual([(await readRecord(scoped))?.scope, plain && "scope" in plain], [SCOPE, false]);
+});
+
+test("BAD_DATA: a scope with a reading below zero gives a typed error that names the field", async (t) => {
+	const error = await thrown(async () =>
+		readRecord(await recorded(t, { ...RUNNING, scope: { ...SCOPE, oomKills: -1 } })),
+	);
+	assert.deepEqual(
+		[error.code, "field" in error && error.field, error.message.includes("an integer of at least 0")],
+		["BAD_DATA", "scope.oomKills", true],
+	);
 });

@@ -2,8 +2,8 @@
 `limen-job-<id>.scope`, a każde przejście do stanu końcowego zatrzymuje cały scope, także procesy odłączone przez
 `setsid`. Rekord dostaje opcjonalne pole `scope` ze szczytem pamięci, czasem CPU i liczbą zabić OOM; host bez sesji
 systemd użytkownika odmawia przy `limen init`. Wszystko sprawdzane na atrapach `systemd-run` i `systemctl`, a na seacie
-w krokach 3.2, 3.7 i 3.8. Stan: napisany 22.11 przy `24c0957` z inwentarza `evidence/inventories/R-026.md`, gotowy na
-noc. -->
+w krokach 3.2, 3.7 i 3.8. Stan: napisany 22.11 przy `24c0957` z inwentarza `evidence/inventories/R-026.md`;
+realizowany za dnia 22.11; recenzje 1 i 2 PASS, poprawki w Decisions 6 i 7, przed rundą 3. -->
 
 # R-026 Every job runs in its own systemd user scope
 
@@ -163,3 +163,34 @@ Settled by the documents when the ticket was written (2026-11-22, the main sessi
    with no sampling (fewer moving parts); the peak CPU rate comes from R-036's samples of the same `cpu.stat`.
 5. `contain.ts`'s `ppid` walk goes, since the scope's end covers every process it found and those it missed (T-25:
    one mechanism per guarantee); R-008's review had left that seam to R-026 and R-027.
+6. 2026-11-22 (main session, review round 1, `review.md`; the first of at most two rounds of fixes): fix these six
+   notes, each new behaviour with a test that fails before its fix where a test can show it:
+   (a) `finalizeJob` ends the scope even when `afterEnd` or `beforeScopeEnd` rejects (`try`/`finally`), so any
+   terminal transition stops the whole scope (A-029); the rejection still propagates;
+   (b) when ending the scope fails (`systemctl --user kill` fails), exhaustion falls back to its group KILL, so an
+   engine that ignores TERM is still killed and the wrapper's wait stays bounded (Deviation 1 keeps the scope's KILL
+   as the first means);
+   (c) a failed scope start in `startLimen` (the group advance, a rule's timer) is no longer swallowed by
+   `.catch(() => {})`: one line in the log of the job it serves, like the scope-end failure (T-01); the cap of
+   `.catch(() => {})` in `test/structure.test.ts` falls with it;
+   (d) the A-083 scan bans `systemctl` outside `src/platform/` in the scanned trees whatever stands on its line,
+   not only with `--user` on the same line;
+   (e) a job whose scope never started (a failed launch, `SCOPE_FAILED`, a stop before `systemd-run` ran) logs no
+   "was not ended" line: a scope that does not exist is `gone`, decided from a fact (its cgroup folder, or
+   systemctl's exit status), not from the text of systemctl's output (z. 2);
+   (f) the private `endScope` of `src/job/finalize.ts` gets its own name, since `src/platform/linux.ts` has the
+   platform's `endScope` (T-18, T-25).
+   Not fixed here: note 5 (the T-42 guard's exemption from the `systemd-run` ban) goes to R-060 as a note; note 6 (the
+   test knobs `LIMEN_CGROUP` and `LIMEN_CGROUP_ROOT` in production paths) stays with R-050 and R-087 as `outcome.md`
+   says; note 7 is rejected (the s9 orphan test proves the mechanism at HEAD, and the record field cannot exist
+   there); note 8 is rejected (the combined s9 test predates R-026, which extends it as `## Change` (e) asks; splitting
+   it belongs to R-083, T-29).
+7. 2026-11-22 (main session, review round 2, `review.md`; the second and last round of fixes): (g) the comment above
+   the test "finalizeJob ends the job's scope also when a step after the transition rejects …"
+   (`test/job/finalize.test.ts`) cites "A-029, Decision 2"; Decision 2 is the unit's name, and item 6 (a) cited it
+   by mistake (now corrected to A-029): the comment cites A-029 and R-026 only (T-30). The main session's readings of
+   the other notes: (d) as fixed is the program literal `"systemctl"` and a `systemctl` line with `--user`, the
+   model of the existing `ps` ban, which item 6 (d) meant; a shell string or an absolute program path is outside that
+   model for both, and no such call exists. Note 9 (a rule's stderr line after a final line) is an accepted risk until
+   R-034 cuts `limen rule` (noted there). Note 8 adds the `is-active` exit-3 check to `## Deployment` step 3.2; note
+   11's notes for R-060, R-050, R-087 (and R-081, R-034) are in `## Tickets`.

@@ -117,6 +117,17 @@ export async function reapDeadJobs(
 		}
 	}
 }
+/**
+ * Whether the process group `pgid`, a wrapper's, is gone within `milliseconds`, read again every 100 ms: the grace of
+ * a group after a TERM, before a KILL and before the end of the job's scope.
+ */
+export async function waitForProcessGroup(pgid: number, milliseconds: number): Promise<boolean> {
+	const deadline = Date.now() + milliseconds;
+	while (platform.processGroupAlive(pgid) && Date.now() < deadline) {
+		await delay(100);
+	}
+	return !platform.processGroupAlive(pgid);
+}
 export async function confirmDeadJobs(jobsRoot: string): Promise<void> {
 	const seen = new Map<string, number>();
 	await reapDeadJobs(jobsRoot, seen);
