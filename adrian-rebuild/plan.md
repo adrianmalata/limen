@@ -79,7 +79,8 @@ w rejestrze, skany kodów i testów przez drzewo składni, zapadki 70/35/29, tes
 Q-26 → D-077: nowy ticket naprawczy R-099 (uwagi rundy 3 R-092) gotowy i drugi przebieg runnera do 9:00 za zgodą
 Adriana; R-099 zamknięty w nocy (przejęcie osieroconej bramki przekazania GitHub pod blokadą jobów, gałąź recenzji po
 rekordzie joba, `github resolve` pod tą blokadą, klasa `GROUP_STOP_INCOMPLETE` według przyczyny, `git()` migawki
-zgłasza błędy; bramka 733/733, recenzja FAIL, PASS, PASS), więc etap 2 ma 19 z 19 ticketów zamkniętych. -->
+zgłasza błędy; bramka 733/733, recenzja FAIL, PASS, PASS), więc etap 2 ma 19 z 19 ticketów zamkniętych;
+przekazanie do limen-rebuild-18 przed zamknięciem etapu 2 i bramką 5.2. -->
 
 
 
@@ -3068,3 +3069,11 @@ By day: the next session's first acts are a push notification to Adrian that it 
 adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into this section, then `Next` 1 (R-092 `ready`
 with its `ticket.md`, D-070). The night defaults and open points of R-019, R-021, R-022, R-023, R-095 and R-096 wait
 for gate 5.2. The handover after it is `limen-rebuild-18`.
+
+Handover of 2026-11-22 (D-047, at 41 % context, after the night's commit `R-099:` (`4b25384`), with the tree clean
+and pushed): `limen-rebuild-17` starts `limen-rebuild-18` with `node adrian-rebuild/tools/handover.mjs start 18` and
+ends its turn. By day: the next session's first acts are a push notification to Adrian that it takes over at the
+close of stage 2, then `node adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into this section, then
+`Next` 1: the close of stage 2 (`## Stages` → Closing a stage), gate 5.2 by phone with the "Gate 5.2 summary" above
+and R-099's entry (the night defaults of R-024, R-025 and R-099, the open points), the tag `a0.2.0`, and the tickets
+of stage 3 `ready` by day (D-074). The handover after it is `limen-rebuild-19`.
