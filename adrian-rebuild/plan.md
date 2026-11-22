@@ -70,7 +70,9 @@ R-082), ticket.md R-092 napisany i przekazanie do limen-rebuild-17; limen-rebuil
 validate/apply w src/operation.ts, dziewięć poleceń przez runner, odmowy z własnymi kodami, UNTYPED 218 → 106,
 wspólna migawka stanu w testach; bramka 676/676 po trzech rundach recenzji; cztery uwagi rundy 3 czekają na Q-26);
 D-071–D-076 (R-097: limit subskrypcji jako `quota`; zakres i wygląd `limen stats`, R-098 po R-031; deklaracje odmów
-w rejestrze i testy sukcesu `limen <polecenie>:`; noc tylko w etapie 2 do 9:00), R-097, R-024 i R-025 gotowe na noc. -->
+w rejestrze i testy sukcesu `limen <polecenie>:`; noc tylko w etapie 2 do 9:00), R-097, R-024 i R-025 gotowe na noc;
+noc 22.11: R-024 zamknięty (`limen stats` i jeden czytnik transkryptów przez walidatory; bramka 690/690, trzy rundy
+recenzji z PASS). -->
 
 
 
@@ -1306,7 +1308,7 @@ Columns:
 | R-095 | The round-3 notes of R-022 and R-094: the shared-token report, `keeper`'s de-duplication, the record check | 2 | T-01, T-29, T-30, D-065 | R-022, R-094 | S | delegated | night | — | — | — | done |
 | R-096 | One wake per event: the extra wake of the held-gate queue test, found and removed | 2 | T-29, D-067 | R-023, R-095 | S | delegated | night | — | — | — | done |
 | R-097 | A failure on the subscription limit is `quota`, in the migration and at finalize | 2 | A-016, D-057, D-071 | R-021 | S | delegated | night | — | — | 2.3 | ready |
-| R-024 | `limen stats` over records and transcripts | 2 | H-01, H-20, §2, T-33, D-072, D-073 | R-021, R-023 | M | delegated | night | — | pi | 2.3 | ready |
+| R-024 | `limen stats` over records and transcripts | 2 | H-01, H-20, §2, T-33, D-072, D-073 | R-021, R-023 | M | delegated | night | — | pi | 2.3 | done |
 | R-025 | Test coverage derived from the command registry | 2 | T-28, T-29, D-045, D-046, D-075, D-076 | R-014, R-023, R-092 | M | delegated | night | — | — | — | ready |
 | R-026 | Every job runs in its own systemd user scope | 3 | A-029, A-052, T-43 | R-020, R-021 | L | delegated | night | — | systemd | 3.2, 3.7, 3.8 | planned |
 | R-027 | The reaper ends a job only after its process group is gone | 3 | A-005, A-056 | R-026 | M | delegated | night | — | — | — | planned |
@@ -1979,10 +1981,10 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-21, day session `limen-rebuild-17`, rebuild stage 5 in plan stage 2: stage 1 is closed at `a0.1.1`
-(deployed on 2026-11-20, with B.2 closed by D-050); stage 2 has R-015–R-023, R-089 and R-093–R-096 done, R-092
-`active`, and R-024 and R-025 left before the tag `a0.2.0`. The newest entries are at the end of this section, from
-"Day session of 2026-11-21, continued (`limen-rebuild-16`".
+Updated 2026-11-22, night run (until 09:00), rebuild stage 5 in plan stage 2: stage 1 is closed at `a0.1.1`
+(deployed on 2026-11-20, with B.2 closed by D-050); stage 2 has R-015–R-024, R-089 and R-092–R-096 done, and R-025
+and R-097 left before the tag `a0.2.0`. The newest entries are at the end of this section, from
+"Day session of 2026-11-21, continued (`limen-rebuild-16`", and the night's in "Night run of 2026-11-22".
 
 Handover of 2026-11-19 (D-033, at 37 % context, after the commit `R-014:`): `limen-rebuild-5` started
 `limen-rebuild-6` in `tmux` in remote-control mode (14:10) and ended. WSL booted at 10:34 on 2026-11-19, after the
@@ -2847,6 +2849,17 @@ redundant, the terminal being active; context 7 % at the start):
   (at `972c782`) and `R-025.md` (on R-092's finished tree), with no grep criteria (D-025); R-098 `planned` in stage 3;
   `## Deployment` B.3 narrowed and B.4 added (D-072). R-097 and R-024 depend on nothing open, R-025 on R-092 (done):
   two independent branches and a third ticket (D-054 (1)).
+
+Night run of 2026-11-22 (until 09:00; `night.mjs` run 1 started at 00:07:53; the tickets in protocol order, the
+lowest `ready` ID first: R-024, R-025, R-097):
+- R-024 `done` (delegated): `limen stats` (D-073's variant b) and the one transcript reader through the validators.
+  Review PASS in rounds 1–3 with two rounds of fixes by fresh implementers (D-026 (2)): round 1's `show` model line
+  with no assistant turn, the token units by the rounded value, a direct test of the operation, the T-29 splits;
+  round 2's bound "from the job's own start" in the reader (T-25 (1)). The main session's gate 690/690;
+  `fails-before.mjs` exit 0 (five files). Night default for Adrian to confirm: the direct test of `projectStatistics`
+  in `test/job/statistics.test.ts` (`ticket.md` → `## Decisions`). Open points for gate 5.2 (`outcome.md`): the
+  fourth copy of the ISO-time pattern (T-25 (2)), the fake engine's non-Pi transcript line, the older-Pi lines that
+  the stricter validators name under `Not read` (B.3, M-07).
 
 Active ticket: none.
 

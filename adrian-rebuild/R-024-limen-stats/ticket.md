@@ -136,3 +136,25 @@ None: a new read command; the record format does not change.
 ## Decisions
 
 - 2026-11-21 D-072 and D-073 (Adrian): quoted in `## Problem`.
+- 2026-11-22, the night session's reading of the plan (settled by the documents, not a night default): the success
+  test of the new registry command is named `limen stats: …` (D-076, the scan R-025 adds), and its refusal test starts
+  with the code, `NOT_MIGRATED: …` (T-29 (2)).
+- 2026-11-22, review round 1 (`review.md` → Round 1), the first round of fixes, for a fresh implementer (D-026 (2)):
+  (1) `modelLine` (`src/job/usage.ts`): while no assistant turn served a model (`served` empty, e.g. only compactions
+  or `usage` entries counted since the start), `limen show` names the requested model as before ("requested <model>;
+  no turn yet"), with a test that fails before. (2) `tokenText` (`src/job/statistics.ts`): the unit and the decimal
+  follow the rounded value, so 9,950 prints `10k` and 99,500 prints `0.1M`, with a test of each boundary that fails
+  before. (3) T-26 (5): the operation is tested directly in a new `test/job/statistics.test.ts` (T-29 (1)), which holds
+  the boundaries of (2); night default (category A (b), D-054 (2)), for Adrian to confirm in the morning: the place of
+  that test. (4) T-29 (3): usage test 1 is split into the compaction counted and the parent turn before the start not
+  counted, usage test 2 into the cut line named and the bad usage class named (each with the other lines still
+  counting); usage test 3 stays. (5) `docs/commands.md`: the `show` sentence says the totals are those of every entry
+  of the job's own transcript that carries a usage, as `docs/jobs.md` says. Not fixed, with the reason in `review.md`:
+  findings 2 and 5 (open points). `outcome.md` records the round under its sections.
+- 2026-11-22, review round 2 (`review.md` → Round 2), the second and last round of fixes, for a fresh implementer:
+  (1) T-25 (1) and (b): which transcript entries count is the reader's policy, so `readSessionUsage` takes the job's
+  recorded start (`record.startedAt`, possibly null) and derives the bound itself; `src/job/statistics.ts` and
+  `src/job/listing.ts` pass the field instead of computing `Date.parse(…) || 0`; a record with no start counts every
+  entry, as today, with a test of it in `test/job/usage.test.ts`. (2) `docs/commands.md`: the `show` sentence says
+  that `turns` counts the assistant messages and that the token totals are those of every entry of the job's own
+  transcript that carries a usage, compactions included. `outcome.md` records the round under its sections.

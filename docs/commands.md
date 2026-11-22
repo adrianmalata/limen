@@ -56,6 +56,8 @@ This project
       set up Limen here; --drop-leftovers deletes files Limen no longer reads
   limen status [--all]
       what runs, what landed, what waits for the owner; --all lists every job
+  limen stats
+      jobs by route and role: done, failed, run time and tokens by class
   limen board [--write]
       the board with NOW and PROVEN; --write rewrites them in spec/build.md
   limen prune [--retire] [--dry-run]
@@ -192,7 +194,7 @@ After the leftover files, `limen status` names the `LIMEN_*` variables of its ow
 
 In a terminal, `show` shows the job for people. Through a pipe, it prints the compact format that tools read. The terminal alone selects the view; `LIMEN_VIEW` is no longer read. `NO_COLOR` removes the color. An ID or token that names no job exits 2 with the code `JOB_NOT_FOUND` and `limen status --all` in `next`. The old `jobs` command was split into `limen status --all` and `limen show <job>`: `jobs <id>` exits 2 and names `limen show <id>`, and every other form of it names `limen status --all`.
 
-`limen show <id>` also shows `model`, the provider and model that the session's turns ran, and `tokens`, the turns and the input, output, cache-read and cache-write totals of that job's own turns. When a turn ran a model other than the one spawn recorded in the job's route, the line shows both: `served … · requested …`. This informs; it does not block.
+`limen show <id>` also shows `model`, the provider and model that the session's turns ran, and `tokens`: the number of turns, which counts the assistant messages of the job's own transcript, and the input, output, cache-read and cache-write totals of every entry of that transcript that carries a usage, compactions included, as `limen stats` counts them. When a turn ran a model other than the one spawn recorded in the job's route, the line shows both: `served … · requested …`. This informs; it does not block.
 
 A job in the start queue lists as running with the pulse `queued`, then its wait and the reason: the CPU and memory reading against the gate, or each rule that holds its priority with the rule's end, and the number of jobs ahead. `limen seat queue` prints the gate, the current reading, and every waiting job of the seat in start order, each held job with the rules that hold it. It samples the load for about two seconds. The old top-level `queue` command was renamed: it exits 2 and names `limen seat queue`.
 

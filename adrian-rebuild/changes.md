@@ -2,7 +2,7 @@
 Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, commit (po temacie „R-NNN:”, D-009) i sposób
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
-R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096. -->
+R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024. -->
 
 # Changes
 
@@ -277,3 +277,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: measured
 - Commit: R-092
 - Rollback: git revert $(git log --format=%H --grep='^R-092:' adrian-rebuild --)
+
+## 2026-11-22 R-024 `limen stats` over records and transcripts
+- What: the new read command `limen stats` (`src/registry.ts`, `src/commands/stats.ts` over the new domain module `src/job/statistics.ts`): a table by route and role (jobs, done, failed, run time, the four token classes), `Failed by kind: …` and `Not read: …` naming every skipped folder, record, transcript line and unknown run time (D-073); `src/job/usage.ts`, the one transcript reader, through the validators of `src/boundary.ts`, counting every entry that carries a Pi usage (compactions included, E-13) from the job's recorded start, which it derives itself, and returning the lines it could not read; `src/job/listing.ts` (`limen show` names the requested model while no assistant turn served one); `docs/commands.md`, `docs/jobs.md`; the new `test/cli/stats.test.ts`, `test/job/usage.test.ts`, `test/job/statistics.test.ts`, the golden help in `test/help.test.ts`, the T-27 ratchets in `test/structure.test.ts` (`JSON.parse` 34 → 33, casts 60 → 56)
+- Why: H-01, H-20, §2, T-33, T-04, T-25, T-26, T-27, D-072, D-073
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (690/690); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (five test files); `node --test test/cli/stats.test.ts` → exit 0
+- Measurement: unmeasured (plan.md → Measurement: M-07, M-11, M-06; `## Deployment` 2.3 and B.3)
+- Commit: R-024
+- Rollback: git revert $(git log --format=%H --grep='^R-024:' adrian-rebuild --)

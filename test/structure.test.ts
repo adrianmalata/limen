@@ -213,8 +213,9 @@ async function knownSources(folders: readonly string[]): Promise<ReadonlyArray<{
 // T-27 (2): data from outside becomes a typed value only in src/boundary.ts. A ratchet until R-082 brings the count to
 // zero: the 41 sites at R-015's commit, the parent of R-016, less the 3 that R-016 moved into src/boundary.ts (the
 // readers of src/outcome.ts, src/project/limits.ts and `startGate` in src/runtime/start-queue.ts), less the 4 sites of
-// job files that R-021 moved into the record's validators (src/job/record.ts).
-const JSON_PARSE = 41 - 3 - 4;
+// job files that R-021 moved into the record's validators (src/job/record.ts), less the transcript reader that R-024
+// moved onto the validators (src/job/usage.ts).
+const JSON_PARSE = 41 - 3 - 4 - 1;
 test("T-27: JSON.parse appears in src/, hook/, bin/ and seat/ outside src/boundary.ts at most its baseline count", async () => {
 	let all = 0;
 	for (const { path, text } of await knownSources(RUNTIME)) {
@@ -293,8 +294,9 @@ test("the cast scan finds as T, an angle-bracket assertion and as unknown as, an
 // T-27 (2): only `as const` is free. A ratchet until R-082 brings both counts to zero: the casts this scan finds at
 // R-015's commit, the parent of R-016, less the casts R-016 removed: 75 - 0 in src/, hook/, bin/ and seat/ and 7 - 0
 // in test/ (R-016 moved no reader that held a cast), then 15 fewer in src/, hook/, bin/ and seat/ once R-021 read the
-// job records through the record module's validators. Test fixtures use `satisfies`.
-const CASTS = { runtime: 75 - 15, test: 7 } as const;
+// job records through the record module's validators, and 4 fewer once R-024 read the job transcripts through
+// validators (src/job/usage.ts). Test fixtures use `satisfies`.
+const CASTS = { runtime: 75 - 15 - 4, test: 7 } as const;
 test("T-27: the casts in src/, hook/, bin/ and seat/ other than as const stay at most their baseline count", async () => {
 	const casts = counted(await castsBelow(RUNTIME));
 	assert.ok(casts.length <= CASTS.runtime, `${casts.length} casts, at most ${CASTS.runtime}`);

@@ -38,6 +38,7 @@ import { ruleCommand, ruleEndCommand, ruleSetCommand, ruleTimerCommand } from ".
 import { seatQueueCommand } from "./commands/seat-queue.ts";
 import { showCommand } from "./commands/show.ts";
 import { spawnCommand } from "./commands/spawn.ts";
+import { statsCommand } from "./commands/stats.ts";
 import { statusCommand } from "./commands/status.ts";
 import { steerCommand } from "./commands/steer.ts";
 import { stopCommand } from "./commands/stop.ts";
@@ -407,6 +408,17 @@ const PROJECT: readonly Entry[] = [
 		ids: [],
 		example: "limen status --all",
 		handler: statusCommand,
+	},
+	{
+		name: "stats",
+		object: "project",
+		kind: "read",
+		visibility: "public",
+		summary: "jobs by route and role: done, failed, run time and tokens by class",
+		schema: [],
+		ids: [],
+		example: "limen stats",
+		handler: statsCommand,
 	},
 	{
 		name: "board",

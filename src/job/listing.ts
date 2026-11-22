@@ -114,7 +114,7 @@ async function readJobEvidence(jobDir: string, record: JobRecord, detailed: bool
 	const result = detailed ? await text(`${jobDir}/result`) : "";
 	const cleanup = detailed ? await text(`${jobDir}/cleanup`) : "";
 	const herdrWake = detailed ? await text(`${jobDir}/notify/herdr-prompt`) : "";
-	const usage = detailed ? readSessionUsage(jobDir, Date.parse(record.startedAt ?? "") || 0) : undefined;
+	const usage = detailed ? readSessionUsage(jobDir, record.startedAt).usage : undefined;
 	const model = detailed ? modelLine(record.route.model ?? "", usage) : "";
 	const tokens = usage ? tokenLine(usage) : "";
 	return { result, cleanup, herdrWake, model, tokens };
