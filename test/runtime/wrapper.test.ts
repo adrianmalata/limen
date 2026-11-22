@@ -1,23 +1,29 @@
 // src/runtime/wrapper.ts: a queued job's wrapper whose job folder is removed ends before its setup and its engine run,
-// a wrapper outside its job's systemd user scope ends the job before it runs anything, and an exhaustion whose scope
-// cannot be ended still kills its process group.
+// a wrapper outside its job's systemd user scope ends the job before it runs anything, an exhaustion whose scope
+// cannot be ended still kills its process group, a TERM or a signal without a stop request ends a job failed, and a
+// TERM after the engine ended changes nothing.
 import assert from "node:assert/strict";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, watch, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
+import { isTerminal } from "../../src/job/job.ts";
 import type { Identity } from "../../src/job/record.ts";
 import { platform } from "../../src/platform/platform.ts";
 import { ownerState } from "../../src/runtime/reap.ts";
 import {
+	engineEvents,
 	jobDir,
 	jobFile,
 	jobRecord,
+	jobState,
 	limen,
+	type Plant,
 	pathWithFailingScopeEnd,
 	pathWithUnscopedRun,
 	plant,
+	release,
 	routed,
 	spawnJob,
 	startedJob,
@@ -33,10 +39,61 @@ import {
 const EXIT_BOUND_MS = 10_000;
 /** How often the test reads the wrapper's process again: an exit raises no file event. */
 const EXIT_CHECK_MS = 20;
-/** The group's grace here: the test knob LIMEN_STOP_GRACE_MS shortens the 5 s, so no test waits it (T-31 (4)). */
+/** The group's grace here: the test knob LIMEN_STOP_GRACE_MS shortens the 10 s, so no test waits it (T-31 (4)). */
 const GRACE_MS = "200";
 /** How long an exhausted job's wrapper and group may take to end: the group's grace, and far above it for load. */
 const GRACE_BOUND_MS = 20_000;
+/**
+ * How long a test waits for a job to end after a signal: the engine's exit takes milliseconds and the grace here 200 ms,
+ * so the bound only ends the wait for a job that never ends, before the suite's timeout does.
+ */
+const END_BOUND_MS = 20_000;
+
+/**
+ * Whether `check()` holds within `boundMs`, read again on every file event below `dir` and every second, as `until`
+ * (test/plant.ts) does; its watch and timers end with the wait.
+ */
+async function within(dir: string, check: () => boolean, boundMs: number): Promise<boolean> {
+	const { promise, resolve } = Promise.withResolvers<boolean>();
+	const settle = () => {
+		if (check()) {
+			resolve(true);
+		}
+	};
+	const watcher = watch(dir, { recursive: true }, settle);
+	const recheck = setInterval(settle, 1_000);
+	const bound = setTimeout(() => resolve(false), boundMs);
+	settle();
+	const held = await promise;
+	watcher.close();
+	clearInterval(recheck);
+	clearTimeout(bound);
+	return held;
+}
+
+/** Whether the job `id` of `p` ends within `END_BOUND_MS`. */
+function endsWithin(p: Plant, id: string): Promise<boolean> {
+	return within(jobDir(p, id), () => isTerminal(jobState(p, id)), END_BOUND_MS);
+}
+
+/** Sends `signal` to the job's wrapper alone, by the pid its record names, as a manual `kill <pid>` does (A-020). */
+function signalWrapper(p: Plant, id: string, signal: NodeJS.Signals): void {
+	const pid = jobRecord(p, id)?.identity?.pid;
+	assert.ok(pid, "the record names the job's wrapper");
+	assert.equal(platform.signalProcess(pid, signal), "sent");
+}
+
+/** The job `id` of `p` once its engine waits at its first `block`. */
+async function blocked(p: Plant, id: string): Promise<void> {
+	await until(jobDir(p, id), () => existsSync(join(jobDir(p, id), "fake-blocked-1")));
+}
+
+/** The SIGTERM events the job's engine recorded: `sigterm` as it ended on one, `sigterm ignored` once it was deaf. */
+function sigtermEvents(p: Plant, id: string): string[] {
+	return engineEvents(jobDir(p, id))
+		.map(({ event }) => event)
+		.filter((event) => event.startsWith("sigterm"));
+}
 
 /**
  * Whether the wrapper `identity` names and every process of its group ended within `boundMs`. The wrapper leads its
@@ -111,4 +168,154 @@ test("an exhausted job whose scope cannot be ended kills its process group after
 	assert.ok(identity?.pid && identity.born, "the record names the job's wrapper");
 	const gone = await ended(identity, GRACE_BOUND_MS);
 	assert.deepEqual([gone, / was not ended: Failed to connect to bus/.test(jobFile(p, id, "log"))], [true, true]);
+});
+
+// A-020: a TERM to the wrapper's pid alone, as a manual `kill <pid>` sends it, reached only the wrapper, and the engine
+// ran on with no limit armed. With no stop request in the record it is a failure (A-052); Pi exits 143 on it (E-17),
+// and the log names that exit before the job's last line, as seat step 3.8 reads it. The forwarded TERM leaves its
+// result in the log (T-01).
+test("a TERM to the job's wrapper alone reaches its engine and ends the job failed, kind signal, killed by SIGTERM", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = spawnJob(p, "block");
+	await blocked(p, id);
+	const wrapper = jobRecord(p, id)?.identity?.pid;
+	signalWrapper(p, id, "SIGTERM");
+	assert.equal(await endsWithin(p, id), true, "the job ends after the TERM");
+	const log = jobFile(p, id, "log");
+	const [exited, last] = [log.indexOf("engine exited with code 143"), log.indexOf("] failed: killed by SIGTERM")];
+	// The engine ends on the TERM itself, within the grace, so the wrapper sends no KILL.
+	assert.deepEqual(
+		[
+			jobRecord(p, id)?.state,
+			jobRecord(p, id)?.failure,
+			sigtermEvents(p, id),
+			log.includes(`SIGTERM received; TERM sent to process group ${wrapper}`),
+			/TERM grace elapsed/.test(log),
+			exited >= 0 && exited < last,
+		],
+		["failed", { kind: "signal", detail: "killed by SIGTERM", resetAt: null }, ["sigterm"], true, false, true],
+	);
+});
+
+// A-019, A-052: whether the wrapper got a TERM is taken as its engine's outcome resolves, so a TERM that comes after the
+// engine ended reached no engine and changes nothing: the engine's exit decides the end. The test gate LIMEN_END_GATE
+// (D-029) holds the wrapper between its engine's end and its read of the record, so the TERM lands there by the order
+// of events, not by time (z. 17, T-31 (4)).
+test("a TERM to the job's wrapper after its engine exited 0 changes nothing: the job ends done with the engine's result", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const gate = join(p.parent, "end-gate");
+	const id = spawnJob(p, "say all done", [], { env: { LIMEN_END_GATE: gate } });
+	const logged = (line: string) => within(jobDir(p, id), () => jobFile(p, id, "log").includes(line), END_BOUND_MS);
+	assert.equal(await logged("engine ended; waiting for the test gate"), true, "the wrapper waits at the gate");
+	signalWrapper(p, id, "SIGTERM");
+	assert.equal(await logged("SIGTERM received"), true, "the wrapper handled the TERM at the gate");
+	writeFileSync(gate, "");
+	assert.deepEqual([waitJob(p, id), jobRecord(p, id)?.failure, jobFile(p, id, "result")], ["done", null, "all done"]);
+});
+
+// A-020, R-026 Deviation 1: the KILL after the grace goes to the engine's pid, not to the group the wrapper leads, so the
+// wrapper lives on to record the end; the KILL leaves its result in the log (T-01).
+test("an engine that ignores the TERM its wrapper forwards is killed after the grace, and its job ends failed, killed by SIGTERM", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = spawnJob(p, "deaf\nblock", [], { env: { LIMEN_STOP_GRACE_MS: GRACE_MS } });
+	await blocked(p, id);
+	const engine = engineEvents(jobDir(p, id)).find(({ event }) => event === "pid")?.pid;
+	signalWrapper(p, id, "SIGTERM");
+	assert.equal(await endsWithin(p, id), true, "the job ends after the grace");
+	assert.deepEqual(
+		[
+			jobRecord(p, id)?.failure?.detail,
+			sigtermEvents(p, id),
+			jobFile(p, id, "log").includes(`TERM grace elapsed; KILL sent to engine ${engine}`),
+		],
+		["killed by SIGTERM", ["sigterm ignored"], true],
+	);
+});
+
+// A-020: no TERM disarms a limit, so a limit reached during the TERM's grace ends the job with its own failure; the
+// first finisher wins (A-019). The engine starts the tools that reach the cap only on the TERM its wrapper forwards, so
+// the TERM comes first by the order of events, not by time (z. 17, T-31 (4)); the grace outlasts the test, and the
+// engine ends on the exhaustion's TERM.
+test("a TERM to the job's wrapper disarms no limit: a tool cap reached during its grace ends the job failed, kind tool-cap", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	writeFileSync(join(p.root, ".agents/limen/limits.json"), '{"toolCalls":2}\n');
+	const id = spawnJob(p, "tools-on-term 2\nblock", [], { env: { LIMEN_STOP_GRACE_MS: "60000" } });
+	await blocked(p, id);
+	signalWrapper(p, id, "SIGTERM");
+	assert.equal(await endsWithin(p, id), true, "the tool cap ends the job");
+	const log = jobFile(p, id, "log");
+	const [termed, limit] = [log.indexOf("SIGTERM received"), log.indexOf("tool-call cap reached after 2 calls")];
+	assert.deepEqual(
+		[jobRecord(p, id)?.failure?.kind, termed >= 0 && termed < limit],
+		["tool-cap", true],
+		"the TERM came first, then the tool cap ended the job",
+	);
+});
+
+// A-052: an engine that a signal ends, with no stop request in the record, fails with the signal's name; before, a
+// SIGKILL read as a stop and any other signal lost its name ("worker exited with code unknown").
+test("an engine that dies by SIGKILL or SIGSEGV with no stop request ends its job failed, kind signal, with the signal's name", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const signals = ["SIGKILL", "SIGSEGV"];
+	const ids = signals.map((signal) => spawnJob(p, `die ${signal}`));
+	const failed = (signal: string) => ({ kind: "signal", detail: `killed by ${signal}`, resetAt: null });
+	assert.deepEqual(
+		ids.map((id) => [waitJob(p, id), jobRecord(p, id)?.failure]),
+		signals.map((signal) => ["failed", failed(signal)]),
+	);
+});
+
+// A-052: the kernel's OOM killer ends a process by SIGKILL, and the job scope's memory.events counts it (R-026).
+test("an engine killed by SIGKILL in a scope whose memory.events counts an OOM kill ends its job failed, kind oom", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = spawnJob(p, "block\ndie SIGKILL");
+	await blocked(p, id);
+	const cgroup = jobRecord(p, id)?.scope?.cgroup;
+	assert.ok(cgroup, "the record names the job's scope");
+	const events = join(p.env.LIMEN_CGROUP_ROOT ?? "", cgroup, "memory.events");
+	writeFileSync(events, "low 0\nhigh 0\nmax 0\noom 1\noom_kill 1\n");
+	await release(jobDir(p, id));
+	assert.equal(waitJob(p, id), "failed");
+	assert.deepEqual(
+		[jobRecord(p, id)?.failure, jobRecord(p, id)?.scope?.oomKills],
+		[{ kind: "oom", detail: "killed by SIGKILL", resetAt: null }, 1],
+	);
+});
+
+// A-052: only a stop request in the record makes a stop, also before the engine starts; a TERM without one fails the job.
+test("a TERM to a queued job's wrapper with no stop request ends the job failed, killed by SIGTERM while queued, and starts no engine", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	// Below the start gate's 25% CPU idle, so the job waits in the queue and starts no engine.
+	writeFileSync(join(p.parent, "start-reading.json"), '{"cpuIdle":10,"memoryFree":80}');
+	const id = spawnJob(p, "say queued");
+	await until(jobDir(p, id), () => jobFile(p, id, "log").includes("] queued: CPU 10% idle"));
+	signalWrapper(p, id, "SIGTERM");
+	assert.equal(await endsWithin(p, id), true, "the job ends after the TERM");
+	assert.deepEqual(
+		[jobRecord(p, id)?.failure, jobFile(p, id, "fake-argv.json")],
+		[{ kind: "signal", detail: "killed by SIGTERM while queued", resetAt: null }, ""],
+	);
+});
+
+// A-020: the forwarded TERM reaches the --prepare command, which runs in the wrapper's group, and no engine starts after
+// the TERM; with no stop request in the record the job fails (A-052).
+test("a TERM to the job's wrapper during its setup with no stop request ends the job failed, killed by SIGTERM during setup, and starts no engine", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = spawnJob(p, "say never", ["--prepare", "touch prepare-started; exec sleep 600"]);
+	const worktree = jobRecord(p, id)?.worktree ?? "";
+	await until(worktree, () => existsSync(join(worktree, "prepare-started")));
+	signalWrapper(p, id, "SIGTERM");
+	assert.equal(await endsWithin(p, id), true, "the job ends after the TERM");
+	assert.deepEqual(
+		[jobRecord(p, id)?.failure, jobFile(p, id, "fake-argv.json")],
+		[{ kind: "signal", detail: "killed by SIGTERM during setup", resetAt: null }, ""],
+	);
 });

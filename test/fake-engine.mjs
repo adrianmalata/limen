@@ -3,13 +3,17 @@
 // what it saw in the record dir (the parent of --session-dir, so a job's own dir). Script lines:
 //   commit · fail <code> · error (assistant stop reason "error") · say <text> · tool <command> · block · orphan · finish <handoff, \n ends a line>
 //   · idle (a bash tool whose one child waits without CPU) · deaf (ignores SIGTERM from then on)
+//   · tools-on-term <n> (ignores the next SIGTERM and starts n bash tools on it, as an engine that works on in a grace)
+//   · die <SIGNAL> (ends this process by that signal, as the kernel's OOM killer ends one by SIGKILL)
 //   · /<command> <args> (runs a command a hook registered, as a user typing it)
+// A SIGTERM ends it as Pi's print mode does (E-17): one `sigterm` event, then exit 143; a second one exits 143 at once.
 // `block` writes fake-blocked-<n> and waits for one write to the FIFO fake-gate. Records: fake-argv.json, fake-env.json
 // (variable names), fake-task.txt, fake-system.txt (system prompt after before_agent_start), fake-context.txt (the hidden
 // context messages before_agent_start returned), fake-events.jsonl (its first event the `pid` of this engine process,
 // so a test can tell whether the engine still runs), and one transcript line per engine process in --session-dir.
 import { execFileSync, spawn } from "node:child_process";
-import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, constants, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
+import { Socket } from "node:net";
 import { dirname, join } from "node:path";
 
 const args = process.argv.slice(2);
@@ -33,6 +37,32 @@ if (flag("--session-dir")) {
 const record = (entry) => appendFileSync(join(dir, "fake-events.jsonl"), `${JSON.stringify(entry)}\n`);
 record({ event: "pid", pid: process.pid });
 const emit = (event) => console.log(JSON.stringify(event));
+// Pi's print mode, which Limen runs (`--mode json`), exits 143 on SIGTERM and does not die by the signal (E-17).
+let deaf = false;
+// The tool starts of `tools-on-term`, still owed to the next SIGTERM.
+let toolsOnTerm = 0;
+let terminating = false;
+process.on("SIGTERM", () => {
+	if (deaf) {
+		record({ event: "sigterm ignored" });
+		return;
+	}
+	if (toolsOnTerm > 0) {
+		record({ event: "sigterm ignored" });
+		for (let n = 1; n <= toolsOnTerm; n += 1) {
+			emit({ type: "tool_execution_start", toolName: "bash", args: { command: `true ${n}` } });
+			emit({ type: "tool_execution_end", toolName: "bash" });
+		}
+		toolsOnTerm = 0;
+		return;
+	}
+	if (terminating) {
+		process.exit(143);
+	}
+	terminating = true;
+	record({ event: "sigterm" });
+	process.stdout.write("", () => process.exit(143));
+});
 
 const handlers = new Map();
 const tools = new Map();
@@ -123,9 +153,13 @@ async function block() {
 		execFileSync("mkfifo", [gate]);
 	}
 	blocks += 1;
-	const released = new Promise((resolve) => createReadStream(gate).once("data", resolve));
+	// Opened to read and write, the FIFO opens at once and no writer's close ends the read; a pipe handle reads it in the
+	// event loop. A read stream would wait in a thread of Node's pool, and an exit on SIGTERM waits for that thread.
+	const fifo = new Socket({ fd: openSync(gate, constants.O_RDWR | constants.O_NONBLOCK), readable: true });
+	const released = new Promise((resolve) => fifo.once("data", resolve));
 	writeFileSync(join(dir, `fake-blocked-${blocks}`), "");
 	await released;
+	fifo.destroy();
 }
 
 for (let index = args.indexOf("--extension"); index >= 0; index = args.indexOf("--extension", index + 1)) {
@@ -163,7 +197,13 @@ for (const line of task.split("\n")) {
 		emit({ type: "tool_execution_start", toolName: "bash", args: { command: "sleep 600" } });
 		await new Promise((resolve) => spawn("sleep", ["600"], { stdio: "ignore" }).once("exit", resolve));
 	} else if (word === "deaf") {
-		process.on("SIGTERM", () => record({ event: "sigterm ignored" }));
+		deaf = true;
+	} else if (word === "tools-on-term") {
+		toolsOnTerm = Number(value) || 1;
+	} else if (word === "die") {
+		process.kill(process.pid, value);
+		// The signal may reach another thread of this process first; nothing after this word runs.
+		await new Promise(() => setInterval(() => {}, 1 << 30));
 	} else if (word === "orphan") {
 		const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1e9)"], { detached: true, stdio: "ignore" });
 		child.unref();

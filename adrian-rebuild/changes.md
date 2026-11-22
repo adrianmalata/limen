@@ -3,7 +3,7 @@ Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, com
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
 R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025, R-097, R-099, R-026, R-030, R-033,
-R-027. -->
+R-027, R-028. -->
 
 # Changes
 
@@ -342,4 +342,12 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-11, M-10; `## Deployment` 3.2)
 - Commit: R-027
 - Rollback: git revert $(git log --format=%H --grep='^R-027:' adrian-rebuild --)
+
+## 2026-11-23 R-028 SIGTERM reaches the engine; a signal without a stop request is a failure
+- What: `src/runtime/wrapper.ts` (the TERM handler forwards one TERM to the wrapper's process group, keeps every limit armed and KILLs the engine's pid after the grace; whether a TERM came is taken once, when the engine's outcome resolves; the end is decided in `signalledEnding`: a recorded stop request ends as `limen stop` asked, any other TERM or signal ends `failed`, `killed by <SIGNAL>`, with ` while queued` or ` during setup` before the engine; each signal's result and the engine's own end, `engine exited with code <n>`, in the log; the test knob's end gate); `src/job/stopping.ts` (`stopRequested` written for every running job before its TERM); `src/job/finalize.ts` (`oom` in place of `signal` or `reaped` when the scope counted an OOM kill); `src/job/record.ts` (the pattern `killed by SIG…` → `signal`); `src/runtime/reap.ts` (the grace is 10 s); `src/config.ts` (the test knob `LIMEN_END_GATE`); `test/fake-engine.mjs` (exit 143 on TERM after a `sigterm` event, `die <SIGNAL>`, `tools-on-term <n>`, `block` through a pipe handle); tests in `test/runtime/wrapper.test.ts`, `test/cli/stop.test.ts`, `test/job/finalize.test.ts`, `test/job/record.test.ts`, `test/config.test.ts`; `docs/jobs.md`, `docs/seat/README.md`
+- Why: A-020, A-052, A-019, E-17, T-01, T-29, T-31
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (858/858); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (five test files); `node --test test/runtime/wrapper.test.ts` → exit 0; `node --test test/cli/stop.test.ts` → exit 0
+- Measurement: unmeasured (plan.md → Measurement: M-11, M-10; `## Deployment` 3.8)
+- Commit: R-028
+- Rollback: git revert $(git log --format=%H --grep='^R-028:' adrian-rebuild --)
 

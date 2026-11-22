@@ -64,7 +64,13 @@ export const ENVIRONMENT = {
 	LIMEN_REAP_CONFIRM_MS: { kind: "test", carries: "the wait before a dead job is reaped, in place of 10 s" },
 	LIMEN_STOP_GRACE_MS: {
 		kind: "test",
-		carries: "the grace between the TERM and the KILL of a stop, an exhaustion and a reap, in place of 5 s",
+		carries:
+			"the grace between the TERM and the KILL of a stop, an exhaustion, a reap and a TERM the wrapper forwards, in place of 10 s",
+	},
+	LIMEN_END_GATE: {
+		kind: "test",
+		carries:
+			"a file whose creation a job's wrapper waits for once its engine ended, before it reads the record, so a test can signal it there (D-029)",
 	},
 	LIMEN_START_POLL_MS: { kind: "test", carries: "the start queue's poll interval, in place of 5 s" },
 	LIMEN_START_READING: { kind: "test", carries: "a file with the CPU and memory reading, in place of the machine's" },

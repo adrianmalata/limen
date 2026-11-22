@@ -1,10 +1,11 @@
 // Whether the process a job record names still runs (A-056), the reaper that ends a running job whose process is gone
-// (A-005), and the one grace between a TERM and a KILL of a stop, an exhaustion and a reap. The identity is the
-// record's `{pid, born, bootId}`, written in the transition to running: a missing part means unknown, never alive, so
-// nothing keeps a job running on it; another boot, or another start time under the pid, means dead. What the system
-// cannot describe (a process query that gives no answer) is not dead, as in src/lock.ts. A dead wrapper can leave its
-// engine running, so the reaper ends what is left of the job, its scope or its wrapper's group, before it writes
-// `failed`; while that is not gone, the job stays running, with a line in its log.
+// (A-005), and the one grace between a TERM and a KILL of a stop, an exhaustion, a reap and a TERM the job's wrapper
+// forwards to its engine (A-020). The identity is the record's `{pid, born, bootId}`, written in the transition to
+// running: a missing part means unknown, never alive, so nothing keeps a job running on it; another boot, or another
+// start time under the pid, means dead. What the system cannot describe (a process query that gives no answer) is not
+// dead, as in src/lock.ts. A dead wrapper can leave its engine running, so the reaper ends what is left of the job, its
+// scope or its wrapper's group, before it writes `failed`; while that is not gone, the job stays running, with a line
+// in its log.
 import { testKnob } from "../config.ts";
 import { finalizeJob, readScope } from "../job/finalize.ts";
 import { appendLimenLog, type Identity, type JobRecord, jobFolders, readRecord } from "../job/record.ts";
@@ -12,8 +13,8 @@ import { platform, type ScopeSignal, type ScopeState } from "../platform/platfor
 import { claimRecovery } from "./recovery.ts";
 
 export const STARTUP_GRACE_MS = 10 * 60_000;
-/** The grace between a TERM and a KILL (A-005; R-028 sets A-020's value); the knob LIMEN_STOP_GRACE_MS shortens it. */
-const STOP_GRACE_MS = 5_000;
+/** The grace between a TERM and a KILL (A-005, A-020: 10 s); the knob LIMEN_STOP_GRACE_MS shortens it. */
+const STOP_GRACE_MS = 10_000;
 /** How long a reap, a stop (src/job/stopping.ts) and a spawn's failed handshake wait for what they KILLed to be gone. */
 export const KILL_WAIT_MS = 1_000;
 /** How often a wait for a scope or a group to be gone reads it again: an exit raises no event. */
@@ -301,7 +302,10 @@ function reapConfirmMs(): number {
 	const raw = Number(testKnob("LIMEN_REAP_CONFIRM_MS"));
 	return Number.isFinite(raw) && raw > 0 ? raw : 10_000;
 }
-/** The grace a stop (src/job/stopping.ts), an exhaustion (src/runtime/wrapper.ts) and a reap give a TERM. */
+/**
+ * The grace a stop (src/job/stopping.ts), an exhaustion, a TERM the wrapper forwards (src/runtime/wrapper.ts) and a
+ * reap give a TERM.
+ */
 export function stopGraceMs(): number {
 	const raw = Number(testKnob("LIMEN_STOP_GRACE_MS"));
 	return Number.isFinite(raw) && raw > 0 ? raw : STOP_GRACE_MS;

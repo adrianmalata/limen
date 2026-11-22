@@ -170,6 +170,23 @@ test("failureFrom keeps an engine stop reason that names no subscription limit e
 	);
 });
 
+// A-052: the wrapper names the signal of an end without a stop request, and where the job stood before its engine ran;
+// an older record's `process group interrupted` keeps its kind.
+test("failureFrom names a detail that says which signal killed the job signal, and keeps process group interrupted signal", () => {
+	const details = [
+		"killed by SIGTERM",
+		"killed by SIGKILL",
+		"killed by SIGSEGV",
+		"killed by SIGTERM while queued",
+		"killed by SIGTERM during setup",
+		"process group interrupted",
+	];
+	assert.deepEqual(
+		details.map((detail) => failureFrom(detail)),
+		details.map((detail) => ({ kind: "signal", detail, resetAt: null })),
+	);
+});
+
 test("BAD_DATA: a damaged record gives a typed error that names the file and the field", async (t) => {
 	const dir = await recorded(t, {});
 	const text = (await readFile(join(dir, "record.json"), "utf8")).replace('"state": "starting"', '"state": "lost"');

@@ -2,6 +2,8 @@
 // operation of T-38 (src/operation.ts): its validate reads the job's state and refuses a running job with no pid, its
 // apply writes the "stop requested" line under the job's lock once the state is still the one it read, and every later
 // write is a compare-and-swap of the record's one writer (src/job/record.ts), which a wrapper that ends first wins.
+// The first of them puts the stop's reason into the record as its stop request, before the TERM: the wrapper tells a
+// stop from any other TERM only by it, so whichever finisher wins ends the job as the stop asked (A-052, A-019).
 import { mkdir } from "node:fs/promises";
 import { runOperation, stepFailure } from "../operation.ts";
 import { LimenError, refused } from "../outcome.ts";
@@ -21,10 +23,11 @@ type StopPlan = {
 };
 
 /**
- * The tests' injection point (D-029): `requested` runs after the stop's first write and before its first transition.
- * Limen's own callers never pass it, and no setting does (T-03).
+ * The tests' injection points (D-029): `requested` runs after the stop's first write and before its first transition;
+ * `signalled` runs after the TERM of a running job and before the stop's terminal transition, so a test can let the
+ * wrapper end the job first. Limen's own callers never pass them, and no setting does (T-03).
  */
-export type StopSteps = { readonly requested?: () => Promise<void> };
+export type StopSteps = { readonly requested?: () => Promise<void>; readonly signalled?: () => Promise<void> };
 
 /**
  * Stops the job `query` names with the reason `given`, or "stopped by request"; returns the line that says how it
@@ -62,14 +65,18 @@ export async function stopJob(
 	});
 	await steps.requested?.();
 	try {
-		return await endJob(plan, again);
+		return await endJob(plan, again, steps);
 	} catch (error) {
 		throw stepFailure(error);
 	}
 }
 
 /** The writes after the stop's first: each a transition from the state the record is in, or a signal. */
-async function endJob({ id, jobDir, reason, state }: StopPlan, again: string | null): Promise<string> {
+async function endJob(
+	{ id, jobDir, reason, state }: StopPlan,
+	again: string | null,
+	steps: StopSteps,
+): Promise<string> {
 	let record = await readRecord(jobDir);
 	if (state === "starting") {
 		if (await finalizeJob(jobDir, requestedTerminal(reason), reason, { from: ["starting"] })) {
@@ -91,11 +98,13 @@ async function endJob({ id, jobDir, reason, state }: StopPlan, again: string | n
 			next: again,
 		});
 	}
+	// The request is in the record before the TERM, so a wrapper that the TERM reaches reads it at its end (A-052). A job
+	// that ended meanwhile has no request to take, and its group gets no signal.
+	if (!(await transition(jobDir, { from: ["running"], set: { stopRequested: reason } }))) {
+		return `${id} is already ${await stateOf(jobDir)}`;
+	}
 	// A wrapper in the start queue ends its own job with this reason at once; then this command finalizes nothing.
 	const queued = record.queued !== null;
-	if (queued) {
-		await transition(jobDir, { from: ["running"], set: { stopRequested: reason } });
-	}
 	// The wrapper's group gets TERM, then KILL when it still runs after its grace. A process outside the group, such as
 	// one the engine detached, is left to the end of the job's scope, which the winner of the transition sends after
 	// this grace (A-029).
@@ -107,6 +116,7 @@ async function endJob({ id, jobDir, reason, state }: StopPlan, again: string | n
 			await waitForProcessGroup(pid, KILL_WAIT_MS);
 		}
 	})().catch(() => {});
+	await steps.signalled?.();
 	// Give a signaled wrapper one brief turn to publish its own terminal state; the first finisher wins either way.
 	const turn = Date.now() + (queued ? 2_000 : 25);
 	do {

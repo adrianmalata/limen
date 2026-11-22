@@ -147,7 +147,10 @@ export type JobRecord = Facts & {
 	readonly failure: Failure | null;
 	readonly sideFailures: readonly SideFailure[];
 	readonly queued: Queued | null;
-	/** The reason `limen stop` gave a job that waited in the start queue. */
+	/**
+	 * The reason of a stop request: `limen stop` writes it before its TERM, so whichever finisher ends the job ends it as
+	 * the stop asked; a signal without it is a failure (A-052).
+	 */
 	readonly stopRequested: string | null;
 	readonly advisory: Advisory | null;
 	/** The engine's stop reason for its last message. */
@@ -611,6 +614,9 @@ const FAILURE_PATTERNS: ReadonlyArray<readonly [RegExp, FailureKind]> = [
 	[/^stalled tool /, "stall"],
 	[/^process group gone\b/, "reaped"],
 	[/^worker exited with code /, "exit"],
+	// The wrapper's end of a job its engine or its wrapper got a signal for, with no stop request (A-052).
+	[/^killed by SIG[A-Z0-9]+\b/, "signal"],
+	// The detail an older wrapper wrote with `stopped` for an end by a signal, kept for records that hold it (R-028).
 	[/^process group interrupted\b/, "signal"],
 ];
 /**

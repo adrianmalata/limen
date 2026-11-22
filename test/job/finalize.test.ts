@@ -97,6 +97,30 @@ test("finalizeJob writes the memory peak, CPU time and OOM kills of the job's sc
 	assert.deepEqual([record?.state, record?.scope], ["failed", { ...RECORDED, ...SCOPE_READINGS, oomKills: 1 }]);
 });
 
+// A-052: an OOM kill ends a process by SIGKILL, so it shows as an engine's signal death or as a wrapper the reaper
+// found gone; a limit's kind stays, since its own detector decided the end (R-034 resumes `quota` jobs). The signal
+// death is the older wrapper's detail, whose pattern names it `signal` without the newer `killed by` one, so the test
+// checks the rule alone; test/job/record.test.ts checks that pattern (T-29 (3)).
+test("finalizeJob records kind oom for a signal death or a reaped wrapper when the job's scope counted an OOM kill, and keeps quota and timeout", async (t) => {
+	const { folder, cgroups } = await jobFolder(t);
+	const details = [
+		"process group interrupted",
+		"process group gone: wrapper 4242 is not running; scope limen-job-job.scope ended after TERM",
+		"error: You've hit your session limit · resets 3pm (UTC)",
+		"timeout after 3000ms",
+	];
+	const kinds: (string | null | undefined)[] = [];
+	for (const [n, detail] of details.entries()) {
+		// Each end ends the scope, which takes its folder with it, so each job gets the readings anew.
+		cgroupWithReadings(cgroups);
+		const job = join(folder, `job-${n}`);
+		await writeRecord(job, { state: "running", identity: IDENTITY, scope: RECORDED });
+		await finalizeJob(job, "failed", detail);
+		kinds.push((await readRecord(job))?.failure?.kind);
+	}
+	assert.deepEqual(kinds, ["oom", "oom", "quota", "timeout"]);
+});
+
 test("finalizeJob writes null readings when the job's scope is already gone, and a record without a scope keeps none", async (t) => {
 	const { job } = await jobFolder(t);
 	await writeRecord(job, { state: "running", identity: IDENTITY, scope: RECORDED });

@@ -97,7 +97,8 @@ czwarta runda poprawek z decyzji Adriana D-087 i D-088, bramka 787/787) i R-033 
 zamiast dzwonka, trzy rundy recenzji PASS, bramka 834/834; dwie uwagi do R-035, D-090); noc do 9:00 z pięcioma
 ticketami (D-091) przygotowuje limen-rebuild-22; noc 22/23.11: R-027 zamknięty (żniwiarz zapisuje `failed` dopiero
 po zniknięciu scope albo grupy, jedna łaska i jedno czekanie po KILL; bramka 846/846, recenzja PASS i PASS z jedną
-rundą poprawek). -->
+rundą poprawek) i R-028 (TERM dociera do silnika, `stopped` tylko z zapisaną prośbą o stop, inny sygnał to `failed`
+rodzaju `signal` albo `oom`, łaska 10 s; bramka 858/858, trzy rundy recenzji PASS z dwiema rundami poprawek). -->
 
 
 
@@ -1444,7 +1445,7 @@ Columns:
 | R-025 | Test coverage derived from the command registry | 2 | T-28, T-29, D-045, D-046, D-075, D-076 | R-014, R-023, R-092 | M | delegated | night | — | — | — | done |
 | R-026 | Every job runs in its own systemd user scope | 3 | A-029, A-052, T-43 | R-020, R-021 | L | delegated | night | — | systemd | 3.2, 3.7, 3.8 | done |
 | R-027 | The reaper ends a job only after its process group is gone | 3 | A-005, A-056 | R-026 | M | delegated | night | — | systemd | 3.2 | done |
-| R-028 | SIGTERM reaches the engine; a signal without a stop request is a failure | 3 | A-020, A-052 | R-026 | M | delegated | night | — | pi | 3.8 | ready |
+| R-028 | SIGTERM reaches the engine; a signal without a stop request is a failure | 3 | A-020, A-052 | R-026 | M | delegated | night | — | pi | 3.8 | done |
 | R-029 | One recorded failure cause per job | 3 | A-016, E-9, T-31, T-32, D-055 | R-017, R-021, R-100 | M | delegated | night | — | bridge | 3.4 | planned |
 | R-030 | Unlanded work survives: `limen abandon`, a guarded prune, a refusing spawn | 3 | A-001 | R-023, R-092 | M | delegated | night | yes | herdr | 3.6 | done |
 | R-031 | `landed` and `abandoned` markers; retire moves records to the archive | 3 | A-002, §6 | R-030 | L | delegated | night | yes | — | 3.6 | ready |
@@ -1885,7 +1886,8 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
 - **3.8** A trial job's record holds the peak memory and CPU of its scope, and a job that runs only `sleep 300` ends
   with kind `stall` (R-026, R-036). `limen stop <id>` of a trial job ends it `stopped` with its reason; `kill -TERM` of
   a second trial job's wrapper alone (its pid from `limen show <id>`) ends it `failed`, kind `signal`, with one alert
-  `<project> failed:signal <id>`, and its log shows Pi's exit 143 within the grace (E-17; R-028). A gate file that
+  `<project> failed:signal <id>`, and its log shows `engine exited with code 143` and no `TERM grace elapsed` line, so
+  Pi exited 143 within the grace (E-17; R-028). A gate file that
   holds a third trial job (`cpuIdle` 100, `diagnoseAfter` `1m`, `failAfter` `3m`) gives one coordinator wake with the
   diagnosis and one alert `<project> queue <id>` after a minute, and `failed:queue` after three (R-035); then the
   gate file is restored.
@@ -3439,7 +3441,26 @@ and pushed; the tickets in protocol order, the lowest `ready` ID first: R-027, R
   points): `is-active` exit 3 also reads a `deactivating` scope as gone; a reaper inside the reaped job's own scope
   TERMs itself; the reaper signals the unit the record names (not new); the words "ended after TERM" beside a failed
   TERM call; for R-028's implementer, the stop's Herdr deadline with the test knob at 500 ms or less. Unmeasured: M-11,
-  M-10 (step 3.2).
+  M-10 (step 3.2). Committed and pushed as `ddea3ef`.
+- R-028 `done` (delegated; review PASS in rounds 1–3 with two rounds of fixes by fresh implementers): a TERM to the
+  wrapper reaches the engine once through the wrapper's group, every limit stays armed, and the engine's pid is KILLed
+  after the grace, now 10 s (A-020); `limen stop` writes `stopRequested` for every running job before its TERM, and
+  only a recorded request ends `stopped` (or `done` for a `done:` stop); any other TERM or signal ends `failed`, kind
+  `signal`, `killed by <SIGNAL>`, and `oom` when the scope counted an OOM kill (A-052); the fake engine exits 143 on a
+  TERM (E-17). Fixes F1–F3 (the `oom` rule's test alone, each signal's result in the log, the disarm test by events
+  through the tool cap) and G1–G2 (a TERM after the engine's end changes nothing, through the test knob
+  `LIMEN_END_GATE`; the engine's own end in the log, which seat step 3.8 now reads). The main session's gate 858/858
+  on the final tree; `fails-before.mjs` exit 0 (five files). Before the implementation the main session recorded in
+  `ticket.md` → `## Decisions` what R-027 changed since the ticket's facts. Night defaults for Adrian to confirm
+  (`ticket.md` → `## Decisions`): the implementer's fifteen (`outcome.md` → `## Night defaults`), among them the
+  request written in `endJob` rather than `apply` (the lock is not re-entrant), the disarm test through the tool cap
+  instead of the time limit (which races the TERM), and the seam `LIMEN_END_GATE`; AC-9 read within (a)'s scope (a
+  stop of a `starting` job and a group's reserved slot write `stopped` with no request, and send no signal). Open
+  points for gate 5.3 (`outcome.md` → Open points): those two ends; the exhaustion's TERM still drops its result; a
+  TERM during the prune step reaches no `--prepare`; the end gate's wait has no bound if the test knob leaked (with no
+  `limen status` warning for a set test knob); the TERM's flag taken on `close`, not `exit`; R-027's sentence that stop
+  and the exhaustion "keep their group signals until R-028", which this ticket's `## Change` does not take up.
+  Unmeasured: M-11, M-10 (step 3.8).
 
 Next (by day):
 1. After his return from the trip (Adrian, 2026-11-22: "Zapisz mi to na zrobienie po powrocie z wyjazdu, teraz działaj

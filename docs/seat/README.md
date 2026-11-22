@@ -77,7 +77,7 @@ If 1 fails, do not move the coordinator. If 1–3 work, the laptop is a window f
 
 ## Linux process identity
 
-Limen reads process identity from `/proc/<pid>/stat`; `limen stop` uses it. Every job runs in its own systemd user scope, `limen-job-<id>.scope`, outside Herdr's cgroup: a restart of Herdr does not end a job, and the end of a job stops every process of its scope, a detached one included. A restart of the account's user manager ends every job. Job files are truth.
+Limen reads process identity from `/proc/<pid>/stat`; `limen stop` uses it. Every job runs in its own systemd user scope, `limen-job-<id>.scope`, outside Herdr's cgroup: a restart of Herdr does not end a job, and the end of a job stops every process of its scope, a detached one included. A restart of the account's user manager ends every running job `failed`, kind `signal`, since its TERM comes with no stop request, and the alerts send one line for each. Job files are truth.
 
 ## GitHub doorbell
 

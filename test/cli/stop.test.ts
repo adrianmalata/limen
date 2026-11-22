@@ -1,18 +1,34 @@
-// `limen stop` (src/job/stopping.ts) on a job named approximately, on a running job with no pid, and on a job whose
-// wrapper moves it from starting to running while the stop runs.
+// `limen stop` (src/job/stopping.ts) on a job named approximately, on a running job with no pid, on a job whose
+// wrapper moves it from starting to running while the stop runs, and the stop request it records in a running job.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
+import { isTerminal } from "../../src/job/job.ts";
 import { readRecord } from "../../src/job/record.ts";
 import { stopJob } from "../../src/job/stopping.ts";
 import { platform } from "../../src/platform/platform.ts";
 import { withEnvironment } from "../environment.ts";
 import { readOutcome } from "../final-line.ts";
-import { fakeSystemd, jobDir, limen, plant, repository, writeRecord } from "../plant.ts";
+import {
+	fakeSystemd,
+	jobDir,
+	jobFile,
+	jobRecord,
+	jobState,
+	limen,
+	type Plant,
+	plant,
+	repository,
+	spawnJob,
+	until,
+	waitJob,
+	writeRecord,
+} from "../plant.ts";
 import { snapshot } from "../snapshot.ts";
 
 const ID = "2026-11-21-stop-1a2b3c4d";
@@ -63,6 +79,55 @@ test("a stop that read a starting job, whose wrapper then won the race to runnin
 	]);
 	clearTimeout(timer);
 	assert.deepEqual([signal, (await readRecord(job))?.state], ["SIGTERM", "stopped"]);
+});
+
+/** The terminal lines of the job's log: one per job, from the finisher that won (A-019). */
+function terminalLines(p: Plant, id: string): string[] {
+	return jobFile(p, id, "log").match(/\] (?:done|failed|stopped): .*/g) ?? [];
+}
+
+/** A running job of a fresh plant whose engine waits at its first `block`, and the plant, removed after the test. */
+async function blockedJob(t: TestContext): Promise<{ readonly p: Plant; readonly id: string }> {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = spawnJob(p, "block");
+	await until(jobDir(p, id), () => existsSync(join(jobDir(p, id), "fake-blocked-1")));
+	return { p, id };
+}
+
+// A-052: the wrapper tells a stop from any other TERM only by the request in the record; before, only a queued job's
+// stop wrote it, and a running job's request was a log line alone.
+test("limen stop of a running job records its reason as the job's stop request and ends the job stopped with it", async (t) => {
+	const { p, id } = await blockedJob(t);
+	const run = limen(p, ["stop", id, "the ticket changed"]);
+	assert.equal(run.status, 0, run.stderr);
+	assert.equal(waitJob(p, id), "stopped");
+	assert.deepEqual(
+		[jobRecord(p, id)?.stopRequested, jobRecord(p, id)?.failure, terminalLines(p, id)],
+		["the ticket changed", null, ["] stopped: the ticket changed"]],
+	);
+});
+
+// A-019: the first finisher wins, so the wrapper that ends the job first must end it as the stop asked; before, its own
+// detail replaced the stop's reason, and a `done:` stop ended `stopped`. The seam `signalled` (D-029) holds the stop
+// after its TERM until the wrapper has ended the job.
+test("a done: stop of a running job whose wrapper ends the job first ends it done, with the stop's reason", async (t) => {
+	const { p, id } = await blockedJob(t);
+	// The stop runs in this process, so it gets the plant's environment: its systemd, its seat folder and no Herdr.
+	withEnvironment(t, {
+		PATH: p.env.PATH ?? "",
+		LIMEN_HOME: p.env.LIMEN_HOME ?? "",
+		LIMEN_HERDR: "0",
+		LIMEN_HUNK: "0",
+		LIMEN_CGROUP_ROOT: p.env.LIMEN_CGROUP_ROOT ?? "",
+	});
+	const ended = () => until(jobDir(p, id), () => isTerminal(jobState(p, id)));
+	const line = await stopJob(id, "done: accepted", p.root, { signalled: ended });
+	assert.equal(waitJob(p, id), "done");
+	assert.deepEqual(
+		[line, jobRecord(p, id)?.stopRequested, terminalLines(p, id)],
+		[`${id} is already done`, "done: accepted", ["] done: done: accepted"]],
+	);
 });
 
 test("JOB_NOT_EXACT: stop with a job's label exits 2, names the command with the token in next and leaves the snapshot identical", async (t) => {

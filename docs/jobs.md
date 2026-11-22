@@ -41,7 +41,8 @@ Both routes carry the same completion facts: the task, branch and repository, st
 | State | Meaning |
 |---|---|
 | `done` | The run ended cleanly. The selected engine exited 0, and the last stop reason was not `error` or `aborted`. |
-| `failed` | The run had a provider error, and Limen records the reason. A limit also records `failed` (see [Limits](#limits)). A failed job keeps its transcript, and its worktree while that holds unlanded work (see [Finished jobs](#finished-jobs)). |
+| `failed` | The run had a provider error, and Limen records the reason. A limit also records `failed` (see [Limits](#limits)). A signal with no stop request in the record records `failed` too, kind `signal`, with the signal's name (`killed by SIGTERM`, `killed by SIGKILL`); kind `oom` when the job's scope counted an OOM kill. A failed job keeps its transcript, and its worktree while that holds unlanded work (see [Finished jobs](#finished-jobs)). |
+| `stopped` | A stop request ended the run: `limen stop <id> [reason]`, or a group's stop of its members, writes the reason into the record before its TERM, and the reason is the detail. A reason that starts with `done:` records `done` instead. |
 
 A `done` job whose final "Note check" leaves an item open is `done with open checks`. Limen keeps the `done` state and writes one line for each open item to `openChecks` in the job's record: an item marked not proven, changed, dropped or broken, a proven item with no proof that its command ran in the session and no such file, or a check that was sent and not answered. A command counts only when one recorded bash call ended with exit 0 and joined its simple commands with `&&` alone, and no pipe follows the command; any other call may have skipped it or hidden its failure, and the open line names the reason. The wake lists these lines and asks the coordinator to continue the job, start a review, or accept each item with a reason before it lands. `limen show` and `limen status` show the same state.
 
@@ -111,7 +112,7 @@ limen land <id>
 Use these steps in this order:
 
 1. **Steer.** A running job reads a steer between tool calls.
-2. **Stop.** Stop a job only after it ignores a steer, or when it is clearly dead. Stop sends TERM to the job's process group, then KILL when it still runs after a grace, and then stops the job's scope, which ends every process the job left, a detached one included.
+2. **Stop.** Stop a job only after it ignores a steer, or when it is clearly dead. Stop writes its reason into the job's record as the stop request, sends TERM to the job's process group, then KILL when it still runs after a grace of 10 seconds, and then stops the job's scope, which ends every process the job left, a detached one included. Stop a job with `limen stop <id>`, never with a manual `kill` of its pid: the wrapper forwards a TERM to the engine either way, but only `limen stop` records the request, so a TERM without it ends the job `failed`, kind `signal`.
 3. **Resume.** A resume uses the same branch and worktree, with the uncommitted files, so the coordinator reads that state first.
 
 ### Watch and land
@@ -186,6 +187,8 @@ Every plant on the seat shares one machine, so detached jobs wait in one queue f
 | Stalled tool | 3 minutes (`toolStall` in the plant limits file) |
 
 A prepare command that runs out of time is stopped, and the job log records `prepare failed: timed out`. The job still starts.
+
+A TERM to the job's wrapper disarms none of these limits. The wrapper forwards the TERM to its process group once, and sends KILL to the engine when it still runs after the grace of 10 seconds; a limit that runs out within that grace ends the job with its own failure when it ends the job first.
 
 **Stalled tools.** Every job keeps the three-minute CPU-idle tool containment rule; `toolStall` in the plant limits file changes that confirmation time.
 
