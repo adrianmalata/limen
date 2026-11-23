@@ -2,7 +2,8 @@
 `.night/questions.md`) przechodzi tylko po przeszukaniu czterech źródeł od poprzedniego pytania. 63 testy; każda
 wcześniejsza wersja narzędzia pada na swoich nowych testach, a każda z 42 mutacji na co najmniej jednym. Próba na
 prawdziwym transkrypcie tej sesji: hook wskazał dokładnie źródła nieprzeszukane od ostatniego pytania. Stan:
-zrealizowane; blok `hooks` w `.claude/settings.local.json` dopisuje Adrian. -->
+zrealizowane i aktywne od 23.11: Adrian dopisał blok `hooks`, a próba na żywo potwierdziła blokadę i `is_error: true`
+zablokowanego wywołania w transkrypcie. -->
 
 # Outcome: decision guard `tools/decision-guard.mjs`
 
@@ -50,6 +51,11 @@ zrealizowane; blok `hooks` w `.claude/settings.local.json` dopisuje Adrian. -->
 - Not checked here: that Claude Code marks a call blocked by a hook with `is_error: true` (no hook is installed yet).
   Without it a blocked question counts as asked, so the guard blocks more, never less. The first real block after
   Adrian adds the `hooks` block settles it.
+- Settled on 2026-11-23 (`limen-rebuild-27`, after Adrian added the `hooks` block): a live push naming `Q-00`, sent
+  after a search of `plan.md` and `input/gate-2-decisions.md` only, was blocked, the hook naming exactly `taste.md` and
+  `input/zasady-budowy-harnessu.md` as not searched; the session transcript records its `tool_result` with
+  `"is_error": true` and `permissionDecision` `{"decision": "reject", "source": "hook"}`, so a blocked question does
+  not count as asked, as `decision-guard.mjs` reads it.
 
 ## Measurement
 

@@ -3906,32 +3906,17 @@ has no `hooks` key yet, and from `56f8168` that `limen migrate` and `limen stats
 top-level of the working folder (`limenRoot`), so B.3's copy must be a Git checkout, and that neither command writes
 the seat's project registry (only the wake hook and `limen init` do). It gave Adrian item 1's block and the steps 0.1,
 0.2, 0.3, 2.1–2.4, 0.6 and B.3's a0.2.0 part in one message and waits for his results.
+- `Next` 1 done: Adrian added the `hooks` block; a live push naming `Q-00`, after a search of `plan.md` and
+  `input/gate-2-decisions.md` only, was blocked with exactly `taste.md` and `input/zasady-budowy-harnessu.md` named, and
+  the transcript marks the blocked call `"is_error": true` (`evidence/decision-guard/outcome.md` → Deviations), so the
+  guard is active by day; night runs load it at start.
+- Step 0.1's "seat state directory" is the seat folder: `.limen/` in the home folder of the account that runs Limen
+  (`seatDir`, `src/project/seat.ts:12` at `56f8168`; `LIMEN_HOME` is a test knob), which holds the project registry.
+- One command was refused by the permissions (an empty inline `python3`, a stray call) and was not worked around.
 
 Next (by day):
-1. After his return from the trip (Adrian, 2026-11-22: "Zapisz mi to na zrobienie po powrocie z wyjazdu, teraz działaj
-   z zadaniami dalej"), Adrian adds the `hooks` block below to `.claude/settings.local.json` as a top-level key (into
-   an existing `"hooks"` key's `"PreToolUse"` array if the file has one), then accepts it in `/hooks` or restarts the
-   session; night runs load it at start. The session that is running then gives him this block in full in its message
-   (memory: intervention info in the latest message). After it, the session tests it live with a push naming `Q-00`
-   and no search, which must be blocked; the transcript then settles whether Claude Code marks a blocked call with
-   `is_error` (`evidence/decision-guard/outcome.md` → Deviations). Until then the guard is not active, and the
-   memory rule alone holds the search.
-
-   ```json
-   "hooks": {
-     "PreToolUse": [
-       {
-         "matcher": "PushNotification|Write|Edit",
-         "hooks": [
-           {
-             "type": "command",
-             "command": "node \"$CLAUDE_PROJECT_DIR\"/adrian-rebuild/tools/decision-guard.mjs"
-           }
-         ]
-       }
-     ]
-   }
-   ```
+1. Done on 2026-11-23: Adrian added the `hooks` block of D-083 to `.claude/settings.local.json`, and the live test
+   blocked a push naming `Q-00` ("Evening of 2026-11-23" above); the guard is active, by day and at night.
 2. R-036 (`5acb9fc`), R-029, R-032, R-037 and R-087 are `ready`, each on its own branch of the dependency graph
    (D-054 (1)), so a night can run them; R-103 is `ready (D-096)` behind R-037, R-101 `ready (D-097)` behind R-032,
    R-034 `ready (D-097)` behind R-029 and R-032, R-102 `ready (D-097)` behind R-034, and R-098 `ready` with its
