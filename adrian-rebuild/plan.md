@@ -104,7 +104,10 @@ jobów jednym `rename`; bramka 900/900, recenzja FAIL, PASS, PASS z dwiema runda
 pytanie Q-42); potem R-035 (progi kolejki: diagnoza po 30 min, porażka `queue` po 2 h; bramka 926/926; uwaga o
 `advisory` to pytanie Q-43) i R-100 (jedna definicja czasu ISO, reguły 429, sprawdzenia kodu i listy jobów; bramka
 946/946); noc skończyła się o 7:56 powodem `no-ticket`; rano 23.11 D-092: reguła D-087 dla uwag po wyczerpaniu rund
-poprawek staje się ogólna, więc Q-42 idzie do notatek R-032, a Q-43 do notatek R-036; przekazanie do limen-rebuild-23. -->
+poprawek staje się ogólna, więc Q-42 idzie do notatek R-032, a Q-43 do notatek R-036; przekazanie do limen-rebuild-23.
+Tam D-093: Adrian zatwierdził wszystkie domyślne decyzje tej nocy (Q-44), punkty otwarte wymagające kodu trafiły do
+notatek R-029, R-032, R-037 i R-087, a sześć inwentarzy (R-029, R-032, R-034, R-036, R-037, R-087) leży w
+`evidence/inventories/` jako podstawa ich `ticket.md`. -->
 
 
 
@@ -1078,6 +1081,16 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   Q-42 (R-031's round-3 notes: the GitHub poller's lockless reads around a retire, the two `abandonedOf`) goes to
   R-032's notes and Q-43 (R-035's queue diagnosis uses the advisory's one receipt per job and session) to R-036's.
   Check: `## Tickets` → the R-032 and R-036 notes; `.night/questions.md` → Q-42 and Q-43 resolved.
+- 2026-11-23 D-093 (Adrian: "Zgodnie z rekomendacjami"; Q-44, option 1, asked in the conversation with a push after
+  the sources were searched): every night default of the night of D-091 stands as recorded: R-027's `outcome.md` →
+  `## Night defaults` 1–7 (among them 2, which reads A-056's "unknown" for a record with no `scope`, a pid with no
+  start time and a live process on that pid as "its state cannot be read": no signal, the job stays `running` with a
+  log line per attempt, and the sweep escalates it, R-032's note), R-028's 1–19 and its reading of AC-9 within (a)'s
+  scope (a stop of a `starting` job and a group's reserved slot write `stopped` with no `stopRequested`), R-031's 1–26
+  and its two review-round defaults (AC-12's first clause within the ticket's scope, `removeUnstartedRecords` going to
+  R-032's note by z. 29; the workspace's abandon branches), R-035's 1–13 and R-100's 1–6. The open points of those
+  tickets that need code go to the notes of the tickets that rewrite those parts (D-092): R-029, R-032, R-037 and R-087
+  in `## Tickets`. Check: none (a record of confirmed choices).
 
 ### Gate 2 §2, copied
 
@@ -1679,6 +1692,31 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   the same field, so a job diagnosed in the start queue gets no stall advisory after it in that session (the record and
   the log keep each one). Each advisory names its source (queue or stall), the receipt is per source and session, and
   a test shows a stall advisory after a queue diagnosis delivered.
+- R-032 (D-092; R-031 `outcome.md` → Open point 1, and its `ticket.md` → `## Decisions`, AC-12 read within the
+  ticket's scope): `removeUnstartedRecords` (`src/runtime/pruning.ts`) still deletes the folder of a record that never
+  started whose spawner is gone, and a folder with no record. By z. 29 (archive instead of delete) the sweep's prune
+  step moves both into the job archive instead, with a test that nothing is lost (T-28 (3)).
+- R-032 (D-092; R-027 `outcome.md` → `## Night defaults` 2, Q-44): a `running` record with no `scope` whose pid has no
+  recorded start time, while a live process holds that pid, stays `running`, since the reaper cannot attribute the
+  group (z. 14); the sweep escalates such a job (an alert and a `limen status` line) rather than leaving it so.
+- R-032 (D-092; R-027 `review.md` → Round 1, findings 4 and A): `scopeState` reads `is-active` exit 3 as gone, also
+  for a `deactivating` scope, which may still hold processes (`src/platform/linux.ts`); and a reaper that runs inside
+  the reaped job's own scope (an engine whose wrapper was killed alone runs `limen show`) gets its own TERM before any
+  write, so the job stays `running`. The sweep reaps from outside every job scope and reads a `deactivating` scope as
+  not yet ended.
+- R-037 (D-092; R-031 `outcome.md` → Open point 2): `ticket done` writes its `landed` markers after its commit,
+  outside its operation, so a failed marker write leaves the jobs unmarked while a rerun refuses `NO_ACTIVE_TICKET`;
+  as a recorded step of the close, the marker write is continued when the command runs again (T-38 (3)).
+- R-087 (D-092; R-028 `review.md` → Round 3, note 1): the test knob `LIMEN_END_GATE` (`endGate`,
+  `src/runtime/wrapper.ts`) holds a wrapper's end with no bound of its own, so a spawner's environment that held it
+  would hold every job's end until `limen stop`; it is one of the test knobs that R-087 makes read only in test mode
+  (T-03), as the R-050, R-087 note below says of `LIMEN_CGROUP`.
+- R-029 (D-092; R-028 `review.md` → Round 2, finding 2, and Round 3, note 2): the exhaustion's TERM to the group
+  (`exhaust`, `src/runtime/wrapper.ts`) writes `<reason>; sending TERM` before its call and drops the call's result
+  (T-01); and the wrapper takes the TERM's flag in the engine's `close` handler, so a TERM between the engine's `exit`
+  and `close` (a process that inherited its stdout still holds the pipe) still counts, and the job ends `failed` with
+  no result written. R-029 sets each kind where its detector runs, so there the exhaustion's TERM logs its result and
+  the end takes the TERM's flag at the engine's `exit`.
 - R-033 (D-080; R-021 `outcome.md` → Open points): since R-021 the bell needs `node` on its service's `PATH`; the
   alerts that replace it, and seat step 3.3, name what their service runs.
 - R-035 (D-090; R-033 `review.md` → Round 3, notes 2 and 3): two items in `seat/alerts.ts`: a project the alerts first
@@ -3560,6 +3598,17 @@ D-090), which D-087 had written as an exception for R-030 only. Adrian: "tak" �
 and by night; `## Agents`, step 6); Q-42 → R-032's notes, Q-43 → R-036's notes in `## Tickets`, both marked resolved
 in `.night/questions.md`. The project memory rule on searching the sources now covers questions relayed from a night or
 a subagent.
+
+Day session of 2026-11-23 (`limen-rebuild-23`, by day, Adrian at the terminal; its `close-previous` printed `handover:
+closed tmux session limen-rebuild-22` and one `handover: stopped claude …` line and exited 0; its takeover push was
+skipped as redundant, the terminal being active; context 7 % at the start): the night defaults of the five tickets,
+searched against `taste.md` Part B, gate 2, the principles and `## Decisions` (none contradicts a rule; four named for
+attention), asked as Q-44 with a push; Adrian: "Zgodnie z rekomendacjami" → D-093. The open points of those tickets
+that need code went to the notes of R-029, R-032, R-037 and R-087 (D-092). Six read-only inventories at `6d17130`
+(`general-purpose` agents in parallel, each writing only its file, `git status` checked after): `evidence/inventories/
+R-029.md`, `R-032.md`, `R-034.md`, `R-036.md`, `R-037.md`, `R-087.md`, with 16, 19, 21, 16, 20 and 16 open design
+questions; three of them propose a split of an L ticket (R-032 by cadence, R-034 into the rules' cut and the quota
+resume, R-037 into the atomic closing commit and the recorded steps).
 
 Next (by day):
 1. After his return from the trip (Adrian, 2026-11-22: "Zapisz mi to na zrobienie po powrocie z wyjazdu, teraz działaj
