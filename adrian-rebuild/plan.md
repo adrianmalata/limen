@@ -3936,3 +3936,9 @@ clean and pushed): `limen-rebuild-24` starts `limen-rebuild-25` with `node adria
 and ends its turn. By day, Adrian at the terminal: the next session's first acts are a push notification to Adrian
 that it takes over at the `ticket.md` of R-037, then `node adrian-rebuild/tools/handover.mjs close-previous`, whose
 lines go into this section, then `Next` 2. The handover after it is `limen-rebuild-26`.
+
+Handover of 2026-11-23 (D-047, at 30 % context, after the commit `D-096:` (`c64a9b4`), with the tree clean and
+pushed): `limen-rebuild-25` starts `limen-rebuild-26` with `node adrian-rebuild/tools/handover.mjs start 26` and ends
+its turn. By day, Adrian at the terminal: the next session's first acts are a push notification to Adrian that it
+takes over at the decisions of R-101, then `node adrian-rebuild/tools/handover.mjs close-previous`, whose lines go
+into this section, then `Next` 2. The handover after it is `limen-rebuild-27`.
