@@ -4104,3 +4104,12 @@ pushed): `limen-rebuild-25` starts `limen-rebuild-26` with `node adrian-rebuild/
 its turn. By day, Adrian at the terminal: the next session's first acts are a push notification to Adrian that it
 takes over at the decisions of R-101, then `node adrian-rebuild/tools/handover.mjs close-previous`, whose lines go
 into this section, then `Next` 2. The handover after it is `limen-rebuild-27`.
+
+Handover of 2026-11-23 (D-047, at 37 % context, after the commit `Tools: fails-before.mjs …` (`1c51bfa`), with the tree
+clean and pushed): `limen-rebuild-26` starts `limen-rebuild-27` with `node adrian-rebuild/tools/handover.mjs start 27`
+and ends its turn, before Adrian's manual steps of about 20:00, so that a session with a fresh context guides them.
+Adrian is away until then: the next session's first acts are a push notification to Adrian (one line in Polish) that
+it takes over at his manual steps of `Next` 3, then `node adrian-rebuild/tools/handover.mjs close-previous`, whose
+lines go into this section, then one message that gives him item 1's block and each step of `Next` 3 in full (the
+text and command of `## Deployment` 0.1, 0.2 with the full SHA, 0.3, 2.1–2.4, 0.6 and B.3's a0.2.0 part, in that
+order), and it waits for his results. The handover after it is `limen-rebuild-28`.
