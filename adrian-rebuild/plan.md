@@ -101,7 +101,10 @@ rundą poprawek) i R-028 (TERM dociera do silnika, `stopped` tylko z zapisaną p
 rodzaju `signal` albo `oom`, łaska 10 s; bramka 858/858, trzy rundy recenzji PASS z dwiema rundami poprawek); limit
 5 h przerwał przebieg 1 w R-031, a przebieg 2 zamknął R-031 (znaczniki `landed` i `abandoned`, retire do archiwum
 jobów jednym `rename`; bramka 900/900, recenzja FAIL, PASS, PASS z dwiema rundami poprawek; dwie uwagi rundy 3 to
-pytanie Q-42). -->
+pytanie Q-42); potem R-035 (progi kolejki: diagnoza po 30 min, porażka `queue` po 2 h; bramka 926/926; uwaga o
+`advisory` to pytanie Q-43) i R-100 (jedna definicja czasu ISO, reguły 429, sprawdzenia kodu i listy jobów; bramka
+946/946); noc skończyła się o 7:56 powodem `no-ticket`; rano 23.11 D-092: reguła D-087 dla uwag po wyczerpaniu rund
+poprawek staje się ogólna, więc Q-42 idzie do notatek R-032, a Q-43 do notatek R-036; przekazanie do limen-rebuild-23. -->
 
 
 
@@ -1066,6 +1069,15 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   regressions; a new blocking finding goes to Adrian. Round 4's note 2 (a nested repository's other branches, stash and
   reflog) goes to R-031's notes in `## Tickets`. Check: `node --test test/s9-housekeeping.test.ts`; `node --test
   test/cli/land.test.ts`; `R-030-unlanded-work-survives/review.md` → Round 5.
+- 2026-11-23 D-092 (Adrian: "tak", after the night's Q-42 and Q-43 were found settled by D-087's rule; makes that
+  rule general and amends `## Agents`, step 6): once a ticket's rounds of fixes are spent, a non-blocking review note
+  that touches only text (`docs/`, `outcome.md`, `review.md`, comments) is fixed by the main session; a non-blocking
+  note that needs code or tests goes to the notes of the ticket that rewrites that part, in `## Tickets`, or, when no
+  ticket does, to the outcome's open points for the stage's gate; a blocking finding still goes to Adrian. A night
+  does this itself and lists each note's destination among its night defaults, rather than writing a question. By it,
+  Q-42 (R-031's round-3 notes: the GitHub poller's lockless reads around a retire, the two `abandonedOf`) goes to
+  R-032's notes and Q-43 (R-035's queue diagnosis uses the advisory's one receipt per job and session) to R-036's.
+  Check: `## Tickets` → the R-032 and R-036 notes; `.night/questions.md` → Q-42 and Q-43 resolved.
 
 ### Gate 2 §2, copied
 
@@ -1654,6 +1666,19 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   terminal job of any finisher whose scope end failed keeps its processes, and nothing checks it again; prune removes
   a terminal job's clean worktree while its scope may still be active (`jobKeeps`, `src/runtime/pruning.ts`). The sweep
   checks the scope of every job it reads, and escalates a job whose scope cannot be ended.
+- R-032 (D-092; Q-42; R-031 `review.md` → Round 3, the two notes that need code): the GitHub poller reads a job's
+  record and then its `result` and `log` without a lock, so a retire between the two reads moves the folder and the
+  one terminal reply on GitHub says "No result or check evidence recorded." and names `limen show <id>`, which refuses
+  an archived job (`src/integrations/github-poller.ts`); and `abandonedOf` names two functions with two meanings, the
+  record field's validator (`src/job/record.ts`) and the migration's evidence of an abandon (`src/job/migration.ts`),
+  against T-25 and T-18. R-032 makes retire a step of the sweep on a timer, so every reader that races a retire is
+  settled there, with R-031's open points (round 1's finding 8: retire moves a folder without the job's own lock; open
+  point 4: a job retired before its owed wake or alert).
+- R-036 (D-092; Q-43; R-035 `review.md` → Round 1, note 1): the wake hook delivers a job's advisory once per
+  coordinator session (the receipt `_advisory.<session>`, `hook/wake.ts`), and R-035 writes the queue's diagnosis into
+  the same field, so a job diagnosed in the start queue gets no stall advisory after it in that session (the record and
+  the log keep each one). Each advisory names its source (queue or stall), the receipt is per source and session, and
+  a test shows a stall advisory after a queue diagnosis delivered.
 - R-033 (D-080; R-021 `outcome.md` → Open points): since R-021 the bell needs `node` on its service's `PATH`; the
   alerts that replace it, and seat step 3.3, name what their service runs.
 - R-035 (D-090; R-033 `review.md` → Round 3, notes 2 and 3): two items in `seat/alerts.ts`: a project the alerts first
@@ -2129,7 +2154,9 @@ Protocol per ticket (rebuild stage 5):
    (`pair`), and the review runs again on the new diff. At most two rounds of fixes; then Adrian decides, and his
    decision goes to `ticket.md` → `## Decisions`. A round whose verdict is `PASS` and whose findings to fix touch only
    `docs/`, `outcome.md` or `review.md` is closed by the main session's own fixes, with no further round; a fix of code
-   or tests still gets a round (D-053 (2)).
+   or tests still gets a round (D-053 (2)). Once the rounds are spent, Adrian decides only a blocking finding: a
+   non-blocking note that needs code or tests goes to the notes of the ticket that rewrites that part, or to the
+   outcome's open points when none does, by day and by night (D-092).
 7. `outcome.md`, the `changes.md` entry (D-009), the status `done` in `## Tickets` and `## State`; then `check.mjs`
    and Biome on `adrian-rebuild`; one commit `R-NNN: <title>` with all of it; `git push origin adrian-rebuild`.
 - No `SendMessage` to other sessions, no `ListAgents`, no agent teams; state passes only through files.
@@ -2195,14 +2222,15 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-23 by the night of D-091 (run 3 of `night.mjs`), rebuild stage 5 in plan stage 3: stage 1 is closed
+Updated 2026-11-23 by day (`limen-rebuild-22`, after the night of D-091), rebuild stage 5 in plan stage 3: stage 1 is closed
 at `a0.1.1` (deployed on 2026-11-20, with B.2 closed by D-050); stage 2 is closed at `a0.2.0` (gate 5.2 decided,
 D-078–D-082); stage 3 has started: R-026, R-030 and R-033 are `done` (by day), R-027, R-028, R-031, R-035 and R-100
-`done` in the night of D-091 (until 09:00; it ended with `no-ticket`), and D-083's decision guard is built (D-086). The
+`done` in the night of D-091 (until 09:00; it ended with `no-ticket`), D-092 settles its Q-42 and Q-43, and D-083's
+decision guard is built (D-086). The
 newest entries are at the end of this section: the close of stage 2 in "Close of stage 2", the gate in "Gate 5.2
 decided", the start of stage 3 in "Start of stage 3", the guard and R-026 in "D-083's decision guard", R-030 and R-033
-(with D-087–D-091) in "R-030", the night's preparation in "The night of D-091 prepared", and the night itself in
-"Night run of 2026-11-22/23".
+(with D-087–D-091) in "R-030", the night's preparation in "The night of D-091 prepared", the night itself in
+"Night run of 2026-11-22/23", and D-092 in "Morning of 2026-11-23".
 
 Handover of 2026-11-19 (D-033, at 37 % context, after the commit `R-014:`): `limen-rebuild-5` started
 `limen-rebuild-6` in `tmux` in remote-control mode (14:10) and ended. WSL booted at 10:34 on 2026-11-19, after the
@@ -3525,6 +3553,14 @@ and pushed; the tickets in protocol order, the lowest `ready` ID first: R-027, R
   only `ready` ones, D-054 (1)), so the night ends with the reason `no-ticket` (`.night/status.json`). Gate 5.3 is not
   due: stage 3 has six tickets left.
 
+Morning of 2026-11-23 (`limen-rebuild-22`, by day, Adrian at the terminal): the night ended at 07:56 with
+`no-ticket`, `e308a14` pushed, the tree clean. The session first relayed the night's Q-42 and Q-43 without searching
+the sources; at Adrian's question it found both settled by D-087's rule (applied again by D-088, R-030's round 5 and
+D-090), which D-087 had written as an exception for R-030 only. Adrian: "tak" → D-092 (the rule made general, by day
+and by night; `## Agents`, step 6); Q-42 → R-032's notes, Q-43 → R-036's notes in `## Tickets`, both marked resolved
+in `.night/questions.md`. The project memory rule on searching the sources now covers questions relayed from a night or
+a subagent.
+
 Next (by day):
 1. After his return from the trip (Adrian, 2026-11-22: "Zapisz mi to na zrobienie po powrocie z wyjazdu, teraz działaj
    z zadaniami dalej"), Adrian adds the `hooks` block below to `.claude/settings.local.json` as a top-level key (into
@@ -3551,12 +3587,12 @@ Next (by day):
    }
    ```
 2. The night of D-091 is over: all five of its tickets are `done` (R-027 `ddea3ef`, R-028 `fe092f9`, R-031 `34a40d0`,
-   R-035 `017a228`, R-100 in the commit `R-100:`), and it ended with `no-ticket`. The day session after it
-   (`limen-rebuild-23`) starts from `.night/status.json`, `.night/questions.md` (Q-42 and Q-43 open, neither blocking
-   a ticket) and the night's entry in this section; it asks Adrian for the night defaults of the five tickets (each
-   `ticket.md` → `## Decisions` and `outcome.md` → `## Night defaults`) and Q-42 and Q-43, then makes the next stage-3
-   tickets `ready` for a night (D-054 (1)): R-029 (its dependencies are `done`), R-036 (with Q-43's item if Adrian
-   answers 1), R-087, then R-032, R-034 and R-037 in dependency order.
+   R-035 `017a228`, R-100 `e308a14`), and it ended with `no-ticket`; Q-42 and Q-43 are resolved by D-092. The day
+   session (`limen-rebuild-23`) lists for Adrian the night defaults of the five tickets (each `ticket.md` →
+   `## Decisions` and `outcome.md` → `## Night defaults`; D-054 (2)), grouped by ticket, each with its
+   recommendation, after searching the sources for each (the memory rule); then it makes the next stage-3 tickets
+   `ready` for a night (D-054 (1)): R-029 (its dependencies are `done`), R-036 (with the D-092 note of Q-43), R-087,
+   then R-032 (with its D-092 note of Q-42), R-034 and R-037 in dependency order.
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
    D-047 and D-054 were.
@@ -3672,3 +3708,9 @@ turn. By day, Adrian at the terminal: the next session's first acts are a push n
 over to prepare the night of D-091, then `node adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into
 this section, then `Next` 2 (a)–(c), ending with the start of `night.mjs --until 09:00`. The handover after it is
 `limen-rebuild-23`.
+
+Handover of 2026-11-23 (D-047, at 37 % context, after the commit `D-092:`, with the tree clean and pushed):
+`limen-rebuild-22` starts `limen-rebuild-23` with `node adrian-rebuild/tools/handover.mjs start 23` and ends its
+turn. By day, Adrian at the terminal: the next session's first acts are a push notification to Adrian that it takes
+over at the night defaults of the night of D-091, then `node adrian-rebuild/tools/handover.mjs close-previous`, whose
+lines go into this section, then `Next` 2. The handover after it is `limen-rebuild-24`.
