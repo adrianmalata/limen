@@ -182,7 +182,7 @@ ticket).
   `.limen/.publishing-<id>` (with the `starting` record left by a crash, R-099's open point 7), `jobKeeps`, the gitlink
   notes, the retire races, `abandonedOf`, `docs/seat/limen-prune.*` and the prune text of the docs.
 - Quota resume and owed wakes (R-034), the seat rules (R-102), foreign timers and engines (R-060), leftover Herdr tabs
-  (T-18 (1), R-103), `hold` steps (T-22).
+  (T-18 (1), R-101 by D-096 (1)), `hold` steps (T-22).
 - `diff` and `open`, which record their Herdr tab's place (fact 7): the place serves the closing of the job's tabs,
   which R-103's `cleaned` step rewrites (a note in `## Tickets` → R-103); and so the kind in `limen <command> --help`
   (D-041 (6)) waits for it.

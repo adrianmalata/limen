@@ -114,7 +114,12 @@ R-103); D-095: nowe rodzaje porażki `launch` i `internal`; R-029 i R-036 gotowe
 noc, z krokiem 3.1 przepisanym. limen-rebuild-25: R-037 (commit zamknięcia land i `ticket done` budowany w
 tymczasowym indeksie z oczekiwanego commita, hooki `git commit -m`, compare-and-swap gałęzi, blokada ticket-lanes,
 odmowa brudnego ticketu przed merge'em) gotowy na noc; D-096: sprzątanie pozostałych kart Herdra i usunięcie `limen
-close` idą do R-101, `diff` i `open` stają się poleceniami zmiany (T-04 bez `diff`), R-103 gotowy na noc za R-037. -->
+close` idą do R-101, `diff` i `open` stają się poleceniami zmiany (T-04 bez `diff`), R-103 gotowy na noc za R-037.
+limen-rebuild-26: D-097 (Q-51–Q-53): wznowienie po limicie to krok `seat sweep` bez własnego polecenia, wyścig
+wznowienia z wdrożeniem to przyjęte ryzyko, stary folder reguł seata usuwa ręcznie Adrian; z rozstrzygnięciami
+dokumentów R-034, R-101 i R-102 są gotowe na noc za swoimi zależnościami, a jedynym ticketem etapu 3 w stanie
+`planned` zostaje R-098. -->
+
 
 
 
@@ -1152,6 +1157,101 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   (D-075); (l) the watch tab's close at a job's end (`settleJobTab`, A-029) stays. R-103 is `ready (D-096)`: the night
   writes its `ticket.md` once R-037 is `done`. Check: `## Tickets` rows R-101 and R-103; step 3.9; T-04 in `taste.md`;
   R-101's and R-103's criteria.
+- 2026-11-23 D-097 (Adrian: "zgodnie z rekomendacjami"; Q-51, Q-52 and Q-53, option 1 each, asked in the
+  conversation with a push after the sources were searched: `evidence/inventories/R-032.md` → section 9 (the daily
+  half, D-094 (1)), `R-034.md` → section 9, A-001, A-002, A-010, A-016, A-024, A-030, A-066, A-068, A-079, T-04, T-07,
+  T-13, T-18, T-25, T-26, T-28, T-42, D-046 (1), D-057, D-079, D-088, D-092, D-094, D-096, R-029's and R-032's
+  `ticket.md`, R-031's open points; the items marked (A) were named for Adrian's attention and stand as recommended).
+  (1) Q-51: the resume after the quota limit is a step of `limen seat sweep` with no command of its own (T-18: prune
+  and retire are steps with no command; A-024 puts the resume in the sweep); a resume at once is `limen continue
+  <id>`, a manual run `limen seat sweep`, and T-26 (2)'s `resume --quota` names the operation. (2) Q-52: the race of
+  a resume with `seat/deploy.ts` (its running-job check, then a checkout in place, so a resume in those seconds starts
+  a job on mixed code: a `launch` or `internal` failure, nothing lost; a record with a new field is `BAD_DATA` for the
+  old code after a rollback) is an accepted risk, named in R-034's `## Risk`. (3) Q-53: the seat's old
+  `~/.limen/rules/` on the agents' account lies outside every project, so it is no LEFTOVERS entry: step 3.5 has
+  Adrian check it and delete it by hand if he wants (no code reads it), as the seat folders after R-006.
+  (4) Settled by the documents for R-101 (the daily half of R-032's inventory):
+  (a) the daily steps (prune, retire, the leftover Herdr tabs) run inside the minute run of `limen seat sweep`, per
+  project, when that project's last successful daily run is more than 24 h old, from a time stamp in the project's
+  `.limen/` written after its daily steps succeed (absent: due; a failed step writes none, so the next minute tries
+  again, T-02); a manual run runs what the timer runs (R-032 Decision 2);
+  (b) `limen prune` exits 2 with `next: limen seat sweep` (its `movedBy` goes); `--dry-run` goes with the command,
+  since an archive move can be undone (z. 29); `abandon`'s `NO_UNLANDED_WORK` names `limen seat sweep`;
+  (c) (A) the setup prune at a job's start (`src/runtime/job-setup.ts`, `pruneForJob`, `LIMEN_SETUP_KEEP`) goes, so
+  the sweep is prune's one caller (T-26 (2), T-04); R-103's `cleaned` step removes a landed job's worktree, so
+  between daily runs only worktrees of jobs without unlanded work wait;
+  (d) (A) "nothing is deleted" means nothing Git does not hold elsewhere: a clean worktree (its tracked files are in
+  its branch; ignored files as A-001's Decision) and a landed branch whose tip is in the target's history (D-096 (3)
+  (e)) are removed as today; a record that never started, a folder with no record and `.limen/.publishing-<id>` (past
+  the 10-minute grace, its spawner gone, under the worktree lock) move to `.limen/archive/<YYYY-MM>/<id>/` (the month
+  of `startedAt`, else of the move) under the jobs lock with a read again, as retire moves; and a folder in the
+  worktree root that Git does not register and that has no `.git`, which `prunePass` deletes today with all it holds
+  (`worktreeChanges` returns nothing for it), moves into the project's archive under a folder whose name is no month,
+  so no reader takes it for a job;
+  (e) `jobKeeps` keeps a terminal job's worktree while its scope is not ended, the question R-032 (c) gives the other
+  `liveJob` callers (T-25);
+  (f) the gitlink notes (D-088) change the shared `unsavedGitlink` for every caller (T-25): a gitlink counts only
+  where a nested `.git` is there, a candidate whose `HEAD` has no commit is named in the failure, and `-z` entries are
+  read whole;
+  (g) (A) retire takes a job whose `landed` or `abandoned` marker is at least 24 h old, so the owed wakes and alerts
+  of a job's end go out first (R-031 open point 4), with no new state;
+  (h) retire also takes the job's own lock (R-031 open point 3); the GitHub poller, when its read of `result` or
+  `log` misses, finds the job once more, in the archive too, so its reply does not say "No result" (Q-42's note);
+  (i) the two `abandonedOf` functions get two names (T-25, T-18), chosen by the ticket;
+  (j) `seat sweep` is not `irreversible` (a timer answers no terminal question, D-075); retire and the archive moves
+  get tests of running again and of nothing lost (T-28 (3));
+  (k) the leftover Herdr tabs as D-096 (1), closed synchronously with `closeJobTab`'s bound and one retry, a tab that
+  does not close a line and the step recorded (as D-096 (3) (i)); `limen close` exits 2 with `next: limen seat
+  sweep`;
+  (l) `docs/seat/limen-prune.*` go, and the prune text of the docs and of `templates/agents.md` (its new first hash
+  in `templates/.history/agents.md`) follows.
+  (5) Settled by the documents for R-034:
+  (a) the resume is a minute step, due once `now ≥ resetAt + 5 min`, with no timer per reset (T-42); the reset is
+  R-029's;
+  (b) (A) a `quota` job with `resetAt` `null` is not resumed until R-059's hourly reading (A-016 (4) needs the usage
+  endpoint), and A-016 (4)'s "notify me once" is the existing alert `failed:quota`; (A) that alert rings only for
+  `resetAt` `null`, and with a known reset the bell waits for `quota-exhausted` (A-016 (5)); it rang for 12 of the 18
+  failures of M1 (gate 2 §1);
+  (c) a resume takes a `failed` job of kind `quota` with a known `resetAt`, not `migrated` (D-057 (4)), with no
+  `landed` or `abandoned` marker, that is the newest record on its worktree, with no age bound (z. 19); a group member
+  is skipped and named in the run's output (`continue` refuses outside its team);
+  (d) (A) exactly one resume: the newest-record check under the jobs lock, the one function `limen continue` also
+  calls, so `LIVE_CONTINUATION` covers every job, not only group workers (today two continuations of one ordinary job
+  can both start; z. 14);
+  (e) the resumed job gets the parent's recorded route (A-030) and the default timeout of 90 min (the record holds no
+  timeout); its context is the copied transcript until R-039 (A-079);
+  (f) (A) code builds the resume's task from record fields (T-07, A-068), in English (T-13), with no provider text;
+  its words for gate 5.3;
+  (g) the cap of 3: the resumed job gets an optional record field with its attempt number (D-079); a job with
+  attempt 3 that ends on the limit again is written `quota-exhausted` by finalize, so no terminal record is written
+  twice; the alert `failed:quota-exhausted` exists;
+  (h) owed wakes are a record field (D-057 (7.2), S1+), written as `advisory` and R-032's `stuck` are; the wake hook
+  tells a coordinator turn that ended on the limit from its `errorMessage` by the one definition (T-25), and such a
+  turn spends neither of the 2 attempts; the mark holds the reset read by R-029's reader; the sweep releases it at the
+  reset + 5 min (with a `null` reset, after one hour, A-016 (4)), and the hook delivers it as today;
+  (i) (A) the completion wake of a `quota` job says, from record fields, when Limen resumes it and that the
+  coordinator does not continue it, instead of `Stop reason: <provider text>`; `templates/agents.md:68` changes; a
+  coordinator turn of its own that ends on the limit, with no owed wake, wakes nothing (the extension that did goes,
+  A-068);
+  (j) the ticket sets what the sweep's unit needs so that a resumed job's launch finds `pi`, `node` and the bridge;
+  the API is `pi, systemd`, and step 3.4 checks that the resumed job started and that an owed wake arrived;
+  (k) (A) `docs/seat/quota-resume.ts` is cut, and step 3.4 has its link removed from the seat's Pi extensions before
+  a0.3.0, which would otherwise point at a file that is gone;
+  (l) the `movedBy` of the four `rule` entries becomes `"R-102"`, as R-032 and R-037 moved theirs to R-101.
+  (6) Settled by the documents for R-102 (A-010):
+  (a) the cut: the four `rule` entries, `src/commands/rule.ts`, `src/project/seat-rules.ts`, `endDueRules`, the
+  start queue's rule hold, the cue's block, the board's header, the rule lines of `seat queue`, the decision kind
+  `rules`, the subcommand branch of `src/help.ts` whose only case is `rule`, the ISO exception and the `ERRNO_TYPED`
+  entry;
+  (b) the coordinator registration (`.limen/coordinators/`, `liveCoordinators`, the sweep's `removeDeadCoordinators`)
+  goes, since only `rule` reads it (R-002 kept it "for `limen rule` until R-034"); R-050 builds its own registered
+  coordinator; the folder is a LEFTOVERS entry;
+  (c) (A) the refusal is an `OLD_NAMES` entry with `next` `null` (D-046 (1); `limen decide` comes at a0.7.0), its
+  sentence naming the automatic resume; its words for gate 5.3;
+  (d) the start priority goes with no replacement (A-010), and D-013's weekly threshold stays manual; step 3.5 checks
+  that no `limen rule timer` process runs (a live one sleeps at most 60 s and writes only `ended.<version>`).
+  R-101, R-034 and R-102 are `ready (D-097)`: a night writes each one's `ticket.md` once its dependencies are `done`.
+  Check: `## Tickets` rows R-034, R-101 and R-102; steps 3.4 and 3.5; the three tickets' criteria.
 
 ### Gate 2 §2, copied
 
@@ -1540,15 +1640,15 @@ Columns:
 | R-031 | `landed` and `abandoned` markers; retire moves records to the archive | 3 | A-002, §6 | R-030 | L | delegated | night | yes | — | 3.6 | done |
 | R-032 | `limen seat sweep` runs on a timer; read commands never write or wait | 3 | A-024, T-04, T-18, A-017, §6, D-045 | R-012, R-027, R-031 | L | delegated | night | yes | systemd | 3.1 | ready |
 | R-033 | Alerts from their own account: failures and escalations only | 3 | A-066, A-054, T-18, D-084, D-085 | R-021 | L | delegated | night | yes | systemd | 3.3 | done |
-| R-034 | Resume after the quota limit in code | 3 | A-016, A-068, §6, D-094 | R-029, R-032, R-033 | L | delegated | night | yes | systemd | 3.4 | planned |
+| R-034 | Resume after the quota limit in code | 3 | A-016, A-068, §6, D-094, D-097 | R-029, R-032, R-033 | L | delegated | night | yes | pi, systemd | 3.4 | ready (D-097) |
 | R-035 | Start-queue thresholds: a diagnosis at 30 min, a failure at 2 h | 3 | A-036 | R-026, R-033 | L | delegated | night | — | systemd | 3.8 | done |
 | R-036 | Stall is measured over the whole job scope | 3 | A-059 | R-026 | M | delegated | night | — | systemd | 3.8 | ready |
 | R-037 | The closing commit of land and `ticket done` is atomic | 3 | A-021, A-057, T-38, D-094 | R-023, R-031, R-092 | M | delegated | night | — | — | — | ready |
 | R-087 | The job environment is an allow-list; git and gh in a job hold no credential (T1) | 3 | A-004, A-061, E-4, D-017 | R-015, R-021, R-026 | M | delegated | night | — | pi, bridge | 3.10 | ready |
 | R-098 | `limen stats` per landed ticket and per coordinator turn | 3 | §2, A-078, A-037, D-072 | R-024, R-031 | M | delegated | night | — | pi | B.3, B.4 | planned |
 | R-100 | One definition of the ISO time, the 429 rule, the error-code check and the jobs listing | 3 | T-25, D-080 | R-022, R-093, R-097 | S | delegated | night | — | — | — | done |
-| R-101 | Prune, retire and leftover Herdr tabs are steps of the sweep; nothing is deleted | 3 | A-024, A-002, T-18, T-28, D-092, D-094, D-096 | R-032 | M | delegated | night | yes | herdr | 3.9 | planned |
-| R-102 | Seat rules are cut | 3 | A-010, T-42, D-094 | R-034 | M | delegated | night | yes | systemd | 3.5 | planned |
+| R-101 | Prune, retire and leftover Herdr tabs are steps of the sweep; nothing is deleted | 3 | A-024, A-002, T-18, T-28, D-092, D-094, D-096, D-097 | R-032 | M | delegated | night | yes | herdr | 3.9 | ready (D-097) |
+| R-102 | Seat rules are cut | 3 | A-010, T-42, D-094, D-097 | R-034 | M | delegated | night | yes | systemd | 3.5 | ready (D-097) |
 | R-103 | Land runs as recorded steps; its `cleaned` step closes the job's Herdr tabs | 3 | A-021, T-04, T-18, T-28, T-38, D-092, D-094, D-096 | R-037 | M | delegated | night | yes | herdr | 3.9 | ready (D-096) |
 | R-038 | The fake engine shows the model's view under the bridge | 4 | T-31, A-051 | R-017 | M | delegated | night | — | bridge | 4.1 | planned |
 | R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16 | R-021, R-038 | L | delegated | night | yes | pi, bridge | 4.2 | planned |
@@ -1684,9 +1784,9 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   GitHub module when connected, groups when a group record exists), and Adrian switches those on in step 4.9. Its
   criteria include (D-040): the modules header of `limen --help` has the text of T-19, and each module line's `[on]` or
   `[off]` is built from that module's switch (a golden test with one module on and the rest off).
-- R-032, R-034, R-037, R-101, R-066 (D-039, D-096): each one's criteria include "the command registry holds no entry
-  with `movedBy` naming this ticket" (R-032: `sweep`, `prune`; R-034: `rule`; R-037 moves `close` to R-101; R-101:
-  `prune`, `close`; R-066: `keeper`). The ticket that
+- R-032, R-034, R-037, R-101, R-102, R-066 (D-039, D-096, D-097): each one's criteria include "the command registry
+  holds no entry with `movedBy` naming this ticket" (R-032: `sweep`, and it moves `prune` to R-101; R-034 moves `rule`
+  to R-102; R-037 moves `close` to R-101; R-101: `prune`, `close`; R-102: `rule`; R-066: `keeper`). The ticket that
   removes the last `movedBy` entry also removes the field and the exception of R-014's registry test, which fails until
   it does (D-042), so that a top-level command acts only on `job`, `owner` or `project`.
 - R-023 (D-044, R-014's review round 4): the static scan that no command words are read outside `src/parser.ts`
@@ -1824,9 +1924,9 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   environment (the fake `systemctl` finds a scope's members by them), so R-087's allow-list keeps them for tests, as
   the note above says; the guarantee is that the knobs are read only in test mode (T-03), which R-087 makes true, and
   the coordinator's start script passes neither (R-050). (Corrected after R-026 review round 3, notes 4 and 5.)
-- R-034 (R-026 review round 2, note 9): since R-026 a rule's timer that cannot start writes "rule <name>: its timer
-  could not start: …" to stderr after the handler may have written its final line, which then is no longer the last
-  stderr line (T-02); R-034 cuts `limen rule`, and with it this path.
+- R-102 (R-026 review round 2, note 9; D-094 (2)): since R-026 a rule's timer that cannot start writes "rule <name>:
+  its timer could not start: …" to stderr after the handler may have written its final line, which then is no longer
+  the last stderr line (T-02); R-102 cuts `limen rule`, and with it this path.
 - R-081 (R-026 `outcome.md` → Open points): `SECURITY.md:9` still describes the escaped-descendant check of the
   removed `src/runtime/contain.ts`; the job's scope replaces it.
 
@@ -2019,8 +2119,14 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
 - **3.4** At the next real 5-hour limit, whenever it comes (nothing waits for it; the fake engine's tests cover the
   mechanism): the job's record has kind `quota` and a reset time, exactly one resume runs 5 minutes after the reset
   (A-010, A-016), and the job's log shows whether a `rate_limit_event` arrived (the line `rate-limit event: <type>,
-  resets <ISO time>`, from `kendex:rate-limit`) for the 5-hour and the weekly limit (item 12; E-9; R-029, R-034).
-- **3.5** `limen rule` refuses and names its replacement; the old seat rules file appears as a leftover (R-102).
+  resets <ISO time>`, from `kendex:rate-limit`) for the 5-hour and the weekly limit (item 12; E-9; R-029, R-034);
+  the resumed job started from the sweep's unit (its log has no `launch` failure), and a completion wake owed during
+  the limit reached the coordinator after the reset (D-097 (5) (h), (j)). Before a0.3.0 is deployed, on the agents'
+  account: remove the link of `quota-resume.ts` from Pi's extensions folder, if there is one, since a0.3.0 deletes
+  the file it points at (D-097 (5) (k)).
+- **3.5** `limen rule` refuses and names the automatic resume; no `limen rule timer` process runs (`pgrep -af 'limen
+  rule timer'` prints nothing); on the agents' account, `ls ~/.limen/rules` shows the old seat rules, which no code
+  reads any more, and Adrian may delete the folder by hand (D-097 (3), (6) (d); R-102).
 - **3.6** `limen status` lists finished jobs with unlanded work; resolve each with `limen continue <id>` or
   `limen abandon <id>` before the next spawn (R-030); the first `limen abandon` of a job whose Herdr tab is open closes
   that tab (`herdr` tab list before and after; T-28 (5), R-030); the marker migration of R-031 reports which landed
@@ -2350,13 +2456,14 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-23 by day (`limen-rebuild-25`, after D-096), rebuild stage 5 in plan stage 3: stage 1 is closed
+Updated 2026-11-23 by day (`limen-rebuild-26`, after D-097), rebuild stage 5 in plan stage 3: stage 1 is closed
 at `a0.1.1` (deployed on 2026-11-20, with B.2 closed by D-050); stage 2 is closed at `a0.2.0` (gate 5.2 decided,
 D-078–D-082); stage 3 has started: R-026, R-030 and R-033 are `done` (by day), R-027, R-028, R-031, R-035 and R-100
 `done` in the night of D-091 (until 09:00; it ended with `no-ticket`), D-092 settles its Q-42 and Q-43, and D-083's
 decision guard is built (D-086); D-093 confirms that night's defaults, D-094 splits R-032, R-034 and R-037 (new
-R-101–R-103), D-095 adds the kinds `launch` and `internal`, and R-029, R-032, R-036, R-037 and R-087 are `ready`
-(the three "Day session of 2026-11-23" entries, just before `Next`). The
+R-101–R-103), D-095 adds the kinds `launch` and `internal`, R-029, R-032, R-036, R-037 and R-087 are `ready`, D-096
+makes R-103 and D-097 makes R-034, R-101 and R-102 `ready` behind their dependencies, so R-098 is the one stage-3
+ticket still `planned` (the four "Day session of 2026-11-23" entries, just before `Next`). The
 newest entries are at the end of this section: the close of stage 2 in "Close of stage 2", the gate in "Gate 5.2
 decided", the start of stage 3 in "Start of stage 3", the guard and R-026 in "D-083's decision guard", R-030 and R-033
 (with D-087–D-091) in "R-030", the night's preparation in "The night of D-091 prepared", the night itself in
@@ -3737,6 +3844,19 @@ leftover tabs and the `close` cut go to R-101, which gains API `herdr` and step 
 commands, T-04's list drops `diff`; twelve items settled by the documents for R-103); R-103 `ready (D-096)`; R-037's
 `ticket.md` now moves `close`'s `movedBy` to R-101.
 
+Day session of 2026-11-23, continued (`limen-rebuild-26`, by day, Adrian at the terminal; its `close-previous` printed
+`handover: closed tmux session limen-rebuild-25` and one `handover: stopped claude …` line and exited 0; its takeover
+push was skipped as redundant, the terminal being active; context 8 % at the start): the decisions of R-101 (the daily
+half of `evidence/inventories/R-032.md` → section 9, with D-096 (1)), R-034 and R-102 (`R-034.md` → section 9) were
+searched against the documents; three that none settles were asked as Q-51–Q-53 with a push (the resume as a sweep
+step or a command; the race of a resume with the deployment; the seat's old rules folder). Adrian: "zgodnie z
+rekomendacjami" → D-097 (option 1 each, with the items settled by the documents, those marked (A) named for his
+attention). R-034, R-101 and R-102 `ready (D-097)`; R-034's API is `pi, systemd`; steps 3.4 and 3.5 rewritten; the
+`movedBy` note names R-102 for `rule`, and the note on the rule timer's stderr line is R-102's; R-032's `ticket.md`
+→ `## Out of scope` names R-101 for the leftover Herdr tabs (D-096 (1)). One finding of the session's own, outside
+the inventory, is in D-097 (4) (d): `prunePass` deletes an unregistered folder with no `.git` in the worktree root
+with all it holds; R-101 moves it into the archive.
+
 Next (by day):
 1. After his return from the trip (Adrian, 2026-11-22: "Zapisz mi to na zrobienie po powrocie z wyjazdu, teraz działaj
    z zadaniami dalej"), Adrian adds the `hooks` block below to `.claude/settings.local.json` as a top-level key (into
@@ -3762,13 +3882,12 @@ Next (by day):
      ]
    }
    ```
-2. The night defaults of the night of D-091 are confirmed (D-093), and Q-45–Q-48 are answered (D-094: R-032, R-034
-   and R-037 split, with the new R-101, R-102 and R-103; D-095: the kinds `launch` and `internal`). R-036 (`5acb9fc`),
-   R-029, R-032, R-037 and R-087 are `ready`, each on its own branch of the dependency graph (D-054 (1)), so a night
-   can run them, and R-103 is `ready (D-096)` behind R-037; whether and when to start one is Adrian's. Next by day,
-   each inventory's questions settled by the documents first (the memory rule) and only what none settles asked: the
-   decisions of R-101 (from `R-032.md`, with D-096 (1): the leftover tabs and the `close` cut), R-034 and R-102 (from
-   `R-034.md`), recorded so that a night writes their `ticket.md` at the HEAD it starts from (D-054 (1)).
+2. R-036 (`5acb9fc`), R-029, R-032, R-037 and R-087 are `ready`, each on its own branch of the dependency graph
+   (D-054 (1)), so a night can run them; R-103 is `ready (D-096)` behind R-037, R-101 `ready (D-097)` behind R-032,
+   R-034 `ready (D-097)` behind R-029 and R-032, and R-102 `ready (D-097)` behind R-034; whether and when to start a
+   night is Adrian's. Next by day: R-098, the one stage-3 ticket still `planned` (its dependencies R-024 and R-031 are
+   `done`, so its full `ticket.md`): a read-only inventory first (`evidence/inventories/R-098.md`, as the six of
+   `6d17130`), its questions settled by the documents (the memory rule), only what none settles asked.
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
    D-047 and D-054 were.
