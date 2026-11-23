@@ -2291,11 +2291,13 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-23 by day (`limen-rebuild-22`, after the night of D-091), rebuild stage 5 in plan stage 3: stage 1 is closed
+Updated 2026-11-23 by day (`limen-rebuild-23`), rebuild stage 5 in plan stage 3: stage 1 is closed
 at `a0.1.1` (deployed on 2026-11-20, with B.2 closed by D-050); stage 2 is closed at `a0.2.0` (gate 5.2 decided,
 D-078–D-082); stage 3 has started: R-026, R-030 and R-033 are `done` (by day), R-027, R-028, R-031, R-035 and R-100
 `done` in the night of D-091 (until 09:00; it ended with `no-ticket`), D-092 settles its Q-42 and Q-43, and D-083's
-decision guard is built (D-086). The
+decision guard is built (D-086); D-093 confirms that night's defaults, D-094 splits R-032, R-034 and R-037 (new
+R-101–R-103), D-095 adds the kinds `launch` and `internal`, and R-029 and R-036 are `ready` ("Day session of
+2026-11-23 (`limen-rebuild-23`…)", just before `Next`). The
 newest entries are at the end of this section: the close of stage 2 in "Close of stage 2", the gate in "Gate 5.2
 decided", the start of stage 3 in "Start of stage 3", the guard and R-026 in "D-083's decision guard", R-030 and R-033
 (with D-087–D-091) in "R-030", the night's preparation in "The night of D-091 prepared", the night itself in
@@ -3798,3 +3800,9 @@ Handover of 2026-11-23 (D-047, at 37 % context, after the commit `D-092:`, with 
 turn. By day, Adrian at the terminal: the next session's first acts are a push notification to Adrian that it takes
 over at the night defaults of the night of D-091, then `node adrian-rebuild/tools/handover.mjs close-previous`, whose
 lines go into this section, then `Next` 2. The handover after it is `limen-rebuild-24`.
+
+Handover of 2026-11-23 (D-047, at 33 % context, after the commit `D-094, D-095:`, with the tree clean and pushed):
+`limen-rebuild-23` starts `limen-rebuild-24` with `node adrian-rebuild/tools/handover.mjs start 24` and ends its
+turn. By day, Adrian at the terminal: the next session's first acts are a push notification to Adrian that it takes
+over at the `ticket.md` of R-087, R-032 and R-037, then `node adrian-rebuild/tools/handover.mjs close-previous`,
+whose lines go into this section, then `Next` 2. The handover after it is `limen-rebuild-25`.
