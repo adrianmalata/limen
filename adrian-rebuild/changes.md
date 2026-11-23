@@ -3,7 +3,7 @@ Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, com
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
 R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025, R-097, R-099, R-026, R-030, R-033,
-R-027, R-028, R-031, R-035. -->
+R-027, R-028, R-031, R-035, R-100. -->
 
 # Changes
 
@@ -366,4 +366,12 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-09, M-06; `## Deployment` 3.8)
 - Commit: R-035
 - Rollback: git revert $(git log --format=%H --grep='^R-035:' adrian-rebuild --)
+
+## 2026-11-23 R-100 One definition of the ISO time, the 429 rule, the error-code check and the jobs listing
+- What: `src/boundary.ts` (`isIsoTime`, the form and a round trip through `Date`, so out-of-range times are refused, and the validator `isoTime`); `src/job/record.ts`, `src/lock.ts`, `src/job/usage.ts`, `src/job/migration.ts` (their own ISO patterns and `isoTime` gone); `src/job/record.ts` (`isRateLimit` exported) and `src/job/listing.ts` (`stopSummary` calls it); `src/system-error.ts` (`hasCode`'s comment) and the seven inline checks through it in `src/job/migration.ts`, `src/job/watching.ts`, `src/platform/requirements.ts`, `src/project/git.ts`, `src/runtime/recovery.ts`, `src/integrations/herdr.ts` (`errorCode` gone); `seat/deploy.ts` (lists through `jobFolderNames`: a hidden folder is skipped, a file at the `jobs` path is exit 4); tests in `test/boundary.test.ts`, `test/system-error.test.ts` (new), `test/seat/deploy.test.ts`, `test/structure.test.ts` (scans of the ISO pattern, the 429 rule and the code checks with fixture cases, the ratchet `ERRNO_TYPED` of 17 lines for R-082, `JOB_FOLDER_READERS` with `seat/deploy.ts` and `seat/alerts.ts`)
+- Why: T-25, D-080, A-022, T-27, T-29
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (946/946); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (four test files); `node --test test/structure.test.ts` → exit 0; `node --test test/seat/deploy.test.ts` → exit 0
+- Measurement: measured
+- Commit: R-100
+- Rollback: git revert $(git log --format=%H --grep='^R-100:' adrian-rebuild --)
 

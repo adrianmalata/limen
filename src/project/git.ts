@@ -4,6 +4,7 @@ import { basename, resolve } from "node:path";
 import { transport } from "../config.ts";
 import { environmentError, refused, usageError } from "../outcome.ts";
 import { gitStartFailure } from "../platform/requirements.ts";
+import { hasCode } from "../system-error.ts";
 export type GitWorktree = {
 	readonly path: string;
 	readonly branch?: string;
@@ -569,7 +570,7 @@ function git(cwd: string, args: readonly string[], input?: string, env?: NodeJS.
 			...(input === undefined ? {} : { input }),
 			...(env === undefined ? {} : { env }),
 		});
-	const miss = (error: Error | undefined) => !!error && "code" in error && error.code === "ENOENT";
+	const miss = (error: Error | undefined) => hasCode(error, "ENOENT");
 	let result = run(gitBin || "git");
 	// ENOENT: try the same binary once more before the absolute-path fallback below.
 	if (miss(result.error)) {
@@ -587,8 +588,8 @@ function git(cwd: string, args: readonly string[], input?: string, env?: NodeJS.
 	// A git that cannot start (not found, not executable) is the requirements check's environment failure (T-02: exit code
 	// 4); any other spawn error goes up as it is.
 	if (result.error) {
-		const code = "code" in result.error ? result.error.code : undefined;
-		throw code === "ENOENT" || code === "EACCES" ? gitStartFailure(result.error) : result.error;
+		const unstarted = hasCode(result.error, "ENOENT") || hasCode(result.error, "EACCES");
+		throw unstarted ? gitStartFailure(result.error) : result.error;
 	}
 	return { stdout: result.stdout ?? "", stderr: result.stderr ?? "", status: result.status ?? 1 };
 }

@@ -22,6 +22,8 @@ export type BadData = LimenError & { readonly file: string; readonly field: stri
 /** At most this many characters of a refused value go into the message. */
 const SHOWN = 40;
 const DURATION = "a duration such as 90s, 20m or 2h";
+/** The form of a time as `Date.prototype.toISOString` writes it: UTC, to the millisecond. */
+const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 /**
  * What a validator wanted at a field and what it found there. Validators run only through `checkValue` and
@@ -225,6 +227,24 @@ export function string(value: unknown, field: string): string {
 export function matching(pattern: RegExp, expected: string): Validator<string> {
 	return (value, field) =>
 		typeof value === "string" && pattern.test(value) ? value : mismatch(field, expected, value);
+}
+
+/**
+ * Whether `value` is a time as `toISOString` writes it, of a day and an hour that exist (T-25 (1)). `Date.parse` gives
+ * NaN for a month 13 but rolls 2026-02-30 and hour 24 over to another time, so only a value that the round trip
+ * through `Date` gives back unchanged passes.
+ */
+export function isIsoTime(value: string): boolean {
+	if (!ISO_TIME.test(value)) {
+		return false;
+	}
+	const time = Date.parse(value);
+	return Number.isFinite(time) && new Date(time).toISOString() === value;
+}
+
+/** An ISO time, as `isIsoTime` takes it. */
+export function isoTime(value: unknown, field: string): string {
+	return typeof value === "string" && isIsoTime(value) ? value : mismatch(field, "an ISO time", value);
 }
 
 type Bounds = { readonly integer?: true; readonly min?: number; readonly max?: number };

@@ -4,6 +4,7 @@ import { access, mkdir, rm } from "node:fs/promises";
 import { atomicWrite } from "../atomic-write.ts";
 import { type CommandText, environmentError } from "../outcome.ts";
 import { limenRoot } from "../project/git.ts";
+import { hasCode } from "../system-error.ts";
 import { isTerminal, SESSION_ID } from "./job.ts";
 import { jobFolders, readRecord, transition } from "./record.ts";
 import { type JobArgument, resolveJob } from "./reference.ts";
@@ -126,7 +127,7 @@ async function setSubscription(job: string, route: WakeRoute, watching: boolean)
 }
 async function exclusiveWrite(path: string, content: string): Promise<void> {
 	await atomicWrite(path, content, { exclusive: true }).catch((error: unknown) => {
-		if (!(typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST")) {
+		if (!hasCode(error, "EEXIST")) {
 			throw error;
 		}
 	});

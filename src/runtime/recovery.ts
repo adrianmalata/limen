@@ -3,6 +3,7 @@ import { mkdir, readdir, rm, rmdir } from "node:fs/promises";
 import { atomicRename, atomicWrite } from "../atomic-write.ts";
 import { textFile } from "../job/record.ts";
 import { platform } from "../platform/platform.ts";
+import { hasCode } from "../system-error.ts";
 
 /** A populated directory is published atomically. Retire only the observed unique entry:
  * competing stale-claim removers cannot unlink a replacement owner's entry. */
@@ -23,7 +24,7 @@ export async function claimRecovery(jobDir: string): Promise<(() => Promise<void
 					await rmdir(claim).catch(() => {});
 				};
 			} catch (error) {
-				if (!(error instanceof Error && "code" in error && ["EEXIST", "ENOTEMPTY"].includes(String(error.code)))) {
+				if (!(hasCode(error, "EEXIST") || hasCode(error, "ENOTEMPTY"))) {
 					throw error;
 				}
 			}

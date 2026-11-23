@@ -10,6 +10,7 @@ import { jobFolders, readRecord } from "../job/record.ts";
 import { type JobReference, resolveJob } from "../job/reference.ts";
 import { limenRoot } from "../project/git.ts";
 import { startOutsideJob } from "../runtime/launcher.ts";
+import { hasCode } from "../system-error.ts";
 
 export type HerdrPlace = {
 	readonly workspace: string;
@@ -33,16 +34,6 @@ export async function openWatchTab(input: {
 		return;
 	}
 	return createTab({ ...input, label: `${input.label} · running`, mode: "watch", follow: true, focus: false });
-}
-
-function errorCode(error: unknown): unknown {
-	if (typeof error !== "object" || error === null) {
-		return;
-	}
-	if (!("code" in error)) {
-		return;
-	}
-	return error.code;
 }
 
 /**
@@ -78,7 +69,7 @@ export async function closeJobTab(herdr: string, jobDir: string, tab: string): P
 			call(herdr, ["tab", "close", tab], 10_000);
 			return note(attempt === 1 ? "closed" : "closed on retry");
 		} catch (error) {
-			if (errorCode(error) === "tab_not_found") {
+			if (hasCode(error, "tab_not_found")) {
 				return note("already closed");
 			}
 			refusal = error instanceof Error ? error.message : String(error);

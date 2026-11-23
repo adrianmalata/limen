@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { herdrBinary } from "../integrations/herdr.ts";
 import { LimenError } from "../outcome.ts";
+import { hasCode } from "../system-error.ts";
 import { platform } from "./platform.ts";
 
 /** The oldest Node major Limen runs on; `bin/limen` checks the same number before it can load this module. */
@@ -38,7 +39,7 @@ function missingTool(message: string, cause?: unknown): LimenError {
 
 /** A git that cannot start, from the error of its spawn: not on PATH (`ENOENT`), or another reason it names. */
 export function gitStartFailure(error: Error): LimenError {
-	if ("code" in error && error.code === "ENOENT") {
+	if (hasCode(error, "ENOENT")) {
 		return missingTool(`git is not on PATH; Limen keeps each job in a git worktree. ${NEWER_GIT}`, error);
 	}
 	return missingTool(`git cannot start: ${error.message}. ${NEWER_GIT}`, error);

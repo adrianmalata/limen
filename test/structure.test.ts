@@ -1117,31 +1117,243 @@ test("T-25: outside src/job/id.ts no file of src/, hook/, bin/ or seat/ writes a
 	assert.deepEqual(found, []);
 });
 
+/** A line of code that holds a text a scan looks for: its file, its number and its text without the indentation. */
+type HeldLine = { readonly path: string; readonly line: number; readonly text: string };
+
+/** Each line of `files`, outside the file `module`, that holds one of `literals`. */
+function linesHolding(files: readonly Code[], literals: readonly string[], module: string): HeldLine[] {
+	return files
+		.filter(({ path }) => path !== module)
+		.flatMap(({ path, text }) =>
+			text
+				.split("\n")
+				.flatMap((line, index) =>
+					literals.some((literal) => line.includes(literal)) ? [{ path, line: index + 1, text: line.trim() }] : [],
+				),
+		);
+}
+/** A held line as a finding: `<path>:<line>: <text>`. */
+const heldText = ({ path, line, text }: HeldLine) => `${path}:${line}: ${text}`;
+
+/** The module of the ISO time (T-25 (1)): the one file that holds its form and its range check. */
+const ISO_TIME_MODULE = "src/boundary.ts";
+/** The start of the ISO time's pattern as source text: a date and the T before its time of day. */
+const ISO_TIME_TEXT = String.raw`\d{4}-\d{2}-\d{2}T`;
+/**
+ * The files outside the module that keep a pattern of a time: `limen rule --until` takes a looser form of user input,
+ * with an offset, and R-034 cuts the command.
+ */
+const ISO_TIME_EXCEPTIONS: ReadonlySet<string> = new Set(["src/commands/rule.ts"]);
+
+/** Each line of `files` outside the ISO time's module and its exceptions that holds the ISO time's pattern. */
+function isoTimeCopies(files: readonly Code[]): string[] {
+	return linesHolding(files, [ISO_TIME_TEXT], ISO_TIME_MODULE)
+		.filter(({ path }) => !ISO_TIME_EXCEPTIONS.has(path))
+		.map(heldText);
+}
+
+// T-25 (1): four copies of the form checked no range, so a day such as 2026-02-30 passed as a time; one module holds
+// the form with its range check.
+test("T-25: outside src/boundary.ts no file of src/, hook/, bin/ or seat/ holds the ISO time's pattern, except src/commands/rule.ts", async () => {
+	assert.deepEqual(isoTimeCopies(await knownSources(RUNTIME)), []);
+});
+
+test("the ISO time scan finds a copy of the pattern outside its module and skips the module, src/commands/rule.ts and a month", () => {
+	const copy = `const ISO_TIME = /^${ISO_TIME_TEXT}\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/;`;
+	const files = [
+		{ path: "src/boundary.ts", text: copy },
+		{ path: "src/commands/rule.ts", text: `const until = /^${ISO_TIME_TEXT}\\d{2}:\\d{2}/;` },
+		{ path: "src/job/record.ts", text: `const MONTH = /^\\d{4}-\\d{2}$/;\n${copy}` },
+		{ path: "seat/tool.ts", text: `\t${copy}` },
+	];
+	assert.deepEqual(isoTimeCopies(files), [`src/job/record.ts:2: ${copy}`, `seat/tool.ts:1: ${copy}`]);
+});
+
+/** The module of the 429 rule, `isRateLimit` (T-25 (1)): the one file that holds the rule's pattern. */
+const RATE_LIMIT_MODULE = "src/job/record.ts";
+/** The 429 rule's pattern of the status code, as source text. */
+const RATE_LIMIT_TEXT = String.raw`\b429\b`;
+
+/** Each line of `files` outside the 429 rule's module that holds the rule's pattern. */
+function rateLimitCopies(files: readonly Code[]): string[] {
+	return linesHolding(files, [RATE_LIMIT_TEXT], RATE_LIMIT_MODULE).map(heldText);
+}
+
+// T-25 (1): the listing kept an older copy of the rule, which could drift from the failure kind's; one module holds it.
+test("T-25: outside src/job/record.ts no file of src/, hook/, bin/ or seat/ holds the 429 rule's pattern", async () => {
+	assert.deepEqual(rateLimitCopies(await knownSources(RUNTIME)), []);
+});
+
+test("the 429 scan finds a copy of the rule's pattern outside its module and skips the module and a text that names 429", () => {
+	const copy = `if (!/${RATE_LIMIT_TEXT}/.test(reason)) {`;
+	const files = [
+		{ path: "src/job/record.ts", text: `return /${RATE_LIMIT_TEXT}/.test(text);` },
+		{ path: "src/job/listing.ts", text: `return "rate limit (429)";\n${copy}` },
+		{ path: "hook/wake.ts", text: copy },
+	];
+	assert.deepEqual(rateLimitCopies(files), [`src/job/listing.ts:2: ${copy}`, `hook/wake.ts:1: ${copy}`]);
+});
+
+/** The one check of the code of a thrown object (T-25 (1)): `hasCode`, the only reader of an error's `code`. */
+const SYSTEM_ERROR = "src/system-error.ts";
+/** A check of an error's code by hand, and the type that lets a line read one. */
+const CODE_CHECKS = ['"code" in', "NodeJS.ErrnoException"];
+/** A line of the ratchet below: its file and its text without the indentation. */
+type ListedLine = { readonly path: string; readonly text: string };
+/**
+ * The lines that type an error as `NodeJS.ErrnoException` to read its code, one entry per line. A ratchet: the list may
+ * only shrink, and R-082 brings it to zero, each line through `hasCode`. The scan compares it both ways, so a line that
+ * leaves the code leaves the list too.
+ */
+const ERRNO_TYPED: readonly ListedLine[] = [
+	{ path: "src/commands/sweep.ts", text: 'if ((error as NodeJS.ErrnoException).code === "EEXIST") {' },
+	{ path: "src/integrations/coordinator-wake.ts", text: 'conn.on("error", (error: NodeJS.ErrnoException) => {' },
+	{
+		path: "src/integrations/coordinator-wake.ts",
+		text: `resolve({ ok: false, detail: \`herdr not started: \${(error as NodeJS.ErrnoException).code ?? "spawn failed"}\` });`,
+	},
+	{ path: "src/integrations/github-poller.ts", text: 'if ((error as NodeJS.ErrnoException).code === "ENOENT") {' },
+	{ path: "src/integrations/github-poller.ts", text: 'if ((error as NodeJS.ErrnoException).code !== "ENOENT") {' },
+	{ path: "src/integrations/github-review.ts", text: 'if ((error as NodeJS.ErrnoException).code === "ENOENT") {' },
+	{ path: "src/job/group-cabinet.ts", text: 'if ((error as NodeJS.ErrnoException).code !== "ENOENT") {' },
+	{
+		path: "src/picture/board.ts",
+		text: 'const text = await readFile(join(root, "spec", "build.md"), "utf8").catch((error: NodeJS.ErrnoException) => {',
+	},
+	{
+		path: "src/picture/dataset.ts",
+		text: "const entries = await readdir(join(dir, name), { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {",
+	},
+	{ path: "src/picture/picture-serve.ts", text: 'server.once("error", (error: NodeJS.ErrnoException) =>' },
+	{
+		path: "src/picture/tickets.ts",
+		text: 'const text = await readFile(join(root, path), "utf8").catch((error: NodeJS.ErrnoException) => {',
+	},
+	{
+		path: "src/picture/tickets.ts",
+		text: "const entries = await readdir(path, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {",
+	},
+	{
+		path: "src/project/board-jobs.ts",
+		text: 'const text = await readFile(join(root, "spec/build.md"), "utf8").catch((error: NodeJS.ErrnoException) => {',
+	},
+	{ path: "src/project/seat-rules.ts", text: 'if ((error as NodeJS.ErrnoException).code === "EEXIST") {' },
+	{ path: "src/project/series.ts", text: 'if ((error as NodeJS.ErrnoException).code === "ENOENT") {' },
+	{ path: "src/project/series.ts", text: 'if ((error as NodeJS.ErrnoException).code === "ENOENT") {' },
+	{ path: "src/project/ticket-folders.ts", text: "(error: NodeJS.ErrnoException) => {" },
+];
+
+/**
+ * The lines of `files` outside src/system-error.ts that check or type an error's code (`CODE_CHECKS`), against the
+ * ratchet `listed`, as many times as each is listed: each line it does not list, and each listed line no file holds.
+ */
+function codeCheckDrift(files: readonly Code[], listed: readonly ListedLine[]): { added: string[]; gone: string[] } {
+	const key = ({ path, text }: ListedLine) => `${path}: ${text}`;
+	const gone = listed.map(key);
+	const added: string[] = [];
+	for (const held of linesHolding(files, CODE_CHECKS, SYSTEM_ERROR)) {
+		const index = gone.indexOf(key(held));
+		if (index === -1) {
+			added.push(heldText(held));
+		} else {
+			gone.splice(index, 1);
+		}
+	}
+	return { added, gone };
+}
+
+// T-25 (1): the inline checks of a code had drifted apart (an Error only, a list of codes, a cast), so one function
+// reads the code of any thrown object.
+test("T-25: outside src/system-error.ts no file of src/, hook/, bin/ or seat/ checks an error's code by hand, beyond the listed lines", async () => {
+	assert.deepEqual(codeCheckDrift(await knownSources(RUNTIME), ERRNO_TYPED), { added: [], gone: [] });
+});
+
+test("the code-check scan finds a check by hand and an unlisted type outside its module, and a listed line that went", () => {
+	const kept = 'if ((error as NodeJS.ErrnoException).code === "ENOENT") {';
+	const fixed = "(error: NodeJS.ErrnoException) => {";
+	const listed = [
+		{ path: "src/kept.ts", text: kept },
+		{ path: "src/kept.ts", text: kept },
+		{ path: "src/fixed.ts", text: fixed },
+	];
+	const files = [
+		{ path: "src/system-error.ts", text: 'return typeof error === "object" && error !== null && "code" in error;' },
+		{ path: "src/kept.ts", text: `\t${kept}\n\t\t${kept}` },
+		{ path: "src/fixed.ts", text: 'if (hasCode(error, "ENOENT")) {' },
+		{ path: "src/inline.ts", text: 'if ("code" in error && error.code === "ENOENT") {' },
+		{ path: "seat/typed.ts", text: `server.once("error", ${fixed}` },
+	];
+	assert.deepEqual(codeCheckDrift(files, listed), {
+		added: [
+			'src/inline.ts:1: if ("code" in error && error.code === "ENOENT") {',
+			`seat/typed.ts:1: server.once("error", ${fixed}`,
+		],
+		gone: [`src/fixed.ts: ${fixed}`],
+	});
+});
+
 /**
  * The modules that take job ids from folder names, besides the record module that lists them (T-25 (1)), with the
  * listings of it each one imports: the folders by name, and the job archive (A-002), which the token draw (T-20 (1)),
- * `limen stats` (gate 2 §2) and the GitHub claim's job lookup (R-099's open point 2) read.
+ * `limen stats` (gate 2 §2) and the GitHub claim's job lookup (R-099's open point 2) read. The seat's deployment and
+ * its alerts read the job folders of every registered project.
  */
 const JOB_FOLDER_READERS: Readonly<Record<string, readonly string[]>> = {
 	"src/job/reference.ts": ["jobFolderNames", "archivedJobs"],
 	"src/job/migration.ts": ["jobFolderNames"],
 	"src/job/statistics.ts": ["jobFolderNames", "archivedJobs"],
 	"src/integrations/github-review.ts": ["archivedJobs"],
+	"seat/deploy.ts": ["jobFolderNames"],
+	"seat/alerts.ts": ["jobFolderNames"],
 };
+/** An import of the record module: from src/job/, from another folder of src/, or from seat/. */
+const RECORD_IMPORT = /import \{([^}]*)\} from "(?:\.\/|\.\.\/job\/|\.\.\/src\/job\/)record\.ts"/;
 
-// T-25 (1): the listing carries the rule for a missing folder (ENOENT), and the archive's its layout, so one module
-// holds them.
-test("T-25: the readers of job folders and of the job archive list them only through src/job/record.ts", async () => {
+/**
+ * Each reader of `readers` among `files` that lists a folder itself (`readdir`) or does not import from the record
+ * module every listing it names, as `<path>: <what>`; a reader that `files` lacks imports none.
+ */
+function ownListings(files: readonly Code[], readers: Readonly<Record<string, readonly string[]>>): string[] {
 	const listing: string[] = [];
-	for (const [path, names] of Object.entries(JOB_FOLDER_READERS)) {
-		const text = await readFile(join(root, path), "utf8");
-		const imports = /import \{([^}]*)\} from "(?:\.\/|\.\.\/job\/)record\.ts"/.exec(text)?.[1] ?? "";
+	for (const [path, names] of Object.entries(readers)) {
+		const text = files.find((file) => file.path === path)?.text ?? "";
+		const imports = RECORD_IMPORT.exec(text)?.[1] ?? "";
 		const missing = names.filter((name) => !new RegExp(`\\b${name}\\b`).test(imports));
 		if (/\breaddir(?:Sync)?\b/.test(text) || missing.length > 0) {
 			listing.push(`${path}: ${missing.join(", ") || "readdir"}`);
 		}
 	}
-	assert.deepEqual(listing, []);
+	return listing;
+}
+
+// T-25 (1): the listing carries the rule for a missing folder (ENOENT), and the archive's its layout, so one module
+// holds them.
+test("T-25: the readers of job folders and of the job archive list them only through src/job/record.ts", async () => {
+	assert.deepEqual(ownListings(await knownSources(RUNTIME), JOB_FOLDER_READERS), []);
+});
+
+test("the listing scan finds a reader that lists job folders itself, and takes the record module's import from src/ and seat/", () => {
+	const readers = {
+		"src/job/reference.ts": ["jobFolderNames", "archivedJobs"],
+		"src/integrations/github-review.ts": ["archivedJobs"],
+		"seat/alerts.ts": ["jobFolderNames"],
+		"seat/deploy.ts": ["jobFolderNames"],
+		"seat/sync.ts": ["jobFolderNames"],
+	};
+	const files = [
+		{ path: "src/job/reference.ts", text: 'import { archivedJobs, jobFolderNames } from "./record.ts";' },
+		{ path: "src/integrations/github-review.ts", text: 'import { archivedJobs } from "../job/record.ts";' },
+		{ path: "seat/alerts.ts", text: 'import { type JobRecord, jobFolderNames } from "../src/job/record.ts";' },
+		{
+			path: "seat/deploy.ts",
+			text: 'import { readdir } from "node:fs/promises";\nimport { readRecord } from "../src/job/record.ts";',
+		},
+		{
+			path: "seat/sync.ts",
+			text: 'import { readdirSync } from "node:fs";\nimport { jobFolderNames } from "../src/job/record.ts";',
+		},
+	];
+	assert.deepEqual(ownListings(files, readers), ["seat/deploy.ts: jobFolderNames", "seat/sync.ts: readdir"]);
 });
 
 /** A file of code by its path from the repository root, for the scans of T-26 that also run on fixtures. */

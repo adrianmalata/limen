@@ -7,12 +7,12 @@
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { inspect } from "node:util";
 import { oldJobLive, oldLabel } from "../src/job/migration.ts";
-import { readRecord, unmigratedFolder } from "../src/job/record.ts";
+import { jobFolderNames, readRecord, unmigratedFolder } from "../src/job/record.ts";
 import { liveJob, startingJob } from "../src/runtime/reap.ts";
 import { absent, type ReadLine, readRegistry, registryPaths } from "./registries.ts";
 import { counted, printable, reason, requiredText, SeatFailure, type SeatOutcome } from "./tool-outcome.ts";
@@ -271,14 +271,20 @@ async function registries(passwd: string, retry: string): Promise<readonly Regis
 }
 
 /**
- * The jobs of one project that run or start, by their records (src/job/record.ts); a project without `.limen/jobs/`
- * has none. A folder an older Limen wrote is read as that Limen read it (src/job/migration.ts), since the migration
- * runs after this deployment (D-057 (1)).
+ * The jobs of one project that run or start, by their records (src/job/record.ts). The job folders come from the
+ * record module's listing, as for every other reader (T-25 (1)): a hidden folder is no job, and a project without
+ * `.limen/jobs/` has none. A folder an older Limen wrote is read as that Limen read it (src/job/migration.ts), since
+ * the migration runs after this deployment (D-057 (1)).
  */
 async function runningJobs(root: string, now: number, retry: string): Promise<readonly RunningJob[]> {
 	const jobs = join(root, ".limen", "jobs");
+	// `limen init` creates `.limen/jobs/`, but a `.limen/` made otherwise may lack it, and then it holds no job. Any other
+	// failure, such as a file in its place, stops the deployment, since the check could not see the jobs (z. 10).
+	const ids = await jobFolderNames(jobs).catch((error: unknown) => {
+		throw unreadable(jobs, error, retry);
+	});
 	const running: RunningJob[] = [];
-	for (const id of await jobFolders(jobs, retry)) {
+	for (const id of ids) {
 		const dir = join(jobs, id);
 		// A folder without a record is an older one, or one whose spawner an older Limen still sets up.
 		const record = unmigratedFolder(dir) ? undefined : await readRecord(dir);
@@ -293,19 +299,6 @@ async function runningJobs(root: string, now: number, retry: string): Promise<re
 		}
 	}
 	return running;
-}
-
-async function jobFolders(jobs: string, retry: string): Promise<readonly string[]> {
-	try {
-		const entries = await readdir(jobs, { withFileTypes: true });
-		return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
-	} catch (error) {
-		// `limen init` creates `.limen/jobs/`, but a `.limen/` made otherwise may lack it, and then it holds no job.
-		if (absent(error)) {
-			return [];
-		}
-		throw unreadable(jobs, error, retry);
-	}
 }
 
 /** The file's text, or undefined when the file or a folder on its path does not exist. */

@@ -4,7 +4,8 @@ z ośmiu sprawdzeń kodu D-080 idzie przez `hasCode`, a pozostałe
 miejsca `NodeJS.ErrnoException` stają się zapadką do zera w R-082. Stan:
 napisany 22.11 przy `9da2fde` z inwentarza `evidence/inventories/R-100.md`; sprawdzony ponownie przy `9a370ae`
 (R-033 przeniósł `absent` do `seat/registries.ts` już przez `hasCode`, więc zostaje siedem sprawdzeń, a `seat/alerts.ts`
-dołącza do skanu listowania jobów); gotowy na noc. -->
+dołącza do skanu listowania jobów); w nocy 23.11 sprawdzony przy `017a228` (te same wzorce, przesunięte linie),
+wdrożony i zamknięty po recenzji PASS w rundzie 1. -->
 
 # R-100 One definition of the ISO time, the 429 rule, the error-code check and the jobs listing
 
@@ -149,3 +150,18 @@ Settled by the documents when the ticket was written (2026-11-22, the main sessi
    `HEAD`, and `## Change` (c) keeps the rest of D-080's text. `seat/alerts.ts` (R-033) is a second seat reader of job
    folders and already lists through `jobFolderNames`, so `JOB_FOLDER_READERS` names it with `seat/deploy.ts`: the
    scan then holds what the code already does (T-25 (1)), and a seat file's import path needs the pattern widened.
+
+- 2026-11-23, night, before the implementation (the main session; what R-027 `ddea3ef`, R-028 `fe092f9`, R-031
+  `34a40d0` and R-035 `017a228` changed since the facts above were read at `9a370ae`; not a decision): every scan
+  pattern of `## Change` was run again at `017a228` with `git grep` over `src`, `hook`, `bin`, `seat` and matches the
+  same set, at moved lines. Of the files this ticket names only `src/job/migration.ts`, `src/job/record.ts`,
+  `src/project/git.ts` and `test/structure.test.ts` changed. Fact 1: the ISO pattern is at `src/job/record.ts:243` and
+  `src/job/migration.ts:97`. Fact 3: `isRateLimit` is at `src/job/record.ts:767-769`, `stopSummary`'s copy still at
+  `src/job/listing.ts:298`. Fact 4: the seven checks are at `src/job/migration.ts:339`, `src/job/watching.ts:129`,
+  `src/platform/requirements.ts:41`, `src/project/git.ts:572` and `:590`, `src/runtime/recovery.ts:26`,
+  `src/integrations/herdr.ts:38-46`; the 17 `NodeJS.ErrnoException` lines are the same set; R-035's new code
+  (`src/platform/linux.ts`) already calls `hasCode`. Fact 5: `jobFolderNames` is at `src/job/record.ts:290`;
+  `JOB_FOLDER_READERS` (`test/structure.test.ts:1125-1130`) now also names `src/job/statistics.ts` and
+  `src/integrations/github-review.ts` with `archivedJobs` (R-031), and its import pattern already accepts
+  `../job/record.ts`, so (d) adds the form `../src/job/record.ts` of `seat/`; `seat/deploy.ts` and `seat/alerts.ts`
+  did not change their listings (`seat/deploy.ts:298` holds the only `readdir` of the two).

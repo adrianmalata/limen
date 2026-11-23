@@ -11,7 +11,7 @@ import { type FileHandle, mkdir, open, readFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { atomicRename, atomicWrite } from "./atomic-write.ts";
-import { at, either, matching, numberIn, object, optional, parseJson } from "./boundary.ts";
+import { at, either, isoTime, matching, numberIn, object, optional, parseJson } from "./boundary.ts";
 import { testKnob } from "./config.ts";
 import { LimenError } from "./outcome.ts";
 import { BOOT_ID, type ProcessQueryOutcome, platform } from "./platform/platform.ts";
@@ -36,7 +36,6 @@ const MAX_PID = 2_147_483_647;
  */
 const BORN = /^\d{1,20}$/;
 const TOKEN = /^[0-9a-f]{32}$/;
-const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const RECORD_FIELDS = ["pid", "born", "bootId", "token", "since"];
 
 /** What a lock guards: a folder, whose lock is `<folder>/.lock`, or a file, whose lock is `<file>.lock`. */
@@ -376,7 +375,7 @@ function recordOf(value: unknown, field: string): LockRecord {
 	const born = optional(matching(BORN, "a start time of at most 20 digits"))(fields.get("born"), at(field, "born"));
 	const bootId = optional(matching(BOOT_ID, "a lower-case UUID"))(fields.get("bootId"), at(field, "bootId"));
 	const token = matching(TOKEN, "32 hexadecimal digits")(fields.get("token"), at(field, "token"));
-	const since = matching(ISO_TIME, "an ISO time")(fields.get("since"), at(field, "since"));
+	const since = isoTime(fields.get("since"), at(field, "since"));
 	return { pid, ...(born === undefined ? {} : { born }), ...(bootId === undefined ? {} : { bootId }), token, since };
 }
 

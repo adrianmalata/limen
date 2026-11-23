@@ -157,6 +157,27 @@ test("a job folder an older Limen wrote whose spawner still sets it up refuses t
 	assert.ok(run.stderr.split("\n").includes(`${f.project}  ${JOB}  older job`), run.stderr);
 });
 
+// T-25 (1): the deployment lists job folders as every other reader does, through jobFolderNames (src/job/record.ts).
+test("a hidden folder below .limen/jobs/ is no job, so one a live spawner seems to set up does not refuse the deployment", async (t) => {
+	const f = await fixture(t);
+	const dir = join(f.project, ".limen", "jobs", `.${JOB}`);
+	await mkdir(dir);
+	await writeFile(join(dir, "starting"), `${process.pid}\n`);
+	const run = await deployTo(f, f.newer);
+	assert.deepEqual([run.code, head(f), tags(f)], [0, f.newer, TAG], run.stderr);
+	assert.ok(run.stdout.split("\n").includes(`  ${f.project}: 0 running jobs`), run.stdout);
+});
+
+test("a file in the place of .limen/jobs/ refuses the deployment with exit 4 before the fetch, naming the path", async (t) => {
+	const f = await fixture(t);
+	const jobs = join(f.project, ".limen", "jobs");
+	await rm(jobs, { recursive: true });
+	await writeFile(jobs, "not a folder\n");
+	const run = await deployTo(f, f.newer);
+	assert.deepEqual([run.code, head(f), tags(f), fetched(f)], [4, f.older, "", f.older], run.stderr);
+	assert.ok(run.stderr.includes(`cannot read ${jobs}: ENOTDIR`), run.stderr);
+});
+
 test("a commit of another branch of origin is refused, naming the branch, and HEAD and the tags stay", async (t) => {
 	const f = await fixture(t);
 	const run = await deployTo(f, f.side);

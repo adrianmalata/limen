@@ -7,7 +7,7 @@ import { liveDiffstat, workspaceRepository } from "../project/git.ts";
 import { type OwnerState, ownerState, startingJob } from "../runtime/reap.ts";
 import { queuedText } from "../runtime/start-queue.ts";
 import { derivePulse, isTerminal, type Job, type Pulse, parseJob, producedNothing, renderJob } from "./job.ts";
-import { type JobRecord, type Progress, readProgress, readRecord } from "./record.ts";
+import { isRateLimit, type JobRecord, type Progress, readProgress, readRecord } from "./record.ts";
 import { modelLine, readSessionUsage, tokenLine } from "./usage.ts";
 import type { ShownJob } from "./view.ts";
 
@@ -295,7 +295,7 @@ function stopSummary(line: string): string {
 		.replace(/^\[limen [^\]]*\]\s*/, "")
 		.replace(/^(error|failed|stopped):\s*/, "")
 		.replace(/\s+/g, " ");
-	if (!/\b429\b/.test(reason) || !/rate_limit_error|rate limit/i.test(reason)) {
+	if (!isRateLimit(reason)) {
 		return reason;
 	}
 	const retryMs = /retry-after-ms=(\d+)/.exec(reason)?.[1];

@@ -13,6 +13,8 @@ import {
 	duration,
 	eachField,
 	either,
+	isIsoTime,
+	isoTime,
 	matching,
 	nullOr,
 	numberIn,
@@ -187,6 +189,48 @@ test("duration reads the --timeout form as milliseconds and refuses a value with
 	);
 	for (const value of ["60", "0s", "1d", 60, ["60s"]]) {
 		assert.equal(refusal(value, duration).expected, "a duration such as 90s, 20m or 2h", JSON.stringify(value));
+	}
+});
+
+test("isIsoTime accepts a time as toISOString writes it, and a leap day of a leap year", () => {
+	for (const value of ["2026-11-23T07:14:05.123Z", "2028-02-29T23:59:59.999Z", new Date(0).toISOString()]) {
+		assert.equal(isIsoTime(value), true, value);
+	}
+});
+
+test("isIsoTime refuses a time of another form: no milliseconds, an offset, a date alone or a lower-case z", () => {
+	for (const value of [
+		"2026-11-23T07:14:05Z",
+		"2026-11-23T07:14:05.123+01:00",
+		"2026-11-23",
+		"2026-11-23T07:14:05.123z",
+	]) {
+		assert.equal(isIsoTime(value), false, value);
+	}
+});
+
+// Each of these has the form of an ISO time, so the four checks of the form alone before R-100 accepted it.
+const OUT_OF_RANGE: ReadonlyArray<readonly [string, string]> = [
+	["a month 13", "2026-13-01T00:00:00.000Z"],
+	["a day 0", "2026-01-00T00:00:00.000Z"],
+	["2026-02-30, which Date rolls over to March", "2026-02-30T00:00:00.000Z"],
+	["2026-02-29, since 2026 is no leap year", "2026-02-29T12:00:00.000Z"],
+	["hour 24, which Date rolls over to the next day", "2026-01-01T24:00:00.000Z"],
+];
+for (const [name, value] of OUT_OF_RANGE) {
+	test(`isIsoTime refuses ${name}: ${value}`, () => {
+		assert.equal(isIsoTime(value), false);
+	});
+}
+
+test("isoTime gives an ISO time and refuses a time out of range, another form or a value that is not a string", () => {
+	assert.equal(checkValue(FILE, "2028-02-29T00:00:00.000Z", isoTime), "2028-02-29T00:00:00.000Z");
+	assert.equal(
+		refusal("2026-02-30T00:00:00.000Z", isoTime).message,
+		'fixture.json: expected an ISO time, got "2026-02-30T00:00:00.000Z"',
+	);
+	for (const value of ["2026-11-23", Date.parse("2026-11-23T00:00:00.000Z"), null]) {
+		assert.equal(refusal(value, isoTime).expected, "an ISO time", String(value));
 	}
 });
 

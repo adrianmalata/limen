@@ -12,12 +12,13 @@ import { existsSync, type Stats } from "node:fs";
 import { mkdir, readFile, rm, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { atomicRename, atomicWrite } from "../atomic-write.ts";
-import { arrayOf, nullOr, numberIn, object, parseJson, string } from "../boundary.ts";
+import { arrayOf, isIsoTime, nullOr, numberIn, object, parseJson, string } from "../boundary.ts";
 import { LimenError, type Success } from "../outcome.ts";
 import { platform } from "../platform/platform.ts";
 import { branchTip, committerTime, headHistory, isGitRepository, limenRoot } from "../project/git.ts";
 import { landedJobOf } from "../project/lanes.ts";
 import { liveJob, STARTUP_GRACE_MS, startingJob } from "../runtime/reap.ts";
+import { hasCode } from "../system-error.ts";
 import { hexEndOf, TOKEN, tokenOf } from "./id.ts";
 import { isTerminal, SESSION_ID } from "./job.ts";
 import {
@@ -94,7 +95,6 @@ const REMOVED_FEATURES = [
 ];
 const OLD_STATES: readonly string[] = ["running", "done", "failed", "stopped"];
 const CLOCK_TICKS = /^\d{1,20}$/;
-const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 /** What the migration did, or would do, to one job folder. */
 export type FolderStep =
@@ -336,7 +336,7 @@ async function oldFiles(jobDir: string): Promise<Map<Moved, string>> {
 /** A catch that gives `value` for an absent file (`ENOENT`) and rethrows any other error (T-01). */
 function whenAbsent<T>(value: T): (error: unknown) => T {
 	return (error) => {
-		if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+		if (hasCode(error, "ENOENT")) {
 			return value;
 		}
 		throw error;
@@ -467,9 +467,10 @@ async function migratedRecord(jobDir: string, id: string, files: ReadonlyMap<Mov
 	const values = new OldValues(files);
 	const state = JOB_STATES.find((one) => one === files.get("state")) ?? "running";
 	const terminal = state !== "running";
-	const startedAt = values.field("started-at", isoTime, "not an ISO time");
+	const timeOf = (text: string) => (isIsoTime(text) ? text : undefined);
+	const startedAt = values.field("started-at", timeOf, "not an ISO time");
 	const finishedAt =
-		values.field("finished-at", isoTime, "not an ISO time") ?? (terminal ? await modifiedAt(jobDir, "state") : null);
+		values.field("finished-at", timeOf, "not an ISO time") ?? (terminal ? await modifiedAt(jobDir, "state") : null);
 	const record = checkedRecord(recordPath(jobDir), {
 		...emptyRecord(id),
 		...factsOf(values),
@@ -574,9 +575,6 @@ async function modifiedAt(jobDir: string, name: string): Promise<string | null> 
 	return info ? new Date(info.mtimeMs).toISOString() : null;
 }
 
-function isoTime(value: string): string | undefined {
-	return ISO_TIME.test(value) ? value : undefined;
-}
 function pidOf(value: string): number | undefined {
 	const pid = Number(value);
 	return /^\d+$/.test(value) && Number.isSafeInteger(pid) && pid > 0 ? pid : undefined;
@@ -607,7 +605,7 @@ function queuedOf(text: string): Queued | undefined {
 			ahead: nullOr(numberIn({ integer: true, min: 0 }))(fields.get("ahead") ?? null, "ahead"),
 		};
 	})(text);
-	return read && ISO_TIME.test(read.since) ? read : undefined;
+	return read && isIsoTime(read.since) ? read : undefined;
 }
 
 /**

@@ -20,6 +20,7 @@ import {
 	arrayOf,
 	at,
 	checkValue,
+	isoTime,
 	matching,
 	nullOr,
 	numberIn,
@@ -240,7 +241,6 @@ const RECORD_FIELDS = [
 	"abandoned",
 ] as const;
 
-const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 /** A full commit SHA, as `git rev-parse` gives it. */
 const COMMIT = /^[0-9a-f]{40}$/;
 /** A branch name as one word of one line; Git checks the rest of its form when the branch is made. */
@@ -763,8 +763,11 @@ function failureKind(detail: string): FailureKind | null {
 	}
 	return null;
 }
-/** A 429 of the provider's API with its rate-limit error. */
-function isRateLimit(text: string): boolean {
+/**
+ * A 429 of the provider's API with its rate-limit error: the one rule, which the failure kind and the stop summary of a
+ * job's view (src/job/listing.ts) share (T-25 (1)).
+ */
+export function isRateLimit(text: string): boolean {
 	return /\b429\b/.test(text) && /rate_limit_error|rate limit/i.test(text);
 }
 
@@ -786,9 +789,6 @@ export async function textFile(path: string): Promise<string> {
 // The validators of the record (src/boundary.ts). They are functions, not values built when the module loads, so that
 // the order in which src/boundary.ts and this module load does not matter.
 
-function isoTime(value: unknown, field: string): string {
-	return matching(ISO_TIME, "an ISO time")(value, field);
-}
 function pidOf(value: unknown, field: string): number {
 	return numberIn({ integer: true, min: 1, max: MAX_PID })(value, field);
 }

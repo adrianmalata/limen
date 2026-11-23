@@ -7,7 +7,7 @@
 // `limen stats` read it.
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { at, type BadData, matching, numberIn, object, parseJson, string } from "../boundary.ts";
+import { at, type BadData, isoTime, numberIn, object, parseJson, string } from "../boundary.ts";
 import { LimenError } from "../outcome.ts";
 import { hasCode } from "../system-error.ts";
 
@@ -27,9 +27,6 @@ const CLASSES = ["input", "output", "cacheRead", "cacheWrite"] as const;
 type Tokens = Readonly<Record<(typeof CLASSES)[number], number>>;
 /** An entry that carries a Pi usage: when Pi wrote it, its tokens, and for an assistant message the route that answered. */
 type Counted = { readonly at: number; readonly tokens: Tokens; readonly served?: string };
-
-/** The time of a session entry, as Pi writes it with `toISOString`. */
-const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 /**
  * Sums the entries of the job's transcripts that carry a usage and are its own, from `startedAt`, the start its record
@@ -149,8 +146,9 @@ function assistantOf(fields: ReadonlyMap<string, unknown>, field: string): Count
 	};
 }
 
+/** The time of a session entry, which Pi writes with `toISOString`. */
 function writtenAt(fields: ReadonlyMap<string, unknown>, field: string): number {
-	return Date.parse(matching(ISO_TIME, "an ISO time")(fields.get("timestamp"), at(field, "timestamp")));
+	return Date.parse(isoTime(fields.get("timestamp"), at(field, "timestamp")));
 }
 
 /** A Pi `Usage`: its four classes, each a count of tokens. */

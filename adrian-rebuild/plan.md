@@ -1460,7 +1460,7 @@ Columns:
 | R-037 | Land runs as recorded steps with an atomic closing commit | 3 | A-021, A-057, T-18, T-28 | R-023, R-031, R-092 | L | delegated | night | yes | herdr | 3.9 | planned |
 | R-087 | The job environment is an allow-list; git and gh in a job hold no credential (T1) | 3 | A-004, A-061, E-4, D-017 | R-015, R-021, R-026 | M | delegated | night | — | pi, bridge | 3.10 | planned |
 | R-098 | `limen stats` per landed ticket and per coordinator turn | 3 | §2, A-078, A-037, D-072 | R-024, R-031 | M | delegated | night | — | pi | B.3, B.4 | planned |
-| R-100 | One definition of the ISO time, the 429 rule, the error-code check and the jobs listing | 3 | T-25, D-080 | R-022, R-093, R-097 | S | delegated | night | — | — | — | ready |
+| R-100 | One definition of the ISO time, the 429 rule, the error-code check and the jobs listing | 3 | T-25, D-080 | R-022, R-093, R-097 | S | delegated | night | — | — | — | done |
 | R-038 | The fake engine shows the model's view under the bridge | 4 | T-31, A-051 | R-017 | M | delegated | night | — | bridge | 4.1 | planned |
 | R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16 | R-021, R-038 | L | delegated | night | yes | pi, bridge | 4.2 | planned |
 | R-040 | Role texts come from the package, in three registers | 4 | A-038, A-039, A-042, D-005 | R-001, R-039 | M | delegated | night | yes | — | — | planned |
@@ -2195,14 +2195,14 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-22 by day (`limen-rebuild-22`), rebuild stage 5 in plan stage 3: stage 1 is closed at `a0.1.1`
-(deployed on 2026-11-20, with B.2 closed by D-050); stage 2 is closed at `a0.2.0` (gate 5.2 decided, D-078–D-082);
-stage 3 has started: R-026, R-030 and R-033 are `done` (by day), R-027, R-028, R-031 and R-035 `done` in the night of
-D-091 (until 09:00), R-100 `ready` for it, and D-083's decision guard is built (D-086). The newest entries are at
-the end of this section: the close of stage 2 in "Close of stage 2", the gate in "Gate 5.2 decided", the start of
-stage 3 in "Start of stage 3", the guard and R-026 in "D-083's decision guard", R-030 and R-033 (with D-087–D-091) in
-"R-030", the night's preparation in "The night of D-091 prepared", and the night itself in "Night run of
-2026-11-22/23".
+Updated 2026-11-23 by the night of D-091 (run 3 of `night.mjs`), rebuild stage 5 in plan stage 3: stage 1 is closed
+at `a0.1.1` (deployed on 2026-11-20, with B.2 closed by D-050); stage 2 is closed at `a0.2.0` (gate 5.2 decided,
+D-078–D-082); stage 3 has started: R-026, R-030 and R-033 are `done` (by day), R-027, R-028, R-031, R-035 and R-100
+`done` in the night of D-091 (until 09:00; it ended with `no-ticket`), and D-083's decision guard is built (D-086). The
+newest entries are at the end of this section: the close of stage 2 in "Close of stage 2", the gate in "Gate 5.2
+decided", the start of stage 3 in "Start of stage 3", the guard and R-026 in "D-083's decision guard", R-030 and R-033
+(with D-087–D-091) in "R-030", the night's preparation in "The night of D-091 prepared", and the night itself in
+"Night run of 2026-11-22/23".
 
 Handover of 2026-11-19 (D-033, at 37 % context, after the commit `R-014:`): `limen-rebuild-5` started
 `limen-rebuild-6` in `tmux` in remote-control mode (14:10) and ended. WSL booted at 10:34 on 2026-11-19, after the
@@ -3506,6 +3506,24 @@ and pushed; the tickets in protocol order, the lowest `ready` ID first: R-027, R
   Description shortened to stay within 100 characters. Q-43 (no ticket blocked): the wake hook's one advisory receipt
   per job and session means a stall advisory after the queue's diagnosis no longer reaches that session; recommended: an
   item of R-036. Open points for gate 5.3: `outcome.md` → Open points 1–7. Unmeasured: M-09, M-06, seat step 3.8.
+  Committed and pushed as `017a228`.
+- R-100 `done` (delegated, started at 07:20, before the end time; review PASS in round 1, its first reply rejected by
+  `review-verdict.mjs` for its form, AC-10 over four bullet lines, and given again by a fresh reviewer with the tree
+  unchanged): its scan patterns run again at `017a228` first (the same set at moved lines, `ticket.md` →
+  `## Decisions`). The ISO time has one definition, `isIsoTime` and the validator `isoTime` in `src/boundary.ts` (the
+  form and a round trip through `Date`, so a month 13, a day 0, `2026-02-30`, `2026-02-29` and hour 24 are refused);
+  the 429 rule is `isRateLimit`, which `stopSummary` now calls; the seven inline code checks go through `hasCode`
+  (Herdr's `errorCode` gone); `seat/deploy.ts` lists through `jobFolderNames` (a hidden folder is skipped, a file at
+  the `jobs` path is exit 4, the list is sorted). Three scans in `test/structure.test.ts` with fixture cases, the
+  ratchet `ERRNO_TYPED` (17 lines, for R-082) and `JOB_FOLDER_READERS` with both seat readers. The main session's gate
+  946/946; `fails-before.mjs` exit 0 (four files in one run; `test/system-error.test.ts` passes at `HEAD` on its
+  own, as `## Change` (e) allows). Two notes fixed by the main session in `outcome.md` (D-053 (2)), one left to R-082's
+  ratchet as in R-020, R-028 and R-035 (`claimRecovery`'s "split pending"). Night defaults for Adrian to confirm: the
+  implementer's six (`outcome.md` → `## Night defaults`), among them text scans by line with `src/commands/rule.ts`
+  whole as the ISO exception, and the ratchet compared as a multiset. R-029 now has all its dependencies `done`.
+- No `ready` ticket is left in stage 3 (R-029, R-032, R-034, R-036, R-037 and R-087 are `planned`, and a night takes
+  only `ready` ones, D-054 (1)), so the night ends with the reason `no-ticket` (`.night/status.json`). Gate 5.3 is not
+  due: stage 3 has six tickets left.
 
 Next (by day):
 1. After his return from the trip (Adrian, 2026-11-22: "Zapisz mi to na zrobienie po powrocie z wyjazdu, teraz działaj
@@ -3532,14 +3550,13 @@ Next (by day):
      ]
    }
    ```
-2. The night of D-091 (2026-11-22/23, until 09:00): (a) and (b) are done ("The night of D-091 prepared"); what is
-   left is (c), the D-024 preflight (the runner's tests, the pushed SHA, a clean tree, a `claude -p` that lists both
-   subagent definitions), its results shown to Adrian, then `mkdir -p adrian-rebuild/.night` and `nohup node
-   adrian-rebuild/tools/night.mjs --until 09:00` with its output to `adrian-rebuild/.night/launcher.log`; from then on
-   the session changes nothing in the repository until Adrian writes (D-024). The night takes the `ready` tickets in
-   protocol order: R-027, R-028, R-031, R-035, R-100. R-036 and R-087 stay for the day; R-029 waits for R-100 (D-080).
-   The day session after the night (`limen-rebuild-23`) starts from `.night/status.json`, `.night/questions.md` and
-   the night's entry in this section.
+2. The night of D-091 is over: all five of its tickets are `done` (R-027 `ddea3ef`, R-028 `fe092f9`, R-031 `34a40d0`,
+   R-035 `017a228`, R-100 in the commit `R-100:`), and it ended with `no-ticket`. The day session after it
+   (`limen-rebuild-23`) starts from `.night/status.json`, `.night/questions.md` (Q-42 and Q-43 open, neither blocking
+   a ticket) and the night's entry in this section; it asks Adrian for the night defaults of the five tickets (each
+   `ticket.md` → `## Decisions` and `outcome.md` → `## Night defaults`) and Q-42 and Q-43, then makes the next stage-3
+   tickets `ready` for a night (D-054 (1)): R-029 (its dependencies are `done`), R-036 (with Q-43's item if Adrian
+   answers 1), R-087, then R-032, R-034 and R-037 in dependency order.
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
    D-047 and D-054 were.
