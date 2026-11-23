@@ -79,6 +79,60 @@ test("limen abandon: a done job's work goes on limen/abandon/<id> above its work
 	);
 });
 
+// A-002: before R-031 only the branch's existence said that a job was abandoned; the record now holds what was saved.
+test("abandon writes the abandoned marker with its branch, its commit and the time once it removed the worktree", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const job = doneJob(p);
+	await leaveWork(job.worktree);
+	const before = Date.now();
+	assert.equal(limen(p, ["abandon", job.id]).status, 0);
+	const saved = `limen/abandon/${job.id}`;
+	const { at = "", ...marker } = jobRecord(p, job.id)?.abandoned ?? {};
+	assert.deepEqual(
+		[marker, Date.parse(at) >= before - 1_000 && Date.parse(at) <= Date.now()],
+		[{ branch: saved, commit: git(p.root, "rev-parse", saved) }, true],
+		at,
+	);
+});
+
+/** The lines of the section of `limen status` that lists unlanded work, without its header. */
+function unlandedLines(p: Plant): string[] {
+	const run = limen(p, ["status"]);
+	assert.equal(run.status, 0, run.stderr);
+	const lines = run.stdout.split("\n");
+	const at = lines.indexOf("Unlanded work (spawn refuses until each is continued or abandoned):");
+	return at < 0 ? [] : lines.slice(at + 1, at + 4);
+}
+
+// D-088: the marker says that the branch holds the whole worktree, so a worktree abandon keeps leaves the job open.
+test("abandon writes no abandoned marker when it keeps the worktree, so the job's unlanded work stays listed", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const job = doneJob(p);
+	git(p.root, "worktree", "lock", job.worktree);
+	assert.equal(limen(p, ["abandon", job.id]).status, 0);
+	assert.deepEqual(
+		[jobRecord(p, job.id)?.abandoned, unlandedLines(p)[0]],
+		[undefined, `  ${job.id} · done · 0 changed files, 1 unlanded commit`],
+	);
+});
+
+// R-030, Decision 2: R-031 replaces the branch test with the record's marker, so a branch of that name made by hand
+// resolves nothing; before R-031 its existence alone took the job off the list and let a worker spawn.
+test("a limen/abandon/<id> branch without the record's abandoned marker resolves no job, which status still lists", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const job = doneJob(p);
+	git(p.root, "worktree", "remove", job.worktree);
+	git(p.root, "branch", `limen/abandon/${job.id}`, job.tip);
+	assert.deepEqual(unlandedLines(p), [
+		`  ${job.id} · done · 0 changed files, 1 unlanded commit`,
+		`    limen continue ${job.id} "instruction"`,
+		`    limen abandon ${job.id}`,
+	]);
+});
+
 // T-28 (3): the worktree holds every kind of change; what Git does not ignore is on the branch byte for byte.
 test("abandon keeps every changed, deleted and untracked file of the worktree on its branch byte for byte, and no ignored one", async (t) => {
 	const p = await plant();
@@ -114,7 +168,27 @@ test("a second abandon after all its steps prints the branch, exits 0 and change
 	const saved = `limen/abandon/${job.id}`;
 	assert.deepEqual(
 		[again.status, outputText(again), snapshot(p.root)],
-		[0, `job ${job.id} is saved on ${saved} at ${git(p.root, "rev-parse", saved)}\n`, before],
+		[0, `job ${job.id} is abandoned: its work is on ${saved} at ${git(p.root, "rev-parse", saved)}\n`, before],
+		again.stderr,
+	);
+});
+
+// Review round 1, F7 (T-28 (3)): the record's marker says the job is abandoned; before the fix a run again after a
+// person deleted the branch made it again at the job's tip and exited 5 MARKER_DIFFERS.
+test("abandon run again after a person deleted limen/abandon/<id> says that the branch is gone, makes none and exits 0", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const job = doneJob(p);
+	await leaveWork(job.worktree);
+	assert.equal(limen(p, ["abandon", job.id]).status, 0);
+	const saved = `limen/abandon/${job.id}`;
+	const commit = git(p.root, "rev-parse", saved);
+	git(p.root, "branch", "-D", saved);
+	const before = snapshot(p.root);
+	const again = limen(p, ["abandon", job.id]);
+	assert.deepEqual(
+		[again.status, outputText(again), snapshot(p.root)],
+		[0, `job ${job.id} is abandoned: its work was on ${saved} at ${commit}; that branch is gone\n`, before],
 		again.stderr,
 	);
 });
@@ -216,8 +290,85 @@ test("abandon keeps and names a worktree whose nested repository's commit, recor
 	);
 });
 
-// Review round 4, I1: the written branch resolves the job and its worktree looks clean, so before the fix the next
-// prune removed the worktree H1 kept, and the nested commit with it.
+/** The cause of a kept worktree whose nested repository `vendor/lib` names a commit the project lacks outside its checkout. */
+const NESTED_REF =
+	"the nested repository vendor/lib holds a branch, tag, stash or reflog entry at a commit that the project's repository lacks";
+
+/** Git in the nested repository `nested` with an identity, which the plant's clone of the project has none of. */
+function nestedGit(nested: string, ...args: readonly string[]): string {
+	return git(nested, "-c", "user.name=Nested", "-c", "user.email=nested@example.test", ...args);
+}
+
+/**
+ * A finished job whose HEAD records a clone of the project as the nested repository `vendor/lib`, clean and at a commit
+ * the project's object store holds, after `make` gave the clone a commit only it holds outside its checkout; and the
+ * abandon of the job that follows.
+ */
+async function abandonWithNestedRef(p: Plant, make: (nested: string) => Promise<void>) {
+	const job = await nestedJob(p, "vendor/lib", { committed: true, known: true, untracked: false });
+	await make(job.nested);
+	assert.equal(git(job.nested, "status", "--porcelain"), "");
+	return { ...job, run: limen(p, ["abandon", job.id]) };
+}
+
+// D-088 (R-030 review round 4, note 2): before R-031 abandon read only the gitlink's commit and the nested status, so
+// it removed the worktree and the commits the nested repository held elsewhere with it.
+test("abandon keeps a worktree whose nested repository has a branch at a commit the project lacks, and writes no marker", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const { id, worktree, run } = await abandonWithNestedRef(p, async (nested) => {
+		const commit = nestedGit(
+			nested,
+			"commit-tree",
+			git(nested, "rev-parse", "HEAD^{tree}"),
+			"-p",
+			"HEAD",
+			"-m",
+			"aside",
+		);
+		git(nested, "-c", "core.logAllRefUpdates=false", "update-ref", "refs/heads/aside", commit);
+	});
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(
+		[outputText(run).split("\n")[1], jobRecord(p, id)?.abandoned, existsSync(worktree)],
+		[`kept ${worktree} (job ${id}): ${NESTED_REF}`, undefined, true],
+	);
+});
+
+test("abandon keeps a worktree whose nested repository has a stash the project lacks, and writes no marker", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const { id, worktree, run } = await abandonWithNestedRef(p, async (nested) => {
+		await writeFile(join(nested, "README.md"), "plant, edited in the nested repository\n");
+		nestedGit(nested, "stash", "-q");
+	});
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(
+		[outputText(run).split("\n")[1], jobRecord(p, id)?.abandoned, existsSync(worktree)],
+		[`kept ${worktree} (job ${id}): ${NESTED_REF}`, undefined, true],
+	);
+});
+
+test("abandon keeps a worktree whose nested repository has a reflog entry at a commit the project lacks, and writes no marker", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const { id, worktree, run } = await abandonWithNestedRef(p, async (nested) => {
+		await writeFile(join(nested, "later.txt"), "a commit that a reset left only in the reflog\n");
+		nestedGit(nested, "add", "later.txt");
+		nestedGit(nested, "commit", "-q", "-m", "later");
+		nestedGit(nested, "reset", "-q", "--hard", "HEAD~1");
+	});
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(
+		[outputText(run).split("\n")[1], jobRecord(p, id)?.abandoned, existsSync(worktree)],
+		[`kept ${worktree} (job ${id}): ${NESTED_REF}`, undefined, true],
+	);
+});
+
+// Review round 4, I1: before that fix the written branch resolved the job and its worktree looked clean, so the next
+// prune removed the worktree H1 kept, and the nested commit with it. Since R-031 an abandon that keeps the worktree
+// writes no `abandoned` marker, so the job's work stays unresolved and prune keeps the worktree for it, as for any
+// unlanded work; before R-031 the line named the nested commit instead.
 test("a worktree abandon kept for a nested commit the project lacks survives the next prune, which names it", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
@@ -225,7 +376,7 @@ test("a worktree abandon kept for a nested commit the project lacks survives the
 	assert.equal(limen(p, ["abandon", id]).status, 0);
 	const pruned = limen(p, ["prune"]);
 	assert.equal(pruned.status, 0, pruned.stderr);
-	assert.ok(pruned.stdout.includes(`kept ${worktree} (job ${id}): ${UNSAVED}\n`), pruned.stdout);
+	assert.ok(pruned.stdout.includes(`kept ${worktree} (job ${id}): unlanded work\n`), pruned.stdout);
 	assert.equal(git(nested, "cat-file", "-t", head), "commit");
 });
 
@@ -363,6 +514,22 @@ test("JOB_CONTINUED: abandon of a job whose worktree a newer job holds exits 1, 
 	assert.deepEqual(
 		[run.status, readOutcome(run), after],
 		[1, { class: "refused", code: "JOB_CONTINUED", next: `limen abandon ${child}` }, before],
+		run.stderr,
+	);
+});
+
+// Review round 1, F3: a marker never hides work (R-031, Decision 3); before the fix abandon took a limen/abandon/<id>
+// made elsewhere as the job's save and marked the job, whose own commit the branch does not hold.
+test("ABANDON_BRANCH_LACKS_WORK: abandon of a job with no worktree whose limen/abandon/<id> lacks its branch's tip exits 1 and leaves the snapshot identical", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const job = doneJob(p);
+	git(p.root, "worktree", "remove", job.worktree);
+	git(p.root, "branch", `limen/abandon/${job.id}`, "HEAD");
+	const { run, before, after } = refusedAbandon(p, job.id);
+	assert.deepEqual(
+		[run.status, readOutcome(run), after, jobRecord(p, job.id)?.abandoned],
+		[1, { class: "refused", code: "ABANDON_BRANCH_LACKS_WORK", next: null }, before, undefined],
 		run.stderr,
 	);
 });

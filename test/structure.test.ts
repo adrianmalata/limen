@@ -1117,17 +1117,28 @@ test("T-25: outside src/job/id.ts no file of src/, hook/, bin/ or seat/ writes a
 	assert.deepEqual(found, []);
 });
 
-/** The modules that take job ids from folder names, besides the record module that lists them (T-25 (1)). */
-const JOB_FOLDER_READERS = ["src/job/reference.ts", "src/job/migration.ts"] as const;
+/**
+ * The modules that take job ids from folder names, besides the record module that lists them (T-25 (1)), with the
+ * listings of it each one imports: the folders by name, and the job archive (A-002), which the token draw (T-20 (1)),
+ * `limen stats` (gate 2 §2) and the GitHub claim's job lookup (R-099's open point 2) read.
+ */
+const JOB_FOLDER_READERS: Readonly<Record<string, readonly string[]>> = {
+	"src/job/reference.ts": ["jobFolderNames", "archivedJobs"],
+	"src/job/migration.ts": ["jobFolderNames"],
+	"src/job/statistics.ts": ["jobFolderNames", "archivedJobs"],
+	"src/integrations/github-review.ts": ["archivedJobs"],
+};
 
-// T-25 (1): the listing carries the rule for a missing folder (ENOENT), so one module holds it.
-test("T-25: src/job/reference.ts and src/job/migration.ts list job folders only through src/job/record.ts", async () => {
+// T-25 (1): the listing carries the rule for a missing folder (ENOENT), and the archive's its layout, so one module
+// holds them.
+test("T-25: the readers of job folders and of the job archive list them only through src/job/record.ts", async () => {
 	const listing: string[] = [];
-	for (const path of JOB_FOLDER_READERS) {
+	for (const [path, names] of Object.entries(JOB_FOLDER_READERS)) {
 		const text = await readFile(join(root, path), "utf8");
-		const imported = /import \{[^}]*\bjobFolderNames\b[^}]*\} from "\.\/record\.ts"/.test(text);
-		if (/\breaddir(?:Sync)?\b/.test(text) || !imported) {
-			listing.push(path);
+		const imports = /import \{([^}]*)\} from "(?:\.\/|\.\.\/job\/)record\.ts"/.exec(text)?.[1] ?? "";
+		const missing = names.filter((name) => !new RegExp(`\\b${name}\\b`).test(imports));
+		if (/\breaddir(?:Sync)?\b/.test(text) || missing.length > 0) {
+			listing.push(`${path}: ${missing.join(", ") || "readdir"}`);
 		}
 	}
 	assert.deepEqual(listing, []);

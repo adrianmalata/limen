@@ -5,20 +5,23 @@
 // that names it: an older record on the same worktree, a continued parent, carries nothing, and a member of an open
 // group carries nothing while the group holds it. A review job's branch is its candidate's, so it carries only its
 // worktree. The work is resolved once it lands, once a newer job takes the worktree (`limen continue`), or once the
-// branch `limen/abandon/<id>` exists (R-030; R-031 adds the record's own marker). Every read is a read: `git status`
-// runs without optional locks, so it refreshes no index (T-04).
+// record holds the `abandoned` marker that `limen abandon` writes when its branch `limen/abandon/<id>` holds the whole
+// worktree (R-030, Decision 2; R-031): a branch of that name without the marker resolves nothing. Every read is a read:
+// `git status` runs without optional locks, so it refreshes no index (T-04).
 import { existsSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import type { StateView } from "../operation.ts";
 import { isRefusal } from "../outcome.ts";
-import { branchesBelow, commitsOutsideHead, unlandedBranches, worktreeChanges } from "../project/git.ts";
+import { branchesBelow, commitsOutsideHead, isAncestor, unlandedBranches, worktreeChanges } from "../project/git.ts";
 import { jobMembership } from "./group-cabinet.ts";
 import { isTerminal } from "./job.ts";
-import { type JobRecord, type JobState, jobFolders, readRecord } from "./record.ts";
+import { type Abandoned, type JobRecord, type JobState, jobFolders, readRecord } from "./record.ts";
 
 /** The reads of the job records this module makes: a validate's view (src/operation.ts), or the records themselves. */
 export type JobReader = Pick<StateView, "jobs" | "record">;
 const RECORDS: JobReader = { jobs: jobFolders, record: readRecord };
+/** The standing of a job whose record says nothing. */
+const UNFINISHED = { kind: "unfinished", state: undefined } as const;
 
 /** The folder of the branches `limen abandon` keeps the work of abandoned jobs on. */
 const ABANDONED = "limen/abandon/";
@@ -26,6 +29,23 @@ const ABANDONED = "limen/abandon/";
 /** The branch that holds the work `limen abandon` saved of the job `id`. */
 export function abandonBranch(id: string): string {
 	return `${ABANDONED}${id}`;
+}
+
+/**
+ * Whether `saved`, the commit of a job's abandon branch, holds `tip`, the tip of the job's own branch in `repository`,
+ * so that a marker with it hides no commit of the job (R-031, Decision 3): the one check of abandon and the migration
+ * (review round 1, F3; round 2, G2). A job with no own branch left has no commit to hold.
+ */
+export function holdsTip(repository: string, saved: string, tip: string | undefined): boolean {
+	return tip === undefined || isAncestor(repository, tip, saved);
+}
+
+/**
+ * The branches of the repository at `repository` that hold the work `limen abandon` saved, each with its short commit:
+ * Limen never deletes one, so they stay until a person does (A-002), also once retire moved the job's record.
+ */
+export function abandonBranches(repository: string): ReadonlyMap<string, string> {
+	return branchesBelow(repository, ABANDONED);
 }
 
 /** What a finished job that holds its work leaves outside HEAD (A-001). */
@@ -51,14 +71,14 @@ export type Work = {
 
 /**
  * Where one job's work stands: a job that has not finished; a member of an open group, named as `<feature> (<id>)`;
- * a finished job whose worktree a newer record holds (`by`); or a finished job with what it holds, and whether its
- * `limen/abandon/<id>` exists.
+ * a finished job whose worktree a newer record holds (`by`); or a finished job with what it holds, and the `abandoned`
+ * marker of its record, when it holds one.
  */
 export type Standing =
 	| { readonly kind: "unfinished"; readonly state: JobState | undefined }
 	| { readonly kind: "group"; readonly group: string }
 	| { readonly kind: "taken"; readonly by: string }
-	| { readonly kind: "finished"; readonly work: Work; readonly abandoned: boolean };
+	| { readonly kind: "finished"; readonly work: Work; readonly abandoned: Abandoned | undefined };
 
 /** Whether `work` holds anything that is not on HEAD: a changed path or an unlanded commit. */
 export function hasWork(work: Work): boolean {
@@ -95,6 +115,16 @@ export async function unlandedWork(root: string, reader: JobReader = RECORDS): P
 	return standings.flatMap((standing) =>
 		standing.kind === "finished" && !standing.abandoned && hasWork(standing.work) ? [standing.work] : [],
 	);
+}
+
+/**
+ * Where the work of every job of the project at `root` stands, by the job's id, in one pass over the records and the
+ * branches: `limen ticket done` asks it of each job its tickets name.
+ */
+export async function jobStandings(root: string, reader: JobReader = RECORDS): Promise<ReadonlyMap<string, Standing>> {
+	const project = await projectJobs(root, reader);
+	const standings = await standingsOf(project, project.entries);
+	return new Map(project.entries.map((entry, index) => [entry.id, standings[index] ?? UNFINISHED]));
 }
 
 /** Where the work of the job `id` of the project at `root` stands; a job with no record has not finished. */
@@ -191,9 +221,9 @@ async function standingsOf(project: Project, entries: readonly Entry[]): Promise
 			branch: fact?.branch,
 			commits: fact?.commits ?? 0,
 		};
-		standings.set(entry, { kind: "finished", work, abandoned: fact?.abandoned ?? false });
+		standings.set(entry, { kind: "finished", work, abandoned: entry.record.abandoned });
 	}
-	return entries.flatMap((entry) => standings.get(entry) ?? []);
+	return entries.map((entry) => standings.get(entry) ?? UNFINISHED);
 }
 
 /** The standing of a job that holds no work of its own: not finished, in an open group, or taken by a newer record. */
@@ -209,13 +239,12 @@ async function heldStanding(project: Project, entry: Entry): Promise<Standing | 
 	return holder && holder !== entry ? { kind: "taken", by: holder.id } : undefined;
 }
 
-/** What the branches say of one job: its own branch, its commits outside HEAD, and whether it was abandoned. */
-type BranchFact = { readonly branch: string | undefined; readonly commits: number; readonly abandoned: boolean };
+/** What the branches say of one job: its own branch and its commits outside HEAD. */
+type BranchFact = { readonly branch: string | undefined; readonly commits: number };
 /**
  * For each of `entries`, its own branch, when it is the newest record on that branch, with the commits it holds outside
- * HEAD, and whether its `limen/abandon/<id>` exists: per repository, at most four Git processes for the branches
- * (`unlandedBranches`), one `rev-list` for each unlanded one, and one for the abandoned ones. A repository that is
- * gone holds no branch.
+ * HEAD: per repository, at most four Git processes for the branches (`unlandedBranches`) and one `rev-list` for each
+ * unlanded one. A repository that is gone holds no branch.
  */
 function branchFacts(project: Project, entries: readonly Entry[]): Map<Entry, BranchFact> {
 	const facts = new Map<Entry, BranchFact>();
@@ -227,13 +256,11 @@ function branchFacts(project: Project, entries: readonly Entry[]): Map<Entry, Br
 			entry.branch && project.branches.get(`${repository}\0${entry.branch}`) === entry ? entry.branch : undefined;
 		const branches = jobs.flatMap((entry) => own(entry) ?? []);
 		const unlanded = branches.length > 0 ? unlandedBranches(repository, branches) : new Set<string>();
-		const abandoned = branchesBelow(repository, ABANDONED);
 		for (const entry of jobs) {
 			const branch = own(entry);
 			facts.set(entry, {
 				branch,
 				commits: branch && unlanded.has(branch) ? commitsOutsideHead(repository, branch) : 0,
-				abandoned: abandoned.has(abandonBranch(entry.id)),
 			});
 		}
 	}

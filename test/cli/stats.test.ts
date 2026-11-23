@@ -188,6 +188,27 @@ test("T-33: limen stats reads a historical scout record as a row of its role", a
 	]);
 });
 
+// Gate 2 §2: the counts run over every record, the job archive included, so a retire takes no job out of them.
+test("limen stats counts a job of the job archive as a record of its route and role, with its transcript", async (t) => {
+	const p = await project(t);
+	const times = ["2026-10-02T08:00:00.000Z", "2026-10-02T08:01:00.000Z", "2026-10-02T08:30:00.000Z"];
+	const kept = jobs(p, "2026-10-02-kept-1a2b3c4d");
+	const archived = join(p.root, ".limen", "archive", "2026-10", "2026-10-02-archived-5e6f7a8b");
+	for (const dir of [kept, archived]) {
+		await writeRecord(dir, { role: "worker", route: HIGH, ...ran("done", times) });
+	}
+	await transcript(archived, [assistant("2026-10-02T08:10:00.000Z", usage(1_000, 2_000, 0, 0))]);
+	const run = limen(p, ["stats"]);
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(outputText(run).split("\n"), [
+		"Jobs by route and role (2 records, 2026-10-02 to 2026-10-02)",
+		"  route                           role    jobs  done  failed  run time  input  cache write  cache read  output",
+		"  anthropic/claude-opus-5-5 high  worker     2     2       0    1 h 00   1.0k            0           0    2.0k",
+		"Failed by kind: none",
+		"",
+	]);
+});
+
 test("limen stats on a project with no records prints a heading of 0 records, no rows and no failure", async (t) => {
 	const p = await project(t);
 	const run = limen(p, ["stats"]);

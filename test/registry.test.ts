@@ -690,7 +690,6 @@ const WITHOUT_SUCCESS_TEST: readonly string[] = [
 	"group stop",
 	"open",
 	"picture serve",
-	"prune",
 	"rule",
 	"rule end",
 	"rule set",

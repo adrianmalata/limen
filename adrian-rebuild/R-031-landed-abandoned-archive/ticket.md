@@ -4,7 +4,9 @@ wyłącznie joby ze znacznikiem i bez niewylądowanej pracy, nigdy z grafu gita,
 `.limen/archive/<RRRR-MM>/<id>/`; archiwum czytają losowanie tokenu, `limen stats` i wyszukiwanie joba roszczenia
 GitHuba, a `limen status` wymienia gałęzie `limen/abandon/<id>`. Migracja oznacza stare wylądowane joby z commitów
 zamknięcia land i raportuje resztę. Stan: napisany 22.11 przy `9a370ae` z inwentarza
-`evidence/inventories/R-031.md`, gotowy na noc. -->
+`evidence/inventories/R-031.md`; w nocy 22/23.11 wdrożony, po rundzie 1 recenzji (FAIL) z poprawkami F1–F11 i dwiema
+domyślnymi decyzjami nocnymi, po rundzie 2 (PASS) z poprawkami G1–G6 i po rundzie 3 (PASS), której dwie uwagi o kodzie
+czekają na odpowiedź na Q-42; ticket zamknięty. -->
 
 # R-031 `landed` and `abandoned` markers; retire moves records to the archive
 
@@ -183,3 +185,70 @@ Settled by the documents when the ticket was written (2026-11-22, the main sessi
    (T-18). The command stays `prune --retire` until R-032 makes it a step of the seat's sweep.
 10. The migration's evidence is the subject of land's own closing commit (D-057 (4): never the graph); a job it cannot
     establish gets no marker (z. 10) and is named in the report (3.6).
+
+- 2026-11-23, night, before the implementation (the main session; what R-027 `ddea3ef` and R-028 `fe092f9` changed
+  since the facts above were read at `9a370ae`; not a decision): of the files this ticket names, only
+  `src/job/record.ts` (the comment of `stopRequested`, which `limen stop` now writes for every running job, and the
+  failure pattern `killed by SIG…`), `src/runtime/pruning.ts` (a comment of `jobKeeps`), `docs/jobs.md`,
+  `docs/herdr-status.md` and `templates/agents.md:202` (with a new first hash in `templates/.history/agents.md`)
+  changed, so the facts' line numbers in `src/job/record.ts` after `:147` moved by three and after `:611` by six; no
+  fact this ticket relies on changed. Since R-028 a stopped job's record holds `stopRequested`, which no marker reads.
+- 2026-11-23, night (run 2): the first implementer was cut by the 5-hour limit at 00:52 after writing tests only;
+  `review-guard.mjs compare --git` on the snapshot of 00:36 exited 0, and a fresh implementer finished the change from
+  that tree (as for R-021).
+- 2026-11-23, night, review round 1 (`review.md` → Round 1), night defaults for Adrian to confirm in the morning:
+  - AC-12's first clause, "no path deletes a job record", is read within the ticket's scope: the paths of `## Change`
+    (retire, land, `ticket done`, abandon and the migration) delete no record (D-025; category A (a) of D-054 (2)).
+    `removeUnstartedRecords` (`src/runtime/pruning.ts`), which deletes a record that never started whose spawner is
+    gone and a folder without a record, is outside this change and A-002; it is an open point for gate 5.3.
+  - F2's reading of (g) "each `limen/abandon/<id>` branch of the project" (category A (b)): the project's repository
+    and, in a workspace, every immediate child Git repository of the workspace (the places `--repo` accepts), so the
+    list needs no record and `limen status` stays a reader of `.limen/jobs/` only, as (f) says.
+- 2026-11-23, night, review round 1, findings to fix (the first round of fixes, by a fresh implementer; each mechanism
+  change with a test that fails before it, T-28 (4)):
+  - F1 (finding 1): `limen land` reads `record.landed`: when the record holds it, land writes no marker and goes on
+    with the steps after it, so a land run again after the target moved exits as a rerun does today; a test of land run
+    again after a new commit on the target, whose marker keeps the first commit; the comment at `src/job/landing.ts:96-97`
+    says what holds.
+  - F2 (finding 2): `limen status` lists the `limen/abandon/<id>` branches of the project's repository and, in a
+    workspace, of every immediate child Git repository (the night default above), with no record read for it; a test:
+    a workspace job abandoned and then retired still has its branch listed.
+  - F3 (finding 4): when the worktree is gone and `limen/abandon/<id>` exists, abandon takes it as the save only when
+    it holds the job's work (its branch's tip, and each commit the job's unlanded work names); otherwise it writes no
+    marker and refuses with a typed refusal declared in the registry, with its `CODE:` test (T-28 (1)); a test with a
+    branch of that name made at another commit.
+  - F4 (finding 6): the migration's final line does not say "nothing to do" when the run wrote, or with `--dry-run`
+    would write, a marker; its test.
+  - F5 (finding 7): `prune --retire --dry-run` names only the jobs the real run moves (the same check of a landed
+    branch kept with a kept worktree); its test.
+  - F6 (finding 9): for a claim whose job is archived, `GITHUB_CONFLICT`'s `next` names no command that refuses for
+    that job (T-37), and the message names the archived folder; its test.
+  - F7 (finding 10): abandon of a job whose record holds `abandoned` changes nothing: it prints that the job is
+    abandoned, with the marker's branch and commit (and that the branch is gone, when it is), makes no branch and
+    exits 0; a test of abandon run again after a person deleted the branch.
+  - F8 (finding 11): `docs/jobs.md:150` says "the GitHub module", not "the GitHub doorbell" (T-18).
+  - F9 (finding 12, T-30): the comments at `src/job/landing.ts:96`, `:151` and `src/runtime/retiring.ts:8` name the
+    ticket with its decision (R-031, Decision N); the comments of `src/job/abandoning.ts:1-19` and the header of
+    `src/job/record.ts` give the reason and the source in one or two sentences, not the code's steps (T-30 (1)).
+  - F10 (finding 13): `namesUnsavedCommit` checks the listed commits with one `git cat-file --batch-check` in the
+    project's repository instead of one process per commit; the existing nested-repository tests keep passing.
+  - F11 (T-19): the `--retire` flag line of `src/registry.ts:580` says that a marked job with unlanded work stays, in
+    at most 100 characters; the golden help and the generated part of `docs/commands.md` follow.
+- 2026-11-23, night, review round 2 (`review.md` → Round 2, PASS with six notes), findings to fix (the second and
+  last round of fixes, by a fresh implementer; each mechanism change with a test that fails before it):
+  - G1 (note 1): when the GitHub module finds a claim's job in the job archive, the poller reads that job's `result`
+    and `log` from the folder where it found it, and its terminal reply names no command that refuses for an archived
+    job; a test of a claim whose job is retired before its terminal reply.
+  - G2 (note 2): the migration's `abandoned` step writes the marker only when `limen/abandon/<id>` holds the job's work
+    by F3's check; otherwise the job gets no marker and the report names it with the reason (Decision 10); its test.
+  - G3 (note 3): the F1 land test asserts that the first land wrote `landed` before it runs land again.
+  - G4 (note 4): `ticket done` reads the jobs it will mark before its commit, so a refusal of that read (such as
+    `NOT_MIGRATED`) comes before the commit changes anything; its test.
+  - G5 (note 5): retire makes the month folder durable before the move (the folder's entry in `.limen/archive/`, and
+    `.limen/archive/` in `.limen/` when it is new, synced), through the atomic-write module; its test, in the form of
+    `test/atomic-write.test.ts`'s folder-sync tests.
+  - G6 (note 6): the headers of `src/runtime/retiring.ts` and `src/job/migration.ts` give the reason and the source in
+    one or two sentences (T-30 (1)).
+- 2026-11-23, night, review round 3 (`review.md` → Round 3, PASS with four notes): the two text notes fixed by the main
+  session (D-053 (2)); the two that need code (the poller's lockless reads around a retire, the two `abandonedOf`)
+  are Q-42 in `.night/questions.md`, for Adrian, since both rounds of fixes are spent; no ticket waits for the answer.

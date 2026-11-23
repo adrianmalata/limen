@@ -6,12 +6,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { atomicWriteSync } from "../atomic-write.ts";
 import { transport } from "../config.ts";
+import { markTicketJobs, type TicketJob, ticketDoneJobs } from "../job/landing.ts";
 import { type Operation, runOperation } from "../operation.ts";
 import { type CommandText, refused, type Success, usageError } from "../outcome.ts";
 import { readPicture } from "../picture/picture-build.ts";
 import { ID_PATTERN } from "../picture/picture-model.ts";
 import { limenRoot, repoRoot } from "./git.ts";
-import { applyTicketClose, planTicketClose, type TicketClose } from "./lanes.ts";
+import { applyTicketClose, planTicketClose, type TicketClose, type TicketsClosed } from "./lanes.ts";
 import { withNextTicketCode } from "./series.ts";
 
 const PLACE_ID = ID_PATTERN;
@@ -94,8 +95,10 @@ async function checkTouches(root: string, plant: string, touches: readonly strin
 /**
  * `limen ticket done`: the close `limen land` makes, for work that landed by a hand merge or needed no code, as an
  * operation of T-38 (src/operation.ts). Its validate refuses a number with no active ticket, and a ticket or board with
- * uncommitted changes, before any folder moves (D-061); its apply moves, commits and says each closed ticket in `out`,
- * under the lock of the ticket lanes, once the tickets are still the ones validate read.
+ * uncommitted changes, before any folder moves (D-061); it also reads there the finished jobs of those tickets, so a
+ * refusal of that read comes before the commit too. Its apply moves, commits and says each closed ticket in `out`,
+ * under the lock of the ticket lanes, once the tickets and their jobs are still the ones validate read. Then it writes
+ * the `landed` marker, with its closing commit, on those jobs that hold no unlanded work (A-002).
  */
 export async function closeDoneTickets(
 	codes: readonly string[],
@@ -108,7 +111,14 @@ export async function closeDoneTickets(
 	for (const path of closed.moved) {
 		out.line(`closed ${path}${closed.commit ? ` in ${closed.commit}` : ""}`);
 	}
+	if (closed.sha && closed.commit) {
+		const { sha, commit, day } = closed;
+		await markTicketJobs(limenRoot(cwd), closed.jobs, { sha, commit, day }, out);
+	}
 }
+
+/** A close of `limen ticket done` as validate decided it: the tickets, and the finished jobs of those it marks. */
+type TicketDone = TicketClose & { readonly jobs: readonly TicketJob[] };
 
 /** The operation of `limen ticket done`; `again` is its command line, the `next` of a STATE_CHANGED. */
 export function ticketDoneOperation(
@@ -116,7 +126,7 @@ export function ticketDoneOperation(
 	on: string | undefined,
 	cwd: string,
 	again: string | null,
-): Operation<TicketClose, Awaited<ReturnType<typeof applyTicketClose>>> {
+): Operation<TicketDone, TicketsClosed & { readonly jobs: readonly TicketJob[] }> {
 	return {
 		validate: async (view) => {
 			if (on && !/^\d{4}-\d\d-\d\d$/.test(on)) {
@@ -134,10 +144,18 @@ export function ticketDoneOperation(
 					`no active ticket for ${missing.join(", ")} in ${root}/spec/features/active/`,
 				);
 			}
-			return close;
+			// Only a close that commits marks jobs; the read refuses, as NOT_MIGRATED, before anything moves (R-031, review
+			// round 2, G4).
+			const closing = close.tickets.map((ticket) => ticket.code);
+			const jobs = close.committed
+				? await view.hold(`the finished jobs of ${closing.join(", ")} in ${root}`, () =>
+						ticketDoneJobs(root, closing, view),
+					)
+				: [];
+			return { ...close, jobs };
 		},
 		lock: (close) => ({ file: join(close.root, ".limen", "ticket-lanes") }),
-		apply: applyTicketClose,
+		apply: async (close) => ({ ...(await applyTicketClose(close)), jobs: close.jobs }),
 		again,
 	};
 }

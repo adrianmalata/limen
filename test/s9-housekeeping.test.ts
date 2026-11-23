@@ -110,16 +110,20 @@ test("spawn returns before --prepare; prune keeps live, nested, starting and unl
 	await release(nestedDir);
 	assert.equal(waitJob(p, nested, { cwd: liveTree }), "done");
 
+	// A-002: a hand `git merge` writes no `landed` marker, so retire keeps that job's record and branch, as it keeps
+	// every finished job without a marker (before R-031 it took the git graph for the land and deleted both).
 	assert.equal(limen(p, ["prune", "--retire"]).status, 0);
-	assert.deepEqual([existsSync(jobDir(p, landed)), git(p.root, "branch", "--list", landedBranch)], [false, ""]);
+	const kept = git(p.root, "for-each-ref", "--format=%(refname:short)", `refs/heads/${landedBranch}`);
+	assert.deepEqual([existsSync(jobDir(p, landed)), kept], [true, landedBranch]);
 	assert.deepEqual([existsSync(jobDir(p, unmerged)), existsSync(jobDir(p, live))], [true, true]); // both stay
 	await release(jobDir(p, live));
 	assert.equal(waitJob(p, live), "done");
-	// The next tests of this plant spawn workers, which a finished job with unlanded work refuses.
-	for (const id of [unmerged, live]) {
-		const abandoned = limen(p, ["abandon", id]);
-		assert.equal(abandoned.status, 0, abandoned.stderr);
-	}
+	// The next tests of this plant spawn workers, which a finished job with unlanded work refuses. The unmerged job's
+	// commit goes on its abandon branch. The live job holds only its own scratch worktree, which goes by hand: abandon
+	// keeps a worktree that holds another registered one, and since R-031 a kept worktree leaves its job unresolved.
+	git(p.root, "worktree", "remove", "--force", join(liveTree, "tmp/scratch"));
+	const abandoned = limen(p, ["abandon", unmerged]);
+	assert.equal(abandoned.status, 0, abandoned.stderr);
 });
 
 // A-001's experiment: before R-030 prune moved this worktree out of reach and deleted it, the file with it.

@@ -3,20 +3,25 @@
 // known state becomes a record that holds every value of its files, marked `migrated` (history only); the files it
 // moved go, and so do the files of removed features that nothing reads; the content files and the receipt folders
 // stay. A value its field cannot hold keeps its file, so nothing is lost (T-28 (3), z. 29). A folder without a known
-// state moves unchanged to `.limen/unmigrated/<id>/`. The migration refuses while a job runs or starts, and a second
-// run finds nothing to do. `--dry-run` plans the same steps and writes nothing.
+// state moves unchanged to `.limen/unmigrated/<id>/`. Its marker step takes a land only from land's own closing
+// commit and an abandon only from a branch that holds the job's work, never from the git graph, so that retire moves
+// no job on a guess; a job it cannot establish keeps no marker and is named (R-031, Decision 10; D-057 (4), A-002,
+// `## Deployment` 3.6). The migration refuses while a job runs or starts, and a second run finds nothing to do.
+// `--dry-run` plans the same steps and writes nothing.
 import { existsSync, type Stats } from "node:fs";
 import { mkdir, readFile, rm, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { atomicRename, atomicWrite } from "../atomic-write.ts";
 import { arrayOf, nullOr, numberIn, object, parseJson, string } from "../boundary.ts";
 import { LimenError, type Success } from "../outcome.ts";
 import { platform } from "../platform/platform.ts";
-import { limenRoot } from "../project/git.ts";
+import { branchTip, committerTime, headHistory, isGitRepository, limenRoot } from "../project/git.ts";
+import { landedJobOf } from "../project/lanes.ts";
 import { liveJob, STARTUP_GRACE_MS, startingJob } from "../runtime/reap.ts";
 import { hexEndOf, TOKEN, tokenOf } from "./id.ts";
-import { SESSION_ID } from "./job.ts";
+import { isTerminal, SESSION_ID } from "./job.ts";
 import {
+	type Abandoned,
 	checkedRecord,
 	emptyRecord,
 	type Facts,
@@ -26,13 +31,16 @@ import {
 	type JobRecord,
 	type JobState,
 	jobFolderNames,
+	type Landed,
 	type Progress,
 	progressPath,
 	type Queued,
 	readRecord,
 	recordPath,
 	serialized,
+	writeMarker,
 } from "./record.ts";
+import { abandonBranch, holdsTip } from "./unlanded.ts";
 
 /** The one-value files whose values the record holds, and the progress files that `progress.json` holds. */
 const MOVED = [
@@ -103,13 +111,35 @@ export type FolderStep =
 	| { readonly id: string; readonly kind: "move"; readonly reason: string };
 
 /**
+ * What the marker step did, or would do, to one finished record with no marker: the markers it writes, each one only
+ * where its evidence holds, or none, for a record it leaves without one and names; and the job's abandon branch when
+ * it gives no marker because it lacks the job's work.
+ */
+export type MarkerStep = {
+	readonly id: string;
+	readonly landed: Landed | undefined;
+	readonly abandoned: Abandoned | undefined;
+	readonly unsaved: UnsavedBranch | undefined;
+};
+
+/** An abandon branch at `commit` that does not hold `tip`, the tip of the job's own branch `own` (`holdsTip`). */
+export type UnsavedBranch = {
+	readonly branch: string;
+	readonly commit: string;
+	readonly own: string;
+	readonly tip: string;
+};
+
+/**
  * The whole report: every folder's step, the older id formats and the tokens several folders share (T-20 (6)): those
- * that name none of their folders, and those that one job shares only with folders of `.limen/unmigrated/`.
+ * that name none of their folders, and those that one job shares only with folders of `.limen/unmigrated/`; and the
+ * marker step of each finished record with no marker.
  */
 export type MigrationReport = {
 	readonly jobsRoot: string;
 	readonly dryRun: boolean;
 	readonly steps: readonly FolderStep[];
+	readonly markers: readonly MarkerStep[];
 	readonly olderIds: readonly string[];
 	readonly collisions: ReadonlyArray<{ readonly token: string; readonly ids: readonly string[] }>;
 	readonly unmigratedShares: ReadonlyArray<{
@@ -136,8 +166,13 @@ function jobsRunning(ids: readonly string[]): LimenError {
  */
 export async function migrateProjectAt(cwd: string, dryRun: boolean): Promise<Success> {
 	const report = await migrateProject(limenRoot(cwd), dryRun);
-	const changes = report.steps.some((step) => step.kind !== "current");
+	const changes = report.steps.some((step) => step.kind !== "current") || marksAny(report.markers);
 	return { next: dryRun && changes ? "limen migrate" : null, text: reportLines(report).join("\n") };
+}
+
+/** Whether the marker step writes a marker, or with a dry run would write one. */
+function marksAny(markers: readonly MarkerStep[]): boolean {
+	return markers.some((step) => step.landed !== undefined || step.abandoned !== undefined);
 }
 
 /** Migrates the job folders of the project at `root`, or with `dryRun` only plans it; returns the report. */
@@ -154,15 +189,93 @@ export async function migrateProject(root: string, dryRun: boolean): Promise<Mig
 		throw jobsRunning(running);
 	}
 	const steps: FolderStep[] = [];
+	const records: JobRecord[] = [];
 	for (const id of ids) {
-		steps.push(await migrateFolder(root, id, dryRun));
+		const migrated = await migrateFolder(root, id, dryRun);
+		steps.push(migrated.step);
+		records.push(...(migrated.record ? [migrated.record] : []));
 	}
 	// The folders as the run leaves them, each listed once: one it moves, or with `dryRun` would move, is only below
 	// `.limen/unmigrated/`, so a dry run reports the tokens as the run would.
 	const moved = steps.flatMap((step) => (step.kind === "move" ? [step.id] : []));
 	const jobs = (await jobFolderNames(jobsRoot)).filter((id) => !moved.includes(id));
 	const unmigrated = [...new Set([...(await jobFolderNames(join(root, ".limen", "unmigrated"))), ...moved])];
-	return { jobsRoot, dryRun, steps, ...tokenReport(jobs, unmigrated) };
+	const markers = await markerSteps(root, records, dryRun);
+	return { jobsRoot, dryRun, steps, markers, ...tokenReport(jobs, unmigrated) };
+}
+
+/**
+ * The marker step over `records`, the records the folder steps leave (with `dryRun`, the ones they would write): for
+ * each finished one with no marker, the markers its evidence gives, written through the record module unless `dryRun`.
+ */
+async function markerSteps(root: string, records: readonly JobRecord[], dryRun: boolean): Promise<MarkerStep[]> {
+	const unmarked = records.filter(
+		(record) => isTerminal(record.state) && record.landed === undefined && record.abandoned === undefined,
+	);
+	const closes = unmarked.length > 0 ? closingCommits(root) : new Map<string, Landed>();
+	const steps: MarkerStep[] = [];
+	for (const record of unmarked) {
+		const step = { id: record.id, landed: closes.get(record.id), ...abandonedOf(root, record) };
+		const jobDir = join(root, ".limen", "jobs", record.id);
+		for (const marker of dryRun ? [] : markersOf(step)) {
+			await writeMarker(jobDir, marker);
+		}
+		steps.push(step);
+	}
+	return steps;
+}
+/** The markers of a step, each as `writeMarker` takes it. */
+function markersOf(step: MarkerStep): Array<{ landed: Landed } | { abandoned: Abandoned }> {
+	return [
+		...(step.landed ? [{ landed: step.landed }] : []),
+		...(step.abandoned ? [{ abandoned: step.abandoned }] : []),
+	];
+}
+/**
+ * The `landed` marker of each job a closing commit of `limen land` in the history of HEAD of the project's repository
+ * names (`landedJobOf`): that commit and its committer time; the oldest such commit, the first close, for a job two
+ * name. None in a project that is no Git repository, where land commits no close.
+ */
+function closingCommits(root: string): Map<string, Landed> {
+	const landed = new Map<string, Landed>();
+	if (!isGitRepository(root)) {
+		return landed;
+	}
+	for (const commit of headHistory(root)) {
+		const id = landedJobOf(commit.subject);
+		if (id !== undefined) {
+			landed.set(id, { sha: commit.sha, at: new Date(commit.time * 1000).toISOString() });
+		}
+	}
+	return landed;
+}
+/**
+ * The `abandoned` marker of a record whose `limen/abandon/<id>` exists in its repository while its worktree is gone:
+ * the branch, its commit, and that commit's committer time, the time of the save when abandon made the commit; none
+ * when either does not hold. A branch that lacks the tip of the job's own branch is no save of the job, which a marker
+ * would hide, so it gives none and is named, as abandon refuses it (R-031, Decisions 3 and 10; review round 2, G2).
+ */
+function abandonedOf(root: string, record: JobRecord): Pick<MarkerStep, "abandoned" | "unsaved"> {
+	const none = { abandoned: undefined, unsaved: undefined };
+	const repository = record.repo ? resolve(root, record.repo) : root;
+	if ((record.worktree && existsSync(record.worktree)) || !existsSync(join(repository, ".git"))) {
+		return none;
+	}
+	const branch = abandonBranch(record.id);
+	const commit = branchTip(repository, branch);
+	if (commit === undefined) {
+		return none;
+	}
+	// A review job's branch is its candidate's, which it never holds (src/job/unlanded.ts).
+	const own = record.role === "reviewer" ? undefined : (record.branch ?? undefined);
+	const tip = own === undefined ? undefined : branchTip(repository, own);
+	if (own !== undefined && tip !== undefined && !holdsTip(repository, commit, tip)) {
+		return { abandoned: undefined, unsaved: { branch, commit, own, tip } };
+	}
+	return {
+		...none,
+		abandoned: { branch, commit, at: new Date(committerTime(repository, commit) * 1000).toISOString() },
+	};
 }
 
 /** Whether the folder's job runs or starts now: by its record, or by the files of the older record. */
@@ -230,10 +343,13 @@ function whenAbsent<T>(value: T): (error: unknown) => T {
 	};
 }
 
-async function migrateFolder(root: string, id: string, dryRun: boolean): Promise<FolderStep> {
+/** A folder's step, and the record it leaves the folder with (with `dryRun`, would leave); none for a folder it moves. */
+type Migrated = { readonly step: FolderStep; readonly record: JobRecord | undefined };
+
+async function migrateFolder(root: string, id: string, dryRun: boolean): Promise<Migrated> {
 	const jobDir = join(root, ".limen", "jobs", id);
 	if (existsSync(recordPath(jobDir))) {
-		return finishFolder(jobDir, id, dryRun);
+		return { step: await finishFolder(jobDir, id, dryRun), record: await readRecord(jobDir) };
 	}
 	const files = await oldFiles(jobDir);
 	const state = files.get("state") ?? "";
@@ -243,7 +359,7 @@ async function migrateFolder(root: string, id: string, dryRun: boolean): Promise
 			await mkdir(join(root, ".limen", "unmigrated"), { recursive: true });
 			await atomicRename(jobDir, join(root, ".limen", "unmigrated", id));
 		}
-		return { id, kind: "move", reason };
+		return { step: { id, kind: "move", reason }, record: undefined };
 	}
 	const built = await migratedRecord(jobDir, id, files);
 	const removed = [...built.moved, ...(await present(jobDir, REMOVED_FEATURES))];
@@ -256,7 +372,7 @@ async function migrateFolder(root: string, id: string, dryRun: boolean): Promise
 		...["task.md", "log"].filter((name) => !existsSync(join(jobDir, name))).map((name) => `no ${name}`),
 		...built.kept,
 	];
-	return { id, kind: "migrate", state: built.record.state, notes, removed };
+	return { step: { id, kind: "migrate", state: built.record.state, notes, removed }, record: built.record };
 }
 
 /**
@@ -498,8 +614,8 @@ function queuedOf(text: string): Queued | undefined {
  * The ids of an older format, which take only the full id, and the tokens several folders share (T-20 (6)), told apart
  * as the resolver (src/job/reference.ts) tells them: it counts a token's owners among the folders of `.limen/jobs/`
  * only, so a token that one job shares only with folders of `.limen/unmigrated/` still names that job, and no reference
- * names those folders until R-031 archives them. Every other shared token keeps the line that only full ids name its
- * folders.
+ * names those folders, which retire never moves to the job archive. Every other shared token keeps the line that only
+ * full ids name its folders.
  */
 function tokenReport(
 	jobs: readonly string[],
@@ -550,17 +666,58 @@ export function reportLines(report: MigrationReport): string[] {
 	for (const { token, job, unmigrated } of report.unmigratedShares) {
 		const folders = unmigrated.join(", ");
 		lines.push(
-			`token ${token} names job ${job}; it also ends ${folders} in .limen/unmigrated/, which no reference names until R-031`,
+			`token ${token} names job ${job}; it also ends ${folders} in .limen/unmigrated/, which no reference names`,
 		);
 	}
+	lines.push(...markerLines(report.markers, would));
 	const count = (kind: FolderStep["kind"]) => report.steps.filter((step) => step.kind === kind).length;
 	const changed = count("migrate") + count("finish") + count("move");
+	// A run that writes a marker, or would, has something to do, so the 3.6 report never says both (R-031, review
+	// round 1, F4).
 	lines.push(
-		changed === 0
+		changed === 0 && !marksAny(report.markers)
 			? "nothing to do: every job folder holds a record"
 			: `${count("migrate")} migrated, ${count("move")} moved to .limen/unmigrated, ${count("finish")} finished, ${count("current")} already records`,
 	);
 	return lines;
+}
+/**
+ * The marker step's lines: each marker written, or with a dry run that would be, each finished record left without
+ * one, and their counts; none when no finished record lacked a marker.
+ */
+function markerLines(markers: readonly MarkerStep[], would: string): string[] {
+	const lines: string[] = [];
+	for (const step of markers) {
+		const { id, landed, abandoned } = step;
+		if (landed) {
+			lines.push(`job ${id}: ${would}mark landed (${landed.sha}, ${landed.at})`);
+		}
+		if (abandoned) {
+			lines.push(`job ${id}: ${would}mark abandoned (${abandoned.branch} at ${abandoned.commit}, ${abandoned.at})`);
+		}
+		if (!(landed || abandoned)) {
+			lines.push(`job ${id}: left without a marker: ${leftWithout(step)}`);
+		}
+	}
+	if (markers.length === 0) {
+		return lines;
+	}
+	const landed = markers.filter((step) => step.landed).length;
+	const abandoned = markers.filter((step) => step.abandoned).length;
+	const left = markers.filter((step) => !(step.landed || step.abandoned)).length;
+	const written = would ? "would be written" : "written";
+	const jobs = left === 1 ? "job" : "jobs";
+	return [
+		...lines,
+		`markers: ${landed} landed and ${abandoned} abandoned ${written}; ${left} finished ${jobs} left without one`,
+	];
+}
+/** Why the marker step left a finished record without a marker: no close names it, and no abandon branch saves it. */
+function leftWithout({ id, unsaved }: MarkerStep): string {
+	const save = unsaved
+		? `${unsaved.branch} at ${unsaved.commit} does not hold ${unsaved.tip}, the tip of its branch ${unsaved.own}`
+		: `no ${abandonBranch(id)} with its worktree gone`;
+	return `no closing commit of land names it, and ${save}`;
 }
 function stepLine(step: FolderStep, would: string): string {
 	if (step.kind === "migrate") {

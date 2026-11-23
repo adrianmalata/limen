@@ -1211,7 +1211,8 @@ function finishedJobs(jobs: string, tab: string | undefined, session: string): F
 			landable: (record.commits?.length ?? 0) > 0,
 		});
 	}
-	// Only a job with commits can land. Without commits it stays until its feature closes or `limen prune` retires the record.
+	// Only a job with commits can land. Without commits it stays until its feature closes, or until `limen prune --retire`
+	// moves its record, which only an `abandoned` marker lets it do for such a job (A-002).
 	const landed = new Set<string>();
 	for (const [repo, group] of Map.groupBy(
 		candidates.filter(({ landable, branch }) => landable && branch),

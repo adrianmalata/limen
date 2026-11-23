@@ -166,6 +166,21 @@ test("T-20: a new job's token is drawn again while a job folder or a folder in .
 	assert.match(id, /^\d{4}-\d{2}-\d{2}-f004-new-work-0badf00d$/);
 });
 
+// T-20 (1): before R-031 the draw read only .limen/jobs/ and .limen/unmigrated/, so a token of a retired job came back.
+test("T-20: a new job's token is drawn again while a job of the job archive ends in it", async (t) => {
+	const root = await project(t);
+	await writeRecord(join(root, ".limen", "archive", "2026-07", "2026-07-02-old-cafebabe"), { state: "done" });
+	const draws = ["cafebabe", "0badf00d"];
+	const drawn: string[] = [];
+	const draw = () => {
+		const token = draws[drawn.length] ?? "";
+		drawn.push(token);
+		return token;
+	};
+	const id = await withNewJobId(root, "F004 new work", async (made) => made, { draw });
+	assert.deepEqual([drawn, id.endsWith("-0badf00d")], [draws, true], id);
+});
+
 /** `rounds` turns of the event loop, so that work another promise started can run as far as it can. */
 async function turns(rounds: number): Promise<void> {
 	for (let round = 0; round < rounds; round++) {

@@ -1,7 +1,8 @@
 // `limen migrate`: the job folders an older Limen wrote, one plain file per value, become `record.json` (D-057), on
 // fixtures of such folders. Nothing of a migrated folder is lost, a folder without a known state moves unchanged, the
 // report names older ids and token collisions, a dry run writes nothing, a second run has nothing to do, and the
-// migration refuses while a job runs. Until it ran, a command that reads jobs refuses the project.
+// migration refuses while a job runs. Until it ran, a command that reads jobs refuses the project. Its marker step
+// (R-031) writes `landed` and `abandoned` on finished records from land's closing commits and the abandon branches.
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync, statSync, utimesSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
@@ -9,7 +10,7 @@ import { dirname, join } from "node:path";
 import { type TestContext, test } from "node:test";
 import { readProgressSync, readRecordSync } from "../../src/job/record.ts";
 import { outputText, readOutcome } from "../final-line.ts";
-import { limen, type Plant, plant, routed } from "../plant.ts";
+import { git, limen, type Plant, plant, routed, writeRecord } from "../plant.ts";
 
 /** A project with no job yet; removed after the test. */
 async function project(t: TestContext): Promise<Plant> {
@@ -262,10 +263,11 @@ test("the report names a token two job ids share", async (t) => {
 
 /** The report line of the token that the job `2026-11-16-done-1a2b3c4d` shares only with a folder it moves. */
 const SHARED_WITH_UNMIGRATED =
-	"token 1a2b3c4d names job 2026-11-16-done-1a2b3c4d; it also ends 2026-11-16-orphan-1a2b3c4d in .limen/unmigrated/, which no reference names until R-031\n";
+	"token 1a2b3c4d names job 2026-11-16-done-1a2b3c4d; it also ends 2026-11-16-orphan-1a2b3c4d in .limen/unmigrated/, which no reference names\n";
 
 // R-022 (`review.md` → Round 3): the resolver counts a token's owners among .limen/jobs/ only, so a token that one job
-// shares with folders of .limen/unmigrated/ still names that job, and those folders have no reference until R-031.
+// shares with folders of .limen/unmigrated/ still names that job, and those folders have no reference (R-031 archives
+// no folder of .limen/unmigrated/).
 test("the report says that a token one job shares only with folders of .limen/unmigrated/ names that job", async (t) => {
 	const p = await project(t);
 	await oldFolder(p, "2026-11-16-done-1a2b3c4d", { state: "done\n", "task.md": "x\n", log: "" });
@@ -450,6 +452,148 @@ test("a second run has nothing to do, exits 0 and changes nothing", async (t) =>
 	assert.deepEqual(tree(limenDir), after);
 	assert.ok(outputText(again).endsWith("nothing to do: every job folder holds a record\n"), outputText(again));
 	assert.equal(readOutcome(again).next, null);
+});
+
+/** The marker the record of `dir` holds, by its kind, with the rest of the record. */
+function markersOf(dir: string) {
+	const { landed, abandoned, ...rest } = readRecordSync(dir) ?? assert.fail(`${dir} holds no record`);
+	return { landed, abandoned, rest };
+}
+
+/**
+ * Three finished records of this Limen with no marker, each with its worktree gone: one that land's closing commit
+ * names, one whose `limen/abandon/<id>` branch exists, and one with neither; with the markers the migration owes them.
+ */
+async function unmarkedJobs(p: Plant) {
+	const [landed, abandoned, open] = ["2026-11-17-old-1a2b3c4d", "2026-11-17-gone-5e6f7a8b", "2026-11-17-open-9c0d1e2f"];
+	const dirs = [landed, abandoned, open].map((id) => join(p.root, ".limen", "jobs", id));
+	for (const dir of dirs) {
+		const id = dir.slice(dir.lastIndexOf("/") + 1);
+		const fields = {
+			state: "done",
+			finishedAt: FINISHED,
+			branch: `limen/${id}`,
+			worktree: join(p.parent, id),
+		} as const;
+		await writeRecord(dir, fields);
+	}
+	const committed = () => ({
+		sha: git(p.root, "rev-parse", "HEAD"),
+		at: new Date(Number(git(p.root, "log", "-1", "--format=%ct")) * 1000).toISOString(),
+	});
+	git(p.root, "commit", "-q", "--allow-empty", "-m", `Close F001: landed by ${landed}`);
+	const close = committed();
+	git(p.root, "commit", "-q", "--allow-empty", "-m", `limen abandon ${abandoned}`);
+	const save = committed();
+	git(p.root, "branch", `limen/abandon/${abandoned}`, save.sha);
+	return {
+		ids: { landed, abandoned, open },
+		dirs: { landed: dirs[0] ?? "", abandoned: dirs[1] ?? "", open: dirs[2] ?? "" },
+		landed: close,
+		abandoned: { branch: `limen/abandon/${abandoned}`, commit: save.sha, at: save.at },
+	};
+}
+
+// A-002, D-057 (4): the marker step reads land's own record, the subject of its closing commit, never the git graph,
+// and a job it cannot establish keeps no marker and is named (`## Deployment` 3.6). T-28 (3): the rest of each record
+// stays as it was.
+test("the marker step marks a job land's closing commit names and an abandoned one with its worktree gone, and names the rest", async (t) => {
+	const p = await project(t);
+	const owed = await unmarkedJobs(p);
+	const before = [owed.dirs.landed, owed.dirs.abandoned, owed.dirs.open].map((dir) => markersOf(dir).rest);
+	const run = limen(p, ["migrate"]);
+	assert.equal(run.status, 0, run.stderr);
+	const after = [owed.dirs.landed, owed.dirs.abandoned, owed.dirs.open].map(markersOf);
+	assert.deepEqual(
+		after.map(({ landed, abandoned }) => [landed, abandoned]),
+		[
+			[owed.landed, undefined],
+			[undefined, owed.abandoned],
+			[undefined, undefined],
+		],
+	);
+	assert.deepEqual(
+		after.map(({ rest }) => rest),
+		before,
+	);
+	const report = outputText(run).split("\n");
+	for (const line of [
+		`job ${owed.ids.landed}: mark landed (${owed.landed.sha}, ${owed.landed.at})`,
+		`job ${owed.ids.abandoned}: mark abandoned (${owed.abandoned.branch} at ${owed.abandoned.commit}, ${owed.abandoned.at})`,
+		`job ${owed.ids.open}: left without a marker: no closing commit of land names it, and no limen/abandon/${owed.ids.open} with its worktree gone`,
+		"markers: 1 landed and 1 abandoned written; 1 finished job left without one",
+	]) {
+		assert.ok(report.includes(line), `${line}\n${report.join("\n")}`);
+	}
+});
+
+test("--dry-run reports the markers the migration would write and writes none", async (t) => {
+	const p = await project(t);
+	const owed = await unmarkedJobs(p);
+	const limenDir = join(p.root, ".limen");
+	const before = tree(limenDir);
+	const run = limen(p, ["migrate", "--dry-run"]);
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(
+		[
+			tree(limenDir),
+			outputText(run).includes(`job ${owed.ids.landed}: would mark landed (${owed.landed.sha}, ${owed.landed.at})\n`),
+			readOutcome(run).next,
+		],
+		[before, true, "limen migrate"],
+	);
+});
+
+// Review round 1, F4: the 3.6 report must not say two opposite things; before the fix a run that wrote markers, or with
+// --dry-run would write them, into folders that all held records ended with "nothing to do".
+test("the report's last line gives the folder counts, not nothing to do, when the marker step writes or would write a marker", async (t) => {
+	const p = await project(t);
+	await unmarkedJobs(p);
+	const counts = "0 migrated, 0 moved to .limen/unmigrated, 0 finished, 3 already records";
+	const lastLines = [["migrate", "--dry-run"], ["migrate"]].map((args) => {
+		const run = limen(p, args);
+		assert.equal(run.status, 0, run.stderr);
+		return outputText(run).trimEnd().split("\n").at(-1);
+	});
+	assert.deepEqual(lastLines, [counts, counts]);
+});
+
+test("a second run after the marker step writes no marker, changes nothing and names the job still without one", async (t) => {
+	const p = await project(t);
+	const owed = await unmarkedJobs(p);
+	assert.equal(limen(p, ["migrate"]).status, 0);
+	const limenDir = join(p.root, ".limen");
+	const after = tree(limenDir);
+	const again = limen(p, ["migrate"]);
+	assert.equal(again.status, 0, again.stderr);
+	const report = outputText(again);
+	assert.deepEqual(
+		[tree(limenDir), report.includes(" mark "), report.includes(`job ${owed.ids.open}: left without a marker`)],
+		[after, false, true],
+		report,
+	);
+	assert.equal(readOutcome(again).next, null);
+});
+
+// R-031, review round 2, G2 (Decisions 3 and 10): a branch of that name made elsewhere is no save of the job; before the
+// fix the marker step took it, so retire could move a job whose own branch held commits outside HEAD.
+test("the marker step writes no abandoned marker when limen/abandon/<id> lacks the tip of the job's branch, and names why", async (t) => {
+	const p = await project(t);
+	const id = "2026-11-17-hand-3c4d5e6f";
+	const dir = join(p.root, ".limen", "jobs", id);
+	await writeRecord(dir, { state: "done", finishedAt: FINISHED, branch: `limen/${id}`, worktree: join(p.parent, id) });
+	const saved = git(p.root, "rev-parse", "HEAD");
+	const tip = git(p.root, "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "the job's own work");
+	git(p.root, "branch", `limen/${id}`, tip);
+	git(p.root, "branch", `limen/abandon/${id}`, saved);
+	const run = limen(p, ["migrate"]);
+	assert.equal(run.status, 0, run.stderr);
+	const why = `no closing commit of land names it, and limen/abandon/${id} at ${saved} does not hold ${tip}, the tip of its branch limen/${id}`;
+	assert.deepEqual(
+		[markersOf(dir).abandoned, outputText(run).split("\n").includes(`job ${id}: left without a marker: ${why}`)],
+		[undefined, true],
+		outputText(run),
+	);
 });
 
 // D-057 (7.6): the migration moves no record under a live job.

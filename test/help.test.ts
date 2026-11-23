@@ -59,7 +59,7 @@ const GENERAL = [
 	"  limen board [--write]",
 	"      the board with NOW and PROVEN; --write rewrites them in spec/build.md",
 	"  limen prune [--retire] [--dry-run]",
-	"      remove finished worktrees; --retire deletes records of landed jobs",
+	"      remove finished worktrees; --retire moves landed and abandoned jobs to the job archive",
 	"  limen migrate [--dry-run]",
 	"      move job records an older Limen wrote into record.json; --dry-run writes nothing",
 	"",

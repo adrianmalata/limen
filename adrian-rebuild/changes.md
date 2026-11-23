@@ -3,7 +3,7 @@ Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, com
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
 R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025, R-097, R-099, R-026, R-030, R-033,
-R-027, R-028. -->
+R-027, R-028, R-031. -->
 
 # Changes
 
@@ -350,4 +350,12 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-11, M-10; `## Deployment` 3.8)
 - Commit: R-028
 - Rollback: git revert $(git log --format=%H --grep='^R-028:' adrian-rebuild --)
+
+## 2026-11-23 R-031 `landed` and `abandoned` markers; retire moves records to the archive
+- What: `src/job/record.ts` (the optional `landed` and `abandoned` fields; `writeMarker`, the one write after a terminal state, once, under the job's lock, refusing `MARKER_NOT_FINISHED` and `MARKER_DIFFERS`; `archivedJobs`, `archiveMonth`); `src/job/landing.ts` (land writes `landed` right after its merge unless the record holds it; `ticket done`'s jobs read before its commit and marked after it); `src/project/ticket-folders.ts`, `src/project/lanes.ts` (the land reason and its parser); `src/job/abandoning.ts` (`abandoned` once no worktree is left and the save holds the job's tip, `ABANDON_BRANCH_LACKS_WORK`; a nested repository's branches, tags, stash or reflog the project lacks keep the worktree; a rerun on a marked job changes nothing); `src/job/unlanded.ts` (resolved by the marker); the new `src/runtime/retiring.ts` and `src/commands/prune.ts` (`prune --retire` moves only marked jobs with no unlanded work, one `rename` under the jobs lock, into `.limen/archive/<YYYY-MM>/<id>/`; its dry run names only those); `src/atomic-write.ts` (`makeDurableFolder`); `src/runtime/pruning.ts`; `src/job/reference.ts`, `src/job/statistics.ts`, `src/integrations/github-review.ts`, `src/integrations/github-poller.ts`, `src/integrations/github-claims.ts` (the archive's readers: the token draw, `limen stats`, the claim lookup and the poller's evidence); `src/project/summary.ts`, `src/project/git.ts` (`limen status` lists each `limen/abandon/<id>` branch, in a workspace of every child repository); `src/job/migration.ts` (the marker step); `src/registry.ts`; `hook/wake.ts` (a comment); tests in `test/cli/prune.test.ts` (new), `test/integrations/github-poller.test.ts` (new), `test/cli/abandon.test.ts`, `land`, `ticket`, `migrate`, `stats`, `status`, `github`, `test/job/record.test.ts`, `test/job/reference.test.ts`, `test/atomic-write.test.ts`, `test/help.test.ts`, `test/registry.test.ts`, `test/structure.test.ts`, `test/s9-housekeeping.test.ts`; `docs/jobs.md`, `docs/commands.md`, `docs/herdr-status.md`, `docs/remote.md`, `templates/agents.md` with `templates/.history/agents.md`
+- Why: A-002, A-001, §6, D-057, D-079, D-080, D-088, T-20, T-25, T-28, T-30
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (900/900); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (16 test files); `node --test test/cli/prune.test.ts` → exit 0; `node --test test/cli/migrate.test.ts` → exit 0
+- Measurement: unmeasured (plan.md → Measurement: M-03, M-06, M-07, M-11; `## Deployment` 3.6)
+- Commit: R-031
+- Rollback: git revert $(git log --format=%H --grep='^R-031:' adrian-rebuild --), then restore `.limen/` from the snapshot of `## Deployment` 0.1 if the migration ran
 

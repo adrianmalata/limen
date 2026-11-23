@@ -152,43 +152,89 @@ export async function deleteLandedBranches(root: string, landed: readonly Landed
 	}
 	return results;
 }
+/**
+ * What `deleteLandedBranches` would do with each of `landed`, decided by the same rules with no write: no lock, no
+ * `git worktree prune` and no delete, so that the dry run of `limen prune --retire` names only the jobs the run moves
+ * (R-031, review round 1, F5). A branch it would delete has no `kept`.
+ */
+export async function plannedLandedBranches(root: string, landed: readonly LandedBranch[]): Promise<BranchResult[]> {
+	const uses = await branchUses(`${root}/.limen/jobs`);
+	const checkouts = new Map<string, readonly GitWorktree[]>();
+	const decided: BranchResult[] = [];
+	for (const target of landed) {
+		const decision = await landedBranchDecision(target, uses.get(target.branch), checkouts, false);
+		decided.push(decision.kind === "stays" ? decision.result : { branch: target.branch });
+	}
+	return decided;
+}
 /** Deletes one landed branch and moves the finished worktree that holds it out of reach, or says why it stays. */
 async function deleteLandedBranch(
-	{ repository, branch }: LandedBranch,
+	target: LandedBranch,
 	use: BranchUse | undefined,
 	checkouts: Map<string, readonly GitWorktree[]>,
 	trashRoots: Set<string>,
 ): Promise<BranchResult> {
-	if (!branch.startsWith("limen/") || use?.busy || !branchExists(repository, branch)) {
-		return { branch, kept: use?.busy ? `job ${use.busy} still uses it` : "not a present limen/ branch" };
+	const decision = await landedBranchDecision(target, use, checkouts, true);
+	if (decision.kind === "stays") {
+		return decision.result;
 	}
-	if (!checkouts.has(repository)) {
-		pruneWorktrees(repository);
-		checkouts.set(repository, listWorktrees(repository));
-	}
-	const holder = checkouts.get(repository)?.find((worktree) => worktree.branch === branch);
-	const path = holder ? await resolved(holder.path) : undefined;
-	if (holder?.locked || (path && !use?.worktrees.has(path))) {
-		return { branch, kept: `it is checked out at ${path}${holder?.locked ? ", which is locked" : ""}` };
-	}
+	const { repository, branch } = target;
 	try {
-		// A Git failure of a check keeps the branch and the worktree too.
-		const job = path ? use?.worktrees.get(path) : undefined;
-		const registered = await Promise.all((checkouts.get(repository) ?? []).map((worktree) => resolved(worktree.path)));
-		const stays = path ? keptHolder({ path, job }, repository, registered) : undefined;
-		if (stays) {
-			return { branch, kept: stays.reason ?? "its worktree holds unlanded work", worktree: stays };
-		}
-		if (path) {
-			trashRoots.add(dirname(path));
-			await detach(path);
+		if (decision.holder) {
+			trashRoots.add(dirname(decision.holder));
+			await detach(decision.holder);
 			pruneWorktrees(repository);
 		}
 		deleteBranch(repository, branch);
 		return { branch };
 	} catch (error) {
-		return { branch, kept: error instanceof Error ? error.message.trim() : String(error) };
+		return keptFor(branch, error);
 	}
+}
+/** One landed branch's fate: it stays, with why, or it goes with the worktree that holds it, when one does. */
+type BranchDecision =
+	| { readonly kind: "stays"; readonly result: BranchResult }
+	| { readonly kind: "goes"; readonly holder: string | undefined };
+/**
+ * Whether one landed branch goes, with the worktree that holds it, or stays, and why. With `refresh`, Git's list of
+ * worktrees is pruned before it is read, which the delete needs and a dry run must not write.
+ */
+async function landedBranchDecision(
+	{ repository, branch }: LandedBranch,
+	use: BranchUse | undefined,
+	checkouts: Map<string, readonly GitWorktree[]>,
+	refresh: boolean,
+): Promise<BranchDecision> {
+	const stays = (result: BranchResult): BranchDecision => ({ kind: "stays", result });
+	if (!branch.startsWith("limen/") || use?.busy || !branchExists(repository, branch)) {
+		return stays({ branch, kept: use?.busy ? `job ${use.busy} still uses it` : "not a present limen/ branch" });
+	}
+	if (!checkouts.has(repository)) {
+		if (refresh) {
+			pruneWorktrees(repository);
+		}
+		checkouts.set(repository, listWorktrees(repository));
+	}
+	const holder = checkouts.get(repository)?.find((worktree) => worktree.branch === branch);
+	const path = holder ? await resolved(holder.path) : undefined;
+	if (holder?.locked || (path && !use?.worktrees.has(path))) {
+		return stays({ branch, kept: `it is checked out at ${path}${holder?.locked ? ", which is locked" : ""}` });
+	}
+	try {
+		// A Git failure of a check keeps the branch and the worktree too.
+		const job = path ? use?.worktrees.get(path) : undefined;
+		const registered = await Promise.all((checkouts.get(repository) ?? []).map((worktree) => resolved(worktree.path)));
+		const kept = path ? keptHolder({ path, job }, repository, registered) : undefined;
+		return kept
+			? stays({ branch, kept: kept.reason ?? "its worktree holds unlanded work", worktree: kept })
+			: { kind: "goes", holder: path };
+	} catch (error) {
+		return stays(keptFor(branch, error));
+	}
+}
+/** A branch kept because a step on it failed, with the failure's words. */
+function keptFor(branch: string, error: unknown): BranchResult {
+	return { branch, kept: error instanceof Error ? error.message.trim() : String(error) };
 }
 /**
  * The worktree that holds a landed branch, when it must stay, and why: `git status` shows it dirty, whatever job names

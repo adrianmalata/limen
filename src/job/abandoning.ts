@@ -1,17 +1,7 @@
-// The abandon of a finished job (A-001, T-26 (2)): `limen abandon <id>` gives up on the job and keeps its work on the
-// branch `limen/abandon/<id>`. It is an operation of T-38 (src/operation.ts): its validate reads where the job's work
-// stands (src/job/unlanded.ts) and refuses a job that has not finished, a member of an open group, a job whose worktree
-// a newer record holds, and one with nothing to keep; its apply runs under the worktree lock that prune and publication
-// take. Its steps are found again from git when the command runs again, since a terminal record takes no write before
-// R-031 (T-38 (3)): (1) unless the branch exists, a commit of the worktree's whole state on the worktree's HEAD, made
-// through a temporary index, so no hook of the project runs and the job's own branch stays where it is, and the branch
-// made at it only while it does not exist, so two runs cannot both write it; a job whose worktree is gone gets the
-// branch at its own branch's tip; (2) the worktree removed as prune removes one, only while the branch holds all of
-// it and prune itself could remove it, else kept and named with the cause: it changed after the commit, a nested
-// repository holds commits or changes the commit does not, or a commit the project's object store lacks, also when the
-// worktree's HEAD records it (`unsavedNested`, which keeps such a worktree from every later removal too), it holds
-// another registered worktree, Git locks it, or it is no worktree prune would take (src/runtime/pruning.ts); (3) the job's Herdr tab closed (T-18); (4) the branch and
-// the commit printed. Ignored files go with the worktree, which is why the registry marks the command irreversible.
+// The abandon of a finished job (A-001, T-26 (2)): it keeps the job's work on the branch `limen/abandon/<id>` and
+// removes the worktree only while that branch holds all of it, so nothing goes that Git does not hold (R-030, D-088),
+// and only then writes the `abandoned` marker that resolves the job, since a marker never hides work (R-031,
+// Decisions 3 and 5). Ignored files go with the worktree, which is why the registry marks the command irreversible.
 import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -27,20 +17,26 @@ import {
 	gitlinks,
 	headCommit,
 	limenRoot,
+	namesUnsavedCommit,
 	treeOf,
 	worktreeChanges,
 	worktreeTree,
 } from "../project/git.ts";
 import { keptLine, removalBlock, removeTrash, removeWorktree, unsavedNested } from "../runtime/pruning.ts";
 import { worktreeGuard } from "./publication.ts";
+import { type Abandoned, writeMarker } from "./record.ts";
 import { type JobReference, resolveJob } from "./reference.ts";
-import { abandonBranch, hasWork, jobStanding, type Standing } from "./unlanded.ts";
+import { abandonBranch, hasWork, holdsTip, jobStanding, type Standing, type Work } from "./unlanded.ts";
 
-/** Where step (1) takes the commit from: the branch an earlier run made, the worktree, or the job's own branch. */
+/**
+ * Where step (1) takes the commit from: the branch an earlier run made, the worktree, or the job's own branch; or
+ * nowhere, for a job whose record holds the `abandoned` marker, with the commit its branch points at now, if any.
+ */
 type Source =
 	| { readonly kind: "saved"; readonly commit: string }
 	| { readonly kind: "worktree"; readonly path: string }
-	| { readonly kind: "tip"; readonly commit: string };
+	| { readonly kind: "tip"; readonly commit: string }
+	| { readonly kind: "marked"; readonly marker: Abandoned; readonly now: string | undefined };
 /** What abandon's validate decided: the job, its repository, the branch it keeps the work on, and where from. */
 type AbandonPlan = {
 	readonly id: string;
@@ -56,7 +52,7 @@ type AbandonPlan = {
  * What apply did: the commit the branch holds, whether this run made it, and what became of the worktree: removed, with
  * the trash it left for after the lock, or kept, with the cause.
  */
-type Abandoned = {
+type Applied = {
 	readonly commit: string;
 	readonly made: boolean;
 	readonly worktree:
@@ -67,7 +63,7 @@ type Abandoned = {
 
 /** Abandons the finished job `query` names; returns the text that says where its work is and what was removed. */
 export async function abandonJob(query: JobReference, cwd: string, again: string | null = null): Promise<string> {
-	const { plan, done } = await runOperation<AbandonPlan, { plan: AbandonPlan; done: Abandoned }>({
+	const { plan, done } = await runOperation<AbandonPlan, { plan: AbandonPlan; done: Applied }>({
 		again,
 		validate: async (view) => {
 			const root = limenRoot(cwd);
@@ -93,29 +89,36 @@ export async function abandonJob(query: JobReference, cwd: string, again: string
 	return report(plan, done);
 }
 
-/** What validate holds of a job: where its work stands, and the tips of the branches step (1) may take. */
-type Facts = { readonly standing: Standing; readonly saved: string | undefined; readonly tip: string | undefined };
+/**
+ * What validate holds of a job: where its work stands, the tips of the branches step (1) may take, and, for an
+ * unmarked job whose worktree is gone, whether the first holds the second.
+ */
+type Facts = {
+	readonly standing: Standing;
+	readonly saved: string | undefined;
+	readonly tip: string | undefined;
+	readonly savedHoldsTip: boolean | undefined;
+};
 
 /**
- * The commit `limen/abandon/<id>` holds, when an earlier run made it, and the tip of the job's own branch, when that
- * holds unlanded commits.
+ * The commit the abandon branch holds (the marker's branch, else `limen/abandon/<id>`), whether or not an earlier run
+ * got as far as the marker; the tip of the job's own branch; and, for an unmarked job with the worktree gone and both
+ * there, whether the first holds the second, since nothing else can say then that the branch is the job's save.
  */
 function branchTips(standing: Standing, id: string): Omit<Facts, "standing"> {
 	if (standing.kind !== "finished") {
-		return { saved: undefined, tip: undefined };
+		return { saved: undefined, tip: undefined, savedHoldsTip: undefined };
 	}
-	const { repository, branch } = standing.work;
-	return {
-		saved: standing.abandoned ? branchTip(repository, abandonBranch(id)) : undefined,
-		tip: branch ? branchTip(repository, branch) : undefined,
-	};
+	const { repository, branch, worktree } = standing.work;
+	const saved = branchTip(repository, standing.abandoned?.branch ?? abandonBranch(id));
+	const tip = branch ? branchTip(repository, branch) : undefined;
+	const check = !standing.abandoned && saved !== undefined && tip !== undefined && worktree === undefined;
+	return { saved, tip, savedHoldsTip: check ? holdsTip(repository, saved, tip) : undefined };
 }
 
 /** Refuses a job abandon does not take, with the command that comes first; else where its work comes from. */
-function decide(
-	id: string,
-	{ standing, saved, tip }: Facts,
-): Pick<AbandonPlan, "repository" | "branch" | "source" | "worktree"> {
+function decide(id: string, facts: Facts): Pick<AbandonPlan, "repository" | "branch" | "source" | "worktree"> {
+	const { standing } = facts;
 	if (standing.kind === "unfinished") {
 		const state = standing.state ?? "without a record";
 		throw refused(
@@ -137,8 +140,30 @@ function decide(
 			`limen abandon ${standing.by}`,
 		);
 	}
-	const { work } = standing;
-	const base = { repository: work.repository, branch: abandonBranch(id), worktree: work.worktree };
+	return finishedSource(id, standing.work, standing.abandoned, facts);
+}
+
+/**
+ * Where the work of a finished job comes from. A job abandon marked changes nothing again (T-28 (3); R-031, review
+ * round 1, F7). With the worktree gone, an abandon branch that does not hold the tip of the job's branch is no save of
+ * this job, which a marker would hide (R-031, Decision 3; review round 1, F3).
+ */
+function finishedSource(
+	id: string,
+	work: Work,
+	marker: Abandoned | undefined,
+	{ saved, tip, savedHoldsTip }: Facts,
+): Pick<AbandonPlan, "repository" | "branch" | "source" | "worktree"> {
+	const base = { repository: work.repository, branch: marker?.branch ?? abandonBranch(id), worktree: work.worktree };
+	if (marker) {
+		return { ...base, source: { kind: "marked", marker, now: saved } };
+	}
+	if (saved && savedHoldsTip === false) {
+		throw refused(
+			"ABANDON_BRANCH_LACKS_WORK",
+			`${base.branch} is at ${saved}, which does not hold ${tip}, the tip of the branch ${work.branch} of job ${id}, so it is no save of this job; move that branch aside with git branch -m, then abandon the job again`,
+		);
+	}
 	if (saved) {
 		return { ...base, source: { kind: "saved", commit: saved } };
 	}
@@ -156,28 +181,44 @@ function decide(
 }
 
 /**
- * Steps (1) and (2) under the worktree lock: the branch, then the worktree's removal unless `keptBecause` names a
- * cause. The temporary index lives in a folder of its own in the system's temporary folder, removed after.
+ * The steps under the worktree lock, each found again from Git and the record when the command runs again (T-38 (3)):
+ * (1) the branch, unless an earlier run made it; (2) the worktree's removal unless `keptBecause` names a cause; (3)
+ * the marker once no worktree is left. A job abandon marked takes none. The temporary index lives in a folder of its
+ * own in the system's temporary folder, removed after.
  */
-async function applyAbandon(plan: AbandonPlan): Promise<Abandoned> {
+async function applyAbandon(plan: AbandonPlan): Promise<Applied> {
+	const { source } = plan;
+	if (source.kind === "marked") {
+		return { commit: source.marker.commit, made: false, worktree: undefined };
+	}
 	const scratch = await mkdtemp(join(tmpdir(), "limen-abandon-"));
 	const index = join(scratch, "index");
 	try {
-		const { source } = plan;
 		const commit = source.kind === "saved" ? source.commit : saveWork(plan, source, index);
 		const made = source.kind !== "saved";
 		const path = plan.worktree && existsSync(plan.worktree) ? plan.worktree : undefined;
 		if (path === undefined) {
+			await markAbandoned(plan, commit);
 			return { commit, made, worktree: undefined };
 		}
 		const kept = await keptBecause(plan, path, commit, index);
 		if (kept !== undefined) {
 			return { commit, made, worktree: { path, kept } };
 		}
-		return { commit, made, worktree: { path, trash: await removeWorktree(plan.repository, path) } };
+		const trash = await removeWorktree(plan.repository, path);
+		await markAbandoned(plan, commit);
+		return { commit, made, worktree: { path, trash } };
 	} finally {
 		await rm(scratch, { recursive: true, force: true });
 	}
+}
+
+/**
+ * Step (3): the record's `abandoned` marker, the branch and its commit, which hold the job's whole state now that no
+ * worktree is left (D-088); a run again finds the same marker and writes nothing.
+ */
+async function markAbandoned(plan: AbandonPlan, commit: string): Promise<void> {
+	await writeMarker(plan.jobDir, { abandoned: { branch: plan.branch, commit, at: new Date().toISOString() } });
 }
 
 /**
@@ -197,8 +238,23 @@ async function keptBecause(
 	return (
 		nestedWork(plan, path, commit) ??
 		unsavedNested(path, plan.repository) ??
+		nestedNamedCommit(plan, path, commit) ??
 		(await removalBlock(plan.repository, path))
 	);
+}
+
+/**
+ * A nested repository of the commit whose branches, tags, stash or reflog name a commit that the project's object
+ * store lacks (D-088): the save holds a nested repository only as the commit it has checked out, so such a commit
+ * would go with the worktree.
+ */
+function nestedNamedCommit(plan: AbandonPlan, path: string, commit: string): string | undefined {
+	const nested = [...gitlinks(path, commit).keys()].find(
+		(link) => existsSync(join(path, link, ".git")) && namesUnsavedCommit(join(path, link), plan.repository),
+	);
+	return nested === undefined
+		? undefined
+		: `the nested repository ${shownField(nested)} holds a branch, tag, stash or reflog entry at a commit that the project's repository lacks`;
 }
 
 /**
@@ -222,7 +278,7 @@ function nestedWork(plan: AbandonPlan, path: string, commit: string): string | u
 }
 
 /** Step (1): the commit of the worktree's whole state on its HEAD, or the job's own tip, and the branch made there. */
-function saveWork(plan: AbandonPlan, source: Exclude<Source, { kind: "saved" }>, index: string): string {
+function saveWork(plan: AbandonPlan, source: Extract<Source, { kind: "worktree" | "tip" }>, index: string): string {
 	const commit =
 		source.kind === "tip"
 			? source.commit
@@ -231,8 +287,11 @@ function saveWork(plan: AbandonPlan, source: Exclude<Source, { kind: "saved" }>,
 	return commit;
 }
 
-/** Step (4): where the work is now, and what became of the worktree. */
-function report(plan: AbandonPlan, done: Abandoned): string {
+/** What the run says: where the work is now, and what became of the worktree. */
+function report(plan: AbandonPlan, done: Applied): string {
+	if (plan.source.kind === "marked") {
+		return markedLine(plan.id, plan.source.marker, plan.source.now);
+	}
 	const saved = done.made
 		? `saved job ${plan.id} on ${plan.branch} at ${done.commit}`
 		: `job ${plan.id} is saved on ${plan.branch} at ${done.commit}`;
@@ -244,4 +303,16 @@ function report(plan: AbandonPlan, done: Abandoned): string {
 		saved,
 		kept === undefined ? `removed its worktree ${path}` : keptLine({ path, job: plan.id, reason: kept }),
 	].join("\n");
+}
+
+/**
+ * The line of a job abandon marked: the marker's branch and commit, and where that branch points now when a person
+ * deleted or moved it, since Limen never does (A-002).
+ */
+function markedLine(id: string, marker: Abandoned, now: string | undefined): string {
+	const { branch, commit } = marker;
+	if (now === commit) {
+		return `job ${id} is abandoned: its work is on ${branch} at ${commit}`;
+	}
+	return `job ${id} is abandoned: its work was on ${branch} at ${commit}; ${now === undefined ? "that branch is gone" : `that branch is at ${now} now`}`;
 }

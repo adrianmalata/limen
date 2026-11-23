@@ -1,5 +1,5 @@
-// src/job/record.ts: the job's record.json, its reads, the one function that writes it, a failure's kind, and the
-// optional scope of a record.
+// src/job/record.ts: the job's record.json, its reads, the one function that writes it, a failure's kind, the
+// optional scope of a record, the markers `landed` and `abandoned` with their one writer, and the job archive's listing.
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import {
+	archivedJobs,
 	emptyRecord,
 	failureFrom,
 	type JobRecord,
@@ -16,6 +17,7 @@ import {
 	readRecordSync,
 	serialized,
 	transition,
+	writeMarker,
 } from "../../src/job/record.ts";
 import { LimenError } from "../../src/outcome.ts";
 
@@ -286,4 +288,75 @@ test("BAD_DATA: a scope with a reading below zero gives a typed error that names
 		[error.code, "field" in error && error.field, error.message.includes("an integer of at least 0")],
 		["BAD_DATA", "scope.oomKills", true],
 	);
+});
+
+const DONE: Partial<JobRecord> = { ...RUNNING, state: "done", finishedAt: "2026-11-21T11:00:00.000Z" };
+const LANDED = { sha: "0123456789abcdef0123456789abcdef01234567", at: "2026-11-21T12:00:00.000Z" } as const;
+const ABANDONED = { branch: `limen/abandon/${ID}`, commit: "89abcdef0123456789abcdef0123456789abcdef", at: LANDED.at };
+
+// A-002: the one write after a terminal state; a record before R-031 has no marker and reads as before (D-079).
+test("writeMarker writes the landed marker on a finished record once and keeps every other field as it was", async (t) => {
+	const dir = await recorded(t, DONE);
+	const before = await readRecord(dir);
+	const written = await writeMarker(dir, { landed: LANDED });
+	assert.deepEqual(
+		[written, await readRecord(dir)],
+		[
+			{ ...before, landed: LANDED },
+			{ ...before, landed: LANDED },
+		],
+	);
+	assert.ok(before && !("landed" in before) && !("abandoned" in before));
+});
+
+// T-28 (3): the callers run again after a stop, so the marker they wrote is found again, not written twice.
+test("writeMarker with the marker the record holds, at a later time, changes nothing", async (t) => {
+	const dir = await recorded(t, DONE);
+	await writeMarker(dir, { abandoned: ABANDONED });
+	const text = await readFile(join(dir, "record.json"), "utf8");
+	const again = await writeMarker(dir, { abandoned: { ...ABANDONED, at: "2026-11-22T08:00:00.000Z" } });
+	assert.deepEqual([again.abandoned, await readFile(join(dir, "record.json"), "utf8")], [ABANDONED, text]);
+});
+
+test("MARKER_NOT_FINISHED: writeMarker refuses a running record and a folder without one, and writes nothing", async (t) => {
+	const dir = await recorded(t, RUNNING);
+	const text = await readFile(join(dir, "record.json"), "utf8");
+	const running = await thrown(() => writeMarker(dir, { landed: LANDED }));
+	const missing = await thrown(() => writeMarker(join(dir, "..", "2026-11-21-gone-5e6f7a8b"), { landed: LANDED }));
+	assert.deepEqual(
+		[running.class, running.code, missing.code, await readFile(join(dir, "record.json"), "utf8")],
+		["internal", "MARKER_NOT_FINISHED", "MARKER_NOT_FINISHED", text],
+	);
+});
+
+test("MARKER_DIFFERS: writeMarker refuses a second landed marker with another commit, and the first one stays", async (t) => {
+	const dir = await recorded(t, DONE);
+	await writeMarker(dir, { landed: LANDED });
+	const text = await readFile(join(dir, "record.json"), "utf8");
+	const other = { ...LANDED, sha: "fedcba9876543210fedcba9876543210fedcba98" };
+	const error = await thrown(() => writeMarker(dir, { landed: other }));
+	assert.deepEqual(
+		[error.class, error.code, await readFile(join(dir, "record.json"), "utf8")],
+		["internal", "MARKER_DIFFERS", text],
+	);
+});
+
+test("BAD_DATA: a landed marker whose commit is no full commit SHA gives a typed error that names the field", async (t) => {
+	const error = await thrown(async () =>
+		readRecord(await recorded(t, { ...DONE, landed: { ...LANDED, sha: "0123" } })),
+	);
+	assert.deepEqual([error.code, "field" in error && error.field], ["BAD_DATA", "landed.sha"]);
+});
+
+// A-002: the job archive holds a folder per UTC month of a marker, and a job folder per job below it.
+test("archivedJobs lists the job folders of every month of the job archive, and none for a project without one", async (t) => {
+	const root = await jobsFolder(t);
+	assert.deepEqual(await archivedJobs(root), []);
+	const [october, november] = ["2026-10-02-old-1a2b3c4d", "2026-11-02-new-5e6f7a8b"];
+	await mkdir(join(root, ".limen", "archive", "2026-10", october), { recursive: true });
+	await mkdir(join(root, ".limen", "archive", "2026-11", november), { recursive: true });
+	assert.deepEqual(await archivedJobs(root), [
+		{ id: october, jobDir: join(root, ".limen", "archive", "2026-10", october) },
+		{ id: november, jobDir: join(root, ".limen", "archive", "2026-11", november) },
+	]);
 });

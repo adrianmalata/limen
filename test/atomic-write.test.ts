@@ -1,4 +1,5 @@
-// src/atomic-write.ts: the one module that writes or renames a file, with its temp names, on temporary folders.
+// src/atomic-write.ts: the one module that writes or renames a file or makes a durable folder, with its temp names, on
+// temporary folders.
 import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,6 +10,7 @@ import {
 	atomicRenameSync,
 	atomicWrite,
 	atomicWriteSync,
+	makeDurableFolder,
 	TEMPORARY_NAME,
 	temporaryPath,
 	temporaryWriter,
@@ -267,4 +269,60 @@ test("atomicRenameSync syncs the source's folder as well as the target's, so a s
 	}
 	assert.deepEqual(readdirSync(join(dir, "claims")), []);
 	assert.deepEqual(readdirSync(join(dir, "delivered")), ["0004"]);
+});
+
+test("makeDurableFolder makes a missing folder with each missing folder above it", async (t) => {
+	const dir = folder(t);
+	await makeDurableFolder(join(dir, "archive", "2026-11"));
+	assert.deepEqual([readdirSync(dir), readdirSync(join(dir, "archive", "2026-11"))], [["archive"], []]);
+	assert.deepEqual(readdirSync(join(dir, "archive")), ["2026-11"]);
+});
+
+test("makeDurableFolder syncs the folder that holds the new folder, so a holder it cannot open fails with EACCES", async (t) => {
+	if (root) {
+		t.skip("root opens every folder");
+		return;
+	}
+	const dir = join(folder(t), "archive");
+	mkdirSync(dir);
+	chmodSync(dir, 0o300);
+	try {
+		assert.equal(await codeOf(() => makeDurableFolder(join(dir, "2026-11"))), "EACCES");
+	} finally {
+		chmodSync(dir, 0o700);
+	}
+	// The folder came first: a sync before it would have failed with no folder made.
+	assert.deepEqual(readdirSync(dir), ["2026-11"]);
+});
+
+test("makeDurableFolder syncs the folder above each folder it made, so one it cannot open above a new holder fails with EACCES", async (t) => {
+	if (root) {
+		t.skip("root opens every folder");
+		return;
+	}
+	const dir = join(folder(t), ".limen");
+	mkdirSync(dir);
+	chmodSync(dir, 0o300);
+	try {
+		assert.equal(await codeOf(() => makeDurableFolder(join(dir, "archive", "2026-11"))), "EACCES");
+	} finally {
+		chmodSync(dir, 0o700);
+	}
+	assert.deepEqual(readdirSync(join(dir, "archive")), ["2026-11"]);
+});
+
+test("makeDurableFolder syncs no folder above a holder that was there, so one it cannot open there does not fail it", async (t) => {
+	if (root) {
+		t.skip("root opens every folder");
+		return;
+	}
+	const dir = join(folder(t), ".limen");
+	mkdirSync(join(dir, "archive"), { recursive: true });
+	chmodSync(dir, 0o300);
+	try {
+		assert.equal(await codeOf(() => makeDurableFolder(join(dir, "archive", "2026-11"))), undefined);
+	} finally {
+		chmodSync(dir, 0o700);
+	}
+	assert.deepEqual(readdirSync(join(dir, "archive")), ["2026-11"]);
 });

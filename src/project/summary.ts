@@ -1,6 +1,6 @@
 // The summary of this project (`limen status`): what runs, what landed, what waits for a decision, in the last 7 days,
-// every finished job whose unlanded work blocks a worker spawn, whatever its age (A-001), whether the seat's alerts run
-// (A-066), and with `--all` every record and one row for each job (D-038).
+// every finished job whose unlanded work blocks a worker spawn, whatever its age (A-001), each branch of abandoned work
+// (A-002), whether the seat's alerts run (A-066), and with `--all` every record and one row for each job (D-038).
 import { spawnSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
@@ -11,11 +11,11 @@ import { type GroupIdentity, jobMembership } from "../job/group-cabinet.ts";
 import { isTerminal } from "../job/job.ts";
 import { orderedJobs, RECENT_MS, renderJobDirectory, shownState } from "../job/listing.ts";
 import { jobFolders, readRecord } from "../job/record.ts";
-import { unlandedSummary, unlandedWork } from "../job/unlanded.ts";
+import { abandonBranches, unlandedSummary, unlandedWork } from "../job/unlanded.ts";
 import type { ShownJob } from "../job/view.ts";
 import { platform } from "../platform/platform.ts";
 import { confirmDeadJobs } from "../runtime/reap.ts";
-import { limenRoot, unlandedBranches, workspaceRepository, workspaceRoot } from "./git.ts";
+import { limenRoot, unlandedBranches, workspaceRepositories, workspaceRepository, workspaceRoot } from "./git.ts";
 import { packageRoot } from "./inherit.ts";
 import { listLeftovers } from "./leftovers.ts";
 
@@ -112,13 +112,8 @@ export async function projectStatus(cwd: string, all: boolean): Promise<string> 
 	);
 	const decide: string[] = [];
 	sortUnlandedBranches(scan, ready, decide);
-	const coordinators = coordinatorLines(
-		root,
-		workspaceRoot(root) !== undefined,
-		scan.workerTabs,
-		scan.worktrees,
-		scan.originTabs,
-	);
+	const workspace = workspaceRoot(root) !== undefined;
+	const coordinators = coordinatorLines(root, workspace, scan.workerTabs, scan.worktrees, scan.originTabs);
 	return [
 		`Plant ${root}`,
 		`Running (${scan.running.length}):`,
@@ -128,6 +123,7 @@ export async function projectStatus(cwd: string, all: boolean): Promise<string> 
 		`Needs a decision (${decide.length}):`,
 		...(decide.length ? decide : ["  none"]),
 		...(await unlandedLines(root)),
+		...abandonLines(root, workspace),
 		...(scan.uncertain.length ? ["Unconfirmed jobs:", ...scan.uncertain] : []),
 		...alertsLines(),
 		...leftoverLines(root),
@@ -156,6 +152,24 @@ async function unlandedLines(root: string): Promise<string[]> {
 			`    limen abandon ${work.id}`,
 		]),
 	];
+}
+
+/**
+ * Each `limen/abandon/<id>` branch of the project with its commit (A-002): of its own repository and, in a workspace,
+ * of each child repository `--repo` accepts, read from Git alone, since Limen never deletes such a branch and retire
+ * moves the record that named its repository to the job archive (R-031, review round 1, F2). Empty when there is none.
+ */
+function abandonLines(root: string, workspace: boolean): string[] {
+	const places: { readonly repository: string; readonly repo: string | undefined }[] = [
+		...(existsSync(`${root}/.git`) ? [{ repository: root, repo: undefined }] : []),
+		...(workspace ? workspaceRepositories(root).map((repo) => ({ repository: resolve(root, repo), repo })) : []),
+	];
+	const lines = places.flatMap(({ repository, repo }) =>
+		[...abandonBranches(repository)].map(
+			([branch, commit]) => `  ${branch} · ${commit}${repo ? ` · repo ${repo}` : ""}`,
+		),
+	);
+	return lines.length === 0 ? [] : ["Abandoned work (Limen keeps each branch until a person deletes it):", ...lines];
 }
 
 /** One row for each job, running jobs first and then the newest, as the job list has always shown them. */

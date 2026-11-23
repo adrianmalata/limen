@@ -4,8 +4,9 @@
 // names (src/job/record.ts), so a record that cannot be read stops no other job's resolution. Every other form exits 2
 // (D-061 (1)); the jobs an approximate match would have found appear only as hints in its message, and `next` is the
 // command with the one candidate's token, or `limen status --all` for several or none (D-061). A token is unique from
-// the job's creation: it is drawn under one lock until the job's folder exists, against the folders of `.limen/jobs/`
-// and `.limen/unmigrated/` (D-061, until R-031 adds the archive).
+// the job's creation: it is drawn under one lock until the job's folder exists, against the folders of `.limen/jobs/`,
+// `.limen/unmigrated/` and the job archive (D-061, T-20 (1)), and retire moves a job into the archive under the same
+// lock (src/runtime/retiring.ts). A job of the archive has no reference: the resolver reads `.limen/jobs/` only.
 import { join } from "node:path";
 import { transport } from "../config.ts";
 import { type Guarded, withLock } from "../lock.ts";
@@ -14,7 +15,7 @@ import type { Parsed } from "../parser.ts";
 import { limenRoot } from "../project/git.ts";
 import { JOB_ID, TOKEN, tokenOf } from "./id.ts";
 import { jobToken, makeJobId } from "./job.ts";
-import { type JobRecord, jobFolderNames, jobFolders, readRecord } from "./record.ts";
+import { archivedJobs, type JobRecord, jobFolderNames, jobFolders, readRecord } from "./record.ts";
 
 /** A shorter hint matches no id suffix and no label prefix, as the matcher before the resolver did. */
 const HINT_LENGTH = 3;
@@ -83,8 +84,8 @@ export function jobsLock(root: string): Guarded {
 
 /**
  * Names a new job of the project at `root` for a caller that holds `jobsLock(root)` until the job's folder exists: draws
- * its token until no folder of `.limen/jobs/` or `.limen/unmigrated/` ends in it. `draw` is the tests' source of tokens;
- * Limen's callers never pass it.
+ * its token until no folder of `.limen/jobs/`, of `.limen/unmigrated/` or of the job archive ends in it. `draw` is the
+ * tests' source of tokens; Limen's callers never pass it.
  */
 export async function newJobId(
 	root: string,
@@ -92,7 +93,11 @@ export async function newJobId(
 	options: { readonly draw?: () => string } = {},
 ): Promise<string> {
 	const jobs = join(root, ".limen", "jobs");
-	const names = [...(await jobFolderNames(jobs)), ...(await jobFolderNames(join(root, ".limen", "unmigrated")))];
+	const names = [
+		...(await jobFolderNames(jobs)),
+		...(await jobFolderNames(join(root, ".limen", "unmigrated"))),
+		...(await archivedJobs(root)).map((job) => job.id),
+	];
 	const taken = new Set(names.flatMap((name) => tokenOf(name) ?? []));
 	const draw = options.draw ?? jobToken;
 	let token = draw();

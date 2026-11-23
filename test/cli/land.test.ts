@@ -1,4 +1,5 @@
-// src/commands/land.ts: `limen land` through the CLI, and the worktree with unlanded work that it keeps (A-001).
+// src/commands/land.ts: `limen land` through the CLI, the worktree with unlanded work that it keeps (A-001), and the
+// `landed` marker it writes in the job's record (A-002).
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -39,6 +40,42 @@ test("limen land: a done job lands, and its worktree that holds an untracked fil
 		],
 		["", branch, "a note the job left\n"],
 	);
+});
+
+// A-002: before R-031 land wrote nothing in the job's record, so retire could only guess the land from the git graph.
+test("land writes the landed marker with the commit its merge left on the target and the time of the land", async (t) => {
+	const p = await plant();
+	t.after(p.cleanup);
+	// The label names the plant's ticket, so land's closing commit follows the merge: the marker names the merge's.
+	const id = spawnJob(p, "commit", ["--label", "F001 demo work"]);
+	assert.equal(waitJob(p, id), "done");
+	const before = Date.now();
+	const run = limen(p, ["land", id]);
+	assert.equal(run.status, 0, run.stderr);
+	const landed = jobRecord(p, id)?.landed;
+	const at = Date.parse(landed?.at ?? "");
+	assert.deepEqual(
+		[landed?.sha, at >= before - 1_000 && at <= Date.now(), git(p.root, "log", "-1", "--format=%s")],
+		[git(p.root, "rev-parse", "HEAD~1"), true, `Close F001: landed by ${id}`],
+		JSON.stringify(landed),
+	);
+});
+
+// Review round 1, F1: a land whose worktree stays leaves its branch for a land run again; before the fix that land wrote
+// the target's new HEAD as the marker and exited 5 MARKER_DIFFERS once a commit had moved the target.
+test("land run again after a new commit on the target exits 0 and keeps the landed marker of the first land", async (t) => {
+	const p = await plant();
+	t.after(p.cleanup);
+	const id = spawnJob(p, "commit");
+	assert.equal(waitJob(p, id), "done");
+	await writeFile(join(jobRecord(p, id)?.worktree ?? "", "notes.txt"), "a note the job left\n");
+	assert.equal(limen(p, ["land", id]).status, 0);
+	const first = jobRecord(p, id)?.landed;
+	// Review round 2, G3: without this the test passed when the first land wrote no marker at all.
+	assert.equal(first?.sha, git(p.root, "rev-parse", "HEAD"), "the first land wrote its merge as the marker");
+	git(p.root, "commit", "-q", "--allow-empty", "-m", "later work on the target");
+	const again = limen(p, ["land", id]);
+	assert.deepEqual([again.status, jobRecord(p, id)?.landed], [0, first], again.stderr);
 });
 
 // Review round 2, G1: before the fix land removed this clean worktree, and the registered worktree in its ignored

@@ -1,6 +1,7 @@
 // `limen status` lists the leftover files of cut features in the project it reports on, the Limen variables of its
 // environment that it no longer reads or reads only until a ticket, names a running job's note, lists the finished
-// jobs whose unlanded work makes a worker spawn refuse (A-001), and warns when the alerts do not run (A-066).
+// jobs whose unlanded work makes a worker spawn refuse (A-001) and the branches of abandoned work (A-002), and warns
+// when the alerts do not run (A-066).
 import assert from "node:assert/strict";
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -16,6 +17,7 @@ import {
 	type Plant,
 	plant,
 	release,
+	repository,
 	spawnJob,
 	until,
 	waitJob,
@@ -250,6 +252,56 @@ test("limen status lists every finished job with unlanded work, whatever its age
 		]),
 	);
 	assert.ok(!lines[at + 7]?.startsWith("  "), run.stdout);
+});
+
+// A-002: Limen never deletes a limen/abandon/<id> branch, so status names each one until a person deletes it, also once
+// retire moved its job's record to the job archive; before R-031 status named none.
+test("limen status lists each limen/abandon/<id> branch of the project with its commit", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = spawnJob(p, "commit");
+	assert.equal(waitJob(p, id), "done");
+	const abandoned = limen(p, ["abandon", id]);
+	assert.equal(abandoned.status, 0, abandoned.stderr);
+	const branch = `limen/abandon/${id}`;
+	const run = limen(p, ["status"]);
+	assert.equal(run.status, 0, run.stderr);
+	const lines = run.stdout.split("\n");
+	const at = lines.indexOf("Abandoned work (Limen keeps each branch until a person deletes it):");
+	assert.ok(at > 0, run.stdout);
+	assert.deepEqual(
+		[lines[at + 1], lines[at + 2]?.startsWith("  ")],
+		[`  ${branch} · ${git(p.root, "rev-parse", "--short", branch)}`, false],
+		run.stdout,
+	);
+});
+
+// Review round 1, F2: before the fix status listed a workspace repository's abandon branches only while a record in
+// .limen/jobs/ named that repository, so the retire of the job's record hid its branch.
+test("limen status in a workspace lists the abandon branch of a workspace repository after retire moved its job", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const workspace = join(p.parent, "workspace");
+	await repository(join(workspace, "api"));
+	assert.equal(limen(p, ["workspace", "init"], { cwd: workspace }).status, 0);
+	const id = spawnJob(p, "commit", ["--repo", "api"], { cwd: workspace });
+	assert.equal(waitJob(p, id, { cwd: workspace }), "done");
+	for (const args of [
+		["abandon", id],
+		["prune", "--retire"],
+	]) {
+		const run = limen(p, args, { cwd: workspace });
+		assert.equal(run.status, 0, run.stderr);
+	}
+	assert.equal(existsSync(join(workspace, ".limen", "jobs", id)), false);
+	const branch = `limen/abandon/${id}`;
+	const run = limen(p, ["status"], { cwd: workspace });
+	assert.equal(run.status, 0, run.stderr);
+	const lines = run.stdout.split("\n");
+	const at = lines.indexOf("Abandoned work (Limen keeps each branch until a person deletes it):");
+	assert.ok(at > 0, run.stdout);
+	const short = git(join(workspace, "api"), "rev-parse", "--short", branch);
+	assert.equal(lines[at + 1], `  ${branch} · ${short} · repo api`, run.stdout);
 });
 
 // Review round 1, F6: work Git cannot read never reads as none, and the failure says which worktree and whose it is;

@@ -1,8 +1,8 @@
 import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { jobFolders, readJobFile, readRecord } from "../job/record.ts";
-import { refused } from "../outcome.ts";
+import { join, relative } from "node:path";
+import { type ArchivedJob, archivedJobs, jobFolders, readJobFile, readRecord } from "../job/record.ts";
+import { type Refusal, refused } from "../outcome.ts";
 
 /** The longest no-job answer that `github resolve` writes and the poller posts. */
 export const GITHUB_ANSWER_MAX = 1600;
@@ -92,34 +92,46 @@ export const githubSubject = (claim: GithubClaim) => `${claim.kind === "issue" ?
 export const githubBranch = (claim: GithubClaim) =>
 	`limen/github-${claim.kind === "issue" ? "issue" : "pr"}-${claim.pr}-${claim.id}`;
 
+/** A job folder that carries a claim's marker, and whether it is in the job archive. */
+export type MarkedJob = ArchivedJob & { readonly archived: boolean };
+
 /**
- * The first job folder of the project, in `jobFolders` order, whose task starts with the claim's marker: the one scan
- * for the claim's job, in any state and of any shape, which `matchedGithubJob` and the handoff gate both read.
+ * The first job folder of the project, in `jobFolders` order and then in the job archive's, whose task starts with the
+ * claim's marker: the one scan for the claim's job, in any state and of any shape, which `matchedGithubJob` and the
+ * handoff gate both read. The archive holds the job retire moved, also one the poller never saw past `starting`, whose
+ * gate would otherwise read as a crash's (R-099's open point 2).
  */
-export async function markedJob(root: string, claim: GithubClaim): Promise<string | undefined> {
+export async function markedJob(root: string, claim: GithubClaim): Promise<MarkedJob | undefined> {
 	const jobsRoot = join(root, ".limen/jobs");
-	for (const id of await jobFolders(jobsRoot)) {
-		if ((await readJobFile(join(jobsRoot, id, "task.md"), 4096)).startsWith(`${githubMarker(claim)}\n`)) {
-			return id;
+	const folders: MarkedJob[] = [
+		...(await jobFolders(jobsRoot)).map((id) => ({ id, jobDir: join(jobsRoot, id), archived: false })),
+		...(await archivedJobs(root)).map((job) => ({ ...job, archived: true })),
+	];
+	for (const folder of folders) {
+		if ((await readJobFile(join(folder.jobDir, "task.md"), 4096)).startsWith(`${githubMarker(claim)}\n`)) {
+			return folder;
 		}
 	}
 	return undefined;
 }
 
 /**
- * The job that answers the claim: the one record whose task starts with the claim's marker (`markedJob`), when its
- * shape is a pinned review or a work job on the claim's branch. Any other shape with the marker throws.
+ * The job that answers the claim: the one record whose task starts with the claim's marker (`markedJob`), in
+ * `.limen/jobs/` or the job archive, when its shape is a pinned review or a work job on the claim's branch; for a job in
+ * the archive, `archived` is its folder from the project's root, where the poller reads its files. Any other shape with
+ * the marker throws.
  */
 export async function matchedGithubJob(
 	root: string,
 	claim: GithubClaim,
-): Promise<{ id: string; branch: string; state: string; review: boolean } | undefined> {
-	const id = await markedJob(root, claim);
-	if (id === undefined) {
+): Promise<{ id: string; branch: string; state: string; review: boolean; archived?: string } | undefined> {
+	const found = await markedJob(root, claim);
+	if (found === undefined) {
 		return undefined;
 	}
+	const { id, jobDir } = found;
 	// The record is read under the poller's rule: a regular file with one name, through its validators.
-	const record = await readRecord(join(root, ".limen/jobs", id));
+	const record = await readRecord(jobDir);
 	if (!record || record.state === "starting") {
 		return undefined; // the wrapper has not run the job yet
 	}
@@ -127,11 +139,27 @@ export async function matchedGithubJob(
 	const isReview = claim.kind !== "issue" && candidate === claim.head && base === claim.base;
 	const isWork = !candidate && /^[0-9a-f]{40}$/.test(base ?? "") && role === "worker" && branch === githubBranch(claim);
 	if (!isReview && !isWork) {
-		throw refused(
+		throw conflict(root, claim, found);
+	}
+	const archived = found.archived ? { archived: relative(root, jobDir) } : {};
+	return { id, branch: branch ?? "", state: record.state, review: isReview, ...archived };
+}
+
+/**
+ * The refusal of a claim whose marked job has another shape. `limen show` refuses a job in the job archive, so for one
+ * there the message names its folder and `next` names no command (T-37; R-031, review round 1, F6).
+ */
+function conflict(root: string, claim: GithubClaim, { id, jobDir, archived }: MarkedJob): Refusal {
+	if (archived) {
+		const folder = relative(root, jobDir);
+		return refused(
 			"GITHUB_CONFLICT",
-			`conflicting job ${id} for ${githubMarker(claim)}; inspect it before retrying`,
-			`limen show ${id}`,
+			`conflicting job ${id} for ${githubMarker(claim)} in the job archive, ${folder}; inspect that folder before retrying`,
 		);
 	}
-	return { id, branch: branch ?? "", state: record.state, review: isReview };
+	return refused(
+		"GITHUB_CONFLICT",
+		`conflicting job ${id} for ${githubMarker(claim)}; inspect it before retrying`,
+		`limen show ${id}`,
+	);
 }

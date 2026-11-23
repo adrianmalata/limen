@@ -9,6 +9,10 @@ import { ARCHIVE, type ArchiveRow, archiveRows } from "./series.ts";
 
 /** PROVEN names this many landed features; every month folder keeps a count line below them. */
 const PROVEN_SHOWN = 10;
+/** The reason of the closing commit of `limen land`, before the job's id: `Close <codes>: landed by <id>`. */
+const LANDED_BY = "landed by ";
+/** The subject of a closing commit: the ticket codes joined by `, `, then its reason. */
+const CLOSE_SUBJECT = /^Close [^:]+: (.*)$/;
 const BOARD = "spec/build.md";
 const GENERATED = (lane: string) =>
 	`<!-- Generated from spec/features/${lane}/ by limen land, limen ticket done and limen board --write. Edit the tickets, not these lines. -->`;
@@ -95,6 +99,20 @@ export async function writeBoard(root: string): Promise<boolean> {
 	return true;
 }
 
+/** The reason `limen land` gives the close of the job `id`'s tickets, which its closing commit's subject ends with. */
+export function landReason(id: string): string {
+	return `${LANDED_BY}${id}`;
+}
+/**
+ * The job whose land made a commit with `subject`, `Close <codes>: landed by <id>`, the closing commit's record of the
+ * land (A-002, D-057 (4)); undefined for any other subject.
+ */
+export function landedJobOf(subject: string): string | undefined {
+	const reason = CLOSE_SUBJECT.exec(subject)?.[1] ?? "";
+	const id = reason.startsWith(LANDED_BY) ? reason.slice(LANDED_BY.length) : "";
+	return /^\S+$/.test(id) ? id : undefined;
+}
+
 /** A close of active tickets as its checks decided it, before anything moves (T-38 (1)). */
 export type TicketClose = {
 	readonly root: string;
@@ -139,15 +157,24 @@ export async function planTicketClose(
 }
 
 /**
+ * What a close did: the folders it moved, and in a Git repository its commit, short (`commit`) and full (`sha`); and
+ * the day it gave the tickets as their `landed` date.
+ */
+export type TicketsClosed = {
+	readonly moved: readonly string[];
+	readonly commit?: string;
+	readonly sha?: string;
+	readonly day: string;
+};
+
+/**
  * The writes of `close`: each folder to `done/<month>/` with a `landed` date, then the board. In a Git repository the
  * moves and the board are one commit, `Close FNNN: <reason>`. Returns the folders it moved and the commit.
  */
-export async function applyTicketClose(
-	close: TicketClose,
-): Promise<{ readonly moved: readonly string[]; readonly commit?: string }> {
+export async function applyTicketClose(close: TicketClose): Promise<TicketsClosed> {
 	const { root, tickets, today } = close;
 	if (tickets.length === 0) {
-		return { moved: [] };
+		return { moved: [], day: today };
 	}
 	const folders = tickets.map((ticket) => dirname(ticket.path));
 	const moved: string[] = [];
@@ -161,10 +188,11 @@ export async function applyTicketClose(
 	}
 	const board = (await writeBoard(root)) ? [BOARD] : [];
 	if (!close.committed) {
-		return { moved };
+		return { moved, day: today };
 	}
 	const message = `Close ${tickets.map((ticket) => ticket.code).join(", ")}: ${close.reason}`;
-	return { moved, commit: commitPaths(root, [...folders, ...moved, ...board], message) };
+	const { sha, short } = commitPaths(root, [...folders, ...moved, ...board], message);
+	return { moved, commit: short, sha, day: today };
 }
 
 /**
@@ -176,7 +204,7 @@ export async function closeTickets(
 	codes: readonly string[],
 	reason: string,
 	today = localDate(),
-): Promise<{ readonly moved: readonly string[]; readonly commit?: string }> {
+): Promise<TicketsClosed> {
 	return applyTicketClose(await planTicketClose(root, codes, reason, today));
 }
 

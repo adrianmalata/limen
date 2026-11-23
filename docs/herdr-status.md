@@ -12,10 +12,10 @@ clean exit is not approval, so inspect each one before you land it. `Needs a
 decision` lists `failed` or `stopped` jobs in the same position. A commit counts
 as landed when it is an ancestor of the checked-out branch or a patch-equivalent
 copy of one there (cherry-pick, or through an integration branch).
-`limen prune --retire` deletes finished, failed, or stopped job records whose
-branch is landed (ancestor or cherry-pick) or deleted, and skips a job whose worktree or branch still holds
-unlanded work (it prints a `kept` line for its worktree). Jobs with no unlanded commits appear under no
-heading. Both lists cover the last seven days; `Older: N records` counts the
+`limen prune --retire` moves each finished, failed, or stopped job that its record
+marks `landed` or `abandoned` to the job archive, never judged from the branch, and skips a job whose worktree or
+branch still holds unlanded work (it prints a `kept` line for its worktree). Jobs with no unlanded commits appear
+under no heading. Both lists cover the last seven days; `Older: N records` counts the
 rest, and `limen status --all` lists them under the same headings.
 Open groups appear once with their member-branch count and `limen group status <id>`;
 the lead decides what lands. Closed groups leave the inbox.
@@ -68,7 +68,7 @@ before it records the job as failed.
 A finished job stays on the job line until it lands or closes. It lands when
 its recorded commits are in the checked-out branch, by the same test as
 `limen status`. It closes when its feature folder moves to `done/` or
-`dropped/`, or when `limen prune --retire` removes its record. A job without
+`dropped/`, or when `limen prune --retire` moves its record to the job archive. A job without
 commits cannot land, so it stays until it closes. Limen checks lands and closes
 after each coordinator turn and every 30 seconds. When no running or finished
 job remains, the overlay clears. That is not a merge verdict.

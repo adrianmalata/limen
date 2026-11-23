@@ -418,7 +418,13 @@ const JOBS: readonly Entry[] = [
 		summary: "give up on a job and keep its work on a branch",
 		schema: [JOB],
 		ids: [],
-		refuses: refusals(IN_PROJECT, OWN_JOB, ["JOB_CONTINUED", "JOB_IN_GROUP", "JOB_NOT_FINISHED", "NO_UNLANDED_WORK"]),
+		refuses: refusals(IN_PROJECT, OWN_JOB, [
+			"ABANDON_BRANCH_LACKS_WORK",
+			"JOB_CONTINUED",
+			"JOB_IN_GROUP",
+			"JOB_NOT_FINISHED",
+			"NO_UNLANDED_WORK",
+		]),
 		example: "limen abandon a1b2c3d4",
 		// It removes the job's worktree, and the ignored files there go with it.
 		irreversible: true,
@@ -575,10 +581,10 @@ const PROJECT: readonly Entry[] = [
 		object: "project",
 		kind: "change",
 		visibility: "public",
-		summary: "remove finished worktrees; --retire deletes records of landed jobs",
+		summary: "remove finished worktrees; --retire moves landed and abandoned jobs to the job archive",
 		schema: [
-			{ flag: "retire", about: "delete the records of finished jobs whose branch landed or is gone" },
-			{ flag: "dry-run", about: "with --retire: list the records it would delete, and delete none" },
+			{ flag: "retire", about: "retire each job marked landed or abandoned, unless it holds unlanded work" },
+			{ flag: "dry-run", about: "with --retire: list the jobs it would retire, and move none" },
 		],
 		ids: [],
 		// A job of an open group keeps its worktree and record, so prune reads the group a record names.

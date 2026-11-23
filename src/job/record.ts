@@ -1,17 +1,7 @@
-// The job record (S1+, A-019, D-057): one `record.json` per job folder, schema version 1, and beside it `progress.json`,
-// which the wrapper rewrites per stream event outside the transition function (D-057 (7.1)). This is the one module
-// that names either file or a file of the older record (T-25 (1)); src/job/migration.ts, which moves older records
-// into this one, is the only other. Every read opens the file with O_NOFOLLOW, takes only a regular file with at most
-// one name (none when a rewrite renamed a new record over it after the read opened it) under a size cap, and checks
-// the text with the validators of src/boundary.ts (T-27 (2)). Every write of
-// `record.json` is `transition`'s: under the job's lock (src/lock.ts), from an expected state only (compare-and-swap),
-// never after a terminal state, with an exclusive claim at the terminal transition so that one finisher wins; the write
-// is atomicWrite's temp, fsync and rename, so a reader sees the old record or the new one. The content files
-// (`task.md`, `log`, `result`, the notes, `start-notice`, `session/`) and the receipt folders stay plain files; `log` is
-// appended to (`appendLimenLog`), not written by atomicWrite. `jobFolderNames` lists a folder of job folders, with its
-// rule for a folder that does not exist. `jobFolders` and its callers list through it, and test/structure.test.ts
-// requires src/job/reference.ts and src/job/migration.ts to use it (T-25 (1)); `jobFoldersSync` reads the folder with
-// its own `readdirSync` and `ENOENT` rule, and shares only the filter of names with it.
+// The job record (S1+, A-019, D-057): the one module, with src/job/migration.ts for older records, that reads, writes
+// and lists job records and the job archive, so that every read goes through one validator and every write through
+// one lock (T-25 (1), T-27 (2)). A record changes through `transition` until its job finishes, and after that only
+// through `writeMarker`, once per marker, so that what a finished job left stays as it was (A-002; R-031, Decision 2).
 import {
 	closeSync,
 	constants,
@@ -165,10 +155,24 @@ export type JobRecord = Facts & {
 	readonly scope?: Scope;
 	/** Set on a record the migration wrote (D-057 (4)): history only. */
 	readonly migrated?: { readonly at: string };
+	/** Set once the job's work is on its target (A-002); only `writeMarker` writes it. */
+	readonly landed?: Landed;
+	/** Set once `limen abandon` saved the job's whole worktree on a branch (A-002); only `writeMarker` writes it. */
+	readonly abandoned?: Abandoned;
 };
 
-/** The fields a change may set; the state and the transitions are the transition function's own. */
-export type Fields = Partial<Omit<JobRecord, "version" | "id" | "state" | "transitions">>;
+/**
+ * The marker of a landed job: the commit that holds its work on the target (the merge of `limen land`, the closing
+ * commit of `limen ticket done`) and when it landed.
+ */
+export type Landed = { readonly sha: string; readonly at: string };
+/** The marker of an abandoned job: the branch that holds its whole worktree, the branch's commit, and when. */
+export type Abandoned = { readonly branch: string; readonly commit: string; readonly at: string };
+/** One marker for `writeMarker` to write. */
+export type Marker = { readonly landed: Landed } | { readonly abandoned: Abandoned };
+
+/** The fields a change may set; the state, the transitions and the markers are the record module's own. */
+export type Fields = Partial<Omit<JobRecord, "version" | "id" | "state" | "transitions" | "landed" | "abandoned">>;
 
 /**
  * What the wrapper reports per stream event (D-057 (7.1)), which writes every part. A part is null only in a migrated
@@ -216,9 +220,18 @@ const RECORD_FIELDS = [
 	"versions",
 	"scope",
 	"migrated",
+	"landed",
+	"abandoned",
 ] as const;
 
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+/** A full commit SHA, as `git rev-parse` gives it. */
+const COMMIT = /^[0-9a-f]{40}$/;
+/** A branch name as one word of one line; Git checks the rest of its form when the branch is made. */
+const BRANCH = /^\S+$/;
+/** The folder of the job archive below `.limen/` (A-002), and the form of the name of each of its month folders. */
+const ARCHIVE = "archive";
+const MONTH = /^\d{4}-\d{2}$/;
 /** A unit name of systemd for a scope. */
 const SCOPE_UNIT = /^[\w:.@-]+\.scope$/;
 /** A path of the cgroup v2 hierarchy: absolute, one line, with no `..` part. */
@@ -297,6 +310,32 @@ function checkedFolders(jobsRoot: string, folders: string[]): string[] {
 		throw notMigrated(jobsRoot, old);
 	}
 	return folders;
+}
+
+/** A job folder of the job archive: the job's id and its folder. */
+export type ArchivedJob = { readonly id: string; readonly jobDir: string };
+
+/**
+ * The folder of the job archive of the project at `root` that a job marked at the ISO time `at` moves to (A-002):
+ * `.limen/archive/<YYYY-MM>/`, the UTC month of `at`, so a retire run again after a crash puts the job in the same place.
+ */
+export function archiveMonth(root: string, at: string): string {
+	return join(root, ".limen", ARCHIVE, at.slice(0, 7));
+}
+
+/**
+ * Every job folder of the job archive of the project at `root`, by month and then by id; none when the project has no
+ * archive. A folder of the archive whose name is no month holds no job. Only a person deletes a month's folder.
+ */
+export async function archivedJobs(root: string): Promise<ArchivedJob[]> {
+	const archive = join(root, ".limen", ARCHIVE);
+	const jobs: ArchivedJob[] = [];
+	for (const month of (await jobFolderNames(archive)).filter((name) => MONTH.test(name))) {
+		for (const id of await jobFolderNames(join(archive, month))) {
+			jobs.push({ id, jobDir: join(archive, month, id) });
+		}
+	}
+	return jobs;
 }
 
 /**
@@ -489,6 +528,49 @@ export async function transition(jobDir: string, change: Change): Promise<JobRec
 		}
 		return next;
 	});
+}
+
+/**
+ * The one write after a terminal state (A-002, T-38 (2)): under the job's lock it sets `marker` on the finished record
+ * of `jobDir` and returns the record. A marker is written once: when the record holds the same one, with the same commit
+ * (and branch), it writes nothing and returns the record as it is, so a caller run again changes nothing; it keeps the
+ * first time. A record that is not finished, or a folder without one, refuses with MARKER_NOT_FINISHED, and a marker of
+ * the same kind with another commit with MARKER_DIFFERS: Limen's callers check both first, so either is a fault.
+ */
+export async function writeMarker(jobDir: string, marker: Marker): Promise<JobRecord> {
+	if (!existsSync(join(jobDir, RECORD))) {
+		throw markerRefusal("MARKER_NOT_FINISHED", `job ${basename(jobDir)} has no record in ${jobDir}`);
+	}
+	return withLock({ folder: jobDir }, async () => {
+		const current = await readRecord(jobDir);
+		if (!(current && isTerminal(current.state))) {
+			const state = current?.state ?? "without a record";
+			throw markerRefusal(
+				"MARKER_NOT_FINISHED",
+				`job ${basename(jobDir)} is ${state}; only a finished job takes a marker`,
+			);
+		}
+		const held = "landed" in marker ? current.landed : current.abandoned;
+		const given = "landed" in marker ? marker.landed : marker.abandoned;
+		if (held !== undefined) {
+			if (markerKey(held) !== markerKey(given)) {
+				const kind = "landed" in marker ? "landed" : "abandoned";
+				const message = `job ${current.id} holds the ${kind} marker ${markerKey(held)}, not ${markerKey(given)}`;
+				throw markerRefusal("MARKER_DIFFERS", message);
+			}
+			return current;
+		}
+		const next = checkedRecord(join(jobDir, RECORD), { ...current, ...marker });
+		await atomicWrite(join(jobDir, RECORD), serialized(next));
+		return next;
+	});
+}
+/** What tells two markers of one kind apart: the commit, and the branch of an abandoned job; never the time. */
+function markerKey(marker: Landed | Abandoned): string {
+	return "sha" in marker ? marker.sha : `${marker.branch} at ${marker.commit}`;
+}
+function markerRefusal(code: "MARKER_NOT_FINISHED" | "MARKER_DIFFERS", message: string): LimenError {
+	return new LimenError({ class: "internal", code, message, next: null });
 }
 
 /** The record `change` makes of `current` (a new one in an empty folder), checked by the record's validator. */
@@ -737,6 +819,21 @@ function migratedOf(value: unknown, field: string): { readonly at: string } {
 	const fields = object(["at"])(value, field);
 	return { at: isoTime(fields.get("at"), at(field, "at")) };
 }
+function commitOf(value: unknown, field: string): string {
+	return matching(COMMIT, "a full commit SHA")(value, field);
+}
+function landedOf(value: unknown, field: string): Landed {
+	const fields = object(["sha", "at"])(value, field);
+	return { sha: commitOf(fields.get("sha"), at(field, "sha")), at: isoTime(fields.get("at"), at(field, "at")) };
+}
+function abandonedOf(value: unknown, field: string): Abandoned {
+	const fields = object(["branch", "commit", "at"])(value, field);
+	return {
+		branch: matching(BRANCH, "a branch name")(fields.get("branch"), at(field, "branch")),
+		commit: commitOf(fields.get("commit"), at(field, "commit")),
+		at: isoTime(fields.get("at"), at(field, "at")),
+	};
+}
 function scopeOf(value: unknown, field: string): Scope {
 	const fields = object(["unit", "cgroup", "memoryPeakBytes", "cpuMicroseconds", "oomKills"])(value, field);
 	const reading = nullOr(numberIn({ integer: true, min: 0 }));
@@ -758,6 +855,8 @@ function recordOf(value: unknown, field: string): JobRecord {
 	// Fields added after the record's version are optional (`## Stages` → conventions, D-079).
 	const scope = fields.has("scope") ? { scope: read("scope", scopeOf) } : {};
 	const migrated = fields.has("migrated") ? { migrated: read("migrated", migratedOf) } : {};
+	const landed = fields.has("landed") ? { landed: read("landed", landedOf) } : {};
+	const abandoned = fields.has("abandoned") ? { abandoned: read("abandoned", abandonedOf) } : {};
 	return {
 		version: read("version", oneOf([RECORD_VERSION])),
 		id: read("id", matching(SESSION_ID, "a job ID")),
@@ -794,6 +893,8 @@ function recordOf(value: unknown, field: string): JobRecord {
 		versions: read("versions", text),
 		...scope,
 		...migrated,
+		...landed,
+		...abandoned,
 	};
 }
 function progressOf(value: unknown, field: string): Progress {

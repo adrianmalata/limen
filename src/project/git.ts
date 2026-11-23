@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { transport } from "../config.ts";
 import { environmentError, refused, usageError } from "../outcome.ts";
@@ -71,6 +71,21 @@ export function workspaceRepository(workspace: string, name: string): string {
 		);
 	}
 	return repository;
+}
+/**
+ * The names of the immediate child Git repositories of the workspace at `workspace`, sorted: the places `--repo`
+ * accepts (`workspaceRepository`), each a folder with its own `.git` that is the top level of its repository.
+ */
+export function workspaceRepositories(workspace: string): readonly string[] {
+	const root = resolve(workspace);
+	return readdirSync(root, { withFileTypes: true })
+		.filter((entry) => entry.isDirectory() && existsSync(`${root}/${entry.name}/.git`))
+		.map((entry) => entry.name)
+		.filter((name) => {
+			const top = git(`${root}/${name}`, ["rev-parse", "--show-toplevel"]);
+			return top.status === 0 && top.stdout.trim() === `${root}/${name}`;
+		})
+		.sort();
 }
 /** Whether `branch` is a name git takes for a branch as it is written (`git check-ref-format --branch`). */
 export function isBranchName(cwd: string, branch: string): boolean {
@@ -409,10 +424,43 @@ export function commitList(cwd: string, base: string, branch: string): string | 
 export function commitsOutsideHead(cwd: string, branch: string): number {
 	return Number(requireGit(cwd, ["rev-list", "--count", `refs/heads/${branch}`, "^HEAD"]).stdout.trim());
 }
-/** The names of the branches below `prefix`, such as `limen/abandon/`, in one Git process. */
-export function branchesBelow(cwd: string, prefix: string): ReadonlySet<string> {
-	const refs = requireGit(cwd, ["for-each-ref", "--format=%(refname)", `refs/heads/${prefix}`]).stdout.split("\n");
-	return new Set(refs.filter(Boolean).map((ref) => ref.slice("refs/heads/".length)));
+/** The branches below `prefix`, such as `limen/abandon/`, each by its name with its short commit, in one Git process. */
+export function branchesBelow(cwd: string, prefix: string): ReadonlyMap<string, string> {
+	const format = "--format=%(objectname:short) %(refname)";
+	const refs = requireGit(cwd, ["for-each-ref", format, `refs/heads/${prefix}`])
+		.stdout.split("\n")
+		.filter(Boolean);
+	return new Map(
+		refs.map((line) => [line.slice(line.indexOf(" ") + " refs/heads/".length), line.slice(0, line.indexOf(" "))]),
+	);
+}
+/**
+ * Whether a branch, a tag, a stash entry or a reflog entry of the repository at `nested` names a commit that the
+ * object store of `repository` lacks: such a commit lives only in that `.git`, so whatever removes the worktree around
+ * it loses it (D-088). The commits are checked in one `git cat-file --batch-check` of `repository`, however many the
+ * listing names (R-031, review round 1, F10). A listing Git cannot give counts as one, and so does a check that fails
+ * or answers for another number of commits, so a caller that keeps the worktree for it fails safe.
+ */
+export function namesUnsavedCommit(nested: string, repository: string): boolean {
+	const listed = git(nested, ["rev-list", "--no-walk", "--branches", "--tags", "--reflog"]);
+	if (listed.status !== 0) {
+		return true;
+	}
+	const oids = listed.stdout.split("\n").filter(Boolean);
+	if (oids.length === 0) {
+		return false;
+	}
+	const checked = git(repository, ["cat-file", "--batch-check"], `${oids.join("\n")}\n`);
+	const answers = checked.stdout.split("\n").filter(Boolean);
+	return checked.status !== 0 || answers.length !== oids.length || answers.some((line) => line.endsWith(" missing"));
+}
+/** Whether the commit `ancestor` is `commit` itself or one of its ancestors (`git merge-base --is-ancestor`). */
+export function isAncestor(cwd: string, ancestor: string, commit: string): boolean {
+	const result = git(cwd, ["merge-base", "--is-ancestor", ancestor, commit]);
+	if (result.status === 0 || result.status === 1) {
+		return result.status === 0;
+	}
+	throw environmentError("GIT_FAILED", result.stderr.trim() || result.stdout.trim() || "git merge-base failed");
 }
 /** The commit the branch `branch` points at, or undefined when there is no such branch. */
 export function branchTip(cwd: string, branch: string): string | undefined {
@@ -442,11 +490,41 @@ export function commitTree(cwd: string, tree: string, parent: string, message: s
 export function createBranchOnce(cwd: string, branch: string, commit: string): void {
 	requireGit(cwd, ["update-ref", `refs/heads/${branch}`, commit, ""]);
 }
-/** Commits only `paths`, as they are in the working tree, beside whatever else is staged or changed; returns the short SHA. */
-export function commitPaths(cwd: string, paths: readonly string[], message: string): string {
+/**
+ * Commits only `paths`, as they are in the working tree, beside whatever else is staged or changed; returns the
+ * commit's full SHA and its short form.
+ */
+export function commitPaths(
+	cwd: string,
+	paths: readonly string[],
+	message: string,
+): { readonly sha: string; readonly short: string } {
 	requireGit(cwd, ["add", "-A", "--", ...paths]);
 	requireGit(cwd, ["commit", "--quiet", "-m", message, "--", ...paths]);
-	return requireGit(cwd, ["rev-parse", "--short", "HEAD"]).stdout.trim();
+	const sha = requireGit(cwd, ["rev-parse", "HEAD"]).stdout.trim();
+	return { sha, short: requireGit(cwd, ["rev-parse", "--short", sha]).stdout.trim() };
+}
+/** The committer time of the commit `commit`, in seconds since the epoch. */
+export function committerTime(cwd: string, commit: string): number {
+	return Number(requireGit(cwd, ["log", "-1", "--format=%ct", commit, "--"]).stdout.trim());
+}
+/**
+ * Each commit of the history of HEAD of the checkout at `cwd`, newest first, with its committer time in seconds and
+ * its subject; none for a repository with no commit yet.
+ */
+export function headHistory(
+	cwd: string,
+): ReadonlyArray<{ readonly sha: string; readonly time: number; readonly subject: string }> {
+	if (!hasCommit(cwd)) {
+		return [];
+	}
+	return requireGit(cwd, ["log", "--format=%H %ct %s", "HEAD"])
+		.stdout.split("\n")
+		.filter(Boolean)
+		.map((line) => {
+			const [sha = "", time = "", ...subject] = line.split(" ");
+			return { sha, time: Number(time), subject: subject.join(" ") };
+		});
 }
 /**
  * A worktree's Git state, read without refreshing its index. `none`: no folder, or a folder that is no Git checkout (no

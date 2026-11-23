@@ -396,12 +396,13 @@ async function reconcile(root: string, state: string, claim: GithubClaim, token:
 		claim,
 		token,
 		"start",
-		`Limen started a ${found.review ? "review" : "task"} for ${githubSubject(claim)}${found.review ? ` at pinned head \`${claim.head}\` against base \`${claim.base}\`` : " from the registered repository"}. Job: \`${found.id}\`; branch: \`${found.branch}\`. On its owning seat: \`limen show ${found.id}\`. This is not an approval.`,
+		`Limen started a ${found.review ? "review" : "task"} for ${githubSubject(claim)}${found.review ? ` at pinned head \`${claim.head}\` against base \`${claim.base}\`` : " from the registered repository"}. Job: \`${found.id}\`; branch: \`${found.branch}\`. On its owning seat: ${inspection(found)}. This is not an approval.`,
 	);
 	if (!found.state || found.state === "running") {
 		return;
 	}
-	const dir = join(root, ".limen/jobs", found.id);
+	// Retire may have moved the job to the job archive since it ended, so its files are read where it was found.
+	const dir = join(root, found.archived ?? join(".limen/jobs", found.id));
 	const [result, log] = await Promise.all([
 		readJobFile(join(dir, "result")),
 		readJobFile(join(dir, "log"), 65_536, true),
@@ -416,8 +417,18 @@ async function reconcile(root: string, state: string, claim: GithubClaim, token:
 		claim,
 		token,
 		"terminal",
-		`Limen ${found.review ? "review" : "task"} job \`${found.id}\` ended with state **${found.state}**. This is job termination, not review approval or a merge.\n\nRecorded evidence/result:\n\n\`\`\`text\n${evidence.replaceAll("```", "''' ")}\n\`\`\`\n\nInspect on the owning seat: \`limen show ${found.id}\`.`,
+		`Limen ${found.review ? "review" : "task"} job \`${found.id}\` ended with state **${found.state}**. This is job termination, not review approval or a merge.\n\nRecorded evidence/result:\n\n\`\`\`text\n${evidence.replaceAll("```", "''' ")}\n\`\`\`\n\nInspect on the owning seat: ${inspection(found)}.`,
 	);
+}
+
+/**
+ * Where a person inspects the claim's job on its seat: `limen show`, or for a job in the job archive, which `limen
+ * show` refuses, its folder there, so no reply names a command that refuses (T-37; R-031, review round 2, G1).
+ */
+function inspection(found: { readonly id: string; readonly archived?: string }): string {
+	return found.archived === undefined
+		? `\`limen show ${found.id}\``
+		: `its folder in the job archive, \`${found.archived}\``;
 }
 
 export { accept as acceptGithubComment };

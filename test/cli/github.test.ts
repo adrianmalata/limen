@@ -1,9 +1,10 @@
-// `limen github`: poll's failures and the poll lock, resolve's no-job answer, review and work at the handoff gate.
+// `limen github`: poll's failures and the poll lock, resolve's no-job answer, review and work at the handoff gate, and
+// the claim's job found in the job archive.
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
 import { chmod, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { type TestContext, test } from "node:test";
 import { worktreeLock } from "../../src/job/publication.ts";
 import { withLock } from "../../src/lock.ts";
@@ -244,6 +245,25 @@ test("GITHUB_CONFLICT: github work on a claim that a job of another shape carrie
 	assert.deepEqual([run.status, readOutcome(run).code, snapshot(p.root)], [1, "GITHUB_CONFLICT", before], run.stderr);
 });
 
+// Review round 1, F6 (T-37): `limen show` refuses a job in the job archive with JOB_NOT_FOUND; before the fix the
+// refusal named it in `next` and the message named no folder.
+test("GITHUB_CONFLICT: github work on a claim that an archived job of another shape carries names its folder and no command", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const env = await coordinatorWithClaim(p);
+	const folder = ".limen/archive/2026-11/2026-11-21-forged-1a2b3c4d";
+	const landed = { sha: "1".repeat(40), at: "2026-11-21T12:00:00.000Z" };
+	await writeRecord(join(p.root, folder), { state: "done", role: "reviewer", landed });
+	await writeFile(join(p.root, folder, "task.md"), "GitHub doorbell: acme/widget#104\nReview it.\n");
+	const before = snapshot(p.root);
+	const run = limen(p, [...WORK, p.root, "104", ...MODEL, "--task", "Fix it"], { env });
+	assert.deepEqual(
+		[run.status, readOutcome(run), snapshot(p.root), outputText(run).includes(`in the job archive, ${folder};`)],
+		[1, { class: "refused", code: "GITHUB_CONFLICT", next: null }, before, true],
+		run.stderr,
+	);
+});
+
 // T-38 (2): the gate is the first write of the spawn's apply, after its re-check under the jobs lock, so a wait that
 // runs out on that lock ends the handoff before it writes anything.
 test("LOCK_TIMEOUT: github work whose spawn waits out the jobs lock exits 3 and leaves the snapshot identical", async (t) => {
@@ -372,6 +392,30 @@ test("GITHUB_HANDOFF_GATE: github work on a claim whose copy names a job with no
 		[run.status, readOutcome(run), outputText(run).includes(retired), snapshot(p.root)],
 		[1, { class: "refused", code: "GITHUB_HANDOFF_GATE", next: null }, true, before],
 		run.stderr,
+	);
+});
+
+// R-099's open point 2 (D-080): a job retired before the poller saw it past `starting` leaves a gate whose copy names
+// no job; before R-031 the lookup read only .limen/jobs/, took the gate for a crash's and started a second job.
+test("limen github work: a claim whose job retire moved to the job archive names that job and starts none", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const env = await coordinatorWithClaim(p);
+	await writeFile(join(p.root, ".limen/github/claims/104.json"), JSON.stringify({ repo: REPO, id: 104, pr: 7 }));
+	const archived = join(p.root, ".limen/archive/2026-11/2026-11-20-pr-7-task-1a2b3c4d");
+	const work = { role: "worker", base: "0".repeat(40), branch: "limen/github-pr-7-104" };
+	await writeRecord(archived, {
+		state: "done",
+		...work,
+		landed: { sha: "1".repeat(40), at: "2026-11-20T12:00:00.000Z" },
+	});
+	await writeFile(join(archived, "task.md"), `GitHub doorbell: ${REPO}#104\nCoordinator task: Fix it\n`);
+	await mkdir(join(p.root, GATE), { recursive: true });
+	const run = limen(p, [...WORK, p.root, "104", ...MODEL, "--task", "Fix it"], { env });
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(
+		[readOutcome(run).ids?.job, await jobsOfClaim(p), existsSync(join(p.root, GATE))],
+		[basename(archived), [], true],
 	);
 });
 

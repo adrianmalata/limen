@@ -98,7 +98,10 @@ zamiast dzwonka, trzy rundy recenzji PASS, bramka 834/834; dwie uwagi do R-035, 
 ticketami (D-091) przygotowuje limen-rebuild-22; noc 22/23.11: R-027 zamknięty (żniwiarz zapisuje `failed` dopiero
 po zniknięciu scope albo grupy, jedna łaska i jedno czekanie po KILL; bramka 846/846, recenzja PASS i PASS z jedną
 rundą poprawek) i R-028 (TERM dociera do silnika, `stopped` tylko z zapisaną prośbą o stop, inny sygnał to `failed`
-rodzaju `signal` albo `oom`, łaska 10 s; bramka 858/858, trzy rundy recenzji PASS z dwiema rundami poprawek). -->
+rodzaju `signal` albo `oom`, łaska 10 s; bramka 858/858, trzy rundy recenzji PASS z dwiema rundami poprawek); limit
+5 h przerwał przebieg 1 w R-031, a przebieg 2 zamknął R-031 (znaczniki `landed` i `abandoned`, retire do archiwum
+jobów jednym `rename`; bramka 900/900, recenzja FAIL, PASS, PASS z dwiema rundami poprawek; dwie uwagi rundy 3 to
+pytanie Q-42). -->
 
 
 
@@ -1448,7 +1451,7 @@ Columns:
 | R-028 | SIGTERM reaches the engine; a signal without a stop request is a failure | 3 | A-020, A-052 | R-026 | M | delegated | night | — | pi | 3.8 | done |
 | R-029 | One recorded failure cause per job | 3 | A-016, E-9, T-31, T-32, D-055 | R-017, R-021, R-100 | M | delegated | night | — | bridge | 3.4 | planned |
 | R-030 | Unlanded work survives: `limen abandon`, a guarded prune, a refusing spawn | 3 | A-001 | R-023, R-092 | M | delegated | night | yes | herdr | 3.6 | done |
-| R-031 | `landed` and `abandoned` markers; retire moves records to the archive | 3 | A-002, §6 | R-030 | L | delegated | night | yes | — | 3.6 | ready |
+| R-031 | `landed` and `abandoned` markers; retire moves records to the archive | 3 | A-002, §6 | R-030 | L | delegated | night | yes | — | 3.6 | done |
 | R-032 | `limen seat sweep` runs on a timer; read commands never write or wait | 3 | A-024, T-04, T-18, A-017, §6, D-045 | R-012, R-027, R-031 | L | delegated | night | yes | systemd | 3.1 | planned |
 | R-033 | Alerts from their own account: failures and escalations only | 3 | A-066, A-054, T-18, D-084, D-085 | R-021 | L | delegated | night | yes | systemd | 3.3 | done |
 | R-034 | Resume after the quota limit in code; seat rules are cut | 3 | A-016, A-010, A-068, §6 | R-029, R-032, R-033 | L | delegated | night | yes | systemd | 3.4, 3.5 | planned |
@@ -2194,11 +2197,12 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 Updated 2026-11-22 by day (`limen-rebuild-22`), rebuild stage 5 in plan stage 3: stage 1 is closed at `a0.1.1`
 (deployed on 2026-11-20, with B.2 closed by D-050); stage 2 is closed at `a0.2.0` (gate 5.2 decided, D-078–D-082);
-stage 3 has started: R-026, R-030 and R-033 are `done` (by day), R-027, R-028, R-031, R-035 and R-100 are `ready`
-for the night of D-091 (until 09:00), and D-083's decision guard is built (D-086). The newest entries are at the end
-of this section: the close of stage 2 in "Close of stage 2", the gate in "Gate 5.2 decided", the start of stage 3 in
-"Start of stage 3", the guard and R-026 in "D-083's decision guard", R-030 and R-033 (with D-087–D-091) in "R-030",
-and the night's preparation in "The night of D-091 prepared".
+stage 3 has started: R-026, R-030 and R-033 are `done` (by day), R-027, R-028 and R-031 `done` in the night of D-091
+(until 09:00), R-035 and R-100 `ready` for it, and D-083's decision guard is built (D-086). The newest entries are at
+the end of this section: the close of stage 2 in "Close of stage 2", the gate in "Gate 5.2 decided", the start of
+stage 3 in "Start of stage 3", the guard and R-026 in "D-083's decision guard", R-030 and R-033 (with D-087–D-091) in
+"R-030", the night's preparation in "The night of D-091 prepared", and the night itself in "Night run of
+2026-11-22/23".
 
 Handover of 2026-11-19 (D-033, at 37 % context, after the commit `R-014:`): `limen-rebuild-5` started
 `limen-rebuild-6` in `tmux` in remote-control mode (14:10) and ended. WSL booted at 10:34 on 2026-11-19, after the
@@ -3461,6 +3465,28 @@ and pushed; the tickets in protocol order, the lowest `ready` ID first: R-027, R
   `limen status` warning for a set test knob); the TERM's flag taken on `close`, not `exit`; R-027's sentence that stop
   and the exhaustion "keep their group signals until R-028", which this ticket's `## Change` does not take up.
   Unmeasured: M-11, M-10 (step 3.8).
+- Run 1 ended at 00:52 with exit 1 on the 5-hour limit (its result: `usage_limit_reached`, "resets 1:10am"), with
+  R-031 `active` and its first implementer cut after writing tests only. `night.mjs` started run 2 at 01:22; its
+  `compare --git` on R-031's snapshot of 00:36 exited 0, `HEAD` was `fe092f9` = `origin/adrian-rebuild`, and a fresh
+  implementer finished the change from that tree (as for R-021).
+- R-031 `done` (delegated; review FAIL in round 1 with three blocking findings, PASS in rounds 2 and 3, two rounds of
+  fixes by fresh implementers, F1–F11 and G1–G6; the first reply of rounds 2 and 3 rejected by `review-verdict.mjs`
+  for its form and given again by a fresh reviewer with the tree unchanged): the record's optional `landed` and
+  `abandoned` markers, written once by `writeMarker` after a terminal state (land, `ticket done` for jobs with no
+  unlanded work, abandon once the save holds the whole worktree, the migration's marker step from land's closing
+  commits); `prune --retire` (`src/runtime/retiring.ts`) moves only marked jobs with no unlanded work, with one
+  `rename` under the jobs lock, into `.limen/archive/<YYYY-MM>/<id>/`, the month folder made durable first; the token
+  draw, `limen stats` and the GitHub claim lookup (and the poller's evidence) read the archive; `limen status` lists
+  each `limen/abandon/<id>` branch; the new refusal `ABANDON_BRANCH_LACKS_WORK`. The main session's gate 900/900 on
+  the final tree; `fails-before.mjs` exit 0 (16 files). Night defaults for Adrian to confirm (`ticket.md` →
+  `## Decisions`): AC-12's first clause read within the ticket's scope (D-025; `removeUnstartedRecords` still deletes
+  a record that never started), and the workspace's abandon branches from every immediate child repository; the
+  implementers' 26 in `outcome.md` → `## Night defaults` (above all 1: abandon also marks a job whose worktree was
+  already gone; 3: the marker writer's two refusals are `internal`, undeclared; 21: G1 also changes the start reply).
+  Q-42 (no ticket blocked): where round 3's two code notes go, the poller's lockless reads around a retire and the two
+  `abandonedOf`; recommended: items of R-032. Open points for gate 5.3: `outcome.md` → Open points 1–8. Unmeasured:
+  `limen stats` over the archive, the marker step on the seat (3.6), the archive's syncs on a real crash, the poller's
+  replies for a retired job.
 
 Next (by day):
 1. After his return from the trip (Adrian, 2026-11-22: "Zapisz mi to na zrobienie po powrocie z wyjazdu, teraz działaj

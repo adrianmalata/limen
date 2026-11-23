@@ -1,12 +1,13 @@
 import { randomBytes } from "node:crypto";
 import { closeSync, fsyncSync, linkSync, openSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
-import { link, open, rename, rm, unlink } from "node:fs/promises";
-import { dirname } from "node:path";
+import { link, mkdir, open, rename, rm, unlink } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 
 // A-022, T-25 (1): the one module that writes or renames a file. A file written in place is left truncated when the
 // disk fills or the writer dies, so every write goes to a temp beside its target, is synced, and replaces the target in
-// one rename; the folder is synced after it, so the new name survives a crash. The scan in test/structure.test.ts
-// bans the write primitives outside this file.
+// one rename; the folder is synced after it, so the new name survives a crash. A new folder that a move goes into is
+// made here too, with its name synced, since a move is durable only through the folders it ends in. The scan in
+// test/structure.test.ts bans the write primitives outside this file.
 
 export type WriteOptions = {
 	/** The permission bits of a new file, before the umask; 0o666 by default, as `writeFile` has. */
@@ -93,6 +94,23 @@ export async function atomicRename(from: string, to: string): Promise<void> {
 	await syncFolder(dirname(to));
 	if (dirname(from) !== dirname(to)) {
 		await syncFolder(dirname(from));
+	}
+}
+
+/**
+ * Makes the folder `path` with each missing folder above it, then syncs the folder that holds `path` and the one that
+ * holds each folder it made, so a move into `path` that follows survives a crash with every folder it needs (R-031,
+ * review round 2, G5). The folders above a holder that was there are left as they are.
+ */
+export async function makeDurableFolder(path: string): Promise<void> {
+	const target = resolve(path);
+	// The folder nearest the root that mkdir made; undefined when `target` was there.
+	const first = await mkdir(target, { recursive: true });
+	for (let made = target; ; made = dirname(made)) {
+		await syncFolder(dirname(made));
+		if (first === undefined || made === first || made === dirname(made)) {
+			return;
+		}
 	}
 }
 

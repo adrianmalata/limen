@@ -1,5 +1,5 @@
 // `limen ticket`: check refuses a failing ticket through the final line, new takes its number under the lock, and done
-// closes a ticket with its board in one commit or refuses before anything moves (T-38).
+// closes a ticket with its board in one commit and marks its landed jobs, or refuses before anything moves (T-38).
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { lockPath, withLock } from "../../src/lock.ts";
 import { outputText, readOutcome } from "../final-line.ts";
-import { git, limen, type Plant, plant, TICKET } from "../plant.ts";
+import { git, jobRecord, limen, type Plant, plant, spawnJob, TICKET, waitJob } from "../plant.ts";
 import { snapshot } from "../snapshot.ts";
 
 const BAD = TICKET.replace("F001-demo", "F002-bad");
@@ -103,6 +103,53 @@ test("limen ticket done: moves the ticket to its month with its landed date and 
 	assert.deepEqual(
 		[git(p.root, "log", "-1", "--format=%s"), git(p.root, "status", "--porcelain"), existsSync(join(p.root, TICKET))],
 		["Close F001: landed 2026-11-21", "", false],
+	);
+});
+
+/** A done job of the plant whose label names its ticket F001, with one commit on its branch. */
+function ticketJob(p: Plant): string {
+	const id = spawnJob(p, "commit", ["--label", "F001 demo work"]);
+	assert.equal(waitJob(p, id), "done");
+	return id;
+}
+
+// A-002: before R-031 ticket done touched no job record, so a job whose ticket it closed never got a `landed` marker.
+test("ticket done writes landed with its closing commit and its date on a finished job of the ticket that holds no unlanded work", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = ticketJob(p);
+	git(p.root, "merge", "-q", "--no-edit", jobRecord(p, id)?.branch ?? "");
+	const run = limen(p, ["ticket", "done", "F001", "--on", "2026-11-21"]);
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(jobRecord(p, id)?.landed, { sha: git(p.root, "rev-parse", "HEAD"), at: "2026-11-21T00:00:00.000Z" });
+});
+
+// A-001: a marker never hides work, so a job of the ticket whose commit is not on HEAD stays unmarked, and the close says so.
+test("ticket done leaves a job of the ticket that holds unlanded work without a marker, and names it", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = ticketJob(p);
+	const run = limen(p, ["ticket", "done", "F001"]);
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(
+		[jobRecord(p, id)?.landed, outputText(run).split("\n").slice(1, 2)],
+		[undefined, [`job ${id} stays without a landed marker: it holds unlanded work (limen status)`]],
+	);
+});
+
+// R-031, review round 2, G4: before the fix ticket done committed its close and then refused NOT_MIGRATED while it read
+// the jobs to mark, so they stayed unmarked and a rerun refused NO_ACTIVE_TICKET.
+test("NOT_MIGRATED: ticket done in a project with a job folder of an older Limen exits 4 and moves nothing", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	await mkdir(join(p.root, ".limen/jobs/2026-01-01-old-1a2b3c4d"), { recursive: true });
+	await writeFile(join(p.root, ".limen/jobs/2026-01-01-old-1a2b3c4d/state"), "done\n");
+	const before = snapshot(p.root);
+	const run = limen(p, ["ticket", "done", "F001"]);
+	assert.deepEqual(
+		[run.status, readOutcome(run), snapshot(p.root)],
+		[4, { class: "environment", code: "NOT_MIGRATED", next: "limen migrate --dry-run" }, before],
+		run.stderr,
 	);
 });
 

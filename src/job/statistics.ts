@@ -1,6 +1,7 @@
-// `limen stats` (D-072, D-073): every job record of this project and each job's own transcripts, counted by route and
-// role (jobs, done, failed, run time and the four token classes), then the failed jobs by kind, then what it did not
-// read. It reads the records through src/job/record.ts and the transcripts through src/job/usage.ts, never the prose
+// `limen stats` (D-072, D-073): every job record of this project, those of the job archive included (gate 2 §2, A-002),
+// and each job's own transcripts, counted by route and role (jobs, done, failed, run time and the four token classes),
+// then the failed jobs by kind, then what it did not read. It reads the records through src/job/record.ts and the
+// transcripts through src/job/usage.ts, never the prose
 // of `log` or `result` (T-37 (1)), and it writes nothing and waits for nothing (T-04). A part the record does not hold
 // is named `unknown`, so a null role and a null failure kind get their own row and count, and each folder, record,
 // transcript line and run time it could not read is counted on the last line (z. 10). A migrated record is history
@@ -9,7 +10,15 @@ import { join } from "node:path";
 import { LimenError } from "../outcome.ts";
 import { limenRoot } from "../project/git.ts";
 import { isTerminal } from "./job.ts";
-import { FAILURE_KINDS, type JobRecord, jobFolderNames, jobFolders, type Route, readRecord } from "./record.ts";
+import {
+	archivedJobs,
+	FAILURE_KINDS,
+	type JobRecord,
+	jobFolderNames,
+	jobFolders,
+	type Route,
+	readRecord,
+} from "./record.ts";
 import { readSessionUsage, type SessionUsage } from "./usage.ts";
 
 /** The name of a part the record does not hold (z. 10). */
@@ -52,7 +61,10 @@ type Skipped = {
 export async function projectStatistics(cwd: string): Promise<string> {
 	const root = limenRoot(cwd);
 	const jobsRoot = join(root, ".limen", "jobs");
-	const ids = await jobFolders(jobsRoot);
+	const folders = [
+		...(await jobFolders(jobsRoot)).map((id) => ({ id, jobDir: join(jobsRoot, id) })),
+		...(await archivedJobs(root)),
+	];
 	const skipped: Skipped = {
 		unmigrated: (await jobFolderNames(join(root, ".limen", "unmigrated"))).length,
 		noRecord: 0,
@@ -61,8 +73,8 @@ export async function projectStatistics(cwd: string): Promise<string> {
 		runTimes: 0,
 	};
 	const jobs: Job[] = [];
-	for (const id of ids) {
-		const job = await readJob(join(jobsRoot, id));
+	for (const { id, jobDir } of folders) {
+		const job = await readJob(jobDir);
 		if (job === undefined) {
 			skipped.noRecord += 1;
 		} else if (job === "damaged") {
