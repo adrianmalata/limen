@@ -1941,8 +1941,8 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
   warning, and a test failure of a trial job sends one line `<project> failed:<kind> <job id>` (D-084) (R-033).
 - **3.4** At the next real 5-hour limit, whenever it comes (nothing waits for it; the fake engine's tests cover the
   mechanism): the job's record has kind `quota` and a reset time, exactly one resume runs 5 minutes after the reset
-  (A-010, A-016), and the record shows whether a `rate_limit_event` arrived (`kendex:rate-limit`) for the 5-hour and
-  the weekly limit (item 12; E-9; R-029, R-034).
+  (A-010, A-016), and the job's log shows whether a `rate_limit_event` arrived (the line `rate-limit event: <type>,
+  resets <ISO time>`, from `kendex:rate-limit`) for the 5-hour and the weekly limit (item 12; E-9; R-029, R-034).
 - **3.5** `limen rule` refuses and names its replacement; the old seat rules file appears as a leftover (R-034).
 - **3.6** `limen status` lists finished jobs with unlanded work; resolve each with `limen continue <id>` or
   `limen abandon <id>` before the next spawn (R-030); the first `limen abandon` of a job whose Herdr tab is open closes
@@ -3611,7 +3611,9 @@ that need code went to the notes of R-029, R-032, R-037 and R-087 (D-092). Six r
 (`general-purpose` agents in parallel, each writing only its file, `git status` checked after): `evidence/inventories/
 R-029.md`, `R-032.md`, `R-034.md`, `R-036.md`, `R-037.md`, `R-087.md`, with 16, 19, 21, 16, 20 and 16 open design
 questions; three of them propose a split of an L ticket (R-032 by cadence, R-034 into the rules' cut and the quota
-resume, R-037 into the atomic closing commit and the recorded steps).
+resume, R-037 into the atomic closing commit and the recorded steps), asked as Q-45–Q-47. R-036 `ready` (`5acb9fc`;
+seat step 3.8 names the scope's checks); R-029's `ticket.md` written, waiting for Q-48 (seat step 3.4 reads a log line
+for the rate-limit event).
 
 Next (by day):
 1. After his return from the trip (Adrian, 2026-11-22: "Zapisz mi to na zrobienie po powrocie z wyjazdu, teraz działaj
@@ -3638,13 +3640,29 @@ Next (by day):
      ]
    }
    ```
-2. The night of D-091 is over: all five of its tickets are `done` (R-027 `ddea3ef`, R-028 `fe092f9`, R-031 `34a40d0`,
-   R-035 `017a228`, R-100 `e308a14`), and it ended with `no-ticket`; Q-42 and Q-43 are resolved by D-092. The day
-   session (`limen-rebuild-23`) lists for Adrian the night defaults of the five tickets (each `ticket.md` →
-   `## Decisions` and `outcome.md` → `## Night defaults`; D-054 (2)), grouped by ticket, each with its
-   recommendation, after searching the sources for each (the memory rule); then it makes the next stage-3 tickets
-   `ready` for a night (D-054 (1)): R-029 (its dependencies are `done`), R-036 (with the D-092 note of Q-43), R-087,
-   then R-032 (with its D-092 note of Q-42), R-034 and R-037 in dependency order.
+2. The night defaults of the night of D-091 are confirmed (D-093). R-036 is `ready` (its `ticket.md` at `6d17130`,
+   commit `5acb9fc`). R-029's `ticket.md` is written at `6d17130` and waits only for Q-48 (its `## Decisions` 2 and
+   `## Change` (b)); once Adrian answers, the session writes the answer into both and into `## Decisions` of this
+   plan, and makes R-029 `ready`. Waiting for Adrian, asked in the conversation with a push (2026-11-23), each after
+   the sources were searched (none settles it; splits were his at D-037 and D-061):
+   - Q-45: split R-032 by cadence: R-032 keeps the minute sweep (the reap moved out of `status`, `show` and the hook,
+     `status` and `show` read only, the reaper notes, the systemd installer with lingering and `TimeoutStartSec`,
+     deploy's verification, step 3.1); a new R-101 takes the daily steps (prune and retire in the sweep, `prune`'s
+     removal, the archive instead of deletion, the gitlink notes, the retire races, `abandonedOf`), depending on
+     R-032 (`evidence/inventories/R-032.md` → question 19). Options: 1. split (recommended); 2. one L ticket.
+   - Q-46: split R-034: R-034 keeps the resume after the quota limit (A-016 (2)–(6), A-068, §6; L; depends on R-029,
+     R-032, R-033; R-050 and R-059 depend on it); a new R-102 cuts the seat rules (A-010, T-42 (1); M; seat 3.5),
+     depending on R-034 by A-010's standing condition (`R-034.md` → question 21). Options: 1. split (recommended);
+     2. one ticket.
+   - Q-47: split R-037 at `applyTicketClose` (`src/project/lanes.ts:174-196`): R-037 keeps the atomic closing commit
+     (M; R-065 needs it); a new R-103 takes land as recorded steps with `cleaned`, the `close` cut and `ticket done`'s
+     markers as a step (M–L; seat 3.9; depends on R-037; R-054 depends on it) (`R-037.md` → section 9). Options: 1.
+     split (recommended); 2. one ticket.
+   - Q-48: the kind of the nine ends with none (R-029 fact 3). Options: 1. two new kinds, `launch` (the engine did not
+     start) and `internal` (the wrapper's own error), the group deadline before launch `timeout` (recommended); 2. all
+     `engine-error`; 3. keep `null` (`failed:unknown`).
+   Then the `ticket.md` of R-087, R-032 (and R-101), R-037 (and R-103) are written from their inventories, and R-034's
+   (and R-102's) decisions recorded (D-054 (1)), each inventory's questions settled by the documents first.
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
    D-047 and D-054 were.
