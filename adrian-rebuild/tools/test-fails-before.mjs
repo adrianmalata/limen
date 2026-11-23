@@ -1,10 +1,11 @@
 /* PL: Test narzędzia fails-before.mjs na fiksturze (D-015): w tymczasowym repo test, który sprawdza zmienione
    zachowanie, pada na HEAD (narzędzie kończy się kodem 0), test, który przechodzi już na HEAD, daje błąd (kod 1),
-   a brak nowego testu też daje kod 1. Stan: działa. */
+   a brak nowego testu też daje kod 1; od 23.11 także, że kopia HEAD leży w prywatnym TMPDIR bramki i że kopia, której
+   nie dało się zrobić, nie zostaje w nim (punkt otwarty 3 R-018). Stan: działa. */
 // Usage: node --test adrian-rebuild/tools/test-fails-before.mjs
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, test } from "node:test";
@@ -47,6 +48,48 @@ test("D-015: a test of the changed behaviour fails at HEAD, so the tool exits 0"
 	const result = run();
 	assert.equal(result.status, 0, result.stderr);
 	assert.match(result.stdout, /fail at HEAD/);
+});
+
+test("R-018 open point 3: the copy of HEAD lies in the gate's private TMPDIR, where the tests run", () => {
+	const probe = join(work, ".where-probe");
+	write(
+		"test/where.test.mjs",
+		testOf(
+			'import { writeFileSync } from "node:fs";\n' +
+				'test("records its folder", () => {\n' +
+				"\tconst where = { cwd: process.cwd(), tmpdir: process.env.TMPDIR };\n" +
+				"\twriteFileSync(process.env.FAILS_BEFORE_PROBE, JSON.stringify(where));\n" +
+				'\tassert.fail("on purpose, so that the tool exits 0");\n' +
+				"});",
+		),
+	);
+	const result = spawnSync("node", [tool, "test/where.test.mjs"], {
+		cwd: work,
+		env: { ...env, XDG_CACHE_HOME: join(work, ".cache-home"), FAILS_BEFORE_PROBE: probe },
+		encoding: "utf8",
+	});
+	assert.equal(result.status, 0, result.stderr);
+	const where = JSON.parse(readFileSync(probe, "utf8"));
+	// The tool removes the copy before it exits, so the folder that held it is what is left to resolve.
+	assert.equal(realpathSync(dirname(where.cwd)), realpathSync(where.tmpdir), `the copy ran in ${where.cwd}`);
+});
+
+test("R-018 open point 3: a copy that cannot be made is removed, so the private folder keeps no leftover", () => {
+	const cache = join(work, ".cache-failed");
+	const gate = join(cache, "limen-rebuild-gate");
+	// The OS temporary folder is the gate's here too, so a copy made outside the cleanup would be left in sight.
+	mkdirSync(gate, { recursive: true });
+	const result = spawnSync("node", [tool, "test/missing.test.mjs"], {
+		cwd: work,
+		env: { ...env, XDG_CACHE_HOME: cache, TMPDIR: gate },
+		encoding: "utf8",
+	});
+	assert.notEqual(result.status, 0, result.stdout);
+	assert.match(result.stderr, /ENOENT/);
+	assert.deepEqual(
+		readdirSync(gate).filter((name) => name.startsWith("fails-before-")),
+		[],
+	);
 });
 
 test("D-015: a test that passes at HEAD is an error", () => {

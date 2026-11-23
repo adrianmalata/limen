@@ -1,13 +1,12 @@
 /* PL: Narzędzie sesji głównej z etapu 5 (D-015): sprawdza, że nowe i zmienione testy ticketu padają przed zmianą.
-   Rozpakowuje `git archive HEAD` do katalogu tymczasowego (jako repo z jednym commitem), kopiuje tam nowe i zmienione
-   pliki spod test/ z drzewa roboczego i uruchamia nowe i zmienione pliki testów w środowisku bramki. Kod 0, gdy
-   padają (oczekiwane); kod 1, gdy przechodzą na HEAD albo gdy nie ma żadnego testu. Stan: działa; test
-   w tools/test-fails-before.mjs. */
+   Rozpakowuje `git archive HEAD` do prywatnego TMPDIR bramki (jako repo z jednym commitem; od 23.11 nie do /tmp,
+   punkt otwarty 3 R-018), kopiuje tam nowe i zmienione pliki spod test/ z drzewa roboczego i uruchamia nowe
+   i zmienione pliki testów w środowisku bramki. Kod 0, gdy padają (oczekiwane); kod 1, gdy przechodzą na HEAD albo gdy
+   nie ma żadnego testu. Stan: działa; test w tools/test-fails-before.mjs. */
 // Usage: node adrian-rebuild/tools/fails-before.mjs [<test path>…]
 //   Without paths it takes every new or changed file under test/ from `git status`.
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { gateEnv, repoRoot } from "./gate-env.mjs";
 
@@ -41,9 +40,8 @@ function changedTests(repo) {
 	return paths;
 }
 
-/** A throwaway repository holding HEAD, with the given working-tree files copied over it. */
-function headWith(repo, paths) {
-	const work = mkdtempSync(join(tmpdir(), "fails-before-"));
+/** Makes the empty folder `work` a throwaway repository holding HEAD, with the given working-tree files over it. */
+function fillWithHead(work, repo, paths) {
 	const archive = run("git", ["-C", repo, "archive", "--format=tar", "HEAD"]);
 	run("tar", ["-x", "-C", work], { input: archive });
 	const env = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
@@ -57,7 +55,6 @@ function headWith(repo, paths) {
 	if (existsSync(join(repo, "node_modules"))) {
 		symlinkSync(join(repo, "node_modules"), join(work, "node_modules"));
 	}
-	return work;
 }
 
 const repo = repoRoot();
@@ -68,13 +65,17 @@ if (tests.length === 0) {
 	console.error("fails-before: no new or changed test file under test/");
 	process.exit(1);
 }
-const work = headWith(repo, paths);
 // A parent `node --test` passes NODE_TEST_CONTEXT down, which turns the inner run into its subtest and hides its exit.
 const { NODE_TEST_CONTEXT, ...base } = process.env;
+const env = gateEnv(repo, base);
+// The copy lies in the gate's private TMPDIR, where the tests run: the code under test refuses a path below a folder
+// other users can write, as the GitHub poller's `privatePath` does with its own module path (R-018, open point 3).
+const work = mkdtempSync(join(env.TMPDIR, "fails-before-"));
 try {
+	fillWithHead(work, repo, paths);
 	const result = spawnSync("node", ["--test", "--test-timeout=180000", "--test-force-exit", ...tests], {
 		cwd: work,
-		env: gateEnv(repo, base),
+		env,
 		encoding: "utf8",
 		maxBuffer: 1 << 30,
 	});

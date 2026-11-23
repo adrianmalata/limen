@@ -3891,6 +3891,12 @@ the coordinator sessions are read, and the output in two variants on the golden 
 z rekomendacjami" → D-098; R-098 `ready` with its `ticket.md` (`R-098-stats-per-land/`), steps B.3 and B.4 and the
 paragraph after the `## Measurement` table rewritten. D-098 corrects one item of the reading sent with the questions:
 `stats` reads every file of the `--sessions` directory, with no filter on the recorded `cwd`, since B.3 runs on a copy.
+Adrian did not ask for a night run (he is back from the trip in the evening and wants to do his manual steps at about
+20:00), so the session did `Next` 3: `fails-before.mjs` makes its copy of HEAD in the gate's private TMPDIR and fills
+it inside the cleanup (`evidence/fails-before-tmpdir/`: ticket, outcome, review; two new tests, each failing at HEAD's
+tool; review PASS in three rounds, two rounds of fixes, round 3's text note fixed without a fourth, D-053 (2)). Two
+commands of this session were refused by the permissions (an inline `python3` edit, then a `git stash list` beside a
+test run) and were not worked around; the edits went through the editor.
 
 Next (by day):
 1. After his return from the trip (Adrian, 2026-11-22: "Zapisz mi to na zrobienie po powrocie z wyjazdu, teraz działaj
@@ -3921,10 +3927,13 @@ Next (by day):
    (D-054 (1)), so a night can run them; R-103 is `ready (D-096)` behind R-037, R-101 `ready (D-097)` behind R-032,
    R-034 `ready (D-097)` behind R-029 and R-032, R-102 `ready (D-097)` behind R-034, and R-098 `ready` with its
    `ticket.md`; every stage-3 ticket is `done` or `ready`, so the rest of stage 3 is night work, and whether and when
-   to start a night is Adrian's (D-024: the main session starts the runner when he asks). By day meanwhile: item 3.
-3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
-   temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
-   D-047 and D-054 were.
+   to start a night is Adrian's (D-024: the main session starts the runner when he asks).
+3. Adrian's manual steps, at about 20:00 on 2026-11-23 (his words: "około 20:00 chciałbym zrobić te kroki ręczne, które
+   powinienem zrobić"): item 1 above, and the deployment of `a0.2.0`, which no entry of this section records as done
+   (gate 5.2: "The seat steps 0.1, 2.0–2.4 and B.3 are Adrian's; stage 3 does not wait for them"): `## Deployment`
+   0.1, 0.2 with `56f816820786d77e7cd13485ea20bb7fc78dd9d3` (D-082), 0.3, then 2.1–2.4 in order, 0.6, and B.3's
+   a0.2.0 part. The session gives him each step's full text and command in its message; his results go into this
+   section.
 
 Resolved (Q-49 and Q-50 → D-096; Adrian: "rekomendacje"), asked on 2026-11-23 by `limen-rebuild-25` in the
 conversation with a push, after the sources were searched; the settled items went into D-096 (3):
