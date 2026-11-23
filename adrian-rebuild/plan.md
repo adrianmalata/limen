@@ -109,7 +109,9 @@ Tam D-093: Adrian zatwierdził wszystkie domyślne decyzje tej nocy (Q-44), punk
 notatek R-029, R-032, R-037 i R-087, a sześć inwentarzy (R-029, R-032, R-034, R-036, R-037, R-087) leży w
 `evidence/inventories/` jako podstawa ich `ticket.md`. D-094: R-032, R-034 i R-037 podzielone (nowe R-101, R-102,
 R-103); D-095: nowe rodzaje porażki `launch` i `internal`; R-029 i R-036 gotowe na noc. limen-rebuild-24: R-087
-(allow-lista środowiska joba, tryb testowy `LIMEN_TEST_MODE`) gotowy na noc, z krokiem 3.10 przepisanym. -->
+(allow-lista środowiska joba, tryb testowy `LIMEN_TEST_MODE`) gotowy na noc, z krokiem 3.10 przepisanym; R-032
+(`limen seat sweep` na timerze użytkownika co minutę, `status` i `show` tylko do odczytu, eskalacja `stuck`) gotowy na
+noc, z krokiem 3.1 przepisanym. -->
 
 
 
@@ -1503,7 +1505,7 @@ Columns:
 | R-029 | One recorded failure cause per job | 3 | A-016, E-9, T-31, T-32, D-055, D-095 | R-017, R-021, R-100 | M | delegated | night | — | bridge | 3.4 | ready |
 | R-030 | Unlanded work survives: `limen abandon`, a guarded prune, a refusing spawn | 3 | A-001 | R-023, R-092 | M | delegated | night | yes | herdr | 3.6 | done |
 | R-031 | `landed` and `abandoned` markers; retire moves records to the archive | 3 | A-002, §6 | R-030 | L | delegated | night | yes | — | 3.6 | done |
-| R-032 | `limen seat sweep` runs on a timer; read commands never write or wait | 3 | A-024, T-04, T-18, A-017, §6, D-045 | R-012, R-027, R-031 | L | delegated | night | yes | systemd | 3.1 | planned |
+| R-032 | `limen seat sweep` runs on a timer; read commands never write or wait | 3 | A-024, T-04, T-18, A-017, §6, D-045 | R-012, R-027, R-031 | L | delegated | night | yes | systemd | 3.1 | ready |
 | R-033 | Alerts from their own account: failures and escalations only | 3 | A-066, A-054, T-18, D-084, D-085 | R-021 | L | delegated | night | yes | systemd | 3.3 | done |
 | R-034 | Resume after the quota limit in code | 3 | A-016, A-068, §6, D-094 | R-029, R-032, R-033 | L | delegated | night | yes | systemd | 3.4 | planned |
 | R-035 | Start-queue thresholds: a diagnosis at 30 min, a failure at 2 h | 3 | A-036 | R-026, R-033 | L | delegated | night | — | systemd | 3.8 | done |
@@ -1662,7 +1664,11 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
 - R-077 (D-042): its criteria include "the command registry holds no entry with `movedBy` naming this ticket" (`group
   wait`) and a fake-engine test in which a team member with a worker allowance gets each worker's result although it
   no longer calls `group wait`, including a worker that ends after the member's turn would have ended.
-- R-032 (D-041 (6)): once read commands write nothing (T-04), `limen <command> --help` shows the kind of T-19.
+- R-103 (D-041 (6); R-032 `ticket.md` → Out of scope, 2026-11-23): `limen diff` and `limen open` in Herdr record their
+  tab's place under the job folder (`src/integrations/herdr.ts:102-133`, `:389-397`), which T-04 forbids for `diff`, a
+  read command; those places serve the closing of the job's tabs, which R-103's `cleaned` step rewrites, so R-103
+  either finds the tabs without a record or makes the Herdr form of `diff` a change command. Once read commands write
+  nothing, `limen <command> --help` shows the kind of T-19 (D-041 (6)).
 - R-023 (D-045 (2), D-046): the `jobs` refusal (R-014 review round 4, note 1): a flag present names `limen status
   --all`, and only `limen jobs <ref>` names `limen show <ref>` (D-038); a test that every non-empty `next` of a refusal,
   for the mixed forms `limen jobs --all a1b2c3d4` and `limen jobs -- --all` included, passes the shared parser and is
@@ -1951,10 +1957,13 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
 ### After stage 3 (a0.3.0)
 
 - **3.0** Deploy a0.3.0 by 0.1–0.3: `node /opt/limen/seat/deploy.ts <sha>` with the full SHA from gate 5.3.
-- **3.1** `limen seat sweep --install` on the agents' account, with lingering on (root runs `loginctl enable-linger` if
-  the command says so). The old `limen-prune@ledger` and `limen-prune@synchronizer` timers were disabled on 2026-11-17
-  (Adrian, `systemctl disable --now`; item 5, done); what remains is to check that `systemctl list-timers --all` shows
-  no `limen-prune` (R-032).
+- **3.1** `limen seat sweep --install` on the agents' account, with lingering on (when the command exits 4 naming it,
+  root runs `loginctl enable-linger <account>` and the install runs again; a second install changes nothing). Then
+  `limen seat sweep --status` prints `limen-sweep.timer is active`, `limen status` shows no `Sweep not working`
+  section, and after the first minute `journalctl --user -u limen-sweep.service` ends with a final line of class `ok`
+  and no `herdr is not available`. The old `limen-prune@ledger` and `limen-prune@synchronizer` timers were disabled on
+  2026-11-17 (Adrian, `systemctl disable --now`; item 5, done); what remains is to check that `systemctl list-timers
+  --all` shows no `limen-prune` (R-032).
 - **3.2** From a Herdr pane on the agents' account, `systemd-run --user --scope true` exits 0 (item 12); during a trial
   job, `systemd-cgls` shows the engine and its tools in the job's scope, and `systemctl --user is-active --quiet
   limen-job-<id>.scope` exits 0 while the job runs and 3 after it ended, as it does for a unit name that never
@@ -3661,7 +3670,11 @@ push was skipped as redundant, the terminal being active; context 8 % at the sta
 `## Decisions` named for Adrian's attention at gate 5.3: the wrapper keeps `HERDR_*`, the fixed list of names, test
 mode as the marker `LIMEN_TEST_MODE`, the dropped-names log line); seat step 3.10 rewritten with it (a trial job per
 project that runs the project's checks; `git credential fill` instead of `git config --get credential.helper`, which
-misses a URL-scoped helper).
+misses a URL-scoped helper). R-032 `ready` with its `ticket.md` (written at `06d8d75`; the minute half of D-094 (1);
+the inventory's 19 questions settled by the documents; items 4, 6, 8 and 9 of its `## Decisions` named for gate 5.3:
+`TimeoutStartSec=300`, the `Sweep not working` section, the dead job's line without "since", and whether a read may
+take a bounded reading, as `seat queue`'s 2-second sample and `status`'s probes do); seat step 3.1 rewritten with it;
+the D-041 (6) note moved to R-103 with `diff` and `open`, which record their Herdr tab's place.
 
 Next (by day):
 1. After his return from the trip (Adrian, 2026-11-22: "Zapisz mi to na zrobienie po powrocie z wyjazdu, teraz działaj
@@ -3690,10 +3703,10 @@ Next (by day):
    ```
 2. The night defaults of the night of D-091 are confirmed (D-093), and Q-45–Q-48 are answered (D-094: R-032, R-034
    and R-037 split, with the new R-101, R-102 and R-103; D-095: the kinds `launch` and `internal`). R-036 (`5acb9fc`),
-   R-029 and R-087 are `ready`, each on its own branch of the dependency graph (D-054 (1)), so a night can run them;
-   whether and when to start one is Adrian's. Next by day, each inventory's questions settled by the documents first
-   (the memory rule) and only what none settles asked: the `ticket.md` of R-032 (`R-032.md`, the minute half of D-094
-   (1)) and R-037 (`R-037.md`, the closing-commit half of D-094 (3)), whose dependencies are `done`; then the decisions of R-101 (from `R-032.md`), R-103 (from `R-037.md`), R-034 and
+   R-029, R-032 and R-087 are `ready`, each on its own branch of the dependency graph (D-054 (1)), so a night can run
+   them; whether and when to start one is Adrian's. Next by day, each inventory's questions settled by the documents
+   first (the memory rule) and only what none settles asked: the `ticket.md` of R-037 (`R-037.md`, the closing-commit
+   half of D-094 (3)), whose dependencies are `done`; then the decisions of R-101 (from `R-032.md`), R-103 (from `R-037.md`), R-034 and
    R-102 (from `R-034.md`), recorded so that a night writes their `ticket.md` at the HEAD it starts from (D-054 (1)).
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
