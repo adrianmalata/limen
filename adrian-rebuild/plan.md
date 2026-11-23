@@ -111,7 +111,9 @@ notatek R-029, R-032, R-037 i R-087, a sześć inwentarzy (R-029, R-032, R-034, 
 R-103); D-095: nowe rodzaje porażki `launch` i `internal`; R-029 i R-036 gotowe na noc. limen-rebuild-24: R-087
 (allow-lista środowiska joba, tryb testowy `LIMEN_TEST_MODE`) gotowy na noc, z krokiem 3.10 przepisanym; R-032
 (`limen seat sweep` na timerze użytkownika co minutę, `status` i `show` tylko do odczytu, eskalacja `stuck`) gotowy na
-noc, z krokiem 3.1 przepisanym. -->
+noc, z krokiem 3.1 przepisanym. limen-rebuild-25: R-037 (commit zamknięcia land i `ticket done` budowany w
+tymczasowym indeksie z oczekiwanego commita, hooki `git commit -m`, compare-and-swap gałęzi, blokada ticket-lanes,
+odmowa brudnego ticketu przed merge'em) gotowy na noc. -->
 
 
 
@@ -1510,7 +1512,7 @@ Columns:
 | R-034 | Resume after the quota limit in code | 3 | A-016, A-068, §6, D-094 | R-029, R-032, R-033 | L | delegated | night | yes | systemd | 3.4 | planned |
 | R-035 | Start-queue thresholds: a diagnosis at 30 min, a failure at 2 h | 3 | A-036 | R-026, R-033 | L | delegated | night | — | systemd | 3.8 | done |
 | R-036 | Stall is measured over the whole job scope | 3 | A-059 | R-026 | M | delegated | night | — | systemd | 3.8 | ready |
-| R-037 | The closing commit of land and `ticket done` is atomic | 3 | A-021, A-057, T-38, D-094 | R-023, R-031, R-092 | M | delegated | night | — | — | — | planned |
+| R-037 | The closing commit of land and `ticket done` is atomic | 3 | A-021, A-057, T-38, D-094 | R-023, R-031, R-092 | M | delegated | night | — | — | — | ready |
 | R-087 | The job environment is an allow-list; git and gh in a job hold no credential (T1) | 3 | A-004, A-061, E-4, D-017 | R-015, R-021, R-026 | M | delegated | night | — | pi, bridge | 3.10 | ready |
 | R-098 | `limen stats` per landed ticket and per coordinator turn | 3 | §2, A-078, A-037, D-072 | R-024, R-031 | M | delegated | night | — | pi | B.3, B.4 | planned |
 | R-100 | One definition of the ISO time, the 429 rule, the error-code check and the jobs listing | 3 | T-25, D-080 | R-022, R-093, R-097 | S | delegated | night | — | — | — | done |
@@ -1669,6 +1671,10 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   read command; those places serve the closing of the job's tabs, which R-103's `cleaned` step rewrites, so R-103
   either finds the tabs without a record or makes the Herdr form of `diff` a change command. Once read commands write
   nothing, `limen <command> --help` shows the kind of T-19 (D-041 (6)).
+- R-103 (D-075, D-094 (3); R-037 `ticket.md` → Decisions 9 and Risk, 2026-11-23): land's `irreversible` mark, with
+  T-28 (3)'s test that a rerun of land continues and a test that nothing is lost; and a kill between the closing
+  commit's branch move and the checkout's `git read-tree -m -u` leaves the checkout behind the branch on the close's
+  paths with no error printed, which the `closed` step, recorded with the commit, continues when land runs again.
 - R-023 (D-045 (2), D-046): the `jobs` refusal (R-014 review round 4, note 1): a flag present names `limen status
   --all`, and only `limen jobs <ref>` names `limen show <ref>` (D-038); a test that every non-empty `next` of a refusal,
   for the mixed forms `limen jobs --all a1b2c3d4` and `limen jobs -- --all` included, passes the shared parser and is
@@ -1739,9 +1745,10 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   the reaped job's own scope (an engine whose wrapper was killed alone runs `limen show`) gets its own TERM before any
   write, so the job stays `running`. The sweep reaps from outside every job scope and reads a `deactivating` scope as
   not yet ended.
-- R-037 (D-092; R-031 `outcome.md` → Open point 2): `ticket done` writes its `landed` markers after its commit,
-  outside its operation, so a failed marker write leaves the jobs unmarked while a rerun refuses `NO_ACTIVE_TICKET`;
-  as a recorded step of the close, the marker write is continued when the command runs again (T-38 (3)).
+- R-103 (D-092, D-094 (3); R-031 `outcome.md` → Open point 2): `ticket done` writes its `landed` markers after its
+  commit, outside its operation, so a failed marker write leaves the jobs unmarked while a rerun refuses
+  `NO_ACTIVE_TICKET`; as a recorded step of the close, the marker write is continued when the command runs again
+  (T-38 (3)).
 - R-087 (D-092; R-028 `review.md` → Round 3, note 1): the test knob `LIMEN_END_GATE` (`endGate`,
   `src/runtime/wrapper.ts`) holds a wrapper's end with no bound of its own, so a spawner's environment that held it
   would hold every job's end until `limen stop`; it is one of the test knobs that R-087 makes read only in test mode
@@ -2308,13 +2315,13 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-23 by day (`limen-rebuild-24`), rebuild stage 5 in plan stage 3: stage 1 is closed
+Updated 2026-11-23 by day (`limen-rebuild-25`), rebuild stage 5 in plan stage 3: stage 1 is closed
 at `a0.1.1` (deployed on 2026-11-20, with B.2 closed by D-050); stage 2 is closed at `a0.2.0` (gate 5.2 decided,
 D-078–D-082); stage 3 has started: R-026, R-030 and R-033 are `done` (by day), R-027, R-028, R-031, R-035 and R-100
 `done` in the night of D-091 (until 09:00; it ended with `no-ticket`), D-092 settles its Q-42 and Q-43, and D-083's
 decision guard is built (D-086); D-093 confirms that night's defaults, D-094 splits R-032, R-034 and R-037 (new
-R-101–R-103), D-095 adds the kinds `launch` and `internal`, and R-029 and R-036 are `ready` ("Day session of
-2026-11-23 (`limen-rebuild-23`…)", just before `Next`). The
+R-101–R-103), D-095 adds the kinds `launch` and `internal`, and R-029, R-032, R-036, R-037 and R-087 are `ready`
+(the three "Day session of 2026-11-23" entries, just before `Next`). The
 newest entries are at the end of this section: the close of stage 2 in "Close of stage 2", the gate in "Gate 5.2
 decided", the start of stage 3 in "Start of stage 3", the guard and R-026 in "D-083's decision guard", R-030 and R-033
 (with D-087–D-091) in "R-030", the night's preparation in "The night of D-091 prepared", the night itself in
@@ -3676,6 +3683,21 @@ the inventory's 19 questions settled by the documents; items 4, 6, 8 and 9 of it
 take a bounded reading, as `seat queue`'s 2-second sample and `status`'s probes do); seat step 3.1 rewritten with it;
 the D-041 (6) note moved to R-103 with `diff` and `open`, which record their Herdr tab's place.
 
+Day session of 2026-11-23, continued (`limen-rebuild-25`, by day, Adrian at the terminal; its `close-previous` printed
+`handover: closed tmux session limen-rebuild-24` and one `handover: stopped claude …` line and exited 0; its takeover
+push was skipped as redundant, the terminal being active; context 7 % at the start): R-037 `ready` with its
+`ticket.md` (`R-037-atomic-closing-commit/`; the closing-commit half of D-094 (3); the inventory's 20 questions settled
+by the documents, chiefly A-057's Decision, which carries its pattern over to the closing commit, and T-38's "by
+construction": the commit is built in a temporary index from the commit validate held, the hooks `git commit -m` runs
+before it commits run on that index, the branch moves by compare-and-swap, and only then does the checkout follow, by
+a two-way `git read-tree -m -u`; every close takes the ticket-lanes lock; land refuses `TICKETS_UNCOMMITTED` before its
+merge and exits ≠ 0 with `next` `limen ticket done <codes>` after a failed close). Items 1, 2, 8 and 9 of its
+`## Decisions` are named for gate 5.3: the hooks see the working tree before the close, `post-commit` is not run, a
+rejecting hook is `environment` `HOOK_REJECTED`, and land's `irreversible` mark (D-075) goes to R-103. The D-092 note
+on `ticket done`'s markers is relabelled R-103 (D-094 (3)), and a new R-103 note holds the mark and the checkout left
+behind by a kill after the branch move. One command of this session was refused by the permissions (an inline
+`node -e` edit of `plan.md`, off the list) and was not worked around; the edits went through the editor.
+
 Next (by day):
 1. After his return from the trip (Adrian, 2026-11-22: "Zapisz mi to na zrobienie po powrocie z wyjazdu, teraz działaj
    z zadaniami dalej"), Adrian adds the `hooks` block below to `.claude/settings.local.json` as a top-level key (into
@@ -3703,11 +3725,11 @@ Next (by day):
    ```
 2. The night defaults of the night of D-091 are confirmed (D-093), and Q-45–Q-48 are answered (D-094: R-032, R-034
    and R-037 split, with the new R-101, R-102 and R-103; D-095: the kinds `launch` and `internal`). R-036 (`5acb9fc`),
-   R-029, R-032 and R-087 are `ready`, each on its own branch of the dependency graph (D-054 (1)), so a night can run
-   them; whether and when to start one is Adrian's. Next by day, each inventory's questions settled by the documents
-   first (the memory rule) and only what none settles asked: the `ticket.md` of R-037 (`R-037.md`, the closing-commit
-   half of D-094 (3)), whose dependencies are `done`; then the decisions of R-101 (from `R-032.md`), R-103 (from `R-037.md`), R-034 and
-   R-102 (from `R-034.md`), recorded so that a night writes their `ticket.md` at the HEAD it starts from (D-054 (1)).
+   R-029, R-032, R-037 and R-087 are `ready`, each on its own branch of the dependency graph (D-054 (1)), so a night
+   can run them; whether and when to start one is Adrian's. Next by day, each inventory's questions settled by the
+   documents first (the memory rule) and only what none settles asked: the decisions of R-101 (from `R-032.md`), R-103
+   (from `R-037.md`, with R-037's `ticket.md` → Out of scope and the R-103 notes in `## Tickets`), R-034 and R-102
+   (from `R-034.md`), recorded so that a night writes their `ticket.md` at the HEAD it starts from (D-054 (1)).
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
    D-047 and D-054 were.
