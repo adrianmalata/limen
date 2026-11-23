@@ -113,7 +113,8 @@ R-103); D-095: nowe rodzaje porażki `launch` i `internal`; R-029 i R-036 gotowe
 (`limen seat sweep` na timerze użytkownika co minutę, `status` i `show` tylko do odczytu, eskalacja `stuck`) gotowy na
 noc, z krokiem 3.1 przepisanym. limen-rebuild-25: R-037 (commit zamknięcia land i `ticket done` budowany w
 tymczasowym indeksie z oczekiwanego commita, hooki `git commit -m`, compare-and-swap gałęzi, blokada ticket-lanes,
-odmowa brudnego ticketu przed merge'em) gotowy na noc. -->
+odmowa brudnego ticketu przed merge'em) gotowy na noc; D-096: sprzątanie pozostałych kart Herdra i usunięcie `limen
+close` idą do R-101, `diff` i `open` stają się poleceniami zmiany (T-04 bez `diff`), R-103 gotowy na noc za R-037. -->
 
 
 
@@ -1121,6 +1122,36 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   worktree, the engine's spawn error, a failed spawn or group launch, a failed wrapper launch, the wrapper's
   handshake), and `internal`, an error the wrapper itself throws (the class `internal` of T-02); a group's deadline
   before launch is `timeout`. No end that new code writes keeps a `null` kind. Check: R-029's criteria.
+- 2026-11-23 D-096 (Adrian: "rekomendacje"; Q-49 and Q-50, option 1 each, asked in the conversation with a push after
+  the sources were searched: T-04, T-18 (1), D-041 (6), D-070 (2), D-075, D-094 (3), R-030 Decision 6, R-031 Decisions
+  1 and 4, `evidence/inventories/R-037.md`; amends D-094 (3) and T-04). (1) Q-49: the daily step of `limen seat sweep`
+  that closes leftover Herdr tabs (T-18 (1)) is R-101's: it closes the recorded tabs (`herdr/`, `herdr/diff/`) of the
+  finished jobs whose features are all closed (the rule of today's `limen close FNNN`, for every closed feature), the
+  coordinator's own tab skipped; R-101 cuts `limen close` (exit 2, `next: limen seat sweep`; `movedBy: "R-101"` until
+  then), gains API `herdr`, and step 3.9 checks that the sweep's unit reaches Herdr; R-103 keeps the `cleaned` step.
+  (2) Q-50: `limen diff` and `limen open` become `change` commands, since each opens a Herdr tab and records its place
+  so that Limen can close it; T-04's list drops `diff` (`taste.md`, dated); R-103 changes their kind. (3) Settled by
+  the documents for R-103 (the session's reading; (i) and (j) named for Adrian's attention): (a) the steps are in
+  `record.json` (A-021, gate 2 S1+): `merged` is R-031's `landed` marker, written in the same write as a new optional
+  field `land` (D-079) that then records `closed` (the closing commit, or `null` when nothing closed) and `cleaned`,
+  each once under the job's lock through the marker writer; (b) the order is merged, closed, cleaned, and the branch
+  and worktree go in `cleaned` (A-021); (c) land runs through the runner with typed refusals (D-070 (2)), the terminal
+  question between `validated` and `apply`, apply under a land lock of the job; (d) a failed step keeps its class with
+  `next` `limen land <id>`, which replaces R-037's `limen ticket done <codes>`; (e) a rerun continues from the first
+  step not recorded, never merges again after `merged`, deletes the branch only while its tip is in the target's
+  history (z. 29), and after all steps exits 0 with the steps' line, as abandon's marked line; (f) after a kill that
+  followed R-037's branch move, the rerun finds `Close <codes>: landed by <id>` in the target's history, finishes the
+  checkout and records `closed`; (g) an older record (`landed`, no `land`) is continued from Git, as abandon's steps
+  are (R-030 Decision 6), with no migration script (R-031 Decision 1); (h) retire keeps a record whose `land` lacks
+  `cleaned`; (i) `cleaned` closes the job's `herdr/` and `herdr/diff/` tabs, the coordinator's own skipped,
+  synchronously with `closeJobTab`'s bound and one retry, the result in the output and the job's log; a tab that does
+  not close is a line and the step is recorded (T-18 (1): the sweep closes leftovers; T-01); the same close in `ticket
+  done` (the finished jobs of its tickets) and in `abandon` (after its marker, still found from Git); (j) a rerun of
+  `ticket done` on a ticket its own closing commit closed continues the marker step and, with nothing left, exits 0
+  (T-02, the D-092 note), while a number with no ticket stays `NO_ACTIVE_TICKET`; (k) land's `irreversible` mark
+  (D-075); (l) the watch tab's close at a job's end (`settleJobTab`, A-029) stays. R-103 is `ready (D-096)`: the night
+  writes its `ticket.md` once R-037 is `done`. Check: `## Tickets` rows R-101 and R-103; step 3.9; T-04 in `taste.md`;
+  R-101's and R-103's criteria.
 
 ### Gate 2 §2, copied
 
@@ -1516,9 +1547,9 @@ Columns:
 | R-087 | The job environment is an allow-list; git and gh in a job hold no credential (T1) | 3 | A-004, A-061, E-4, D-017 | R-015, R-021, R-026 | M | delegated | night | — | pi, bridge | 3.10 | ready |
 | R-098 | `limen stats` per landed ticket and per coordinator turn | 3 | §2, A-078, A-037, D-072 | R-024, R-031 | M | delegated | night | — | pi | B.3, B.4 | planned |
 | R-100 | One definition of the ISO time, the 429 rule, the error-code check and the jobs listing | 3 | T-25, D-080 | R-022, R-093, R-097 | S | delegated | night | — | — | — | done |
-| R-101 | Prune and retire are steps of the sweep; nothing is deleted | 3 | A-024, A-002, T-18, T-28, D-092, D-094 | R-032 | M | delegated | night | yes | — | — | planned |
+| R-101 | Prune, retire and leftover Herdr tabs are steps of the sweep; nothing is deleted | 3 | A-024, A-002, T-18, T-28, D-092, D-094, D-096 | R-032 | M | delegated | night | yes | herdr | 3.9 | planned |
 | R-102 | Seat rules are cut | 3 | A-010, T-42, D-094 | R-034 | M | delegated | night | yes | systemd | 3.5 | planned |
-| R-103 | Land runs as recorded steps; its `cleaned` step closes the job's Herdr tabs | 3 | A-021, T-18, T-28, T-38, D-092, D-094 | R-037 | M | delegated | night | yes | herdr | 3.9 | planned |
+| R-103 | Land runs as recorded steps; its `cleaned` step closes the job's Herdr tabs | 3 | A-021, T-04, T-18, T-28, T-38, D-092, D-094, D-096 | R-037 | M | delegated | night | yes | herdr | 3.9 | ready (D-096) |
 | R-038 | The fake engine shows the model's view under the bridge | 4 | T-31, A-051 | R-017 | M | delegated | night | — | bridge | 4.1 | planned |
 | R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16 | R-021, R-038 | L | delegated | night | yes | pi, bridge | 4.2 | planned |
 | R-040 | Role texts come from the package, in three registers | 4 | A-038, A-039, A-042, D-005 | R-001, R-039 | M | delegated | night | yes | — | — | planned |
@@ -1653,8 +1684,9 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   GitHub module when connected, groups when a group record exists), and Adrian switches those on in step 4.9. Its
   criteria include (D-040): the modules header of `limen --help` has the text of T-19, and each module line's `[on]` or
   `[off]` is built from that module's switch (a golden test with one module on and the rest off).
-- R-032, R-034, R-037, R-066 (D-039): each one's criteria include "the command registry holds no entry with `movedBy`
-  naming this ticket" (R-032: `sweep`, `prune`; R-034: `rule`; R-037: `close`; R-066: `keeper`). The ticket that
+- R-032, R-034, R-037, R-101, R-066 (D-039, D-096): each one's criteria include "the command registry holds no entry
+  with `movedBy` naming this ticket" (R-032: `sweep`, `prune`; R-034: `rule`; R-037 moves `close` to R-101; R-101:
+  `prune`, `close`; R-066: `keeper`). The ticket that
   removes the last `movedBy` entry also removes the field and the exception of R-014's registry test, which fails until
   it does (D-042), so that a top-level command acts only on `job`, `owner` or `project`.
 - R-023 (D-044, R-014's review round 4): the static scan that no command words are read outside `src/parser.ts`
@@ -1669,8 +1701,8 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
 - R-103 (D-041 (6); R-032 `ticket.md` → Out of scope, 2026-11-23): `limen diff` and `limen open` in Herdr record their
   tab's place under the job folder (`src/integrations/herdr.ts:102-133`, `:389-397`), which T-04 forbids for `diff`, a
   read command; those places serve the closing of the job's tabs, which R-103's `cleaned` step rewrites, so R-103
-  either finds the tabs without a record or makes the Herdr form of `diff` a change command. Once read commands write
-  nothing, `limen <command> --help` shows the kind of T-19 (D-041 (6)).
+  makes `diff` and `open` change commands (D-096 (2)). Once read commands write nothing, `limen <command> --help`
+  shows the kind of T-19 (D-041 (6)).
 - R-103 (D-075, D-094 (3); R-037 `ticket.md` → Decisions 9 and Risk, 2026-11-23): land's `irreversible` mark, with
   T-28 (3)'s test that a rerun of land continues and a test that nothing is lost; and a kill between the closing
   commit's branch move and the checkout's `git read-tree -m -u` leaves the checkout behind the branch on the close's
@@ -2005,7 +2037,10 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
   holds a third trial job (`cpuIdle` 100, `diagnoseAfter` `1m`, `failAfter` `3m`) gives one coordinator wake with the
   diagnosis and one alert `<project> queue <id>` after a minute, and `failed:queue` after three (R-035); then the
   gate file is restored.
-- **3.9** Land closes the job's Herdr tab in its `cleaned` step (R-103).
+- **3.9** Land closes the job's Herdr tabs in its `cleaned` step: its watch tab and the tabs `limen open` and `limen
+  diff` opened, `herdr tab list` before and after (R-103). A tab left open for a finished job of a closed feature is
+  closed by the sweep's daily step, run from its unit: the tab is gone from `herdr tab list` and the journal of
+  `limen-sweep.service` holds the close's line, not `herdr is not available` (R-101, D-096).
 - **3.10** A trial job in each project reaches Claude with the allow-listed environment and runs the project's own
   checks, before the projects resume (D-012). Inside it: `env` names only the list's names (`docs/jobs.md`), Limen's
   own (`DISABLE_UPDATES` is `1`, `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_0`, `GIT_CONFIG_VALUE_0`, `GIT_TERMINAL_PROMPT`,
@@ -2315,7 +2350,7 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-23 by day (`limen-rebuild-25`), rebuild stage 5 in plan stage 3: stage 1 is closed
+Updated 2026-11-23 by day (`limen-rebuild-25`, after D-096), rebuild stage 5 in plan stage 3: stage 1 is closed
 at `a0.1.1` (deployed on 2026-11-20, with B.2 closed by D-050); stage 2 is closed at `a0.2.0` (gate 5.2 decided,
 D-078–D-082); stage 3 has started: R-026, R-030 and R-033 are `done` (by day), R-027, R-028, R-031, R-035 and R-100
 `done` in the night of D-091 (until 09:00; it ended with `no-ticket`), D-092 settles its Q-42 and Q-43, and D-083's
@@ -3696,7 +3731,11 @@ merge and exits ≠ 0 with `next` `limen ticket done <codes>` after a failed clo
 rejecting hook is `environment` `HOOK_REJECTED`, and land's `irreversible` mark (D-075) goes to R-103. The D-092 note
 on `ticket done`'s markers is relabelled R-103 (D-094 (3)), and a new R-103 note holds the mark and the checkout left
 behind by a kill after the branch move. One command of this session was refused by the permissions (an inline
-`node -e` edit of `plan.md`, off the list) and was not worked around; the edits went through the editor.
+`node -e` edit of `plan.md`, off the list) and was not worked around; the edits went through the editor. R-103's
+decisions: Q-49 and Q-50 asked with a push after the sources were searched; Adrian: "rekomendacje" → D-096 (the
+leftover tabs and the `close` cut go to R-101, which gains API `herdr` and step 3.9; `diff` and `open` become change
+commands, T-04's list drops `diff`; twelve items settled by the documents for R-103); R-103 `ready (D-096)`; R-037's
+`ticket.md` now moves `close`'s `movedBy` to R-101.
 
 Next (by day):
 1. After his return from the trip (Adrian, 2026-11-22: "Zapisz mi to na zrobienie po powrocie z wyjazdu, teraz działaj
@@ -3726,18 +3765,16 @@ Next (by day):
 2. The night defaults of the night of D-091 are confirmed (D-093), and Q-45–Q-48 are answered (D-094: R-032, R-034
    and R-037 split, with the new R-101, R-102 and R-103; D-095: the kinds `launch` and `internal`). R-036 (`5acb9fc`),
    R-029, R-032, R-037 and R-087 are `ready`, each on its own branch of the dependency graph (D-054 (1)), so a night
-   can run them; whether and when to start one is Adrian's. Next by day, each inventory's questions settled by the
-   documents first (the memory rule) and only what none settles asked: the decisions of R-101 (from `R-032.md`), R-103
-   (from `R-037.md`, with R-037's `ticket.md` → Out of scope and the R-103 notes in `## Tickets`), R-034 and R-102
-   (from `R-034.md`), recorded so that a night writes their `ticket.md` at the HEAD it starts from (D-054 (1)).
+   can run them, and R-103 is `ready (D-096)` behind R-037; whether and when to start one is Adrian's. Next by day,
+   each inventory's questions settled by the documents first (the memory rule) and only what none settles asked: the
+   decisions of R-101 (from `R-032.md`, with D-096 (1): the leftover tabs and the `close` cut), R-034 and R-102 (from
+   `R-034.md`), recorded so that a night writes their `ticket.md` at the HEAD it starts from (D-054 (1)).
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
    D-047 and D-054 were.
 
-Asked, awaiting Adrian (2026-11-23, `limen-rebuild-25`, in the conversation with a push, after the sources were
-searched: T-04, T-18 (1), D-041 (6), D-070 (2), D-075, D-094 (3), R-030 Decision 6, R-031 Decisions 1 and 4, the
-inventory `evidence/inventories/R-037.md`). On the answer, the session writes D-096 with the answers and the settled
-items below, and R-103 becomes `ready (D-096)`:
+Resolved (Q-49 and Q-50 → D-096; Adrian: "rekomendacje"), asked on 2026-11-23 by `limen-rebuild-25` in the
+conversation with a push, after the sources were searched; the settled items went into D-096 (3):
 - Q-49 (R-103, R-101): who closes leftover Herdr tabs (T-18 (1): "the daily `limen-sweep` closes leftovers") and cuts
   `limen close`. Options: 1. R-101 (recommended): a daily step of `limen seat sweep` closes the recorded tabs of the
   finished jobs whose features are all closed (today's `limen close FNNN` rule, for every closed feature), R-101 cuts

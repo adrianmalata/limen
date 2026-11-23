@@ -5,7 +5,8 @@ jest rubryką obok zasad z input/, a nowe decyzje taste dopisuje się tu z datą
 Adriana na bramce 3 (2026-11-17, D-007); 18.11 T-37 dostała pole ids w końcowej linii JSON (nocne pytanie Q-3,
 D-022), a T-02 zasadę, że kod wyjścia ustawia tylko wspólne opakowanie (nocne pytanie Q-7, D-028); 19.11 T-19
 dostała zasady helpu na czas przejściowy (pytania R-014, D-039–D-041), a T-37 zasadę bramki 5.1, że `code` i `next`
-są wartością albo `null`, a `next` zawsze jest poleceniem (D-045, D-046). -->
+są wartością albo `null`, a `next` zawsze jest poleceniem (D-045, D-046); 23.11 z listy poleceń odczytu T-04
+wypadł `diff`, bo `diff` i `open` otwierają kartę Herdra i ją zapisują (D-096). -->
 
 # Taste
 
@@ -688,7 +689,7 @@ the author's choice. Taste decisions taken after this interview are added here w
 - Source: interview round 1, AU-224; departs from the author.
 
 ### T-04 Read commands never write and never wait
-- Rule: Read commands (`status`, `show`, `diff`, `seat queue`, `stats`, `show --result`, `github show`, `handoff show`; names per T-18)
+- Rule: Read commands (`status`, `show`, `seat queue`, `stats`, `show --result`, `github show`, `handoff show`; names per T-18)
   never write and never wait. They compute a dead job's state and show it without writing it, e.g. "wrapper dead since
   …; limen-sweep will finalize". The housekeeping before every `limen` call goes. Only `limen-sweep` (A-024) and
   explicit state-changing commands, a manual `limen sweep` included, clean up and finalize.
@@ -697,7 +698,9 @@ the author's choice. Taste decisions taken after this interview are added here w
 - Check: a test asserts that every read command leaves `.limen/` byte-identical and returns without waiting; a test
   runs them on a read-only copy of `.limen/`; the command registry marks each command read or change, and read
   commands do not import the state-transition functions.
-- Source: interview round 1, AU-205; departs from the author.
+- Source: interview round 1, AU-205; departs from the author. 2026-11-23 (`plan.md` D-096 (2), Q-50): `diff` leaves the
+  list; `limen diff` and `limen open` are change commands, since each opens a Herdr tab and records its place so that
+  Limen can close it (R-103).
 
 ### T-05 A product question is a typed exit
 - Rule: The author's sense stays: a product decision stops the worker; an engineering decision the worker makes

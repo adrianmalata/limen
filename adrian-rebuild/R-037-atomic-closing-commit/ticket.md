@@ -45,7 +45,8 @@ Plan decisions and rules the change relies on:
   `land`'s `closeTickets` runs its plan and apply without it, so its re-check does not exclude a concurrent `ticket
   done`".
 - D-039: R-037's criteria include "the command registry holds no entry with `movedBy` naming this ticket" (`close`);
-  D-094 (3) gives the `close` cut to R-103.
+  D-096 (1) (2026-11-23, amending D-094 (3)): "R-101 cuts `limen close` (exit 2, `next: limen seat sweep`; `movedBy:
+  "R-101"` until then)".
 - D-070 (2): "a ticket that rewrites such a command [on T-38's ratchet] converts it". D-075: "the `irreversible` marks
   of `ticket done` and land's closing commit come with R-065 and R-037". D-092: non-blocking notes go to the ticket that
   rewrites that part.
@@ -131,8 +132,8 @@ holds a file in the working tree (tracked or not), before any write.
   text.
 The merge, the marker, the branch delete, their order and land's other refusals stay as they are (R-103).
 
-(e) `close`'s `movedBy` becomes `"R-103"` (`src/registry.ts`, `test/registry.test.ts`). The comment
-`src/project/git.ts:290-292` names R-103.
+(e) `close`'s `movedBy` becomes `"R-101"` (`src/registry.ts`, `test/registry.test.ts`; D-096 (1)), unless R-101 has
+cut `close` already. The comment `src/project/git.ts:290-292` names R-103.
 
 (f) Tests, each failing before the change:
 - `test/project/lanes.test.ts` (new, after its module, T-29): a close's commit has `head` as its only parent, holds the
@@ -156,7 +157,7 @@ The merge, the marker, the branch delete, their order and land's other refusals 
 - `test/project/git.test.ts`: the new git primitives (the compare-and-swap refuses a moved branch; the two-way
   read-tree keeps an unrelated uncommitted file and refuses to overwrite a changed one; the hook run returns a hook's
   exit and output, and a missing hook passes).
-- `test/registry.test.ts`: `MOVED` has `close: "R-103"`; no entry names R-037.
+- `test/registry.test.ts`: `MOVED` has `close: "R-101"` while `close` exists; no entry names R-037.
 
 (g) Text that becomes false: `docs/commands.md:242` (the close's refusal before the merge, the failure's exit and
 `next`, the hooks), `:253` (`ticket done`'s close the same), the comments `src/project/lanes.ts:12`, `:170-172`,
@@ -166,8 +167,8 @@ The merge, the marker, the branch delete, their order and land's other refusals 
 
 - Everything D-094 (3) gives R-103: land as recorded steps (`merged`, `closed`, `cleaned`) on the runner and a rerun
   that continues, the branch deleted after the closing commit, land's other untyped refusals, the `cleaned` step's
-  Herdr close, the `close` cut, `ticket done`'s markers as a step (the D-092 note), seat step 3.9; and land's
-  `irreversible` mark (`## Decisions` 9).
+  Herdr close, `ticket done`'s markers as a step (the D-092 note), seat step 3.9; and land's `irreversible` mark
+  (`## Decisions` 9). The `close` cut and the sweep's close of leftover tabs are R-101's (D-096 (1)).
 - `ticket done`'s `irreversible` mark (D-075: R-065); `ticket start` and `ticket drop` (R-065), which will build their
   commits through (a); a generated `outcome.md` (R-065) and `limen spec fix` (R-066) in the closing commit.
 - Land's exit 0 with `land: no active ticket for …; nothing closed` (A-070, R-065).
@@ -256,6 +257,7 @@ attention at gate 5.3.
     migration reads `Close <codes>: landed by <id>`; the full commit is returned as today, for R-103's `closed` step.
 11. A workspace root that is no Git repository (question 17): no commit to make atomic, so its moves stay as they are;
     no project on the seat is known to be one, and steps for it would be R-103's pattern.
-12. The other questions (1–4, 8 on the runner, 10, 13, 14, 18, 19) are R-103's (D-094 (3)); question 20 is D-094.
+12. The other questions (1–4, 8 on the runner, 10, 13, 18, 19) are R-103's (D-094 (3), D-096 (3)); question 14 (the
+    `close` cut) is R-101's (D-096 (1)); question 20 is D-094.
 13. No requirement probe for `git hook run`: the probe of git 2.36's feature covers the version, and a git without
     the subcommand fails the close loudly (`GIT_FAILED`) with nothing written (T-01).
