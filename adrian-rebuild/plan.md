@@ -108,7 +108,8 @@ poprawek staje się ogólna, więc Q-42 idzie do notatek R-032, a Q-43 do notate
 Tam D-093: Adrian zatwierdził wszystkie domyślne decyzje tej nocy (Q-44), punkty otwarte wymagające kodu trafiły do
 notatek R-029, R-032, R-037 i R-087, a sześć inwentarzy (R-029, R-032, R-034, R-036, R-037, R-087) leży w
 `evidence/inventories/` jako podstawa ich `ticket.md`. D-094: R-032, R-034 i R-037 podzielone (nowe R-101, R-102,
-R-103); D-095: nowe rodzaje porażki `launch` i `internal`; R-029 i R-036 gotowe na noc. -->
+R-103); D-095: nowe rodzaje porażki `launch` i `internal`; R-029 i R-036 gotowe na noc. limen-rebuild-24: R-087
+(allow-lista środowiska joba, tryb testowy `LIMEN_TEST_MODE`) gotowy na noc, z krokiem 3.10 przepisanym. -->
 
 
 
@@ -1508,7 +1509,7 @@ Columns:
 | R-035 | Start-queue thresholds: a diagnosis at 30 min, a failure at 2 h | 3 | A-036 | R-026, R-033 | L | delegated | night | — | systemd | 3.8 | done |
 | R-036 | Stall is measured over the whole job scope | 3 | A-059 | R-026 | M | delegated | night | — | systemd | 3.8 | ready |
 | R-037 | The closing commit of land and `ticket done` is atomic | 3 | A-021, A-057, T-38, D-094 | R-023, R-031, R-092 | M | delegated | night | — | — | — | planned |
-| R-087 | The job environment is an allow-list; git and gh in a job hold no credential (T1) | 3 | A-004, A-061, E-4, D-017 | R-015, R-021, R-026 | M | delegated | night | — | pi, bridge | 3.10 | planned |
+| R-087 | The job environment is an allow-list; git and gh in a job hold no credential (T1) | 3 | A-004, A-061, E-4, D-017 | R-015, R-021, R-026 | M | delegated | night | — | pi, bridge | 3.10 | ready |
 | R-098 | `limen stats` per landed ticket and per coordinator turn | 3 | §2, A-078, A-037, D-072 | R-024, R-031 | M | delegated | night | — | pi | B.3, B.4 | planned |
 | R-100 | One definition of the ISO time, the 429 rule, the error-code check and the jobs listing | 3 | T-25, D-080 | R-022, R-093, R-097 | S | delegated | night | — | — | — | done |
 | R-101 | Prune and retire are steps of the sweep; nothing is deleted | 3 | A-024, A-002, T-18, T-28, D-092, D-094 | R-032 | M | delegated | night | yes | — | — | planned |
@@ -1989,9 +1990,16 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
   diagnosis and one alert `<project> queue <id>` after a minute, and `failed:queue` after three (R-035); then the
   gate file is restored.
 - **3.9** Land closes the job's Herdr tab in its `cleaned` step (R-103).
-- **3.10** A trial job reaches Claude with the allow-listed environment; inside it, `env` shows only the allow-listed
-  names, `git config --get credential.helper` prints nothing, `gh auth status` reports no login, and
-  `DISABLE_UPDATES` is `1` (R-087, D-017).
+- **3.10** A trial job in each project reaches Claude with the allow-listed environment and runs the project's own
+  checks, before the projects resume (D-012). Inside it: `env` names only the list's names (`docs/jobs.md`), Limen's
+  own (`DISABLE_UPDATES` is `1`, `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_0`, `GIT_CONFIG_VALUE_0`, `GIT_TERMINAL_PROMPT`,
+  `GH_CONFIG_DIR`, the engine's `LIMEN_*` transport) and those Pi and the bridge set on Pi's own process
+  (`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`), with no `LIMEN_COORDINATOR`, `LIMEN_TEST_MODE` or other test knob;
+  `printf 'protocol=https\nhost=github.com\n\n' | git credential fill` fails and prints no password; `gh auth status`
+  reports no login; `systemctl --user is-system-running` answers (the user bus a nested spawn needs). The job's log
+  names what the list dropped, and the job's end wakes its coordinator (the wrapper's Herdr names). A name that a
+  project's check needs and the list dropped is reported to the main session before the projects resume (R-087,
+  D-017).
 - **3.11** Before the projects resume: a GitHub ruleset on `main` of both projects that forbids force pushes and
   deletion (part of §7 D1; D-012). Step 5.2 adds the rest of D1.
 
@@ -2291,7 +2299,7 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-23 by day (`limen-rebuild-23`), rebuild stage 5 in plan stage 3: stage 1 is closed
+Updated 2026-11-23 by day (`limen-rebuild-24`), rebuild stage 5 in plan stage 3: stage 1 is closed
 at `a0.1.1` (deployed on 2026-11-20, with B.2 closed by D-050); stage 2 is closed at `a0.2.0` (gate 5.2 decided,
 D-078–D-082); stage 3 has started: R-026, R-030 and R-033 are `done` (by day), R-027, R-028, R-031, R-035 and R-100
 `done` in the night of D-091 (until 09:00; it ended with `no-ticket`), D-092 settles its Q-42 and Q-43, and D-083's
@@ -3646,6 +3654,15 @@ seat step 3.8 names the scope's checks); R-029's `ticket.md` written (seat step 
 rate-limit event) and asked Q-48 with a push. Adrian: "rekomendacje" → D-094 (the three splits; rows R-101–R-103,
 R-054 now depends on R-103, steps 3.5 and 3.9 name R-102 and R-103) and D-095 (`launch`, `internal`); R-029 `ready`.
 
+Day session of 2026-11-23, continued (`limen-rebuild-24`, by day, Adrian at the terminal; its `close-previous` printed
+`handover: closed tmux session limen-rebuild-23` and one `handover: stopped claude …` line and exited 0; its takeover
+push was skipped as redundant, the terminal being active; context 8 % at the start): R-087 `ready` with its
+`ticket.md` (written at `ab36464`; the inventory's 16 questions settled by the documents, items 1, 2, 4 and 10 of its
+`## Decisions` named for Adrian's attention at gate 5.3: the wrapper keeps `HERDR_*`, the fixed list of names, test
+mode as the marker `LIMEN_TEST_MODE`, the dropped-names log line); seat step 3.10 rewritten with it (a trial job per
+project that runs the project's checks; `git credential fill` instead of `git config --get credential.helper`, which
+misses a URL-scoped helper).
+
 Next (by day):
 1. After his return from the trip (Adrian, 2026-11-22: "Zapisz mi to na zrobienie po powrocie z wyjazdu, teraz działaj
    z zadaniami dalej"), Adrian adds the `hooks` block below to `.claude/settings.local.json` as a top-level key (into
@@ -3672,12 +3689,11 @@ Next (by day):
    }
    ```
 2. The night defaults of the night of D-091 are confirmed (D-093), and Q-45–Q-48 are answered (D-094: R-032, R-034
-   and R-037 split, with the new R-101, R-102 and R-103; D-095: the kinds `launch` and `internal`). R-036 (`5acb9fc`)
-   and R-029 are `ready`, on two independent branches of the dependency graph (D-054 (1)), so a night can run them;
+   and R-037 split, with the new R-101, R-102 and R-103; D-095: the kinds `launch` and `internal`). R-036 (`5acb9fc`),
+   R-029 and R-087 are `ready`, each on its own branch of the dependency graph (D-054 (1)), so a night can run them;
    whether and when to start one is Adrian's. Next by day, each inventory's questions settled by the documents first
-   (the memory rule) and only what none settles asked: the `ticket.md` of R-087 (`evidence/inventories/R-087.md`),
-   R-032 (`R-032.md`, the minute half of D-094 (1)) and R-037 (`R-037.md`, the closing-commit half of D-094 (3)),
-   whose dependencies are `done`; then the decisions of R-101 (from `R-032.md`), R-103 (from `R-037.md`), R-034 and
+   (the memory rule) and only what none settles asked: the `ticket.md` of R-032 (`R-032.md`, the minute half of D-094
+   (1)) and R-037 (`R-037.md`, the closing-commit half of D-094 (3)), whose dependencies are `done`; then the decisions of R-101 (from `R-032.md`), R-103 (from `R-037.md`), R-034 and
    R-102 (from `R-034.md`), recorded so that a night writes their `ticket.md` at the HEAD it starts from (D-054 (1)).
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
