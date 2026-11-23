@@ -3898,6 +3898,15 @@ tool; review PASS in three rounds, two rounds of fixes, round 3's text note fixe
 commands of this session were refused by the permissions (an inline `python3` edit, then a `git stash list` beside a
 test run) and were not worked around; the edits went through the editor.
 
+Evening of 2026-11-23 (`limen-rebuild-27`, by day, for Adrian's manual steps of `Next` 3; its `close-previous` printed
+`handover: closed tmux session limen-rebuild-26` and one `handover: stopped claude …` line and exited 0; its takeover
+push was skipped as redundant, the terminal being active): the session checked at `7b6bfb2` that `a0.2.0` is
+`56f816820786d77e7cd13485ea20bb7fc78dd9d3` and an ancestor of `origin/adrian-rebuild`, that `.claude/settings.local.json`
+has no `hooks` key yet, and from `56f8168` that `limen migrate` and `limen stats` find their project as the Git
+top-level of the working folder (`limenRoot`), so B.3's copy must be a Git checkout, and that neither command writes
+the seat's project registry (only the wake hook and `limen init` do). It gave Adrian item 1's block and the steps 0.1,
+0.2, 0.3, 2.1–2.4, 0.6 and B.3's a0.2.0 part in one message and waits for his results.
+
 Next (by day):
 1. After his return from the trip (Adrian, 2026-11-22: "Zapisz mi to na zrobienie po powrocie z wyjazdu, teraz działaj
    z zadaniami dalej"), Adrian adds the `hooks` block below to `.claude/settings.local.json` as a top-level key (into
