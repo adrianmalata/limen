@@ -1,9 +1,9 @@
 <!-- PL: Ticket R-029 (A-016 (1), E-9, T-31 (3), T-32 (4), D-055 (2)): każdy detektor sam ustala rodzaj porażki
-joba zamiast wzorców na tekście; dziewięć zakończeń bez rodzaju dostaje rodzaj (Q-48); dla `quota` zapisuje się godzina
+joba zamiast wzorców na tekście; dziewięć zakończeń bez rodzaju dostaje rodzaj (D-095); dla `quota` zapisuje się godzina
 resetu ze zdarzenia `kendex:rate-limit` albo z `errorMessage`; odmowa strażnika zdarzeń Pi w jobie kończy go
 `engine-error`, a w sesji koordynatora daje ostrzeżenie w `limen status`; dwa punkty po R-028 (wynik TERM wyczerpania,
 flaga TERM przy `exit`). Stan: napisany 23.11 przy `6d17130` z inwentarza `evidence/inventories/R-029.md`; pytania
-rozstrzygnięte dokumentami w `## Decisions`, poza Q-48, które czeka na Adriana; jeszcze nie `ready`. -->
+rozstrzygnięte dokumentami w `## Decisions`, a rodzaje `launch` i `internal` przez Adriana (D-095); gotowy na noc. -->
 
 # R-029 One recorded failure cause per job
 
@@ -55,7 +55,7 @@ than a detail: timeout, tool cap, stall, exit, signal and queue in the wrapper, 
 `isRateLimit`). `recordedFailure`'s `oom` rule applies to a passed `signal` or `reaped`, as today. `failureFrom` and
 `FAILURE_PATTERNS` stay only for the migration (D-057 (4)), so no new end reaches them.
 
-(b) The nine sites of fact 3 (Q-48): `launch` for every end where the engine did not start (the wrapper outside its
+(b) The nine sites of fact 3 (D-095): `launch` for every end where the engine did not start (the wrapper outside its
 scope, the missing worktree, the engine's spawn error, a failed spawn or group launch, the two failed wrapper launches,
 the handshake); `internal` for an error the wrapper throws (`failInternalJob`); the group deadline before launch is
 `timeout`. Both kinds join `FAILURE_KINDS`, the order of `limen stats` and the alerts' line.
@@ -146,8 +146,9 @@ Settled by the documents when the ticket was written (2026-11-23, the main sessi
 inventory's questions in `evidence/inventories/R-029.md` → section 10):
 1. The kind is an argument of each detector (question 1): A-016 (1) "whoever detected it", R-028's Decision 8 and the
    D-092 note say so; the patterns stay for the migration only (D-057 (4)).
-2. Q-48 (question 2; asked 2026-11-23, waiting for Adrian): the main session's recommendation is in (b). A-016's list
-   names no kind for an end where the engine did not run or Limen itself failed; adding one changes a gate-2 decision.
+2. D-095 (Adrian, Q-48, option 1, 2026-11-23; question 2): the kinds `launch` and `internal` join A-016's list, and
+   a group's deadline before launch is `timeout`, as (b) says; A-016's list named no kind for an end where the engine
+   did not run or Limen itself failed.
 3. The group deadline before launch stays `timeout` (question 3): it is a deadline, and the detail names the group.
 4. The reset time's source (question 4): E-9's consequence in `## Engine facts` settles it, and A-016's "the provider's
    error field in the engine result" is `errorMessage` (E-9: "provider text, not model text"); the comment at
