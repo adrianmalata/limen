@@ -1,13 +1,14 @@
 // The one module that starts Limen's own CLI (D-061 (4), T-26 (4), T-25 (1)): a job's wrapper, which prints no final
 // line; a command started in the background, whose output nobody reads; and a command whose final line the caller
 // reads, through the client function `readOutcome`, never the text for people before it. It also names Limen's
-// systemd user scopes (A-029): a job's wrapper starts in the job's own scope, so the engine, its tools and whatever
-// they detach run there, outside the spawner's cgroup; what a job's end starts runs in a scope of its own, so the end
-// of the job's scope does not end it (src/job/finalize.ts).
+// systemd user scopes (A-029), and tells a job's scope among other units (A-036): a job's wrapper starts in the job's
+// own scope, so the engine, its tools and whatever they detach run there, outside the spawner's cgroup; what a job's
+// end starts runs in a scope of its own, so the end of the job's scope does not end it (src/job/finalize.ts).
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { type TransportName, wrapperEnvironment } from "../config.ts";
+import { JOB_ID } from "../job/id.ts";
 import { LimenError, type Outcome, type Output, readOutcome } from "../outcome.ts";
 import { platform, type ScopedProcess } from "../platform/platform.ts";
 
@@ -63,12 +64,26 @@ function finalOutcome(output: Output): Outcome {
 	}
 }
 
+/** The words around a job's id in the unit of its scope. */
+const JOB_SCOPE_PREFIX = "limen-job-";
+const JOB_SCOPE_SUFFIX = ".scope";
 /**
  * The unit of the systemd user scope of the job `id` (A-029): one per job, named by its full id (T-20), so that every
  * reader of the seat's scopes can tell a job's scope from any other.
  */
 export function jobScope(id: string): string {
-	return `limen-job-${id}.scope`;
+	return `${JOB_SCOPE_PREFIX}${id}${JOB_SCOPE_SUFFIX}`;
+}
+/**
+ * The job whose scope is the unit `unit`, as `jobScope` names it, so a reader of the seat's units tells a job's scope
+ * from any other (A-036); undefined for any other unit.
+ */
+export function jobOfScope(unit: string): string | undefined {
+	if (!(unit.startsWith(JOB_SCOPE_PREFIX) && unit.endsWith(JOB_SCOPE_SUFFIX))) {
+		return undefined;
+	}
+	const id = unit.slice(JOB_SCOPE_PREFIX.length, -JOB_SCOPE_SUFFIX.length);
+	return JOB_ID.test(id) ? id : undefined;
 }
 
 /**

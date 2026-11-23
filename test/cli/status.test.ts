@@ -362,7 +362,7 @@ test("A-066: limen status warns that limen-alerts.timer is not active and names 
 	const run = limen(p, ["status"], { env: { PATH: pathWithAlerts(p, "inactive", "inactive") } });
 	assert.equal(run.status, 0, run.stderr);
 	assert.deepEqual(alertsBlock(run.stdout), [
-		"Alerts not working (1); no failed job reaches the phone until each is fixed:",
+		"Alerts not working (1); no alert reaches the phone until each is fixed:",
 		"  limen-alerts.timer is not active; as root, install the alerts:",
 		`    node ${ALERTS_TOOL} install --account <account>`,
 	]);
@@ -374,7 +374,7 @@ test("A-066: limen status warns that limen-alerts.service failed and names where
 	const run = limen(p, ["status"], { env: { PATH: pathWithAlerts(p, "active", "failed") } });
 	assert.equal(run.status, 0, run.stderr);
 	assert.deepEqual(alertsBlock(run.stdout), [
-		"Alerts not working (1); no failed job reaches the phone until each is fixed:",
+		"Alerts not working (1); no alert reaches the phone until each is fixed:",
 		"  limen-alerts.service failed; as root, read why:",
 		"    journalctl -u limen-alerts.service",
 	]);

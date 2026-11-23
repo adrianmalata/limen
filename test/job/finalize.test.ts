@@ -87,6 +87,21 @@ test("finalizeJob records the failure kind quota for a job whose engine stopped 
 	assert.deepEqual([record?.state, record?.failure], ["failed", { kind: "quota", detail: stopReason, resetAt: null }]);
 });
 
+// A-036, D-072: any finisher of a queued job, such as `limen stop` or the reaper, clears `queued`, so the wait itself
+// stays in `queueWait` with the time the job left the queue.
+test("finalizeJob of a job still in the start queue keeps its wait in queueWait, with the time it left", async (t) => {
+	const { job } = await jobFolder(t);
+	const since = "2026-11-21T09:00:00.000Z";
+	await writeRecord(job, { state: "running", identity: IDENTITY, queued: { since, detail: "held", ahead: 0 } });
+	await finalizeJob(job, "stopped", "stopped by request");
+	const record = await readRecord(job);
+	const wait = record?.queueWait;
+	assert.deepEqual(
+		{ queued: record?.queued, wait: wait && { ...wait, leftAt: Number.isFinite(Date.parse(wait.leftAt ?? "")) } },
+		{ queued: null, wait: { since, diagnosedAt: null, diagnosis: null, leftAt: true } },
+	);
+});
+
 // M-09, A-052: the scope's memory.peak goes with the scope, so the finisher reads it before the transition.
 test("finalizeJob writes the memory peak, CPU time and OOM kills of the job's scope with its terminal state", async (t) => {
 	const { job, cgroups } = await jobFolder(t);

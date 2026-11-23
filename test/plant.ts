@@ -615,6 +615,28 @@ export function until(dir: string, check: () => boolean): Promise<void> {
 	return promise;
 }
 
+/**
+ * Whether `check()` holds within `boundMs`, read again on every file event below `dir` and every second, as `until`
+ * does; its watch and timers end with the wait, so a check that never holds ends the test instead of holding it open.
+ */
+export async function within(dir: string, check: () => boolean, boundMs: number): Promise<boolean> {
+	const { promise, resolve } = Promise.withResolvers<boolean>();
+	const settle = () => {
+		if (check()) {
+			resolve(true);
+		}
+	};
+	const watcher = watch(dir, { recursive: true }, settle);
+	const recheck = setInterval(settle, 1_000);
+	const bound = setTimeout(() => resolve(false), boundMs);
+	settle();
+	const held = await promise;
+	watcher.close();
+	clearInterval(recheck);
+	clearTimeout(bound);
+	return held;
+}
+
 /** Waits until the fake engine reaches its `n`th `block` in `dir`, then releases it. */
 export async function release(dir: string, n = 1): Promise<void> {
 	await until(dir, () => existsSync(join(dir, `fake-blocked-${n}`)));

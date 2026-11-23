@@ -25,7 +25,7 @@ test("limen-alerts.service renders as its golden text: a oneshot run of /usr/bin
 		[
 			"# Written by /opt/limen/seat/alerts.ts install; seat/deploy.ts rewrites it at each deployment.",
 			"[Unit]",
-			"Description=Limen alerts: one ntfy line for each failed job of the registered projects",
+			"Description=Limen alerts: one ntfy line for each failed job and long start-queue wait",
 			"",
 			"[Service]",
 			"Type=oneshot",

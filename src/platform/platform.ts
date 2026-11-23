@@ -2,7 +2,8 @@
 // liveness and signals of a process and of a process group, the CPU and memory readings of the start gate, the boot id
 // that a lock's owner record carries (D-056 (1)), and the systemd user scopes every job runs in (A-029): a start in a
 // new scope, a scope's state, a signal to a whole scope, the end of a scope, a process's own cgroup, a scope's
-// readings, and the probe of `limen init`; and what the system manager says of a unit, which the GitHub doctor and the
+// readings, the units of the user manager with their memory and CPU time, which the start queue's diagnosis ranks
+// (A-036), and the probe of `limen init`; and what the system manager says of a unit, which the GitHub doctor and the
 // alerts' warning of `limen status` read. The policies built on them (birth checks, the stall rule, the start gate's
 // thresholds, the lock's owner check, the names of Limen's scopes, when one ends and the grace before its KILL) stay
 // with their callers. Linux is the one implementation; another operating system
@@ -83,6 +84,15 @@ export type ScopeReadings = {
 	readonly cpuMicroseconds: number | null;
 	readonly oomKills: number | null;
 };
+/**
+ * A unit of the user manager as its cgroup reads now (A-036): its name, its current memory and its CPU time since it
+ * started, each null when its file is gone or holds no number.
+ */
+export type UnitUsage = {
+	readonly unit: string;
+	readonly memoryBytes: number | null;
+	readonly cpuMicroseconds: number | null;
+};
 
 export interface Platform {
 	/** The identity of the process `pid`. */
@@ -129,6 +139,12 @@ export interface Platform {
 	ownCgroup(): string | undefined;
 	/** The readings of the cgroup `cgroup`, a path of the cgroup v2 hierarchy as `ownCgroup` gives it. */
 	scopeReadings(cgroup: string): Promise<ScopeReadings>;
+	/**
+	 * Each unit of the systemd user manager this process runs under, by name, as its cgroup reads now: the scopes and
+	 * services in its slices, a unit's own child cgroups counted in the unit; undefined when this process runs under
+	 * no user manager.
+	 */
+	userUnits(): Promise<readonly UnitUsage[] | undefined>;
 	/** The property `property` of the system manager's unit `unit` as it prints it; undefined when the call fails. */
 	systemUnitProperty(unit: string, property: string): string | undefined;
 	/**

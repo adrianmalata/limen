@@ -151,7 +151,7 @@ limen continue <id|token> "follow-up instruction" [--label L] [--engine pi] [--p
 
 **Detached.** Every job runs detached, under a wrapper with the limits of [Limits](jobs.md#limits), in its own systemd user scope, whose every process ends with the job ([The job's scope](jobs.md#the-job-record)); inside Herdr it also gets a tab that follows its log. `--detached` is accepted and changes nothing.
 
-**Start queue.** A detached job waits in the seat's start queue until the machine has room for it; see [Start queue](jobs.md#start-queue). Spawn and continue then print `queued <label>: <reading>, N ahead` before the ID. `--priority` sets the queue order: 1 is the most urgent, 2 is the default, and `continue` keeps the parent's priority unless it gets its own flag. The job's record holds it in `priority`. Spawn when the work is ready; Limen starts the job and tells its coordinator.
+**Start queue.** A detached job waits in the seat's start queue until the machine has room for it, and ends `failed`, kind `queue`, when it waits longer than the seat's `failAfter`; see [Start queue](jobs.md#start-queue). Spawn and continue then print `queued <label>: <reading>, N ahead` before the ID. `--priority` sets the queue order: 1 is the most urgent, 2 is the default, and `continue` keeps the parent's priority unless it gets its own flag. The job's record holds it in `priority`. Spawn when the work is ready; Limen starts the job and tells its coordinator.
 
 Spawn requires `--engine`, `--provider`, `--model` and `--thinking`: without one of them it exits 2 and names every missing flag, before a job exists. `continue` takes them as options and keeps the parent's engine.
 

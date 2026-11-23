@@ -2,12 +2,12 @@
 // cgroup, the memory reading and the boot id, ps for the process table and a program's name, kill(2) for liveness and
 // signals, Node's per-core times for the CPU reading, and systemd: for scopes of the user manager, systemd-run starts
 // one, `systemctl --user is-active` reads its state, `kill` signals it, the two together end it, and /sys/fs/cgroup
-// holds its readings; `systemctl` also says what the system manager knows of a unit. This is the only code that runs
-// those two programs or reads that hierarchy (A-083, test/structure.test.ts). The parsers are exported so that tests
-// read fixture text instead of the machine.
+// holds its readings and those of every unit of that manager; `systemctl` also says what the system manager knows of a
+// unit. This is the only code that runs those two programs or reads that hierarchy (A-083, test/structure.test.ts). The
+// parsers are exported so that tests read fixture text instead of the machine.
 import { execFileSync, type SpawnSyncReturns, spawn, spawnSync } from "node:child_process";
 import { statSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { cpus } from "node:os";
 import { testKnob } from "../config.ts";
 import { readOptional } from "../project/inherit.ts";
@@ -28,6 +28,7 @@ import type {
 	ScopeSignalResult,
 	ScopeState,
 	SignalResult,
+	UnitUsage,
 } from "./platform.ts";
 
 const TABLE_MAX_BYTES = 1024 * 1024;
@@ -394,6 +395,55 @@ async function scopeReadings(cgroup: string): Promise<ScopeReadings> {
 	};
 }
 
+/**
+ * The cgroup of the systemd user manager in the cgroup `cgroup`: its path up to the manager's own `user@<uid>.service`;
+ * undefined for a cgroup outside every user manager, such as a system service's or a login session's.
+ */
+function userManagerOf(cgroup: string): string | undefined {
+	return /^(.*\/user@\d+\.service)(?:\/|$)/.exec(cgroup)?.[1];
+}
+
+/** A cgroup folder's name that is a unit's, a scope or a service; a slice holds units, and any other name a unit's child. */
+const UNIT_NAME = /\.(?:scope|service)$/;
+
+/**
+ * The units of the user manager this process runs under (A-036): every scope and service below the manager's cgroup,
+ * in its slices too, by name, with `memory.current` and the `usage_usec` of `cpu.stat`. A unit's child cgroups are
+ * counted in the unit's own files, so the walk does not enter a unit. A folder that is gone holds no unit, since a unit
+ * can end while the walk reads; any other failure goes on (T-01).
+ */
+async function userUnits(): Promise<readonly UnitUsage[] | undefined> {
+	const own = ownCgroup();
+	const manager = own === undefined ? undefined : userManagerOf(own);
+	if (manager === undefined) {
+		return undefined;
+	}
+	const units: UnitUsage[] = [];
+	const walk = async (folder: string): Promise<void> => {
+		const entries = await readdir(folder, { withFileTypes: true }).catch((error: unknown) => {
+			if (hasCode(error, "ENOENT")) {
+				return [];
+			}
+			throw error;
+		});
+		for (const entry of entries.filter((each) => each.isDirectory())) {
+			const path = `${folder}/${entry.name}`;
+			if (!UNIT_NAME.test(entry.name)) {
+				await walk(path);
+				continue;
+			}
+			const [memory, cpu] = await Promise.all([cgroupText(`${path}/memory.current`), cgroupText(`${path}/cpu.stat`)]);
+			units.push({
+				unit: entry.name,
+				memoryBytes: parseCounter(memory),
+				cpuMicroseconds: parseKeyed(cpu, "usage_usec"),
+			});
+		}
+	};
+	await walk(cgroupFolder(manager));
+	return units.sort((a, b) => a.unit.localeCompare(b.unit));
+}
+
 /** A file of a cgroup; undefined when it is missing, as every file of a scope is once the scope is gone. */
 async function cgroupText(path: string): Promise<string | undefined> {
 	return readFile(path, "utf8").catch((error: unknown) => {
@@ -429,6 +479,7 @@ export const linux: Platform = {
 	probeUserScope,
 	ownCgroup,
 	scopeReadings,
+	userUnits,
 	systemUnitProperty: (unit, property) => systemUnit(["show", "-P", property, unit]),
 	systemUnitState: (unit, query) => systemUnit([query, unit]),
 };

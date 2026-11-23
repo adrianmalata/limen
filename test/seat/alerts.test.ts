@@ -173,9 +173,102 @@ test("A-054: the first run records every current failure as reported and sends n
 	await writeRecord(job(f.ledger, OTHER_ID), { ...QUOTA, failure: null });
 	const first = await run(f);
 	assert.equal(first.code, 0, first.stderr);
-	assert.match(first.stdout, /first run/);
+	assert.match(first.stdout, /^first read of 2 projects: 2 events recorded as reported, none sent \(A-054\)$/m);
 	const next = await run(f);
 	assert.deepEqual([next.code, server.posts], [0, []], next.stderr);
+});
+
+/** The wait of a job in the start queue that got its diagnosis (A-036), as the wrapper writes it. */
+const DIAGNOSIS = {
+	since: FINISHED,
+	diagnosedAt: "2026-11-16T10:30:00.000Z",
+	diagnosis: "CPU 10% idle (gate 25%), memory 80% free (gate 20%); largest by memory: none; largest by CPU: none",
+	leftAt: null,
+} as const;
+const DIAGNOSED: Partial<JobRecord> = {
+	state: "running",
+	queued: { since: FINISHED, detail: "CPU 10% idle (gate 25%), memory 80% free (gate 20%)", ahead: 0 },
+	queueWait: DIAGNOSIS,
+};
+
+// A-066, D-084: a long wait in the start queue is an event of its own, `queue`, with the fixed fields only.
+test("a job whose start-queue wait got its diagnosis sends one queue line, and a second run sends nothing more", async (t) => {
+	const [f, server] = [await fixture(t), await ntfy(t)];
+	await firstRun(f);
+	await writeRecord(job(f.synchronizer, FAILED_ID), DIAGNOSED);
+	const sent = await run(f);
+	assert.equal(sent.code, 0, sent.stderr);
+	const again = await run(f);
+	assert.equal(again.code, 0, again.stderr);
+	assert.deepEqual(
+		server.posts.map((post) => post.body),
+		[`synchronizer queue ${FAILED_ID}`],
+	);
+});
+
+// A-036: the event is the diagnosis, which comes after diagnoseAfter, so a wait that has not reached it is no event.
+test("a job whose start-queue wait has no diagnosis yet sends nothing", async (t) => {
+	const [f, server] = [await fixture(t), await ntfy(t)];
+	await firstRun(f);
+	const undiagnosed = { ...DIAGNOSIS, diagnosedAt: null, diagnosis: null };
+	await writeRecord(job(f.synchronizer, FAILED_ID), { ...DIAGNOSED, queueWait: undiagnosed });
+	const ran = await run(f);
+	assert.deepEqual([ran.code, server.posts], [0, []], ran.stderr);
+});
+
+test("a run's summary counts the events it found of each kind", async (t) => {
+	const [f] = [await fixture(t), await ntfy(t)];
+	await firstRun(f);
+	await writeRecord(job(f.synchronizer, FAILED_ID), DIAGNOSED);
+	await writeRecord(job(f.ledger, OTHER_ID), QUOTA);
+	const ran = await run(f);
+	assert.equal(ran.code, 0, ran.stderr);
+	assert.equal(ran.stdout.split("\n")[0], "read 2 projects: 1 failed job, 1 long start-queue wait");
+});
+
+// D-090 (1), A-054: the alerts kept no list of the projects they had read, so a project registered after their first
+// run sent every failure it already held.
+test("D-090: a project registered after the first run records its present events as reported and sends none, then alerts as the others", async (t) => {
+	const [f, server] = [await fixture(t), await ntfy(t)];
+	await writeFile(f.registry, `${f.synchronizer}\n`);
+	await firstRun(f);
+	await writeRecord(job(f.ledger, OTHER_ID), QUOTA);
+	await writeFile(f.registry, `${f.synchronizer}\n${f.ledger}\n`);
+	const joined = await run(f);
+	assert.equal(joined.code, 0, joined.stderr);
+	assert.match(joined.stdout, /^first read of 1 project: 1 event recorded as reported, none sent \(A-054\)$/m);
+	await writeRecord(job(f.ledger, FAILED_ID), QUOTA);
+	const next = await run(f);
+	assert.equal(next.code, 0, next.stderr);
+	assert.deepEqual(
+		{
+			posts: server.posts.map((post) => post.body),
+			projects: await readFile(join(f.state, "projects"), "utf8"),
+			mode: (await stat(join(f.state, "projects"))).mode & 0o777,
+		},
+		{ posts: [`ledger failed:quota ${FAILED_ID}`], projects: `${f.ledger}\n${f.synchronizer}\n`, mode: 0o600 },
+	);
+});
+
+// D-090 (1): R-033's state folder holds `reported` and no list, so every project of the next run counts as read once.
+test("D-090: a state folder with a reported file and no list of projects counts every project of the run as read, and sends its new events", async (t) => {
+	const [f, server] = [await fixture(t), await ntfy(t)];
+	await writeFile(join(f.state, "reported"), "");
+	await writeRecord(job(f.synchronizer, FAILED_ID), QUOTA);
+	const ran = await run(f);
+	assert.equal(ran.code, 0, ran.stderr);
+	assert.deepEqual(
+		{
+			posts: server.posts.map((post) => post.body),
+			projects: await readFile(join(f.state, "projects"), "utf8"),
+			reported: await readFile(join(f.state, "reported"), "utf8"),
+		},
+		{
+			posts: [`synchronizer failed:quota ${FAILED_ID}`],
+			projects: `${f.ledger}\n${f.synchronizer}\n`,
+			reported: `${f.synchronizer}/${FAILED_ID}/failed\n`,
+		},
+	);
 });
 
 // The ticket's Migration: the seat's failed jobs are migrated records (D-057), and none of them rings.
@@ -347,6 +440,30 @@ test("a run whose read registry names only projects it cannot read says it could
 	assert.ok(ran.stderr.includes(`cannot read the project ${loop}`), ran.stderr);
 	assert.equal(noProjectLine(ran.stderr), "read no project: could not read 1 registered project (named above)");
 	assert.deepEqual(server.posts, []);
+});
+
+// D-090 (2): an unreadable root was counted, with its problem line, once for each registry that listed it.
+test("D-090: a run that reads no project counts a root two registries list and it cannot read once, with one line", async (t) => {
+	const [f, server] = [await fixture(t), await ntfy(t)];
+	const loop = join(f.dir, "loop");
+	await mkdir(loop);
+	// A symlink to itself fails every stat with ELOOP, for every user, root included.
+	await symlink(".limen", join(loop, ".limen"));
+	await writeFile(f.registry, `${loop}\n`);
+	const other = join(f.dir, "other");
+	await mkdir(join(other, ".limen"), { recursive: true });
+	await writeFile(join(other, ".limen", "projects"), `${loop}\n`);
+	await addAccount(f, "other", other);
+	const ran = await run(f);
+	assert.equal(ran.code, 4, ran.stderr);
+	assert.deepEqual(
+		{
+			lines: ran.stderr.split("\n").filter((line) => line.startsWith(`cannot read the project ${loop}`)).length,
+			summary: noProjectLine(ran.stderr),
+			posts: server.posts,
+		},
+		{ lines: 1, summary: "read no project: could not read 1 registered project (named above)", posts: [] },
+	);
 });
 
 // Review round 1, F2: each test fails when the behaviour it names is removed.

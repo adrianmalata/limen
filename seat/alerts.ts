@@ -1,8 +1,9 @@
 /**
- * The seat's alerts (A-066, A-054, D-084, D-085): one ntfy line for each failed job of every registered project, sent
- * from their own account, which reads the job records read-only and keeps the events it reported in its own state
- * folder. An alert holds only the project folder's base name, the event and the job id: it leaves the seat through a
- * public relay, so it carries no path, label or job text, and the topic comes only from the systemd credential.
+ * The seat's alerts (A-066, A-054, D-084, D-085): one ntfy line for each failed job and each long wait in the start
+ * queue (A-036) of every registered project, sent from their own account, which reads the job records read-only and
+ * keeps the events it reported and the projects it has read in its own state folder (D-090). An alert holds only the
+ * project folder's base name, the event and the job id: it leaves the seat through a public relay, so it carries no
+ * path, label or job text, and the topic comes only from the systemd credential.
  *
  *   node /opt/limen/seat/alerts.ts run                       the service, every minute, on the alerts account
  *   node /opt/limen/seat/alerts.ts install --account <name>  root, once: the read rights, the units, the timer
@@ -39,6 +40,8 @@ const PROGRAM_TIMEOUT_MS = 60_000;
 const MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 /** The file of the service's state folder that holds the reported events, one key per line. */
 const REPORTED = "reported";
+/** The file of the service's state folder that holds the roots of the projects the alerts have read, one per line. */
+const PROJECTS = "projects";
 /** The system tools the install runs, declared here and checked before it changes anything (T-12). */
 const SEAT_TOOLS = [
 	{ tool: "setfacl", use: "grants the alerts account its read rights (the package acl)" },
@@ -73,24 +76,36 @@ export type AlertsInput = {
 };
 
 /**
- * The events an alert reports (A-066), each with the job record it reads it from and the words it sends. A plain
- * `done` is no event. R-034, R-035, R-050, R-060 and R-069 add their kinds here.
+ * The events an alert reports (A-066), each with what a run's summary counts, the job record it reads it from and the
+ * words it sends. A plain `done` is no event. R-034, R-050, R-060 and R-069 add their kinds here.
  */
-const EVENTS: ReadonlyArray<{ readonly kind: string; readonly of: (record: JobRecord) => string | undefined }> = [
+const EVENTS: ReadonlyArray<{
+	readonly kind: string;
+	readonly counted: string;
+	readonly of: (record: JobRecord) => string | undefined;
+}> = [
 	{
 		kind: "failed",
+		counted: "failed job",
 		of: (record) => (record.state === "failed" ? `failed:${record.failure?.kind ?? "unknown"}` : undefined),
+	},
+	// A wait past the gate file's diagnoseAfter (A-036), read from the wait the record keeps after the job left the queue.
+	{
+		kind: "queue",
+		counted: "long start-queue wait",
+		of: (record) => ((record.queueWait?.diagnosedAt ?? null) === null ? undefined : "queue"),
 	},
 ];
 
-/** One event to report: its key, `<project path>/<job id>/<kind>`, and its line. */
-type Alert = { readonly key: string; readonly line: string };
+/** One event to report: the root of its project, its kind, its key, `<project path>/<job id>/<kind>`, and its line. */
+type Alert = { readonly root: string; readonly kind: string; readonly key: string; readonly line: string };
 /**
- * What a pass over the projects found: how many it read, their events, what it could not read, and the registries it
- * read and those in homes it cannot enter.
+ * What a pass over the projects found: how many it read, the roots whose jobs it listed, their events, what it could
+ * not read, and the registries it read and those in homes it cannot enter.
  */
 type Scan = {
 	projects: number;
+	readonly listed: string[];
 	readonly alerts: Alert[];
 	readonly problems: string[];
 	readonly read: string[];
@@ -154,39 +169,71 @@ function accountArgument(rest: readonly string[]): string {
 }
 
 /**
- * One run of the service: every event of every project it can read; the first run, with no state file, records them
- * all and sends nothing (A-054); a later one sends each new event and records it only after ntfy took it. What it
- * cannot read or send is named once every other project is done, so one damaged record never stops the rest (z. 10).
+ * One run of the service: every event of every project it can read. A project it reads for the first time, every
+ * project on its first run included, has its present events recorded as reported and none sent (A-054, D-090); the
+ * other projects send each new event, recorded only after ntfy took it. What it cannot read or send is named once every
+ * other project is done, so one damaged record never stops the rest (z. 10).
  */
 async function alertRun(input: AlertsInput, said: string[], secret: Secret): Promise<void> {
 	secret.topic = await credentialTopic(input.env);
 	const folder = stateFolder(input.env);
-	const reported = await reportedKeys(folder);
+	const reported = await stateLines(folder, REPORTED);
+	const listed = await stateLines(folder, PROJECTS);
 	const scan = await scanProjects(input.passwd);
-	said.push(`read ${counted(scan.projects, "project")}: ${counted(scan.alerts.length, "failed job")}`);
+	const events = EVENTS.map((event) =>
+		counted(scan.alerts.filter(({ kind }) => kind === event.kind).length, event.counted),
+	);
+	said.push(`read ${counted(scan.projects, "project")}: ${events.join(", ")}`);
 	// A run that reads nothing would exit 0 every minute while no failure reaches the phone (T-01), and a first run
 	// would record nothing, so the failures already there would ring once the projects are readable.
 	if (scan.projects === 0) {
 		endRun([...scan.problems, noProjectRead(scan, input.passwd)], []);
 	}
+	const { read, known } = await recordFirstReads(folder, { reported, listed }, scan, said);
 	const unsent: string[] = [];
-	if (reported === undefined) {
-		await saveKeys(folder, new Set(scan.alerts.map((alert) => alert.key)));
-		said.push(`first run: ${counted(scan.alerts.length, "failure")} recorded as reported, none sent (A-054)`);
-	} else {
-		const known = new Set(reported);
-		for (const alert of scan.alerts.filter(({ key }) => !known.has(key))) {
-			const failure = await send(secret.topic, alert.line);
-			if (failure === undefined) {
-				known.add(alert.key);
-				await saveKeys(folder, known);
-				said.push(`sent: ${alert.line}`);
-			} else {
-				unsent.push(`not sent: ${alert.line} (${failure})`);
-			}
+	for (const alert of scan.alerts.filter(({ root, key }) => read.has(root) && !known.has(key))) {
+		const failure = await send(secret.topic, alert.line);
+		if (failure === undefined) {
+			known.add(alert.key);
+			await saveLines(folder, REPORTED, known);
+			said.push(`sent: ${alert.line}`);
+		} else {
+			unsent.push(`not sent: ${alert.line} (${failure})`);
 		}
 	}
 	endRun(scan.problems, unsent);
+}
+
+/**
+ * D-090 (1), A-054: a project the alerts read for the first time, one whose jobs this run listed and that is not in
+ * the list of read projects, has its present events recorded as reported, none sent, and then joins the list. A first
+ * run, with no reported events, has read no project yet; R-033's state, reported events and no list, has read every
+ * project of this run. The events are written before the list, so a run that stops between the two reads the project
+ * as new again and sends nothing old. Returns the projects read before this run, whose new events it sends, and the
+ * reported events.
+ */
+async function recordFirstReads(
+	folder: string,
+	state: { readonly reported: readonly string[] | undefined; readonly listed: readonly string[] | undefined },
+	scan: Scan,
+	said: string[],
+): Promise<{ readonly read: ReadonlySet<string>; readonly known: Set<string> }> {
+	const read = new Set(state.reported === undefined ? [] : (state.listed ?? scan.listed));
+	const first = [...new Set(scan.listed.filter((root) => !read.has(root)))];
+	const present = scan.alerts.filter(({ root }) => !read.has(root));
+	const known = new Set([...(state.reported ?? []), ...present.map(({ key }) => key)]);
+	if (state.reported === undefined || present.length > 0) {
+		await saveLines(folder, REPORTED, known);
+	}
+	if (state.listed === undefined || first.length > 0) {
+		await saveLines(folder, PROJECTS, new Set([...read, ...first]));
+	}
+	if (first.length > 0) {
+		said.push(
+			`first read of ${counted(first.length, "project")}: ${counted(present.length, "event")} recorded as reported, none sent (A-054)`,
+		);
+	}
+	return { read, known };
 }
 
 /** The one line that says why a run read no project: what the registries of the password file gave it. */
@@ -269,9 +316,9 @@ function stateFolder(env: NodeJS.ProcessEnv): string {
 	return folder;
 }
 
-/** The keys of the reported events; undefined before the first run wrote them. */
-async function reportedKeys(folder: string): Promise<readonly string[] | undefined> {
-	const path = join(folder, REPORTED);
+/** The lines of the state file `name`, the reported events or the read projects; undefined before a run wrote it. */
+async function stateLines(folder: string, name: string): Promise<readonly string[] | undefined> {
+	const path = join(folder, name);
 	try {
 		return (await readFile(path, "utf8")).split("\n").filter(Boolean);
 	} catch (error) {
@@ -282,9 +329,10 @@ async function reportedKeys(folder: string): Promise<readonly string[] | undefin
 	}
 }
 
-async function saveKeys(folder: string, keys: ReadonlySet<string>): Promise<void> {
-	const path = join(folder, REPORTED);
-	const sorted = [...keys].sort();
+/** Writes `lines`, sorted, as the state file `name`, readable by the alerts' account alone. */
+async function saveLines(folder: string, name: string, lines: ReadonlySet<string>): Promise<void> {
+	const path = join(folder, name);
+	const sorted = [...lines].sort();
 	try {
 		await atomicWrite(path, sorted.length > 0 ? `${sorted.join("\n")}\n` : "", { mode: 0o600 });
 	} catch (error) {
@@ -296,6 +344,7 @@ async function saveKeys(folder: string, keys: ReadonlySet<string>): Promise<void
 async function scanProjects(passwd: string): Promise<Scan> {
 	const scan: Scan = {
 		projects: 0,
+		listed: [],
 		alerts: [],
 		problems: [],
 		read: [],
@@ -303,6 +352,7 @@ async function scanProjects(passwd: string): Promise<Scan> {
 		unreadableRegistries: 0,
 		unreadableRoots: 0,
 	};
+	// Each root counts once, however many registries list it, whether it is read or cannot be (D-090 (2)).
 	const seen = new Set<string>();
 	for (const path of registryPaths(await requiredText(passwd, `systemctl start ${ALERTS_SERVICE}`))) {
 		const read = await readRegistry(path);
@@ -321,11 +371,14 @@ async function scanProjects(passwd: string): Promise<Scan> {
 		}
 		scan.read.push(path);
 		for (const line of read.lines) {
+			if (seen.has(line.root) || !(line.kind === "unreadable" || line.kind === "project")) {
+				continue;
+			}
+			seen.add(line.root);
 			if (line.kind === "unreadable") {
 				scan.unreadableRoots += 1;
 				scan.problems.push(`cannot read the project ${line.root}: ${reason(line.error)}`);
-			} else if (line.kind === "project" && !seen.has(line.root)) {
-				seen.add(line.root);
+			} else {
 				scan.projects += 1;
 				await projectAlerts(line.root, scan);
 			}
@@ -334,7 +387,7 @@ async function scanProjects(passwd: string): Promise<Scan> {
 	return scan;
 }
 
-/** The events of the project at `root`, from its records, read-only (T-04). */
+/** The events of the project at `root`, from its records, read-only (T-04); a root whose jobs it lists is `listed`. */
 async function projectAlerts(root: string, scan: Scan): Promise<void> {
 	const jobs = join(root, ".limen", "jobs");
 	let names: readonly string[];
@@ -344,6 +397,7 @@ async function projectAlerts(root: string, scan: Scan): Promise<void> {
 		scan.problems.push(`cannot read the project ${root}: ${reason(error)}`);
 		return;
 	}
+	scan.listed.push(root);
 	for (const name of names) {
 		const dir = join(jobs, name);
 		// A folder an older Limen wrote holds no record yet, and the migration makes it history (D-057 (4)).
@@ -364,7 +418,8 @@ async function projectAlerts(root: string, scan: Scan): Promise<void> {
 		for (const { kind, of } of EVENTS) {
 			const event = of(record);
 			if (event !== undefined) {
-				scan.alerts.push({ key: `${root}/${record.id}/${kind}`, line: alertLine(root, event, record.id) });
+				const key = `${root}/${record.id}/${kind}`;
+				scan.alerts.push({ root, kind, key, line: alertLine(root, event, record.id) });
 			}
 		}
 	}
@@ -438,7 +493,7 @@ async function install(input: AlertsInput, account: string, said: string[]): Pro
 	);
 	await placeUnits(input, account, said);
 	step(input.run, ["systemctl", "enable", "--now", ALERTS_TIMER], "enabling the timer");
-	said.push(`enabled ${ALERTS_TIMER}; its first run records the current failures and sends none (A-054)`);
+	said.push(`enabled ${ALERTS_TIMER}; its first run records the events already there and sends none (A-054)`);
 }
 
 /** The units step of `seat/deploy.ts` (D-085): this version's units for the account the installed service holds. */

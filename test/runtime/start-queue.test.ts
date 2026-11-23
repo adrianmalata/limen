@@ -1,6 +1,7 @@
-// src/runtime/start-queue.ts: the seat's start gate comes from <seat>/start-gate.json and its defaults only; a queued
-// job whose folder or record is gone leaves the queue, at whichever of its record checks meets the removal; and a
-// record check that fails for another reason than ENOENT ends the wait with that failure.
+// src/runtime/start-queue.ts: the seat's start gate and the wait's two thresholds come from <seat>/start-gate.json and
+// their defaults only; a wait past the first threshold gets one diagnosis and goes on, and one past the second ends
+// failed; a queued job whose folder or record is gone leaves the queue, at whichever of its record checks meets the
+// removal; and a record check that fails for another reason than ENOENT ends the wait with that failure.
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -8,15 +9,18 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
-import { recordPath } from "../../src/job/record.ts";
+import { type JobRecord, readRecordSync, recordPath } from "../../src/job/record.ts";
 import { withLock } from "../../src/lock.ts";
 import { LimenError } from "../../src/outcome.ts";
+import { queueDiagnosis } from "../../src/runtime/queue-diagnosis.ts";
 import { GATE_FILE, type QueueEnd, startGate, waitForStart } from "../../src/runtime/start-queue.ts";
 import { hasCode } from "../../src/system-error.ts";
 import { withEnvironment } from "../environment.ts";
-import { until, writeRecord } from "../plant.ts";
+import { until, within, writeRecord } from "../plant.ts";
 
 const DEFAULTS = { cpuIdle: 25, memoryFree: 20, settleMs: 60_000 };
+/** The wait's thresholds with no gate file: a diagnosis after 30 minutes, a failure after 2 hours (A-036). */
+const LIMITS = { diagnoseAfterMs: 30 * 60_000, failAfterMs: 2 * 3_600_000 };
 const JOB = "2026-11-21-queued-1a2b3c4d";
 /** The poll of the folder tests. */
 const POLL_MS = 20;
@@ -49,19 +53,133 @@ const HELD = '{"cpuIdle":10,"memoryFree":80}\n';
 /** A reading above the default gate, so the job's turn comes once it is first and no start is settling. */
 const OPEN = '{"cpuIdle":80,"memoryFree":80}\n';
 
-/** The paths of a job queued in the seat of one test: its folder, its queue entry, and the seat's queue folder. */
-type JobPaths = { readonly dir: string; readonly entry: string; readonly queue: string };
-/** A job in the seat of one test whose record says it waits in the queue, with `reading` as the load it reads. */
-async function queuedJob(t: TestContext, reading: string): Promise<JobPaths> {
+/**
+ * The paths of a job queued in the seat of one test: its folder, its queue entry, the seat's queue folder, and the
+ * test's folder that holds the seat.
+ */
+type JobPaths = { readonly dir: string; readonly entry: string; readonly queue: string; readonly home: string };
+/**
+ * A job in the seat of one test whose record says it waits in the queue, with `reading` as the load it reads; its wait
+ * started `waitedMs` ago, so a test plants a long wait without waiting for it (T-31 (4)).
+ */
+async function queuedJob(t: TestContext, reading: string, waitedMs = 0): Promise<JobPaths> {
 	const home = await seat(t);
 	const file = join(home, "reading.json");
 	await writeFile(file, reading);
 	withEnvironment(t, { LIMEN_START_POLL_MS: String(POLL_MS), LIMEN_START_READING: file });
 	const dir = join(home, "repo", ".limen", "jobs", JOB);
-	await writeRecord(dir, { state: "running", queued: { since: new Date().toISOString(), detail: null, ahead: null } });
+	const since = new Date(Date.now() - waitedMs).toISOString();
+	await writeRecord(dir, { state: "running", queued: { since, detail: null, ahead: null } });
 	const queue = join(home, ".limen", "start-queue");
-	return { dir, entry: join(queue, "entries", `${JOB}.json`), queue };
+	return { dir, entry: join(queue, "entries", `${JOB}.json`), queue, home };
 }
+
+/** The gate's reading of `HELD`, as the diagnosis of a held job starts with it. */
+const HELD_READING = "CPU 10% idle (gate 25%), memory 80% free (gate 20%)";
+/**
+ * Runs this process in a fake cgroup below `home` for one test, outside every user manager, so the diagnosis reads no
+ * unit of the system's; the units of a user manager are test/runtime/queue-diagnosis.test.ts's.
+ */
+function outsideUserManager(t: TestContext, home: string): void {
+	withEnvironment(t, { LIMEN_CGROUP_ROOT: join(home, "cgroup"), LIMEN_CGROUP: "/system.slice/limen-test.service" });
+}
+
+/** A queued job's record, which the test needs. */
+function recordOf(dir: string): JobRecord {
+	return readRecordSync(dir) ?? assert.fail(`${dir} holds no record`);
+}
+
+// A-036: a wait had no threshold, so a job the gate held waited with no word to anyone. The wait is planted 31 minutes
+// long; the test then makes the next decision `settle`, whose record change follows that poll's threshold check, so
+// it reads the record after a second poll by the order of events, not by time (T-31 (4)). The diagnosis is the one
+// `queueDiagnosis` gives for the gate's reading, whose text test/runtime/queue-diagnosis.test.ts checks.
+test("a job queued past diagnoseAfter gets its diagnosis in queueWait and in one advisory, and keeps waiting", async (t) => {
+	const paths = await queuedJob(t, HELD, 31 * 60_000);
+	outsideUserManager(t, paths.home);
+	const { since } = recordOf(paths.dir).queued ?? assert.fail("the job is queued");
+	const stop = new AbortController();
+	let waitEnded = false;
+	const waiting = waitForStart(paths.dir, stop.signal).finally(() => {
+		waitEnded = true;
+	});
+	try {
+		const diagnosed = await within(paths.dir, () => recordOf(paths.dir).queueWait?.diagnosedAt != null, BOUND_MS);
+		assert.equal(diagnosed, true, "the wait gets its diagnosis");
+		const first = recordOf(paths.dir);
+		const diagnosis = await queueDiagnosis(async () => HELD_READING);
+		const diagnosedAt = first.queueWait?.diagnosedAt ?? "";
+		assert.deepEqual(
+			{ wait: first.queueWait, advisory: first.advisory },
+			{
+				wait: { since, diagnosedAt, diagnosis, leftAt: null },
+				advisory: { text: `queued for 31m without a start: ${diagnosis}`, at: diagnosedAt },
+			},
+		);
+		// A start just now settles, then the gate opens: the next decision is `settle`, which the record shows. The start
+		// comes first, so no poll finds the gate open with nothing settling.
+		await writeFile(join(paths.queue, "last-start"), `${new Date().toISOString()}\n`);
+		await writeFile(join(paths.home, "reading.json"), OPEN);
+		const settling = await within(paths.dir, () => /settling/.test(recordOf(paths.dir).queued?.detail ?? ""), BOUND_MS);
+		const later = recordOf(paths.dir);
+		assert.deepEqual(
+			{ settling, wait: later.queueWait, advisory: later.advisory, ended: waitEnded, entry: existsSync(paths.entry) },
+			{ settling: true, wait: first.queueWait, advisory: first.advisory, ended: false, entry: true },
+		);
+	} finally {
+		stop.abort();
+		await Promise.allSettled([waiting]);
+	}
+});
+
+// A-036: after the second threshold the wrapper ends the job `failed`, kind `queue`, and its end clears the queue from
+// the record and keeps the wait (test/runtime/wrapper.test.ts), so until then the record still shows the job queued.
+test("a job queued past failAfter leaves the queue and ends its wait failed, naming the wait and the last reading, and leaves its record to its finisher", async (t) => {
+	const paths = await queuedJob(t, HELD, 2 * 3_600_000 + 60_000);
+	const before = recordOf(paths.dir).queued;
+	const stop = new AbortController();
+	const waiting = waitForStart(paths.dir, stop.signal);
+	try {
+		const outcome = await ended(waiting);
+		const record = recordOf(paths.dir);
+		assert.deepEqual(
+			{ outcome, entry: existsSync(paths.entry), queued: record.queued?.since, state: record.state },
+			{
+				outcome: { failed: "queued for 2h1m without a start: CPU 10% idle (gate 25%), memory 80% free (gate 20%)" },
+				entry: false,
+				queued: before?.since,
+				state: "running",
+			},
+		);
+	} finally {
+		stop.abort();
+		await Promise.allSettled([waiting]);
+	}
+});
+
+// A-036, D-072: `queued` is cleared at the start, so the wait itself lives on in `queueWait` for later readers.
+test("a job that leaves the queue to start keeps its wait in queueWait, with the time it left", async (t) => {
+	const paths = await queuedJob(t, OPEN);
+	const { since } = recordOf(paths.dir).queued ?? assert.fail("the job is queued");
+	const stop = new AbortController();
+	const waiting = waitForStart(paths.dir, stop.signal);
+	try {
+		const outcome = await ended(waiting);
+		const record = recordOf(paths.dir);
+		assert.deepEqual(
+			{ outcome, queued: record.queued, wait: record.queueWait, advisory: record.advisory },
+			{
+				outcome: "started",
+				queued: null,
+				wait: { since, diagnosedAt: null, diagnosis: null, leftAt: record.queueWait?.leftAt ?? "a time" },
+				advisory: null,
+			},
+		);
+		assert.ok(Date.parse(record.queueWait?.leftAt ?? "") >= Date.parse(since), "it left after it entered");
+	} finally {
+		stop.abort();
+		await Promise.allSettled([waiting]);
+	}
+});
 
 /** A job queued in the seat of one test: its paths and its wait, which runs in this process. */
 type QueuedJob = JobPaths & { readonly waiting: Promise<QueueEnd> };
@@ -142,29 +260,74 @@ const CHECK_FAILED = { class: "environment", code: "QUEUE_RECORD_UNREADABLE", ca
 
 test("T-03: LIMEN_START_GATE set in the environment does not override start-gate.json", async (t) => {
 	await seat(t, '{ "cpuIdle": 50, "memoryFree": 30, "settle": "5s" }\n');
-	const file = { gate: { cpuIdle: 50, memoryFree: 30, settleMs: 5_000 }, ignored: [] };
+	const file = { gate: { cpuIdle: 50, memoryFree: 30, settleMs: 5_000 }, limits: LIMITS, ignored: [] };
 	withEnvironment(t, { LIMEN_START_GATE: "off" });
 	assert.deepEqual(startGate(), file);
 	process.env.LIMEN_START_GATE = '{ "cpuIdle": 1 }';
 	assert.deepEqual(startGate(), file);
 });
 
-test('a start-gate.json that holds the JSON string "off" turns the gate off', async (t) => {
+test('a start-gate.json that holds the JSON string "off" turns the gate off and keeps the default thresholds', async (t) => {
 	await seat(t, '"off"\n');
-	assert.deepEqual(startGate(), { gate: undefined, ignored: [] });
+	assert.deepEqual(startGate(), { gate: undefined, limits: LIMITS, ignored: [] });
 });
 
 test("a seat with no start-gate.json gets the default gate, and a gate file object reads as it did", async (t) => {
 	const home = await seat(t);
-	assert.deepEqual(startGate(), { gate: DEFAULTS, ignored: [] });
+	assert.deepEqual(startGate(), { gate: DEFAULTS, limits: LIMITS, ignored: [] });
 	await writeFile(join(home, ".limen", GATE_FILE), '{ "settle": "1ms", "fast": true }\n');
 	const { gate, ignored } = startGate();
 	assert.deepEqual(
 		{ gate, ignored: ignored.map(({ message }) => message) },
 		{
 			gate: { ...DEFAULTS, settleMs: 1 },
-			ignored: ["start-gate.json: fast: expected one of the fields cpuIdle, memoryFree or settle, got true"],
+			ignored: [
+				"start-gate.json: fast: expected one of the fields cpuIdle, memoryFree, settle, diagnoseAfter or failAfter, got true",
+			],
 		},
+	);
+});
+
+// A-036: the wait's two thresholds live in the seat's gate file, read as `settle` is.
+test("start-gate.json sets when a wait gets its diagnosis and when it fails, as durations, beside the gate's values", async (t) => {
+	await seat(t, '{ "cpuIdle": 50, "diagnoseAfter": "1m", "failAfter": "3m" }\n');
+	assert.deepEqual(startGate(), {
+		gate: { ...DEFAULTS, cpuIdle: 50 },
+		limits: { diagnoseAfterMs: 60_000, failAfterMs: 180_000 },
+		ignored: [],
+	});
+});
+
+// A-036: a failure before the diagnosis would end a job no one was told of, so the pair is one value of the file.
+test("BAD_DATA: a failAfter not above diagnoseAfter leaves both at their defaults and names the field, as the gate's other bad values do", async (t) => {
+	const home = await seat(t);
+	const cases = [
+		[
+			'{ "cpuIdle": 50, "diagnoseAfter": "2h", "failAfter": "1h" }',
+			'failAfter: expected a duration above diagnoseAfter (2h), got "1h"',
+		],
+		[
+			'{ "cpuIdle": 50, "failAfter": "30m" }',
+			'failAfter: expected a duration above diagnoseAfter (30m by default), got "30m"',
+		],
+		[
+			'{ "cpuIdle": 50, "diagnoseAfter": "3h" }',
+			'diagnoseAfter: expected a duration below failAfter (2h by default), got "3h"',
+		],
+	];
+	const read: unknown[] = [];
+	for (const [text] of cases) {
+		await writeFile(join(home, ".limen", GATE_FILE), `${text}\n`);
+		const { gate, limits, ignored } = startGate();
+		read.push({ gate, limits, ignored: ignored.map(({ code, message }) => `${code} ${message}`) });
+	}
+	assert.deepEqual(
+		read,
+		cases.map(([, message]) => ({
+			gate: { ...DEFAULTS, cpuIdle: 50 },
+			limits: LIMITS,
+			ignored: [`BAD_DATA start-gate.json: ${message}`],
+		})),
 	);
 });
 

@@ -144,6 +144,15 @@ export async function runInternalJob(): Promise<void> {
 		await endBeforeEngine(" while queued");
 		return;
 	}
+	// A wait past the gate file's failAfter ends the job failed, kind `queue`, unless a stop asked for its end first
+	// (A-036, A-052); no engine starts after it.
+	if (typeof queueEnd === "object") {
+		await pending;
+		const requested = (await readRecord(jobDir))?.stopRequested ?? null;
+		const ending: Ending = signalledEnding(requested, null) ?? { state: "failed", detail: queueEnd.failed };
+		await finalizeJob(jobDir, ending.state, ending.detail, { shutdownDeadline });
+		return;
+	}
 	const notice = await textFile(`${jobDir}/start-notice`);
 	if (notice) {
 		void promptStartNotice(jobDir, notice).catch(() => {});

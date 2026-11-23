@@ -189,6 +189,33 @@ test("failureFrom names a detail that says which signal killed the job signal, a
 	);
 });
 
+// A-036: the wrapper ends a wait past the gate file's failAfter with this detail (src/runtime/start-queue.ts).
+test("failureFrom names a detail that says the job waited in the start queue without a start queue", () => {
+	const detail = "queued for 2h1m without a start: CPU 10% idle (gate 25%), memory 80% free (gate 20%)";
+	assert.deepEqual(failureFrom(detail), { kind: "queue", detail, resetAt: null });
+});
+
+const WAIT = {
+	since: "2026-11-21T09:00:00.000Z",
+	diagnosedAt: "2026-11-21T09:30:00.000Z",
+	diagnosis: "CPU 10% idle (gate 25%), memory 80% free (gate 20%); largest by memory: none; largest by CPU: none",
+	leftAt: null,
+} as const;
+
+// D-072, D-079: the wait is an optional field, so a record written before R-035 reads as before.
+test("a record reads with its optional queueWait, and a record without one reads with none", async (t) => {
+	const waited = await readRecord(await recorded(t, { ...RUNNING, queueWait: WAIT }));
+	const plain = await readRecord(await recorded(t, RUNNING));
+	assert.deepEqual([waited?.queueWait, plain && "queueWait" in plain], [WAIT, false]);
+});
+
+test("BAD_DATA: a queueWait whose leftAt is no ISO time gives a typed error that names the field", async (t) => {
+	const error = await thrown(async () =>
+		readRecord(await recorded(t, { ...RUNNING, queueWait: { ...WAIT, leftAt: "soon" } })),
+	);
+	assert.deepEqual([error.code, "field" in error && error.field], ["BAD_DATA", "queueWait.leftAt"]);
+});
+
 test("BAD_DATA: a damaged record gives a typed error that names the file and the field", async (t) => {
 	const dir = await recorded(t, {});
 	const text = (await readFile(join(dir, "record.json"), "utf8")).replace('"state": "starting"', '"state": "lost"');

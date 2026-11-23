@@ -23,6 +23,7 @@ import {
 	type Failure,
 	failureFrom,
 	type JobRecord,
+	queueLeft,
 	readRecord,
 	type SideFailure,
 	transition,
@@ -116,7 +117,8 @@ export async function finalizeJob(
 			failure: state === "failed" ? recordedFailure(detail, current.scope ? readings : UNREAD) : null,
 			openChecks: open.length ? open : null,
 			commits,
-			queued: null,
+			// A job that ends while it waits leaves the queue here, its wait kept with the time it left (A-036).
+			...queueLeft(current, new Date().toISOString()),
 			sideFailures: [...current.sideFailures, ...sideFailures],
 			...(current.scope ? { scope: { ...current.scope, ...readings } } : {}),
 		}),

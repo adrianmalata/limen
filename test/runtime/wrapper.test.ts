@@ -1,9 +1,9 @@
 // src/runtime/wrapper.ts: a queued job's wrapper whose job folder is removed ends before its setup and its engine run,
-// a wrapper outside its job's systemd user scope ends the job before it runs anything, an exhaustion whose scope
-// cannot be ended still kills its process group, a TERM or a signal without a stop request ends a job failed, and a
-// TERM after the engine ended changes nothing.
+// a queued job whose wait passes the gate file's failAfter ends failed, a wrapper outside its job's systemd user scope
+// ends the job before it runs anything, an exhaustion whose scope cannot be ended still kills its process group, a
+// TERM or a signal without a stop request ends a job failed, and a TERM after the engine ended changes nothing.
 import assert from "node:assert/strict";
-import { existsSync, watch, writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -29,6 +29,7 @@ import {
 	startedJob,
 	until,
 	waitJob,
+	within,
 } from "../plant.ts";
 
 /**
@@ -48,28 +49,6 @@ const GRACE_BOUND_MS = 20_000;
  * so the bound only ends the wait for a job that never ends, before the suite's timeout does.
  */
 const END_BOUND_MS = 20_000;
-
-/**
- * Whether `check()` holds within `boundMs`, read again on every file event below `dir` and every second, as `until`
- * (test/plant.ts) does; its watch and timers end with the wait.
- */
-async function within(dir: string, check: () => boolean, boundMs: number): Promise<boolean> {
-	const { promise, resolve } = Promise.withResolvers<boolean>();
-	const settle = () => {
-		if (check()) {
-			resolve(true);
-		}
-	};
-	const watcher = watch(dir, { recursive: true }, settle);
-	const recheck = setInterval(settle, 1_000);
-	const bound = setTimeout(() => resolve(false), boundMs);
-	settle();
-	const held = await promise;
-	watcher.close();
-	clearInterval(recheck);
-	clearTimeout(bound);
-	return held;
-}
 
 /** Whether the job `id` of `p` ends within `END_BOUND_MS`. */
 function endsWithin(p: Plant, id: string): Promise<boolean> {
@@ -134,6 +113,34 @@ test("a queued wrapper whose job folder is removed exits without running its set
 	assert.deepEqual(
 		{ exited, folder: existsSync(dir), prunedWorktree: !existsSync(worktree) },
 		{ exited: true, folder: false, prunedWorktree: false },
+	);
+});
+
+// A-036: a wait in the start queue had no limit, so a job the gate held never ended. The gate file's failAfter is 2 ms
+// here, so the wait passes it at its first decision or its next one, by the order of events, not by time (T-31 (4)).
+test("a queued job whose wait passes the gate file's failAfter ends failed, kind queue, keeps its wait in queueWait and starts no engine", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	writeFileSync(
+		join(p.parent, ".limen", "start-gate.json"),
+		'{"settle":"1ms","diagnoseAfter":"1ms","failAfter":"2ms"}\n',
+	);
+	// Below the start gate's 25% CPU idle, so the job waits in the queue and starts no engine.
+	writeFileSync(join(p.parent, "start-reading.json"), '{"cpuIdle":10,"memoryFree":80}');
+	const id = spawnJob(p, "say queued");
+	assert.equal(await endsWithin(p, id), true, "the job ends once its wait passes failAfter");
+	const record = jobRecord(p, id);
+	assert.deepEqual(
+		{
+			state: record?.state,
+			kind: record?.failure?.kind,
+			detail: /^queued for \d+s without a start: CPU 10% idle \(gate 25%\)/.test(record?.failure?.detail ?? ""),
+			queued: record?.queued,
+			since: typeof record?.queueWait?.since,
+			left: typeof record?.queueWait?.leftAt,
+			engine: jobFile(p, id, "fake-argv.json"),
+		},
+		{ state: "failed", kind: "queue", detail: true, queued: null, since: "string", left: "string", engine: "" },
 	);
 });
 

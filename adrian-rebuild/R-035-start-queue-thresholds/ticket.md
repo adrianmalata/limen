@@ -3,7 +3,8 @@ bramki i trzy największe jednostki systemd wg pamięci i CPU) trafia do rekordu
 wysyłają jedną linię `<projekt> queue <id joba>`; po 2 h job kończy się `failed` rodzaju `queue`. Rekord dostaje
 opcjonalne, trwałe pole `queueWait`. Dwa punkty D-090 w `seat/alerts.ts`: projekt czytany po raz pierwszy oznacza swoje
 dotychczasowe zdarzenia jako zgłoszone bez wysyłki, a nieczytelny projekt liczy się raz. Stan: napisany 22.11 przy
-`9a370ae` z inwentarza `evidence/inventories/R-035.md`, gotowy na noc. -->
+`9a370ae` z inwentarza `evidence/inventories/R-035.md`; w nocy 22/23.11 wdrożony: runda 1 recenzji (PASS) dała
+poprawki F1–F4 w `## Decisions`, jedna uwaga trafiła do pytania Q-43, runda 2 (PASS) zamknęła recenzję. Stan: done. -->
 
 # R-035 Start-queue thresholds: a diagnosis at 30 min, a failure at 2 h
 
@@ -152,3 +153,30 @@ Settled by the documents when the ticket was written (2026-11-22, the main sessi
    R-033's state with no list cannot exist on the seat (the alerts are installed at 3.3, after `a0.3.0`), so its rule
    is the simplest one that sends nothing twice.
 9. T-28 (5): seat step 3.8 names the trial (a gate file that holds a trial job with short thresholds).
+
+- 2026-11-23, night, before the implementation (the main session; what R-027 `ddea3ef`, R-028 `fe092f9` and R-031
+  `34a40d0` changed since the facts above were read at `9a370ae`; not a decision): of the files this ticket names,
+  `src/job/record.ts` (R-031's optional `landed` and `abandoned` fields, the additive pattern `queueWait` follows;
+  R-028's pattern `killed by SIG…` → `signal`; `FAILURE_KINDS` now at `:55`, `queued` and `advisory` at `:139` and
+  `:145`, `FAILURE_PATTERNS` at `:693`), `src/runtime/wrapper.ts` (R-028: a TERM while queued ends the job through
+  `endBeforeEngine(" while queued")`, `failed: killed by SIGTERM while queued`, kind `signal`, unless the record holds a
+  stop request; `enterStartQueue` now at `:123`; the time limit still counts from the engine's start, `:357`),
+  `src/platform/linux.ts` and `src/platform/platform.ts` (R-027's `scopeState` and `signalScope`; `scopeReadings` now
+  at `linux.ts:385`, `LIMEN_CGROUP_ROOT` read at `:300`), `src/project/summary.ts` (R-031's abandon branches),
+  `hook/wake.ts` (the advisory's delivery now at `:544-552`), `docs/jobs.md`, `docs/remote.md`, `docs/seat/README.md`
+  and `templates/agents.md` changed, so the facts' line numbers in them moved; `src/runtime/start-queue.ts`,
+  `src/boundary.ts`, `seat/alerts.ts`, `seat/units.ts` and their tests did not change. No fact this ticket relies on
+  changed; the 2 h failure of (b) is a second end of a queued job beside R-028's TERM, with its own detail and kind.
+- 2026-11-23, night, review round 1 (`review.md` → Round 1, PASS with five notes), findings to fix (the first round of
+  fixes, by a fresh implementer; each mechanism change with a test that fails before it):
+  - F1 (note 2): every unit name the diagnosis takes from the user manager's cgroup tree is written as data, quoted
+    with `JSON.stringify` as the wake writes a label, in the diagnosis, and so in `queueWait`, the advisory and the
+    wake (z. 15); a test with a unit whose name holds characters systemd allows that a sentence would absorb.
+  - F2 (note 3): the alerts test of `test/seat/alerts.test.ts:195` and the `userUnits` test of
+    `test/platform/linux.test.ts:161` are split, one mechanism per test (T-29 (3)).
+  - F3 (note 4): the start-queue diagnosis test (`test/runtime/start-queue.test.ts:124`) checks that the diagnosis
+    reaches `queueWait` and the advisory, not the ranking's format, which `test/runtime/queue-diagnosis.test.ts` checks.
+  - F4 (note 5): the header of `src/platform/linux.ts` is rewrapped whole; the start-queue comment block at
+    `src/runtime/start-queue.ts:39-43` drops the person's decision numbers and says "seat" and "project" (T-21 (3),
+    T-30 (4), T-18), giving the reason and its source.
+  - Note 1 (the advisory's receipt) is not fixed here: Q-43 in `.night/questions.md`, an open point for gate 5.3.

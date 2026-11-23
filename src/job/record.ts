@@ -77,6 +77,16 @@ export type SideFailure = { readonly channel: string; readonly message: string; 
 export type Transition = { readonly from: JobState | null; readonly to: JobState; readonly at: string };
 /** A job that waits in the seat's start queue: since when, and the wait's reason and place once decided. */
 export type Queued = { readonly since: string; readonly detail: string | null; readonly ahead: number | null };
+/**
+ * A job's wait in the start queue, which stays once `queued` is cleared (A-036, D-072): since when it waited, when it
+ * got its diagnosis and what that said, and when it left the queue, each null until then.
+ */
+export type QueueWait = {
+	readonly since: string;
+	readonly diagnosedAt: string | null;
+	readonly diagnosis: string | null;
+	readonly leftAt: string | null;
+};
 /** The wrapper's note on a running job, such as an uncertain stall observation, and when it was set. */
 export type Advisory = { readonly text: string; readonly at: string };
 /** Where the job's wake goes: the Herdr tab and pane of its coordinator, and its Pi session. */
@@ -137,6 +147,11 @@ export type JobRecord = Facts & {
 	readonly failure: Failure | null;
 	readonly sideFailures: readonly SideFailure[];
 	readonly queued: Queued | null;
+	/**
+	 * The job's wait in the start queue, written at its diagnosis or when it leaves the queue; a job that never queued,
+	 * or a record from before R-035, has none.
+	 */
+	readonly queueWait?: QueueWait;
 	/**
 	 * The reason of a stop request: `limen stop` writes it before its TERM, so whichever finisher ends the job ends it as
 	 * the stop asked; a signal without it is a failure (A-052).
@@ -212,6 +227,7 @@ const RECORD_FIELDS = [
 	"failure",
 	"sideFailures",
 	"queued",
+	"queueWait",
 	"stopRequested",
 	"advisory",
 	"stopReason",
@@ -686,6 +702,29 @@ export function checkedRecord(file: string, record: JobRecord): JobRecord {
 	return checked;
 }
 
+/**
+ * The wait of `record` in the start queue: its `queueWait`, or the one its `queued` began when no reader has written
+ * it yet; undefined for a job that did not queue.
+ */
+export function waitOf(record: JobRecord): QueueWait | undefined {
+	return (
+		record.queueWait ??
+		(record.queued ? { since: record.queued.since, diagnosedAt: null, diagnosis: null, leftAt: null } : undefined)
+	);
+}
+/**
+ * The fields that take a job out of the start queue at the ISO time `at`: no `queued`, and its wait kept with the time
+ * it left, so that it outlives `queued` (A-036, D-072). Every writer that clears `queued` sets them: the queue when the
+ * job starts, is stopped or fails there, and any finisher.
+ */
+export function queueLeft(record: JobRecord, at: string): { readonly queued: null; readonly queueWait?: QueueWait } {
+	const wait = waitOf(record);
+	if (wait === undefined) {
+		return { queued: null };
+	}
+	return { queued: null, queueWait: wait.leftAt === null ? { ...wait, leftAt: at } : wait };
+}
+
 /** The failure `detail` names by today's patterns (D-057 (4)); a detail no pattern knows keeps a null kind (z. 10). */
 export function failureFrom(detail: string): Failure {
 	return { kind: failureKind(detail), detail, resetAt: null };
@@ -700,6 +739,8 @@ const FAILURE_PATTERNS: ReadonlyArray<readonly [RegExp, FailureKind]> = [
 	[/^killed by SIG[A-Z0-9]+\b/, "signal"],
 	// The detail an older wrapper wrote with `stopped` for an end by a signal, kept for records that hold it (R-028).
 	[/^process group interrupted\b/, "signal"],
+	// The wrapper's end of a wait in the start queue past the gate file's failAfter (A-036).
+	[/^queued for \S+ without a start\b/, "queue"],
 ];
 /**
  * The provider's text when a subscription limit is hit (D-071): "You've hit your session limit · resets <hour> (UTC)"
@@ -811,6 +852,15 @@ function queuedOf(value: unknown, field: string): Queued {
 		ahead: nullOr(numberIn({ integer: true, min: 0 }))(fields.get("ahead"), at(field, "ahead")),
 	};
 }
+function queueWaitOf(value: unknown, field: string): QueueWait {
+	const fields = object(["since", "diagnosedAt", "diagnosis", "leftAt"])(value, field);
+	return {
+		since: isoTime(fields.get("since"), at(field, "since")),
+		diagnosedAt: nullOr(isoTime)(fields.get("diagnosedAt"), at(field, "diagnosedAt")),
+		diagnosis: nullOr(string)(fields.get("diagnosis"), at(field, "diagnosis")),
+		leftAt: nullOr(isoTime)(fields.get("leftAt"), at(field, "leftAt")),
+	};
+}
 function advisoryOf(value: unknown, field: string): Advisory {
 	const fields = object(["text", "at"])(value, field);
 	return { text: string(fields.get("text"), at(field, "text")), at: isoTime(fields.get("at"), at(field, "at")) };
@@ -854,6 +904,7 @@ function recordOf(value: unknown, field: string): JobRecord {
 	const text = nullOr(string);
 	// Fields added after the record's version are optional (`## Stages` → conventions, D-079).
 	const scope = fields.has("scope") ? { scope: read("scope", scopeOf) } : {};
+	const queueWait = fields.has("queueWait") ? { queueWait: read("queueWait", queueWaitOf) } : {};
 	const migrated = fields.has("migrated") ? { migrated: read("migrated", migratedOf) } : {};
 	const landed = fields.has("landed") ? { landed: read("landed", landedOf) } : {};
 	const abandoned = fields.has("abandoned") ? { abandoned: read("abandoned", abandonedOf) } : {};
@@ -892,6 +943,7 @@ function recordOf(value: unknown, field: string): JobRecord {
 		commits: read("commits", nullOr(arrayOf(string))),
 		versions: read("versions", text),
 		...scope,
+		...queueWait,
 		...migrated,
 		...landed,
 		...abandoned,

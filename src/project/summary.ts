@@ -201,7 +201,7 @@ function alertsLines(): string[] {
 	const count = problems.length / 2;
 	return count === 0
 		? []
-		: [`Alerts not working (${count}); no failed job reaches the phone until each is fixed:`, ...problems];
+		: [`Alerts not working (${count}); no alert reaches the phone until each is fixed:`, ...problems];
 }
 
 /** The leftover files of cut features, for the owner to check before the drop (A-042); empty when there are none. */

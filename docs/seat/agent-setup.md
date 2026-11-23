@@ -150,7 +150,7 @@ Each checkout where `limen init` runs is its own plant, with its own `.limen/` j
 
 ## 6 · Phone: Moshi and the alerts
 
-Two channels reach the phone. Moshi's **agent hooks** ring it when an agent needs you (when `MOSHI` is `yes`). The **alerts** send one line for each failed job of every registered project, on every seat: they are the only escalation path to the human. Moshi has a second feature, **Host setup** (Easy Pair), which gives the phone SSH access to the seat; this phase does not set it up. The hook token is not an SSH key.
+Two channels reach the phone. Moshi's **agent hooks** ring it when an agent needs you (when `MOSHI` is `yes`). The **alerts** send one line for each failed job and each long start-queue wait of every registered project, on every seat: they are the only escalation path to the human. Moshi has a second feature, **Host setup** (Easy Pair), which gives the phone SSH access to the seat; this phase does not set it up. The hook token is not an SSH key.
 
 Moshi, when `MOSHI` is `yes`:
 
@@ -171,14 +171,14 @@ chown root:root /usr/local/bin/moshi-hook && chmod 0755 /usr/local/bin/moshi-hoo
 - **HUMAN · laptop:** pair on the seat, not in the Mac Keychain. The command asks for the token and does not echo it: `ssh -t $SEAT_HOST 'read -rsp "Moshi token: " token; echo; moshi-hook pair --store file --name $SEAT_NAME --token "$token"'`
 - **Check:** worker$ `moshi-hook status` says paired and the daemon runs. **STOP** on `unpaired`. This proves the pairing only.
 
-The alerts, on every seat. An alert is one line with no title, `<project folder's base name> failed:<kind> <job id>`, such as `synchronizer failed:quota 2026-11-16-f001-work-a-37c02ed6`: no path, label or job text leaves the seat, and `limen status` over SSH gives the details. A job that ends `done` sends nothing. They run every minute as `limen-alerts.service` on the `ALERTS` account, which reads the job records and cannot write any file of `WORKER`; the topic reaches them only as a systemd credential.
+The alerts, on every seat. An alert is one line with no title, `<project folder's base name> failed:<kind> <job id>`, such as `synchronizer failed:quota 2026-11-16-f001-work-a-37c02ed6`, or `<project folder's base name> queue <job id>` for a job whose start-queue wait got its diagnosis: no path, label or job text leaves the seat, and `limen status` over SSH gives the details. A job that ends `done` sends nothing. They run every minute as `limen-alerts.service` on the `ALERTS` account, which reads the job records and cannot write any file of `WORKER`; the topic reaches them only as a systemd credential.
 
 - **HUMAN · phone:** in the ntfy app, subscribe to a long random topic. **HUMAN · laptop:** `curl -d test https://ntfy.sh/TOPIC`; the phone must buzz.
 - root$ `useradd --system --no-create-home --shell /usr/sbin/nologin $ALERTS && install -d -o root -g root -m 0755 /etc/limen && install -o root -g root -m 0600 /dev/null /etc/limen/alerts-topic && command -v setfacl`. `setfacl` comes with the package `acl`; the install checks it too.
 - **HUMAN**, as root in their own terminal: write the topic into `/etc/limen/alerts-topic` with an editor, so that it stays out of the shell history.
 - root$ `node /opt/limen/seat/alerts.ts install --account $ALERTS`. It refuses unless it runs as root, the account exists and is the alerts' own (not uid 0, and not `WORKER`, whose home holds the registry), the topic file is root's with mode 0600, and the registry names a project. It grants `ALERTS` traverse rights (`--x`) by ACL on each folder above the registry and above each registered project's `.limen/jobs`, read and traverse (`r-x`) on `.limen/jobs`, and read on the registry; it writes `limen-alerts.service` and `limen-alerts.timer` into `/etc/systemd/system/` where they differ, verifies them with `systemd-analyze verify`, reloads systemd every time and enables the timer. Run again, it changes nothing that is in place.
-- **Check:** root$ `systemctl is-active limen-alerts.timer` is `active`; after two minutes `systemctl show -p Result limen-alerts.service` is `Result=success`, and `journalctl -u limen-alerts.service --no-pager` shows `first run: … recorded as reported, none sent` once; worker$ `cd $PROJECT_DIR && limen status` prints no `Alerts not working` block. **STOP** if not.
-- `limen init` in a new project rewrites `~/.limen/projects`, which drops its ACL, and a new project has no rights yet: run the install again after it. Until then each run names what it cannot read and fails, and `limen status` says so.
+- **Check:** root$ `systemctl is-active limen-alerts.timer` is `active`; after two minutes `systemctl show -p Result limen-alerts.service` is `Result=success`, and `journalctl -u limen-alerts.service --no-pager` shows `first read of … recorded as reported, none sent` once; worker$ `cd $PROJECT_DIR && limen status` prints no `Alerts not working` block. **STOP** if not.
+- `limen init` in a new project rewrites `~/.limen/projects`, which drops its ACL, and a new project has no rights yet: run the install again after it. Until then each run names what it cannot read and fails, and `limen status` says so. The first run that reads the new project records its events as reported and sends none, as the journal's `first read of 1 project: …` line says.
 
 ## 7 · Herdr coordinator
 

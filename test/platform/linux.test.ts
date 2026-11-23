@@ -1,7 +1,8 @@
 // src/platform/linux.ts: its parsers on fixture text (/proc/<pid>/stat, ps, /proc/meminfo, the boot id, a process's
-// cgroup, a scope's readings), and the state and the signals of a user scope on the tests' systemd (test/plant.ts).
+// cgroup, a scope's readings), the units of the user manager on a fake cgroup hierarchy, and the state and the signals
+// of a user scope on the tests' systemd (test/plant.ts).
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
@@ -111,6 +112,61 @@ test("a scope's reading is null for a file that is gone or holds no number of it
 		],
 		[null, null, null, null, null],
 	);
+});
+
+/** The cgroup of the user manager in the fake hierarchies of the tests of `userUnits`. */
+const MANAGER = "/user.slice/user-1000.slice/user@1000.service";
+
+/**
+ * A fake cgroup hierarchy for one test, which this process reads in place of the system's, as one that runs in the
+ * cgroup `own`; each of `files` is written below it with its text.
+ */
+async function cgroupTree(t: TestContext, own: string, files: Readonly<Record<string, string>>): Promise<string> {
+	const root = mkdtempSync(join(tmpdir(), "limen-units-"));
+	t.after(() => rmSync(root, { recursive: true, force: true }));
+	for (const [path, text] of Object.entries(files)) {
+		mkdirSync(join(root, path, ".."), { recursive: true });
+		writeFileSync(join(root, path), text);
+	}
+	withEnvironment(t, { LIMEN_CGROUP_ROOT: root, LIMEN_CGROUP: own });
+	return root;
+}
+
+// A-036: the start queue's diagnosis ranks the units of the agents' user manager by memory and CPU.
+test("userUnits lists each unit of this process's user manager with its current memory and CPU time, by name", async (t) => {
+	const cpu = (usec: number) => `usage_usec ${usec}\nuser_usec 0\nsystem_usec 0\n`;
+	await cgroupTree(t, `${MANAGER}/app.slice/limen-job-2026-11-23-units-1a2b3c4d.scope`, {
+		[`${MANAGER}/memory.current`]: "999999999\n",
+		[`${MANAGER}/init.scope/memory.current`]: "1048576\n",
+		[`${MANAGER}/init.scope/cpu.stat`]: cpu(100),
+		[`${MANAGER}/app.slice/memory.current`]: "888888888\n",
+		[`${MANAGER}/app.slice/limen-job-2026-11-23-units-1a2b3c4d.scope/memory.current`]: "52428800\n",
+		[`${MANAGER}/app.slice/limen-job-2026-11-23-units-1a2b3c4d.scope/cpu.stat`]: cpu(2_500_000),
+		// A unit's own child cgroups are counted in the unit, so they are no units of their own.
+		[`${MANAGER}/app.slice/herdr.service/memory.current`]: "10485760\n",
+		[`${MANAGER}/app.slice/herdr.service/cpu.stat`]: cpu(7),
+		[`${MANAGER}/app.slice/herdr.service/payload/memory.current`]: "777\n",
+		[`${MANAGER}/session.slice/dbus.service/memory.current`]: "max\n",
+		// A login session sits beside the user manager, not in it.
+		"/user.slice/user-1000.slice/session-3.scope/memory.current": "123456789\n",
+	});
+	assert.deepEqual(await linux.userUnits(), [
+		{ unit: "dbus.service", memoryBytes: null, cpuMicroseconds: null },
+		{ unit: "herdr.service", memoryBytes: 10_485_760, cpuMicroseconds: 7 },
+		{ unit: "init.scope", memoryBytes: 1_048_576, cpuMicroseconds: 100 },
+		{ unit: "limen-job-2026-11-23-units-1a2b3c4d.scope", memoryBytes: 52_428_800, cpuMicroseconds: 2_500_000 },
+	]);
+});
+
+test("userUnits gives nothing for a process outside a user manager", async (t) => {
+	await cgroupTree(t, "/system.slice/limen-alerts.service", {});
+	assert.equal(await linux.userUnits(), undefined);
+});
+
+// A unit can end while the walk reads, and a folder that is gone holds no unit.
+test("userUnits lists no unit for a user manager whose cgroup folder is gone", async (t) => {
+	await cgroupTree(t, `${MANAGER}/app.slice/gone.scope`, {});
+	assert.deepEqual(await linux.userUnits(), []);
 });
 
 const UNIT = "limen-job-2026-11-22-scope-1a2b3c4d.scope";

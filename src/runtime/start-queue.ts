@@ -3,7 +3,17 @@ import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { atomicWrite } from "../atomic-write.ts";
-import { type BadData, duration, eachField, either, numberIn, object, oneOf, parseJson } from "../boundary.ts";
+import {
+	type BadData,
+	duration,
+	eachField,
+	either,
+	numberIn,
+	object,
+	oneOf,
+	parseJson,
+	refusedValue,
+} from "../boundary.ts";
 import { testKnob } from "../config.ts";
 import { groupLock } from "../job/group-cabinet.ts";
 import { formatDuration } from "../job/job.ts";
@@ -11,10 +21,12 @@ import {
 	appendLimenLog,
 	type JobRecord,
 	type Queued,
+	queueLeft,
 	readRecord,
 	recordPath,
 	textFile,
 	transition,
+	waitOf,
 } from "../job/record.ts";
 import { LimenError, usageError } from "../outcome.ts";
 import { platform } from "../platform/platform.ts";
@@ -22,11 +34,18 @@ import { readOptional } from "../project/inherit.ts";
 import { seatDir } from "../project/seat.ts";
 import { activeRules, localTime, type SeatRule } from "../project/seat-rules.ts";
 import { hasCode } from "../system-error.ts";
+import { queueDiagnosis } from "./queue-diagnosis.ts";
 
-// The machine is shared by every plant, so one queue and one gate serve the whole seat. A detached job's own wrapper
-// waits in it after its handshake and before setup; no daemon runs it. Adam's decision 85 (a) set 25% and 20%.
-// A seat rule with a start priority (the priority budget, Adam's decision 99) holds every less urgent job, gate or not.
+// The projects of the seat share its CPU and memory, so one queue and one gate serve the whole seat (docs/jobs.md,
+// "Start queue"). A detached job's own wrapper waits in it after its handshake and before setup; no daemon runs it. The
+// gate's defaults, 25% CPU idle and 20% memory free, are the values Limen started with, kept as the starting point of
+// every limit (T-10); only the seat's gate file changes them (T-03). A seat rule with a start priority holds every less
+// urgent job, gate or not, so that only urgent work spends the engine's budget while the rule lasts; R-034 cuts seat
+// rules (A-010). A wait has two thresholds (A-036): past the first the job's coordinator gets one diagnosis and the job
+// waits on; past the second the job ends failed, so no wait outlasts it.
 export type StartGate = { readonly cpuIdle: number; readonly memoryFree: number; readonly settleMs: number };
+/** When a wait gets its diagnosis and when it fails, in milliseconds since the job entered the queue (A-036). */
+export type WaitLimits = { readonly diagnoseAfterMs: number; readonly failAfterMs: number };
 /** Percentages; a value the machine could not report is undefined and does not hold a job back. */
 export type Reading = { readonly cpuIdle: number | undefined; readonly memoryFree: number | undefined };
 type Entry = {
@@ -45,6 +64,9 @@ export const GATE_FILE = "start-gate.json";
 export const PRIORITIES = [1, 2, 3] as const;
 export const DEFAULT_PRIORITY = 2;
 const DEFAULT_GATE: StartGate = { cpuIdle: 25, memoryFree: 20, settleMs: 60_000 };
+/** The thresholds of a gate file that sets none (A-036), and the same as the file would write them, for its messages. */
+const DEFAULT_WAIT: WaitLimits = { diagnoseAfterMs: 30 * 60_000, failAfterMs: 2 * 3_600_000 };
+const DEFAULT_WAIT_TEXT = { diagnoseAfter: "30m", failAfter: "2h" } as const;
 const SAMPLE_MS = 2_000;
 const DETAIL_REFRESH_MS = 60_000;
 const queueDir = () => join(seatDir(), "start-queue");
@@ -54,30 +76,40 @@ const pollMs = (): number => {
 	return knob > 0 ? knob : 5_000;
 };
 
-/** The values `start-gate.json` may change, each with its validator: percentages and the settle time. */
+/** The values `start-gate.json` may change, each with its validator: percentages, the settle time, the thresholds. */
 const GATE_FIELDS = {
 	cpuIdle: numberIn({ min: 0, max: 100 }),
 	memoryFree: numberIn({ min: 0, max: 100 }),
 	settle: duration,
+	diagnoseAfter: duration,
+	failAfter: duration,
+};
+
+/** What the seat's gate file sets: the gate, undefined when it is off, the wait's thresholds, and what it ignored. */
+export type GateFile = {
+	readonly gate: StartGate | undefined;
+	readonly limits: WaitLimits;
+	readonly ignored: readonly BadData[];
 };
 
 /**
  * The gate: `<seat>/start-gate.json`, the JSON string `"off"` or an object of the values it changes, else the
  * defaults; the seat's file is the only source, and no environment variable overrides it (T-03, R-015). Undefined
- * when the gate is off. `ignored` holds the typed error of each value Limen did not use (T-27 (2)): an invalid or
- * unknown value on its own, and a file of another shape as a whole.
+ * when the gate is off; the wait's thresholds keep their defaults then, since a seat rule can still hold a job.
+ * `ignored` holds the typed error of each value Limen did not use (T-27 (2)): an invalid or unknown value on its own,
+ * a pair of thresholds out of order as one, and a file of another shape as a whole.
  */
-export function startGate(): { readonly gate: StartGate | undefined; readonly ignored: readonly BadData[] } {
+export function startGate(): GateFile {
 	const source = readOptional(join(seatDir(), GATE_FILE));
 	if (!source) {
-		return { gate: DEFAULT_GATE, ignored: [] };
+		return { gate: DEFAULT_GATE, limits: DEFAULT_WAIT, ignored: [] };
 	}
 	const read = parseJson(GATE_FILE, source, either(oneOf(["off"]), object()));
 	if (read instanceof LimenError) {
-		return { gate: DEFAULT_GATE, ignored: [read] };
+		return { gate: DEFAULT_GATE, limits: DEFAULT_WAIT, ignored: [read] };
 	}
 	if (read === "off") {
-		return { gate: undefined, ignored: [] };
+		return { gate: undefined, limits: DEFAULT_WAIT, ignored: [] };
 	}
 	const { values, ignored } = eachField(GATE_FILE, read, GATE_FIELDS);
 	const gate = {
@@ -85,7 +117,42 @@ export function startGate(): { readonly gate: StartGate | undefined; readonly ig
 		memoryFree: values.memoryFree ?? DEFAULT_GATE.memoryFree,
 		settleMs: values.settle ?? DEFAULT_GATE.settleMs,
 	};
-	return { gate, ignored };
+	const wait = waitLimits(read, values);
+	return { gate, limits: wait.limits, ignored: [...ignored, ...wait.ignored] };
+}
+
+/**
+ * The wait's thresholds from the gate file's valid values `values` of its fields `fields`, each else its default. A
+ * failure that came before the diagnosis would end a job its coordinator was never told of, so a pair out of order is
+ * one bad value: both keep their defaults, and the typed error names the field the file gave, `failAfter` when it
+ * gave both (T-27 (2)).
+ */
+function waitLimits(
+	fields: ReadonlyMap<string, unknown>,
+	values: Partial<Record<keyof typeof GATE_FIELDS, number>>,
+): { readonly limits: WaitLimits; readonly ignored: readonly BadData[] } {
+	const limits = {
+		diagnoseAfterMs: values.diagnoseAfter ?? DEFAULT_WAIT.diagnoseAfterMs,
+		failAfterMs: values.failAfter ?? DEFAULT_WAIT.failAfterMs,
+	};
+	if (limits.failAfterMs > limits.diagnoseAfterMs) {
+		return { limits, ignored: [] };
+	}
+	const given = (name: keyof typeof DEFAULT_WAIT_TEXT) =>
+		values[name] === undefined ? `${DEFAULT_WAIT_TEXT[name]} by default` : String(fields.get(name));
+	const refused =
+		values.failAfter === undefined
+			? {
+					field: "diagnoseAfter",
+					expected: `a duration below failAfter (${given("failAfter")})`,
+					got: fields.get("diagnoseAfter"),
+				}
+			: {
+					field: "failAfter",
+					expected: `a duration above diagnoseAfter (${given("diagnoseAfter")})`,
+					got: fields.get("failAfter"),
+				};
+	return { limits: DEFAULT_WAIT, ignored: [refusedValue(GATE_FILE, refused)] };
 }
 /** The messages of the gate values Limen ignored, for the job log and `limen seat queue`; each names the file. */
 function ignoredText(ignored: readonly BadData[]): string {
@@ -126,11 +193,15 @@ function memoryFree(): number | undefined {
 function percent(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : undefined;
 }
-export function readingText(reading: Reading | undefined, gate: StartGate): string {
+/** The reading with the gate's values beside it; with the gate off, the reading alone and that the gate is off. */
+export function readingText(reading: Reading | undefined, gate: StartGate | undefined): string {
 	if (!reading) {
 		return "no reading yet";
 	}
 	const shown = (value: number | undefined) => (value === undefined ? "unknown" : `${Math.round(value)}%`);
+	if (!gate) {
+		return `CPU ${shown(reading.cpuIdle)} idle, memory ${shown(reading.memoryFree)} free; the gate is off`;
+	}
 	const cpu = `CPU ${shown(reading.cpuIdle)} idle (gate ${gate.cpuIdle}%)`;
 	return `${cpu}, memory ${shown(reading.memoryFree)} free (gate ${gate.memoryFree}%)`;
 }
@@ -167,17 +238,22 @@ export async function enterStartQueue(jobDir: string, record: JobRecord | undefi
 	return queues ? { since: new Date().toISOString(), detail: null, ahead: null } : undefined;
 }
 
-/** How a job's wait in the start queue ended: its turn came, it was stopped, or its folder or record is gone. */
-export type QueueEnd = "started" | "stopped" | "gone";
+/**
+ * How a job's wait in the start queue ended: its turn came, it was stopped, its folder or record is gone, or it passed
+ * the gate file's failAfter, with the detail its job fails with (A-036).
+ */
+export type QueueEnd = "started" | "stopped" | "gone" | { readonly failed: string };
 
 /**
  * Holds the job in the seat queue until no rule holds its priority, it is first in priority, then queue-time order, the
  * settle interval since the last start has passed, and its reading passes the gate. Only the first job samples the
  * load. The gate and the rules are read again on each poll, so an edit or a rule's end reaches waiting jobs. A job that
- * waited leaves `start-notice` for its coordinator. A job whose folder or record is gone stops at its next poll and
- * writes nothing more into the folder, since no record is left to end and no engine can start (D-063 (3)). A record
- * check that fails for another reason ends the wait with that failure. Its cause is kept in the job's log, or, when the
- * log cannot take the line, in the failure's message, which then names that error too (T-01).
+ * waited leaves `start-notice` for its coordinator. A wait past the gate file's diagnoseAfter gets one diagnosis and
+ * goes on; one past its failAfter ends, and the job's finisher ends the job (A-036). A job whose folder or record is
+ * gone stops at its next poll and writes nothing more into the folder, since no record is left to end and no engine
+ * can start (D-063 (3)). A record check that fails for another reason ends the wait with that failure. Its cause is
+ * kept in the job's log, or, when the log cannot take the line, in the failure's message, which then names that error
+ * too (T-01).
  */
 export async function waitForStart(jobDir: string, stop: AbortSignal): Promise<QueueEnd> {
 	const id = basename(jobDir);
@@ -192,18 +268,24 @@ export async function waitForStart(jobDir: string, stop: AbortSignal): Promise<Q
 		pid: process.pid,
 	};
 	const checked: Checked = { gone: false, failure: undefined };
+	const wait: Wait = { since, diagnosed: (record?.queueWait?.diagnosedAt ?? null) !== null };
+	let end: QueueEnd | undefined;
 	try {
-		return await pollQueue(entry, since, stop, checked);
+		end = await pollQueue(entry, wait, stop, checked);
+		return end;
 	} catch (error) {
 		const { failure } = checked;
 		throw failure !== undefined && error === failure ? await failureAfterCleanup(jobDir, failure) : error;
 	} finally {
-		await leaveQueue(jobDir, checked);
+		await leaveQueue(jobDir, checked, typeof end === "object");
 	}
 }
 
-/** The polls of `waitForStart` for the job of `entry`, queued since `since`; `checked` notes what its checks found. */
-async function pollQueue(entry: Entry, since: string, stop: AbortSignal, checked: Checked): Promise<QueueEnd> {
+/** A job's wait as its polls know it: since when it waits, and whether its record got the diagnosis. */
+type Wait = { readonly since: string; diagnosed: boolean };
+
+/** The polls of `waitForStart` for the job of `entry` and its `wait`; `checked` notes what its record checks found. */
+async function pollQueue(entry: Entry, wait: Wait, stop: AbortSignal, checked: Checked): Promise<QueueEnd> {
 	const { jobDir } = entry;
 	let shown: { kind: string; ahead: number; at: number } | undefined;
 	// Before the poll, after its decision and after a record change: the folder can go while the job sleeps or samples
@@ -212,7 +294,8 @@ async function pollQueue(entry: Entry, since: string, stop: AbortSignal, checked
 	const recordGone = () => recordGoneAt(jobDir, checked);
 	while (!(stop.aborted || recordGone())) {
 		await enqueue(entry);
-		const decision = await decide(entry, startGate().gate, stop).catch((error: unknown) => {
+		const file = startGate();
+		const decision = await decide(entry, file.gate, stop).catch((error: unknown) => {
 			if (stop.aborted) {
 				return undefined;
 			}
@@ -228,13 +311,17 @@ async function pollQueue(entry: Entry, since: string, stop: AbortSignal, checked
 			await started(jobDir, entry, decision.detail, shown !== undefined);
 			return "started";
 		}
+		const end = await atThresholds({ entry, wait, detail: decision.detail, file, stop, recordGone });
+		if (end !== undefined) {
+			return end;
+		}
 		if (
 			!shown ||
 			shown.kind !== decision.kind ||
 			shown.ahead !== decision.ahead ||
 			Date.now() - shown.at >= DETAIL_REFRESH_MS
 		) {
-			const queued: Queued = { since, detail: decision.detail, ahead: decision.ahead };
+			const queued: Queued = { since: wait.since, detail: decision.detail, ahead: decision.ahead };
 			await transition(jobDir, { from: ["running"], set: { queued } });
 			if (recordGone()) {
 				return "gone";
@@ -252,20 +339,101 @@ async function pollQueue(entry: Entry, since: string, stop: AbortSignal, checked
 /** What the record checks of one wait found: no record (`gone`), or a check that failed (`failure`). */
 type Checked = { gone: boolean; failure: LimenError | undefined };
 
+/** A poll that did not start its job: the job, its wait, why it waits now, the gate file, the stop, the record check. */
+type HeldPoll = {
+	readonly entry: Entry;
+	readonly wait: Wait;
+	readonly detail: string;
+	readonly file: GateFile;
+	readonly stop: AbortSignal;
+	readonly recordGone: () => boolean;
+};
+
+/**
+ * The wait's thresholds at a poll that did not start its job (A-036): past failAfter the wait ends failed, naming how
+ * long it waited and why it waits now; past diagnoseAfter its record gets the diagnosis once, and its log the same
+ * line, and the job keeps waiting. Returns how the wait ends, or undefined while it goes on.
+ */
+async function atThresholds(poll: HeldPoll): Promise<QueueEnd | undefined> {
+	const { entry, wait, file } = poll;
+	const waited = Date.now() - entry.queuedAt;
+	if (waited >= file.limits.failAfterMs) {
+		return { failed: `queued for ${formatDuration(waited)} without a start: ${poll.detail}` };
+	}
+	if (wait.diagnosed || waited < file.limits.diagnoseAfterMs) {
+		return undefined;
+	}
+	const advisory = await diagnose(entry.jobDir, wait, waited, file.gate, poll.stop);
+	if (poll.recordGone()) {
+		return "gone";
+	}
+	if (advisory !== undefined) {
+		await appendLimenLog(entry.jobDir, `start queue: ${advisory}`);
+	}
+	return undefined;
+}
+
 /**
  * Ends a wait that no failed record check ended: its entry goes, and the queue is cleared from the record the checks
- * found. A failed check is thrown the moment it is noted, so the wait ends on it, and `failureAfterCleanup` ends it.
+ * found, its wait kept in `queueWait` with the time it left and the queue's advisory gone, since the job no longer
+ * waits (A-036). A wait that passed failAfter leaves the record to the job's finisher, which clears it the same way,
+ * so no reader sees that job out of the queue before it ends. A failed check is thrown the moment it is noted, so the
+ * wait ends on it, and `failureAfterCleanup` ends it.
  */
-async function leaveQueue(jobDir: string, checked: Checked): Promise<void> {
+async function leaveQueue(jobDir: string, checked: Checked, failed: boolean): Promise<void> {
 	if (checked.failure) {
 		return;
 	}
 	await rm(entryPath(basename(jobDir)), { force: true });
 	// A job that ended while it waited has no queue left to clear: its terminal record holds none. A job whose record is
 	// gone has none either, and the lock of a transition that raced a removal would create the folder again.
-	if (!checked.gone) {
-		await transition(jobDir, { from: ["running"], set: { queued: null } });
+	if (!(checked.gone || failed)) {
+		await transition(jobDir, {
+			from: ["running"],
+			set: (current) => ({
+				...queueLeft(current, new Date().toISOString()),
+				...((current.queueWait?.diagnosedAt ?? null) === null ? {} : { advisory: null }),
+			}),
+		});
 	}
+}
+
+/**
+ * The diagnosis of a wait past diagnoseAfter (A-036), `waited` long: the gate reading, sampled now, and the largest
+ * units by memory and CPU (src/runtime/queue-diagnosis.ts), written into the record's `queueWait` and into its
+ * `advisory`, which the wake hook delivers to the job's coordinator. Returns the advisory's text once written; undefined
+ * when the wait was stopped meanwhile.
+ */
+async function diagnose(
+	jobDir: string,
+	wait: Wait,
+	waited: number,
+	gate: StartGate | undefined,
+	stop: AbortSignal,
+): Promise<string | undefined> {
+	const diagnosis = await queueDiagnosis(async () => readingText(await readLoad(stop), gate)).catch(
+		(error: unknown) => {
+			if (stop.aborted) {
+				return undefined;
+			}
+			throw error;
+		},
+	);
+	if (diagnosis === undefined) {
+		return undefined;
+	}
+	const at = new Date().toISOString();
+	const text = `queued for ${formatDuration(waited)} without a start: ${diagnosis}`;
+	const begun = { since: wait.since, diagnosedAt: null, diagnosis: null, leftAt: null };
+	await transition(jobDir, {
+		from: ["running"],
+		set: (current) => ({
+			queueWait: { ...(waitOf(current) ?? begun), diagnosedAt: at, diagnosis },
+			advisory: { text, at },
+		}),
+	});
+	wait.diagnosed = true;
+	return text;
 }
 
 /**

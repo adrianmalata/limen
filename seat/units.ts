@@ -46,7 +46,7 @@ export function alertsUnits(account: string): readonly UnitDefinition[] {
 			sections: [
 				{
 					name: "Unit",
-					directives: [["Description", "Limen alerts: one ntfy line for each failed job of the registered projects"]],
+					directives: [["Description", "Limen alerts: one ntfy line for each failed job and long start-queue wait"]],
 				},
 				{
 					name: "Service",

@@ -1455,7 +1455,7 @@ Columns:
 | R-032 | `limen seat sweep` runs on a timer; read commands never write or wait | 3 | A-024, T-04, T-18, A-017, §6, D-045 | R-012, R-027, R-031 | L | delegated | night | yes | systemd | 3.1 | planned |
 | R-033 | Alerts from their own account: failures and escalations only | 3 | A-066, A-054, T-18, D-084, D-085 | R-021 | L | delegated | night | yes | systemd | 3.3 | done |
 | R-034 | Resume after the quota limit in code; seat rules are cut | 3 | A-016, A-010, A-068, §6 | R-029, R-032, R-033 | L | delegated | night | yes | systemd | 3.4, 3.5 | planned |
-| R-035 | Start-queue thresholds: a diagnosis at 30 min, a failure at 2 h | 3 | A-036 | R-026, R-033 | L | delegated | night | — | systemd | 3.8 | ready |
+| R-035 | Start-queue thresholds: a diagnosis at 30 min, a failure at 2 h | 3 | A-036 | R-026, R-033 | L | delegated | night | — | systemd | 3.8 | done |
 | R-036 | Stall is measured over the whole job scope | 3 | A-059 | R-026 | M | delegated | night | — | systemd | 3.8 | planned |
 | R-037 | Land runs as recorded steps with an atomic closing commit | 3 | A-021, A-057, T-18, T-28 | R-023, R-031, R-092 | L | delegated | night | yes | herdr | 3.9 | planned |
 | R-087 | The job environment is an allow-list; git and gh in a job hold no credential (T1) | 3 | A-004, A-061, E-4, D-017 | R-015, R-021, R-026 | M | delegated | night | — | pi, bridge | 3.10 | planned |
@@ -2197,8 +2197,8 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 Updated 2026-11-22 by day (`limen-rebuild-22`), rebuild stage 5 in plan stage 3: stage 1 is closed at `a0.1.1`
 (deployed on 2026-11-20, with B.2 closed by D-050); stage 2 is closed at `a0.2.0` (gate 5.2 decided, D-078–D-082);
-stage 3 has started: R-026, R-030 and R-033 are `done` (by day), R-027, R-028 and R-031 `done` in the night of D-091
-(until 09:00), R-035 and R-100 `ready` for it, and D-083's decision guard is built (D-086). The newest entries are at
+stage 3 has started: R-026, R-030 and R-033 are `done` (by day), R-027, R-028, R-031 and R-035 `done` in the night of
+D-091 (until 09:00), R-100 `ready` for it, and D-083's decision guard is built (D-086). The newest entries are at
 the end of this section: the close of stage 2 in "Close of stage 2", the gate in "Gate 5.2 decided", the start of
 stage 3 in "Start of stage 3", the guard and R-026 in "D-083's decision guard", R-030 and R-033 (with D-087–D-091) in
 "R-030", the night's preparation in "The night of D-091 prepared", and the night itself in "Night run of
@@ -3487,6 +3487,25 @@ and pushed; the tickets in protocol order, the lowest `ready` ID first: R-027, R
   `abandonedOf`; recommended: items of R-032. Open points for gate 5.3: `outcome.md` → Open points 1–8. Unmeasured:
   `limen stats` over the archive, the marker step on the seat (3.6), the archive's syncs on a real crash, the poller's
   replies for a retired job.
+- Run 2 ended at 05:41 with exit 1 on the 5-hour limit, with R-035 `active` and its first fix implementer cut (its
+  partial hand-back: "Now Biome, the gate, and the checks"). `night.mjs` started run 3 at 06:41; its `compare --git` on
+  R-035's fix snapshot of 05:28 exited 0, `HEAD` was `34a40d0` = `origin/adrian-rebuild`, and after a new snapshot (the
+  run had changed `plan.md`, D-035) a fresh implementer found F1–F4 complete in that tree and finished the checks and
+  `outcome.md`.
+- R-035 `done` (delegated; review PASS in rounds 1 and 2 with one round of fixes, F1–F4): the gate file's
+  `diagnoseAfter` (30 min) and `failAfter` (2 h); past the first the wrapper's poll writes one diagnosis (the gate
+  reading and the three largest units of the agents' user manager by memory and by CPU, each `job <id>` or
+  `unattributed`, names quoted as data) into the record's new optional `queueWait` and into `advisory`, so the
+  coordinator is woken, and the job waits on; past the second the job ends `failed`, kind `queue`, unless a stop was
+  requested. The alerts send `<project> queue <job id>` from `queueWait.diagnosedAt`, keep the list of projects read
+  (a first read records the present events as reported and sends none, D-090 (1)) and count an unreadable root once
+  (D-090 (2)). The main session's gate 926/926 on the final tree; `fails-before.mjs` exit 0 (nine files); F1's
+  failure before it is shown by reading round 1's code in the reviewed diff, not by a run (`outcome.md` → `## Round 1
+  fixes`). Night defaults for Adrian to confirm: the implementer's thirteen (`outcome.md` → `## Night defaults`), among
+  them `limits` kept when the gate is `"off"`, the order decision → `failAfter` → `diagnoseAfter` in a poll, and the
+  Description shortened to stay within 100 characters. Q-43 (no ticket blocked): the wake hook's one advisory receipt
+  per job and session means a stall advisory after the queue's diagnosis no longer reaches that session; recommended: an
+  item of R-036. Open points for gate 5.3: `outcome.md` → Open points 1–7. Unmeasured: M-09, M-06, seat step 3.8.
 
 Next (by day):
 1. After his return from the trip (Adrian, 2026-11-22: "Zapisz mi to na zrobienie po powrocie z wyjazdu, teraz działaj

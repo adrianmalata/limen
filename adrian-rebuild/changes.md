@@ -3,7 +3,7 @@ Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, com
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
 R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025, R-097, R-099, R-026, R-030, R-033,
-R-027, R-028, R-031. -->
+R-027, R-028, R-031, R-035. -->
 
 # Changes
 
@@ -358,4 +358,12 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-03, M-06, M-07, M-11; `## Deployment` 3.6)
 - Commit: R-031
 - Rollback: git revert $(git log --format=%H --grep='^R-031:' adrian-rebuild --), then restore `.limen/` from the snapshot of `## Deployment` 0.1 if the migration ran
+
+## 2026-11-23 R-035 Start-queue thresholds: a diagnosis at 30 min, a failure at 2 h
+- What: `src/runtime/start-queue.ts` (the gate file's `diagnoseAfter`, 30 min, and `failAfter`, 2 h, read by `duration`, a pair out of order refused as one bad value; `atThresholds` in the poll: past the first the diagnosis goes once into the record's `queueWait` and `advisory`, past the second the wait ends `{ failed: "queued for <wait> without a start: …" }`); the new `src/runtime/queue-diagnosis.ts` (the gate reading and the three largest units of the user manager by memory and by CPU over the reading's window, `job <id>` or `unattributed`, unit names and read errors quoted as data); `src/runtime/wrapper.ts` (a `failed` end of the wait ends the job unless the record holds a stop request); `src/runtime/launcher.ts` (`jobOfScope`); `src/job/record.ts` (the optional `queueWait {since, diagnosedAt, diagnosis, leftAt}`, `waitOf`, `queueLeft`, the pattern `queued for … without a start` → `queue`); `src/job/finalize.ts`; `src/platform/platform.ts`, `src/platform/linux.ts` (`userUnits`: `memory.current` and `cpu.stat` of each unit of the user manager); `seat/alerts.ts` (the event `queue`, `<project> queue <job id>`; the list `projects` of read projects, whose first read records the present events as reported and sends none; an unreadable root counted once); `seat/units.ts`; `src/project/summary.ts`; tests in `test/runtime/start-queue.test.ts`, `test/runtime/queue-diagnosis.test.ts` (new), `test/runtime/wrapper.test.ts`, `test/platform/linux.test.ts`, `test/job/record.test.ts`, `test/job/finalize.test.ts`, `test/seat/alerts.test.ts`, `test/seat/units.test.ts`, `test/cli/status.test.ts`, `test/plant.ts`; `docs/jobs.md`, `docs/commands.md`, `docs/remote.md`, `docs/seat/README.md`, `docs/seat/agent-setup.md`, `templates/agents.md` with `templates/.history/agents.md`
+- Why: A-036, A-066, A-054, A-001, D-072, D-079, D-084, D-090, T-28, T-29, T-31
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (926/926); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (nine test files); `node --test test/runtime/start-queue.test.ts` → exit 0; `node --test test/seat/alerts.test.ts` → exit 0
+- Measurement: unmeasured (plan.md → Measurement: M-09, M-06; `## Deployment` 3.8)
+- Commit: R-035
+- Rollback: git revert $(git log --format=%H --grep='^R-035:' adrian-rebuild --)
 
