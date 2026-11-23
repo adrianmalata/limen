@@ -3654,8 +3654,8 @@ Next (by day):
      R-032, R-033; R-050 and R-059 depend on it); a new R-102 cuts the seat rules (A-010, T-42 (1); M; seat 3.5),
      depending on R-034 by A-010's standing condition (`R-034.md` → question 21). Options: 1. split (recommended);
      2. one ticket.
-   - Q-47: split R-037 at `applyTicketClose` (`src/project/lanes.ts:174-196`): R-037 keeps the atomic closing commit
-     (M; R-065 needs it); a new R-103 takes land as recorded steps with `cleaned`, the `close` cut and `ticket done`'s
+   - Q-47: split R-037 at `applyTicketClose` (in `src/project/lanes.ts` at `6d17130`): R-037 keeps the atomic
+     closing commit (M; R-065 needs it); a new R-103 takes land as recorded steps with `cleaned`, the `close` cut and `ticket done`'s
      markers as a step (M–L; seat 3.9; depends on R-037; R-054 depends on it) (`R-037.md` → section 9). Options: 1.
      split (recommended); 2. one ticket.
    - Q-48: the kind of the nine ends with none (R-029 fact 3). Options: 1. two new kinds, `launch` (the engine did not
