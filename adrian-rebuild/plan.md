@@ -1481,7 +1481,7 @@ Columns:
 | R-033 | Alerts from their own account: failures and escalations only | 3 | A-066, A-054, T-18, D-084, D-085 | R-021 | L | delegated | night | yes | systemd | 3.3 | done |
 | R-034 | Resume after the quota limit in code; seat rules are cut | 3 | A-016, A-010, A-068, §6 | R-029, R-032, R-033 | L | delegated | night | yes | systemd | 3.4, 3.5 | planned |
 | R-035 | Start-queue thresholds: a diagnosis at 30 min, a failure at 2 h | 3 | A-036 | R-026, R-033 | L | delegated | night | — | systemd | 3.8 | done |
-| R-036 | Stall is measured over the whole job scope | 3 | A-059 | R-026 | M | delegated | night | — | systemd | 3.8 | planned |
+| R-036 | Stall is measured over the whole job scope | 3 | A-059 | R-026 | M | delegated | night | — | systemd | 3.8 | ready |
 | R-037 | Land runs as recorded steps with an atomic closing commit | 3 | A-021, A-057, T-18, T-28 | R-023, R-031, R-092 | L | delegated | night | yes | herdr | 3.9 | planned |
 | R-087 | The job environment is an allow-list; git and gh in a job hold no credential (T1) | 3 | A-004, A-061, E-4, D-017 | R-015, R-021, R-026 | M | delegated | night | — | pi, bridge | 3.10 | planned |
 | R-098 | `limen stats` per landed ticket and per coordinator turn | 3 | §2, A-078, A-037, D-072 | R-024, R-031 | M | delegated | night | — | pi | B.3, B.4 | planned |
@@ -1949,8 +1949,11 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
   that tab (`herdr` tab list before and after; T-28 (5), R-030); the marker migration of R-031 reports which landed
   jobs it marked and which it left without a marker.
 - **3.7** Reboot test: jobs survive a Herdr restart (`systemd-cgls` before and after) (item 13; R-026).
-- **3.8** A trial job's record holds the peak memory and CPU of its scope, and a job that runs only `sleep 300` ends
-  with kind `stall` (R-026, R-036). `limen stop <id>` of a trial job ends it `stopped` with its reason; `kill -TERM` of
+- **3.8** A trial job's record holds the peak memory, the CPU time and the peak CPU share (`cpuPeakPercent`) of its
+  scope, and a job that runs only `sleep 300` ends with kind `stall`, its log naming `scope CPU idle`; the scope's
+  CPU time grew by less than 2 % of the wall time during that sleep (R-026, R-036). A job whose tool starts a busy
+  loop detached from the tool, and whose next tool sleeps longer than the stall window, is not ended by the stall rule
+  (R-036). `limen stop <id>` of a trial job ends it `stopped` with its reason; `kill -TERM` of
   a second trial job's wrapper alone (its pid from `limen show <id>`) ends it `failed`, kind `signal`, with one alert
   `<project> failed:signal <id>`, and its log shows `engine exited with code 143` and no `TERM grace elapsed` line, so
   Pi exited 143 within the grace (E-17; R-028). A gate file that
