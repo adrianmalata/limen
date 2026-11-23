@@ -3734,6 +3734,42 @@ Next (by day):
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
    D-047 and D-054 were.
 
+Asked, awaiting Adrian (2026-11-23, `limen-rebuild-25`, in the conversation with a push, after the sources were
+searched: T-04, T-18 (1), D-041 (6), D-070 (2), D-075, D-094 (3), R-030 Decision 6, R-031 Decisions 1 and 4, the
+inventory `evidence/inventories/R-037.md`). On the answer, the session writes D-096 with the answers and the settled
+items below, and R-103 becomes `ready (D-096)`:
+- Q-49 (R-103, R-101): who closes leftover Herdr tabs (T-18 (1): "the daily `limen-sweep` closes leftovers") and cuts
+  `limen close`. Options: 1. R-101 (recommended): a daily step of `limen seat sweep` closes the recorded tabs of the
+  finished jobs whose features are all closed (today's `limen close FNNN` rule, for every closed feature), R-101 cuts
+  `close` (exit 2, `next: limen seat sweep`), gains API `herdr` and a check in step 3.9 that the sweep's unit reaches
+  Herdr; R-103 keeps the `cleaned` step; 2. R-103, as D-094 (3) has it, adds that daily step and so depends on R-101;
+  3. no sweep of leftovers: a tab the `cleaned` step cannot close fails the step (exit 4, `next: limen land <id>`).
+- Q-50 (R-103, T-04): `limen diff` and `limen open` in Herdr record their tab's place (`herdr/diff/`, `herdr/`),
+  which T-04 forbids a read command (`diff` is on its list), and the `cleaned` step and the sweep close tabs by those
+  places. Options: 1. both become `change` (recommended: each opens a tab and records it so Limen can close it; T-04's
+  list drops `diff`, dated, in `taste.md`); 2. both stay `read` and write nothing, and a job's tabs are found by
+  `herdr tab list` and the name Limen gives them, with a seat check of that output; 3. both stay `read` and stop
+  recording, so Limen never closes their tabs.
+- Settled by the documents, for D-096 (items 9 and 10 named for Adrian's attention): (1) the steps are in
+  `record.json` (A-021, gate 2 S1+): `merged` is R-031's `landed` marker, written in the same write as a new optional
+  field `land` (D-079) that then records `closed` (the closing commit, or `null` when nothing closed) and `cleaned`,
+  each once under the job's lock through the marker writer; (2) the order is merged, closed, cleaned, and the branch
+  and worktree go in `cleaned` (A-021); (3) land runs through the runner with typed refusals (D-070 (2)), the terminal
+  question between `validated` and `apply`, apply under a land lock of the job; (4) a failed step keeps its class with
+  `next` `limen land <id>`, which replaces R-037's `limen ticket done <codes>`; (5) a rerun continues from the first
+  step not recorded, never merges again after `merged`, deletes the branch only while its tip is in the target's
+  history (z. 29), and after all steps exits 0 with the steps' line, as abandon's marked line; (6) a kill after R-037's
+  branch move: the rerun finds `Close <codes>: landed by <id>` in the target's history, finishes the checkout and
+  records `closed`; (7) an older record (`landed`, no `land`) is continued from Git, as abandon's steps are (R-030
+  Decision 6), with no migration script (R-031 Decision 1); (8) retire keeps a record whose `land` lacks `cleaned`;
+  (9) `cleaned` closes the job's `herdr/` and `herdr/diff/` tabs, the coordinator's own skipped, synchronously with
+  `closeJobTab`'s bound and one retry, the result in the output and the job's log; a tab that does not close is a line
+  and the step is recorded (T-18 (1), T-01); the same close in `ticket done` (the finished jobs of its tickets) and in
+  `abandon` (after its marker, still found from Git); (10) a rerun of `ticket done` on a ticket its own closing commit
+  closed continues the marker step and, with nothing left, exits 0 (T-02, the D-092 note), while a number with no
+  ticket stays `NO_ACTIVE_TICKET`; (11) land's `irreversible` mark (D-075); (12) the watch tab's close at a job's end
+  (`settleJobTab`, A-029) stays.
+
 Resolved (Q-17 → D-068; Q-18 → D-069), asked in the conversation with a push:
 - Q-17 (R-095's round-3 notes 2 and 3): `waitFailure`'s message and the opening line of
   `test/runtime/start-queue.test.ts`. Options: 1. two items of R-096 (recommended); 2. a separate S ticket; 3. no
