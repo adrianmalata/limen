@@ -117,8 +117,10 @@ odmowa brudnego ticketu przed merge'em) gotowy na noc; D-096: sprzątanie pozost
 close` idą do R-101, `diff` i `open` stają się poleceniami zmiany (T-04 bez `diff`), R-103 gotowy na noc za R-037.
 limen-rebuild-26: D-097 (Q-51–Q-53): wznowienie po limicie to krok `seat sweep` bez własnego polecenia, wyścig
 wznowienia z wdrożeniem to przyjęte ryzyko, stary folder reguł seata usuwa ręcznie Adrian; z rozstrzygnięciami
-dokumentów R-034, R-101 i R-102 są gotowe na noc za swoimi zależnościami, a jedynym ticketem etapu 3 w stanie
-`planned` zostaje R-098. -->
+dokumentów R-034, R-101 i R-102 są gotowe na noc za swoimi zależnościami; D-098 (Q-54–Q-57): `limen stats` liczy
+lądowania i tury koordynatora (flaga `--sessions`, wariant A wyjścia), R-098 gotowy z ticket.md, więc każdy ticket
+etapu 3 jest `done` albo `ready`. -->
+
 
 
 
@@ -1252,6 +1254,24 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   that no `limen rule timer` process runs (a live one sleeps at most 60 s and writes only `ended.<version>`).
   R-101, R-034 and R-102 are `ready (D-097)`: a night writes each one's `ticket.md` once its dependencies are `done`.
   Check: `## Tickets` rows R-034, R-101 and R-102; steps 3.4 and 3.5; the three tickets' criteria.
+- 2026-11-23 D-098 (Adrian: "zgodnie z rekomendacjami"; Q-54–Q-57, option 1, 1, 1 and variant A, asked in the
+  conversation with a push after the sources were searched: `evidence/inventories/R-098.md` → section 8, D-057 (4),
+  D-072, D-073, A-037, A-078, gate 2 §2, T-03, T-18, T-25, T-27, T-37): `limen stats` per landed ticket and per
+  coordinator turn (R-098). (1) Q-54: the unit "landed ticket" is a land: a job with a `landed` marker, its `parent`
+  chain and the reviewers of its branch, from records; no ticket codes in the marker, so no on-disk change. (2) Q-55:
+  M-03 is the coordinator sessions' total cache read divided by the lands whose `landed.at` lies in the sessions' time
+  span. (3) Q-56: the coordinator sessions are read only from a new flag `--sessions <dir>`; without it `stats` prints
+  no coordinator line; a directory that does not exist is a declared refusal. (4) Q-57: variant A of the output, four
+  lines after the jobs table (`Lands …, per land: …`, `Lead time per land (median): …`, `Coordinator (…): …`,
+  `Coordinator cache read: … per turn · … per land · first turn after a land: …`). (5) Settled by the documents, as
+  R-098's `ticket.md` → `## Decisions` 5–7 records them: (a) a turn is one assistant message, a compaction adds tokens
+  and is no turn; (b) no time filter; (c) M-04's land is the `limen land` or `limen ticket done` tool call in the
+  session, its turn the first of the next run (A-037); (d) M-06 from the land's first queue entry or start to
+  `landed.at`, with a part the records lack shown `—` and a `ticket done` land (its `at` a day) named on `Not read`;
+  (e) M-07 counts the land's jobs only; (f) one transcript reader; and, correcting the reading sent with the questions,
+  every session file of the `--sessions` directory counts, with no filter on the recorded `cwd`, since B.3 runs on a
+  copy in another folder. R-098 is `ready` with its `ticket.md`. Check: R-098's criteria; `## Deployment` B.3 and B.4;
+  the paragraph after the `## Measurement` table.
 
 ### Gate 2 §2, copied
 
@@ -1645,7 +1665,7 @@ Columns:
 | R-036 | Stall is measured over the whole job scope | 3 | A-059 | R-026 | M | delegated | night | — | systemd | 3.8 | ready |
 | R-037 | The closing commit of land and `ticket done` is atomic | 3 | A-021, A-057, T-38, D-094 | R-023, R-031, R-092 | M | delegated | night | — | — | — | ready |
 | R-087 | The job environment is an allow-list; git and gh in a job hold no credential (T1) | 3 | A-004, A-061, E-4, D-017 | R-015, R-021, R-026 | M | delegated | night | — | pi, bridge | 3.10 | ready |
-| R-098 | `limen stats` per landed ticket and per coordinator turn | 3 | §2, A-078, A-037, D-072 | R-024, R-031 | M | delegated | night | — | pi | B.3, B.4 | planned |
+| R-098 | `limen stats` per landed ticket and per coordinator turn | 3 | §2, A-078, A-037, D-072, D-098 | R-024, R-031 | M | delegated | night | — | pi | B.3, B.4 | ready |
 | R-100 | One definition of the ISO time, the 429 rule, the error-code check and the jobs listing | 3 | T-25, D-080 | R-022, R-093, R-097 | S | delegated | night | — | — | — | done |
 | R-101 | Prune, retire and leftover Herdr tabs are steps of the sweep; nothing is deleted | 3 | A-024, A-002, T-18, T-28, D-092, D-094, D-096, D-097 | R-032 | M | delegated | night | yes | herdr | 3.9 | ready (D-097) |
 | R-102 | Seat rules are cut | 3 | A-010, T-42, D-094, D-097 | R-034 | M | delegated | night | yes | systemd | 3.5 | ready (D-097) |
@@ -2055,11 +2075,13 @@ commit, outside `/opt/limen`, and points it at the `rebuild-base` checkout in `/
   After every attempt, the runner's stderr names no job left running (R-088, D-027).
 - **B.3** After a0.2.0 is deployed: `limen stats` of a0.2.0 over a migrated copy of each project's `.limen/` from the
   snapshot taken before the first deployment (R-024: the jobs by route and role, M-07's tokens per job and M-11's
-  failure kinds; D-072). After a0.3.0, the same copy, migrated by R-031, gives M-03, M-04, M-06 and M-07 per landed
-  ticket and per coordinator turn (R-098), with the copy of B.4.
+  failure kinds; D-072). After a0.3.0 and B.4's copy, the same copy, migrated by R-031 and kept a Git checkout (`stats`
+  finds its project by `limenRoot`): `limen stats --sessions <the project's copy of B.4>` inside it gives M-06 and
+  M-07 per land on the `Lands` lines and M-03 and M-04 on the `Coordinator` lines (R-098, D-098).
 - **B.4** Before a0.4.0 is deployed (it changes what the coordinator reads): copy each project's coordinator sessions
-  from Pi's sessions directory beside the snapshot of 0.1; R-098 reads that copy as the "before" of M-03 and M-04
-  (D-072).
+  directory (Pi's sessions directory for the project's folder, under the Pi agent folder of the agents' account; it
+  holds only the coordinator's sessions, since jobs write theirs under `.limen/`) beside the snapshot of 0.1, one copy
+  per project; R-098 reads that copy with `--sessions` as the "before" of M-03 and M-04 (D-072, D-098).
 
 ### After stage 1 (a0.1.0)
 
@@ -2291,6 +2313,12 @@ because every attempt is a whole ticket on the shared Max window (z. 17).
 | M-12 | A footer entry stays outside the model's context (T-15) | seat step 7.2 | — | 7.2 | R-073 |
 | M-13 | Token budget of each role's context message (T-09) | the budget test of R-046, laptop | the size at the close of stage 4 | set by R-086 to the size measured then + 10 % (T-09) | R-046, R-086 |
 
+The units of `limen stats` for M-03, M-04, M-06 and M-07 (R-098, D-098): a landed ticket is a land, a job with a
+`landed` marker together with its `parent` chain and the reviewers of its branch; a coordinator turn is one assistant
+message of Pi, which on the bridge sums the API requests of one Pi turn, so a cache read per turn is at least B.1's
+per request; M-03 divides the sessions' cache read by the lands in their time span; M-04 is the cache write of the
+first turn of the run after a land's `limen land` or `limen ticket done` call.
+
 A ticket whose change cannot be measured here marks it `unmeasured` in its outcome with the M-NN above.
 
 ## Agents
@@ -2456,14 +2484,15 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-23 by day (`limen-rebuild-26`, after D-097), rebuild stage 5 in plan stage 3: stage 1 is closed
+Updated 2026-11-23 by day (`limen-rebuild-26`, after D-098), rebuild stage 5 in plan stage 3: stage 1 is closed
 at `a0.1.1` (deployed on 2026-11-20, with B.2 closed by D-050); stage 2 is closed at `a0.2.0` (gate 5.2 decided,
 D-078–D-082); stage 3 has started: R-026, R-030 and R-033 are `done` (by day), R-027, R-028, R-031, R-035 and R-100
 `done` in the night of D-091 (until 09:00; it ended with `no-ticket`), D-092 settles its Q-42 and Q-43, and D-083's
 decision guard is built (D-086); D-093 confirms that night's defaults, D-094 splits R-032, R-034 and R-037 (new
 R-101–R-103), D-095 adds the kinds `launch` and `internal`, R-029, R-032, R-036, R-037 and R-087 are `ready`, D-096
-makes R-103 and D-097 makes R-034, R-101 and R-102 `ready` behind their dependencies, so R-098 is the one stage-3
-ticket still `planned` (the four "Day session of 2026-11-23" entries, just before `Next`). The
+makes R-103 and D-097 makes R-034, R-101 and R-102 `ready` behind their dependencies, and D-098 makes R-098 `ready`
+with its `ticket.md`, so every stage-3 ticket is `done` or `ready` (the four "Day session of 2026-11-23" entries, just
+before `Next`). The
 newest entries are at the end of this section: the close of stage 2 in "Close of stage 2", the gate in "Gate 5.2
 decided", the start of stage 3 in "Start of stage 3", the guard and R-026 in "D-083's decision guard", R-030 and R-033
 (with D-087–D-091) in "R-030", the night's preparation in "The night of D-091 prepared", the night itself in
@@ -3855,7 +3884,13 @@ attention). R-034, R-101 and R-102 `ready (D-097)`; R-034's API is `pi, systemd`
 `movedBy` note names R-102 for `rule`, and the note on the rule timer's stderr line is R-102's; R-032's `ticket.md`
 → `## Out of scope` names R-101 for the leftover Herdr tabs (D-096 (1)). One finding of the session's own, outside
 the inventory, is in D-097 (4) (d): `prunePass` deletes an unregistered folder with no `.git` in the worktree root
-with all it holds; R-101 moves it into the archive.
+with all it holds; R-101 moves it into the archive. Then R-098: a read-only inventory by a `general-purpose` agent at
+`f5d8b7b` (`evidence/inventories/R-098.md`, 17 questions, the tree checked clean but for that file after it); the
+questions no document settles were asked as Q-54–Q-57 with a push (the unit "landed ticket", M-03's division, where
+the coordinator sessions are read, and the output in two variants on the golden fragment of R-024). Adrian: "zgodnie
+z rekomendacjami" → D-098; R-098 `ready` with its `ticket.md` (`R-098-stats-per-land/`), steps B.3 and B.4 and the
+paragraph after the `## Measurement` table rewritten. D-098 corrects one item of the reading sent with the questions:
+`stats` reads every file of the `--sessions` directory, with no filter on the recorded `cwd`, since B.3 runs on a copy.
 
 Next (by day):
 1. After his return from the trip (Adrian, 2026-11-22: "Zapisz mi to na zrobienie po powrocie z wyjazdu, teraz działaj
@@ -3884,10 +3919,9 @@ Next (by day):
    ```
 2. R-036 (`5acb9fc`), R-029, R-032, R-037 and R-087 are `ready`, each on its own branch of the dependency graph
    (D-054 (1)), so a night can run them; R-103 is `ready (D-096)` behind R-037, R-101 `ready (D-097)` behind R-032,
-   R-034 `ready (D-097)` behind R-029 and R-032, and R-102 `ready (D-097)` behind R-034; whether and when to start a
-   night is Adrian's. Next by day: R-098, the one stage-3 ticket still `planned` (its dependencies R-024 and R-031 are
-   `done`, so its full `ticket.md`): a read-only inventory first (`evidence/inventories/R-098.md`, as the six of
-   `6d17130`), its questions settled by the documents (the memory rule), only what none settles asked.
+   R-034 `ready (D-097)` behind R-029 and R-032, R-102 `ready (D-097)` behind R-034, and R-098 `ready` with its
+   `ticket.md`; every stage-3 ticket is `done` or `ready`, so the rest of stage 3 is night work, and whether and when
+   to start a night is Adrian's (D-024: the main session starts the runner when he asks). By day meanwhile: item 3.
 3. Outside the ticket list, when time allows: `fails-before.mjs` makes its copy of HEAD under the gate's private
    temp folder rather than `/tmp` (R-018's open point 3 above), with its test and a review by `rebuild-reviewer`, as
    D-047 and D-054 were.
