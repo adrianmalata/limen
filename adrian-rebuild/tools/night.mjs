@@ -7,7 +7,8 @@
    linia w logu, nie koniec nocy). O końcu decyduje wyłącznie pole
    `reason` w .night/status.json zapisanym po starcie przebiegu (kod 0), a bez niego następuje ponowienie po 30, 60
    i 120 min, nigdy od godziny końca (potem kod 3); awaria samego narzędzia daje kod 4. Nie dotyka gita ani plików
-   poza .night/. Stan: działa; test w tools/test-night.mjs. */
+   poza .night/. Eksportuje sprawdzenie żywej blokady, którego używa też handover.mjs (D-102). Stan: działa; test
+   w tools/test-night.mjs. */
 // Usage: node adrian-rebuild/tools/night.mjs --until HH:MM [--claude <path>]
 //   --until  local time; the end is the next HH:MM, and one more than 18 h ahead has passed (exit 1)
 //   --claude the Claude Code executable (default: claude on PATH); the tests pass a fake
@@ -177,22 +178,38 @@ function parseOwner(text) {
 	}
 }
 
+/** The owner a lock's text names while that process runs (pid, start time and boot id match); undefined otherwise. */
+function liveOwnerOf(text) {
+	const owner = parseOwner(text);
+	const identity = owner === undefined ? undefined : processIdentity(owner.pid);
+	return identity !== undefined && identity.start === owner.start && identity.boot === owner.boot ? owner : undefined;
+}
+
+/**
+ * The owner of `<root>/adrian-rebuild/.night/lock` while that night.mjs runs; undefined with no lock, a text that is no
+ * owner record, or an owner gone. The day session's guard during a night (D-102 (5)) and the takeover use this one rule.
+ */
+export function liveOwner(root) {
+	const text = readIfExists(join(root, NIGHT, "lock"));
+	return text === undefined ? undefined : liveOwnerOf(text);
+}
+
 /** Removes the lock when its owner is gone (any mismatch of pid, start time or boot id); refuses when it is alive. */
 function removeAbandoned(lock, out) {
 	const text = readIfExists(lock);
 	if (text === undefined) {
 		return;
 	}
-	const owner = parseOwner(text);
-	const identity = owner === undefined ? undefined : processIdentity(owner.pid);
-	if (identity !== undefined && identity.start === owner.start && identity.boot === owner.boot) {
+	const live = liveOwnerOf(text);
+	if (live !== undefined) {
 		throw new Refusal(
-			`another night.mjs runs: pid ${owner.pid}, started ${owner.started} (lock ${NIGHT}/lock); wait for it to end or stop it`,
+			`another night.mjs runs: pid ${live.pid}, started ${live.started} (lock ${NIGHT}/lock); wait for it to end or stop it`,
 		);
 	}
 	// Read again right before the removal, so that a lock another runner has just taken over stays.
 	if (readIfExists(lock) === text) {
 		rmSync(lock, { force: true });
+		const owner = parseOwner(text);
 		out(
 			`night: took over the abandoned lock of pid ${owner?.pid ?? "unknown"} (started ${owner?.started ?? "unknown"})`,
 		);

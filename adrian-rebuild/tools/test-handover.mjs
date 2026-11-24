@@ -3,7 +3,8 @@
    z pierwszą wiadomością bez powłoki i bez zmiennych sesji wywołującej, odmowy startu (zajęta nazwa, zły numer,
    sesja, która znikła), trzy warunki bezpiecznego punktu, wybór sesji tmux (nazwa, własny panel, katalog, kolejność
    startu), zatrzymanie procesów claude w repozytorium bez własnej sesji, jej potomków, przodków, procesów
-   nowszych i spoza repozytorium, proces, który przeżył SIGTERM, brak serwera tmux i brak programu tmux. Stan: działa. */
+   nowszych i spoza repozytorium, proces, który przeżył SIGTERM, brak serwera tmux i brak programu tmux, oraz odmowę
+   obu poleceń przy żywej blokadzie nocy i jej brak przy blokadzie martwej lub nieczytelnej (D-102). Stan: działa. */
 // Usage: node --test adrian-rebuild/tools/test-handover.mjs
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
@@ -13,7 +14,7 @@ import { join, resolve } from "node:path";
 import { after, test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import { SESSION_VARIABLES } from "./handover.mjs";
-import { FIRST_MESSAGE } from "./night.mjs";
+import { FIRST_MESSAGE, ownerRecord } from "./night.mjs";
 
 const TOOL = resolve(import.meta.dirname, "handover.mjs");
 const work = mkdtempSync(join(tmpdir(), "handover-"));
@@ -299,6 +300,65 @@ test("a branch other than adrian-rebuild is no safe point", () => {
 	const run = runAsSession(repo, ["start", "8"]);
 	assert.equal(run.status, 1);
 	assert.match(run.stderr, /branch is other/);
+});
+
+/** Writes `adrian-rebuild/.night/lock` into a scratch repository, which ignores `.night/` as the real one does. */
+function nightLock(repo, text) {
+	mkdirSync(join(repo, "adrian-rebuild", ".night"), { recursive: true });
+	writeFileSync(join(repo, ".git", "info", "exclude"), "adrian-rebuild/.night/\n");
+	writeFileSync(join(repo, "adrian-rebuild", ".night", "lock"), text);
+}
+
+/** A running process that stands for night.mjs, and the lock text that names it as the owner. */
+function liveNight() {
+	const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+	children.push(child);
+	return { pid: child.pid, text: ownerRecord(child.pid, new Date()) };
+}
+
+test("start refuses while a live night.mjs holds .night/lock, names its owner and opens nothing", () => {
+	const { repo } = makeRepo();
+	const night = liveNight();
+	nightLock(repo, night.text);
+	tmuxState({});
+	const run = runAsSession(repo, ["start", "8"]);
+	assert.equal(run.status, 1);
+	assert.match(run.stderr, new RegExp(`holds adrian-rebuild/\\.night/lock \\(night\\.mjs pid ${night.pid}, started `));
+	assert.deepEqual(tmuxCalls(), []);
+});
+
+test("close-previous refuses while a live night.mjs holds .night/lock, and closes or stops nothing", () => {
+	const { repo } = makeRepo();
+	const night = liveNight();
+	nightLock(repo, night.text);
+	tmuxState({ "limen-rebuild-5": { path: repo, panes: [999_999_991] } });
+	const older = fakeClaude(repo);
+	const run = runAsSession(repo, ["close-previous"]);
+	assert.equal(run.status, 1);
+	assert.match(run.stderr, new RegExp(`night\\.mjs pid ${night.pid}`));
+	assert.deepEqual(tmuxCalls(), []);
+	assert.equal(alive(older.pid), true);
+});
+
+test("a lock whose owner is gone, whose start or boot differs, or that is no owner record refuses neither command", () => {
+	const gone = spawnSync(process.execPath, ["-e", "console.log(process.pid)"], { encoding: "utf8" });
+	const live = JSON.parse(liveNight().text);
+	const texts = [
+		ownerRecord(Number(gone.stdout.trim()), new Date()),
+		`${JSON.stringify({ ...live, start: "1" })}\n`,
+		`${JSON.stringify({ ...live, boot: "another boot" })}\n`,
+		"not an owner record\n",
+	];
+	for (const text of texts) {
+		const { repo } = makeRepo();
+		nightLock(repo, text);
+		tmuxState({});
+		const started = runAsSession(repo, ["start", "8"]);
+		assert.equal(started.status, 0, `${text}: ${started.stderr}`);
+		tmuxState({});
+		const closed = runAsSession(repo, ["close-previous"]);
+		assert.equal(closed.status, 0, `${text}: ${closed.stderr}`);
+	}
 });
 
 test("close-previous closes only tmux sessions named limen-rebuild-<digits>", () => {

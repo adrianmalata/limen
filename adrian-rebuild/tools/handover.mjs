@@ -2,8 +2,8 @@
    `limen-rebuild-<n>` z Claude Code w trybie remote-control, pierwszą wiadomością promptu i bez zmiennych sesji
    wywołującej; `close-previous` zamyka każdą starszą sesję przebudowy: sesje tmux `limen-rebuild-<n>` w repozytorium
    poza własną i procesy `claude` w repozytorium starsze od własnej sesji, poza jej przodkami. Oba polecenia działają
-   tylko w bezpiecznym punkcie (gałąź adrian-rebuild, czyste drzewo, HEAD wypchnięty). Stan: działa; test
-   w tools/test-handover.mjs. */
+   tylko w bezpiecznym punkcie (gałąź adrian-rebuild, czyste drzewo, HEAD wypchnięty) i odmawiają, póki żywy
+   night.mjs trzyma .night/lock (D-102). Stan: działa; test w tools/test-handover.mjs. */
 // Usage: node adrian-rebuild/tools/handover.mjs start <n>
 //        node adrian-rebuild/tools/handover.mjs close-previous
 // Run from the repository root. Exit 0 done, 1 refused or not done (the reason on stderr), 2 usage, 4 tool failure.
@@ -11,7 +11,7 @@ import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync, realpathSync } from "node:fs";
 import { basename } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { FIRST_MESSAGE } from "./night.mjs";
+import { FIRST_MESSAGE, liveOwner } from "./night.mjs";
 
 const BRANCH = "adrian-rebuild";
 const SESSION = /^limen-rebuild-\d+$/;
@@ -72,6 +72,20 @@ function requireSafePoint(repo) {
 	const remote = run("git", ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${BRANCH}`], repo);
 	if (git(repo, ["rev-parse", "HEAD"]) !== remote.stdout.trim()) {
 		throw new Refusal(`HEAD is not origin/${BRANCH}: commit and push first`);
+	}
+}
+
+/**
+ * D-102 (1), (5): while a night.mjs holds `.night/lock`, a day session changes nothing, and a close would stop the
+ * night's `claude -p`, which is older than the caller and runs in the repository. Throws a Refusal naming the owner.
+ */
+function requireNoNight(repo) {
+	const owner = liveOwner(repo);
+	if (owner !== undefined) {
+		throw new Refusal(
+			`a night run holds adrian-rebuild/.night/lock (night.mjs pid ${owner.pid}, started ${owner.started}); ` +
+				"a day session only reads until it ends (D-102)",
+		);
 	}
 }
 
@@ -150,6 +164,7 @@ function rebuildSessions() {
 const hasSession = (name) => run("tmux", ["has-session", "-t", `=${name}`]).status === 0;
 
 async function start(repo, n) {
+	requireNoNight(repo);
 	requireSafePoint(repo);
 	const name = `limen-rebuild-${n}`;
 	if (hasSession(name)) {
@@ -180,6 +195,7 @@ async function start(repo, n) {
 }
 
 async function closePrevious(repo) {
+	requireNoNight(repo);
 	requireSafePoint(repo);
 	const ancestors = lineage(process.pid);
 	// The caller's own session: the nearest ancestor that is claude (none when Adrian runs the tool in a terminal).

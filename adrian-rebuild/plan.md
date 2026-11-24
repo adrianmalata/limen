@@ -4428,5 +4428,10 @@ the terminal being active; context 7 % at the start.
   AC-7–AC-9 are the only scans, each confined to a path of `## Change` and matching at `9601408` only lines the change
   removes (D-025).
 - D-102 in `## Decisions` (acts 3 of the handover), with two bullets in `## Agents` → protocol: the resume after a cut
-  run and the day session's read-only rule while a night holds `.night/lock`. Next: act 4, C (the night-lock guard of
-  `handover.mjs`, reviewed by `rebuild-reviewer`, `evidence/handover-night-lock/`).
+  run and the day session's read-only rule while a night holds `.night/lock`.
+- C `done` (act 4, D-102 (5), the main session's work): `night.mjs` exports `liveOwner(root)`, the one liveness rule
+  of `.night/lock` that its takeover uses too; `handover.mjs start` and `close-previous` refuse with exit 1 and the
+  lock's owner while it is live, before any tmux call or signal. Tests first: `test-handover.mjs` 22/24 with the code
+  unchanged (the two refusal tests failing), then 24/24; `test-night.mjs` 29/29. Review PASS in round 1 (the reply
+  accepted at once), three notes: one settled by the commit, one rejected with its reason, one an open point
+  (`evidence/handover-night-lock/`). Next: act 5, D-024's preflight and the runner until 08:00.
