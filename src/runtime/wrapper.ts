@@ -28,7 +28,7 @@ import { argvFor, jobProfile } from "./engine.ts";
 import { setUpJob, worktreeMissing } from "./job-setup.ts";
 import { jobScope } from "./launcher.ts";
 import { processIdentity, stopGraceMs } from "./reap.ts";
-import { observeToolStall, ownedToolDescendants, type ToolStallWatch, toolStallMs } from "./stalled-tool.ts";
+import { type CpuSample, peakAfter, type StallWatch, stallStep, stallTickMs, toolStallMs } from "./stalled-tool.ts";
 import { enterStartQueue, waitForStart } from "./start-queue.ts";
 import { createStreamParser, type StreamEvent } from "./stream.ts";
 import { readWorkerExtensions } from "./worker-extensions.ts";
@@ -134,7 +134,8 @@ export async function runInternalJob(): Promise<void> {
 	// queued job, its place in the queue. Spawn waits for it, not for the queue or setup, so it returns before prune and
 	// --prepare run.
 	// A job stopped or ended before it ran is no longer starting: the transition does not apply, and no engine starts.
-	const scope = { unit, cgroup, memoryPeakBytes: null, cpuMicroseconds: null, oomKills: null };
+	// The peak CPU share stays null until this wrapper ends the job, so a job another process ends keeps null (M-09).
+	const scope = { unit, cgroup, memoryPeakBytes: null, cpuMicroseconds: null, oomKills: null, cpuPeakPercent: null };
 	const running = await transition(jobDir, {
 		from: ["starting"],
 		to: "running",
@@ -186,6 +187,8 @@ export async function runInternalJob(): Promise<void> {
 	let exhaustionTermination = Promise.resolve();
 	// The engine has exited and the last of its stream is in the job's files: what the end of the scope waits for.
 	const settled = Promise.withResolvers<void>();
+	// The scope's CPU time from the engine's start to its end: the stall rule and the peak CPU share (A-059, M-09).
+	const samples = scopeSamples(jobDir, cgroup, failLog);
 	// A limit that runs out ends the job with its own kind (A-016 (1)): `timeout`, `tool-cap` or `stall`.
 	const exhaust = (failure: DetectedFailure) => {
 		if (exhausted) {
@@ -212,6 +215,7 @@ export async function runInternalJob(): Promise<void> {
 				{
 					beforeScopeEnd: () => settledBy(settled.promise, graceEnd),
 					onScopeNotEnded: () => platform.signalProcessGroup(process.pid, "SIGKILL"),
+					cpuPeakPercent: samples.peak(),
 				},
 			);
 		})();
@@ -302,92 +306,19 @@ export async function runInternalJob(): Promise<void> {
 		child.once("close", (code, signal) => resolve({ code, signal, termed: termedAtExit ?? termed }));
 	});
 	await appendLimenLog(jobDir, `worker started, time limit ${formatDuration(timeoutMs)}`);
-	const enginePid = child.pid;
-	const stallWatch: ToolStallWatch = { tool: "", born: "", started: 0 };
-	let observing = false;
-	// The record's advisory shows the current observation; the log gets each distinct observation once per run, since a
-	// flaky process query alternates its reasons every few seconds and coordinators tail this log.
-	let advised = "";
-	const logged = new Set<string>();
-	const warnUncertain = async (detail: string) => {
-		const line = `tool stall observation uncertain: ${detail}`;
-		if (line !== advised) {
-			advised = line;
-			const advisory = { text: line, at: new Date().toISOString() };
-			await transition(jobDir, { from: ["running"], set: { advisory } });
-		}
-		if (!logged.has(line)) {
-			logged.add(line);
-			await appendLimenLog(jobDir, line);
-		}
+	let engineEnded = false;
+	// The stall's tool and its progress key: the tool count, the last tool with its detail, and the count of stderr
+	// chunks and non-JSON stdout lines, so any of them moving is progress (R-036 fact 3).
+	const tickContext: TickContext = {
+		pendingTool: () =>
+			seen.activity === "tool" ? { tool: seen.tool, key: `${tools}:${seen.tool}:${seen.progress}` } : undefined,
+		ended: () => exhausted !== undefined || engineEnded,
+		stall: (detail) => exhaust({ kind: "stall", detail }),
 	};
-	const clearUncertain = async () => {
-		if (!advised) {
-			return;
-		}
-		advised = "";
-		await transition(jobDir, { from: ["running"], set: { advisory: null } });
-	};
-	const observeStall = async (pid: number) => {
-		const identity = await platform.processInfo(pid);
-		if (identity.kind !== "present" || identity.process.ppid !== process.pid || identity.process.pgid !== process.pid) {
-			stallWatch.previous = undefined;
-			stallWatch.started = Date.now();
-			await warnUncertain("detached engine ownership unavailable");
-			return;
-		}
-		const result = await observeToolStall(stallWatch, identity.process, `${tools}:${seen.tool}:${seen.progress}`);
-		if (result === "uncertain") {
-			await warnUncertain("CPU or process identity unavailable");
-			return;
-		}
-		if (result !== "stalled") {
-			await clearUncertain();
-			return;
-		}
-		const [owner, engine] = await Promise.all([platform.processInfo(process.pid), platform.processInfo(pid)]);
-		if (
-			owner.kind !== "present" ||
-			owner.process.pgid !== process.pid ||
-			engine.kind !== "present" ||
-			engine.process.born !== stallWatch.born ||
-			engine.process.ppid !== process.pid ||
-			engine.process.pgid !== process.pid
-		) {
-			await warnUncertain("process group ownership changed");
-			return;
-		}
-		const descendants = await ownedToolDescendants(process.pid, owner.process.born);
-		if (!descendants?.some((member) => member.pid === pid) || descendants.length < 2) {
-			await warnUncertain("child ownership changed before termination");
-			return;
-		}
-		if (
-			seen.activity !== "tool" ||
-			(await observeToolStall(stallWatch, engine.process, `${tools}:${seen.tool}:${seen.progress}`)) !== "stalled"
-		) {
-			return;
-		}
-		await clearUncertain();
-		const how = stallWatch.previous?.children.length ? "CPU-idle child" : "child exited";
-		exhaust({ kind: "stall", detail: `stalled tool ${seen.tool}: ${how} for ${Math.round(toolStallMs() / 1000)}s` });
-	};
-	const checkStall = () => {
-		if (observing || exhausted || !enginePid) {
-			return;
-		}
-		if (seen.activity !== "tool") {
-			void clearUncertain();
-			return;
-		}
-		observing = true;
-		void observeStall(enginePid)
-			.catch(failLog)
-			.finally(() => {
-				observing = false;
-			});
-	};
-	const stallTimer = setInterval(checkStall, 3_000);
+	void samples.tick(tickContext);
+	const stallTimer = setInterval(() => {
+		void samples.tick(tickContext);
+	}, stallTickMs());
 	const timeout = setTimeout(() => exhaust({ kind: "timeout", detail: `timeout after ${timeoutMs}ms` }), timeoutMs);
 	// A model cannot see the clock; one steer at 80% lets it leave a commit or a verdict before the timeout.
 	const steerAt = Math.round(timeoutMs * 0.8);
@@ -400,6 +331,7 @@ export async function runInternalJob(): Promise<void> {
 		void enqueueSteer(jobDir, text).catch(failLog);
 	}, steerAt);
 	const result = await outcome;
+	engineEnded = true;
 	clearTimeout(timeout);
 	clearTimeout(deadlineSteer);
 	clearInterval(stallTimer);
@@ -418,10 +350,13 @@ export async function runInternalJob(): Promise<void> {
 	// The record is read after that end, so it holds every stop request written before its TERM (A-052). An exit code
 	// alone, as Pi's 143 after a TERM sent to it alone, is no signal and keeps kind `exit`.
 	await endGate(jobDir);
+	// The last sample, for the rate since the last tick when it lies half a tick or more after it; after the gate, so a
+	// test reaches it alone.
+	await samples.last();
 	const current = await readRecord(jobDir);
 	const ending = signalledEnding(current?.stopRequested ?? null, result.termed ? "SIGTERM" : result.signal);
 	// The Herdr wake must end before a stop's KILL also when the stop's TERM came after the engine's end.
-	const options = { shutdownDeadline };
+	const options = { shutdownDeadline, cpuPeakPercent: samples.peak() };
 	if (ending) {
 		// The detail names the stop, the TERM or the signal, not how the engine ended, so the log keeps that: Pi's exit 143
 		// after a TERM (E-17).
@@ -526,8 +461,8 @@ function signalLine(why: string, signal: "TERM" | "KILL", target: string, result
 }
 /**
  * The tests' injection point (D-029): with the test knob LIMEN_END_GATE, the wrapper logs that it waits and waits for
- * that file to be created, once its engine ended and before it reads the record, so a test can send it a signal between
- * the two. Limen's own callers never set the knob (T-03).
+ * that file to be created, once its engine ended and before it reads the record and takes its last sample of the scope,
+ * so a test can send it a signal or change the scope between the two. Limen's own callers never set the knob (T-03).
  */
 async function endGate(jobDir: string): Promise<void> {
 	const gate = testKnob("LIMEN_END_GATE");
@@ -599,6 +534,121 @@ async function recordEvents(
 		}
 	}
 }
+/** The stall's note on a failed read of the scope's CPU time, `detail` its reason; undefined for a read that worked. */
+function unreadLine(detail: string | undefined): string | undefined {
+	return detail === undefined ? undefined : `tool stall observation uncertain: scope CPU unavailable: ${detail}`;
+}
+
+/** What a tick of the scope's samples needs of the wrapper, read at the tick. */
+type TickContext = {
+	/** The pending tool, as the stall's detail names it, with its progress key (R-036 fact 3); undefined for none. */
+	readonly pendingTool: () => { readonly tool: string; readonly key: string } | undefined;
+	/** Whether the job's end is decided: a limit exhausted it, or its engine ended. */
+	readonly ended: () => boolean;
+	/** Ends the stalled job with the stall's detail. */
+	readonly stall: (detail: string) => void;
+};
+
+/**
+ * The wrapper's samples of its scope's CPU time from the engine's start to its end (A-059, M-09): at each tick, also
+ * while no tool runs, the peak CPU share, and, while a tool is pending, the stall rule of src/runtime/stalled-tool.ts,
+ * which reads the whole scope, so no process outside the job is read or signalled. A read that fails, while a tool is
+ * pending, sets the record's advisory, source `stall`, once per distinct text, and the log gets each distinct text of
+ * every failed read, the last sample's included, once per run (T-01); the note clears once a tick reads the scope with
+ * a tool pending, or no tool is pending. A tick that comes while the one before it still runs is skipped; a failure of
+ * a tick goes to `failed`.
+ */
+function scopeSamples(jobDir: string, cgroup: string, failed: (error: unknown) => Promise<void>) {
+	const cores = platform.coreTimes().length;
+	// A rate counts toward the peak over half a tick or more, so the end's sample just after a tick gives none (G1).
+	const minimumMs = stallTickMs() / 2;
+	let watch: StallWatch | undefined;
+	let previous: CpuSample | undefined;
+	let peak: number | null = null;
+	let running: Promise<void> | undefined;
+	let advised = "";
+	const logged = new Set<string>();
+	const logOnce = async (line: string) => {
+		if (!logged.has(line)) {
+			logged.add(line);
+			await appendLimenLog(jobDir, line);
+		}
+	};
+	const note = async (line: string) => {
+		if (line !== advised) {
+			advised = line;
+			const advisory = { text: line, at: new Date().toISOString(), source: "stall" } as const;
+			await transition(jobDir, { from: ["running"], set: { advisory } });
+		}
+		await logOnce(line);
+	};
+	const clear = async () => {
+		if (!advised) {
+			return;
+		}
+		advised = "";
+		await transition(jobDir, { from: ["running"], set: { advisory: null } });
+	};
+	/** Reads the scope's CPU time once and takes it into the peak: the sample, or why the read failed. */
+	const sample = async (): Promise<{ readonly sample?: CpuSample; readonly unread?: string }> => {
+		const read = await platform.cpuTime(cgroup);
+		if (read.kind === "unreadable") {
+			return { unread: read.detail };
+		}
+		const current = { at: performance.now(), usage: read.microseconds };
+		peak = peakAfter(peak, previous, current, cores, minimumMs);
+		previous = current;
+		return { sample: current };
+	};
+	const observe = async (wrapper: TickContext) => {
+		const read = await sample();
+		if (wrapper.ended()) {
+			return;
+		}
+		const pending = wrapper.pendingTool();
+		const windowMs = pending ? toolStallMs() : 0;
+		const step = stallStep(watch, pending?.key, read.sample, windowMs);
+		watch = step.watch;
+		const unread = unreadLine(read.unread);
+		if (unread !== undefined && pending) {
+			await note(unread);
+			return;
+		}
+		await clear();
+		if (unread !== undefined) {
+			await logOnce(unread);
+		}
+		if (step.stalled && pending && !wrapper.ended()) {
+			const seconds = Math.round(windowMs / 1000);
+			wrapper.stall(`stalled tool ${pending.tool}: scope CPU idle and no tool progress for ${seconds}s`);
+		}
+	};
+	return {
+		/** One tick: a sample, and the stall rule while a tool is pending. */
+		tick(wrapper: TickContext): Promise<void> {
+			running ??= observe(wrapper)
+				.catch(failed)
+				.finally(() => {
+					running = undefined;
+				});
+			return running;
+		},
+		/**
+		 * The sample at the engine's end, once the tick that still runs has. A read that fails is logged once, as a tick's
+		 * is, and sets no note, since the job is ending (T-01, R-036 review round 1, F1).
+		 */
+		async last(): Promise<void> {
+			await running;
+			const unread = unreadLine((await sample()).unread);
+			if (unread !== undefined) {
+				await logOnce(unread);
+			}
+		},
+		/** The largest CPU share between two samples so far, null before a second one. */
+		peak: (): number | null => peak,
+	};
+}
+
 /** Resolves once `done` does, or once `deadline` (epoch milliseconds) passes when that comes first. */
 async function settledBy(done: Promise<void>, deadline: number): Promise<void> {
 	let timer: NodeJS.Timeout | undefined;

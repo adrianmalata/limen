@@ -74,7 +74,7 @@ These are operational facts that keep a seat alive. They are not Limen features.
 
 ## Linux process identity
 
-Limen reads process identity from `/proc/<pid>/stat` start ticks; `limen stop` uses it, and the end of a job stops every process of its systemd user scope. A restricted or unreadable process table leaves an advisory rather than proof of an owned child: the job shows the note `advisory`, and the coordinator that follows it gets one wake about it.
+Limen reads process identity from `/proc/<pid>/stat` start ticks; `limen stop` uses it, and the end of a job stops every process of its systemd user scope. The stall rule reads the CPU time of the job's scope (`usage_usec` of its `cpu.stat`), not the process table. A `cpu.stat` that cannot be read leaves an advisory rather than a stall: the job shows the note `advisory`, and the coordinator that follows it gets one wake about it.
 
 ## Traps (will bite on day one)
 

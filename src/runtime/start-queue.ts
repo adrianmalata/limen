@@ -432,7 +432,8 @@ async function diagnose(
 		from: ["running"],
 		set: (current) => ({
 			queueWait: { ...(waitOf(current) ?? begun), diagnosedAt: at, diagnosis },
-			advisory: { text, at },
+			// The queue's own source, so a later stall note of the job still wakes a session that heard this one.
+			advisory: { text, at, source: "queue" },
 		}),
 	});
 	wait.diagnosed = true;

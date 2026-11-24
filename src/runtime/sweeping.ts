@@ -16,8 +16,8 @@ import { atomicWriteSync, TEMPORARY_NAME } from "../atomic-write.ts";
 import { removeDeadCoordinators } from "../integrations/coordinator-registration.ts";
 import { showSeatNotification } from "../integrations/herdr.ts";
 import { isTerminal } from "../job/job.ts";
-import { type JobRecord, jobFolderNames, readRecord, unmigratedFolder } from "../job/record.ts";
-import { receiptFamily } from "../job/wake-delivery.ts";
+import { advisorySource, type JobRecord, jobFolderNames, readRecord, unmigratedFolder } from "../job/record.ts";
+import { advisoryFamily, receiptFamily } from "../job/wake-delivery.ts";
 import { runOperation, stepFailure } from "../operation.ts";
 import {
 	type CommandText,
@@ -270,9 +270,9 @@ const modified = (path: string) => (fs.existsSync(path) ? fs.statSync(path).mtim
 
 type SeatEvent = { readonly since: number; readonly event: string; readonly headline: string };
 /**
- * What the seat has not heard about a job yet: an advisory of a running job, keyed by its time, or its terminal
- * state, keyed by the record's finish time (D-057 (7.7)). A record the migration wrote is history only: the Limen that
- * ran its job rang for it (D-057 (4)).
+ * What the seat has not heard about a job yet: an advisory of a running job whose source no coordinator heard, keyed
+ * by its source and its time (the D-092 note), or its terminal state, keyed by the record's finish time (D-057 (7.7)).
+ * A record the migration wrote is history only: the Limen that ran its job rang for it (D-057 (4)).
  */
 function seatEvent(job: string, record: JobRecord): SeatEvent | undefined {
 	if (record.migrated) {
@@ -283,11 +283,13 @@ function seatEvent(job: string, record: JobRecord): SeatEvent | undefined {
 		: [];
 	const heard = new Set(delivered.map(receiptFamily));
 	if (record.state === "running") {
-		if (heard.has("_advisory") || !record.advisory) {
+		const advisory = record.advisory;
+		const family = advisory ? advisoryFamily(advisorySource(advisory)) : undefined;
+		if (!advisory || family === undefined || heard.has(family)) {
 			return;
 		}
-		const since = Date.parse(record.advisory.at);
-		return { since, event: `_advisory.${since}`, headline: " · advisory" };
+		const since = Date.parse(advisory.at);
+		return { since, event: `${family}.${since}`, headline: " · advisory" };
 	}
 	if (!isTerminal(record.state) || heard.has("_completion")) {
 		return;

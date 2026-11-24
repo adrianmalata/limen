@@ -57,14 +57,22 @@ export function usageText(
 		memoryBytes !== null && memoryBytes > 0 ? [{ unit, value: memoryBytes }] : [],
 	);
 	const earlier = new Map(before.map(({ unit, cpuMicroseconds }) => [unit, cpuMicroseconds]));
-	const capacity = windowMs * 1_000 * cores;
 	const cpu = after.flatMap(({ unit, cpuMicroseconds }) => {
 		const start = earlier.get(unit);
 		const used = cpuMicroseconds !== null && start !== undefined && start !== null ? cpuMicroseconds - start : 0;
-		return used > 0 ? [{ unit, value: (100 * used) / capacity }] : [];
+		return used > 0 ? [{ unit, value: machineShare(used, windowMs, cores) }] : [];
 	});
-	const byCpu = capacity > 0 ? ranked(cpu, (share) => `${Math.round(share)}%`) : "not sampled";
+	const byCpu = windowMs * cores > 0 ? ranked(cpu, (share) => `${Math.round(share)}%`) : "not sampled";
 	return `largest by memory: ${ranked(memory, (bytes) => `${(bytes / MIB).toFixed(1)} MiB`)}; largest by CPU: ${byCpu}`;
+}
+
+/**
+ * The CPU time `usedMicroseconds` that a cgroup used over `windowMs` on `cores` cores, as a percentage of the whole
+ * machine, as the start gate reads its CPU: the one unit of a CPU share, which the peak of a job's scope also uses
+ * (src/runtime/stalled-tool.ts, T-18).
+ */
+export function machineShare(usedMicroseconds: number, windowMs: number, cores: number): number {
+	return (100 * usedMicroseconds) / (windowMs * 1_000 * cores);
 }
 
 /**

@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import {
+	advisorySource,
 	archivedJobs,
 	emptyRecord,
 	failureFrom,
@@ -392,6 +393,57 @@ test("BAD_DATA: a scope with a reading below zero gives a typed error that names
 	assert.deepEqual(
 		[error.code, "field" in error && error.field, error.message.includes("an integer of at least 0")],
 		["BAD_DATA", "scope.oomKills", true],
+	);
+});
+
+// M-09, D-079: the wrapper adds the peak CPU share at its end; a scope written before R-036 reads as before.
+test("a scope reads with its optional peak CPU share, null until the wrapper's end, and a scope without one reads with none", async (t) => {
+	const [peaked, open, plain] = await Promise.all(
+		[{ ...SCOPE, cpuPeakPercent: 37 }, { ...SCOPE, cpuPeakPercent: null }, SCOPE].map(async (scope) =>
+			readRecord(await recorded(t, { ...RUNNING, scope })),
+		),
+	);
+	assert.deepEqual(
+		[peaked?.scope?.cpuPeakPercent, open?.scope?.cpuPeakPercent, plain?.scope && "cpuPeakPercent" in plain.scope],
+		[37, null, false],
+	);
+});
+
+test("BAD_DATA: a peak CPU share above the whole machine gives a typed error that names the field", async (t) => {
+	const error = await thrown(async () =>
+		readRecord(await recorded(t, { ...RUNNING, scope: { ...SCOPE, cpuPeakPercent: 101 } })),
+	);
+	assert.deepEqual(
+		[error.code, "field" in error && error.field, error.message.includes("an integer from 0 to 100")],
+		["BAD_DATA", "scope.cpuPeakPercent", true],
+	);
+});
+
+/** A note on a running job as the wrapper sets it, with its time. */
+const ADVISORY = {
+	text: "tool stall observation uncertain: scope CPU unavailable: cpu.stat is missing",
+	at: "2026-11-24T10:00:00.000Z",
+} as const;
+
+// The D-092 note: the wake hook's receipt is per source, so each note names its source; a record written before R-036
+// holds only the wrapper's note (D-079).
+test("an advisory reads with its source, and an advisory without one reads as the wrapper's stall note", async (t) => {
+	const queued = await readRecord(await recorded(t, { ...RUNNING, advisory: { ...ADVISORY, source: "queue" } }));
+	const older = await readRecord(await recorded(t, { ...RUNNING, advisory: ADVISORY }));
+	assert.deepEqual(
+		[queued?.advisory && advisorySource(queued.advisory), older?.advisory && advisorySource(older.advisory)],
+		["queue", "stall"],
+	);
+});
+
+test("BAD_DATA: an advisory whose source is neither queue nor stall gives a typed error that names the field", async (t) => {
+	const dir = await recorded(t, { ...RUNNING, advisory: { ...ADVISORY, source: "queue" } });
+	const text = (await readFile(join(dir, "record.json"), "utf8")).replace('"source": "queue"', '"source": "seat"');
+	await writeFile(join(dir, "record.json"), text);
+	const error = await thrown(() => readRecord(dir));
+	assert.deepEqual(
+		[error.code, "field" in error && error.field, error.message.includes('one of "queue" or "stall"')],
+		["BAD_DATA", "advisory.source", true],
 	);
 });
 

@@ -7,6 +7,7 @@ import { coordinatorProject, coordinatorRegistration } from "../src/integrations
 import { herdrBinary } from "../src/integrations/herdr.ts";
 import { closedFeatures, closedJobFeatures, derivePulse, isTerminal, type Pulse, SESSION_ID } from "../src/job/job.ts";
 import {
+	advisorySource,
 	isLimitEnd,
 	isProgressName,
 	type JobRecord,
@@ -19,6 +20,8 @@ import {
 } from "../src/job/record.ts";
 import { openChecks } from "../src/job/task-note.ts";
 import {
+	advisoryFamily,
+	advisorySlot,
 	CLAIM_STALE_MS,
 	claimDelivery,
 	claimedJob,
@@ -550,15 +553,20 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 		}
 		const job = join(jobs, id);
 		const record = recordOf(job);
-		const advisory = record?.advisory?.text;
+		const advisory = record?.advisory;
 		if (!advisory) {
 			return false;
 		}
-		const slots = (names: readonly string[]) => names.filter((name) => receiptFamily(name) === "_advisory");
+		// One wake per source and session (the D-092 note): a session that heard the queue's diagnosis still hears the
+		// wrapper's stall note; the fallback, the receipts and the attempts count per source too.
+		const source = advisorySource(advisory);
+		const family = advisoryFamily(source);
+		const slots = (names: readonly string[]) => names.filter((name) => receiptFamily(name) === family);
 		const label = record.label || id;
 		const branch = record.branch ?? "";
 		const repo = record.repo ?? "";
-		const slot = `_advisory.${fallback ? "_fallback" : sessionId}`;
+		const fallbackSlot = advisorySlot(source, "_fallback");
+		const slot = fallback ? fallbackSlot : advisorySlot(source, sessionId);
 		if (!fallback && deliveryExists(job, slot)) {
 			return false;
 		}
@@ -583,7 +591,9 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 				blocked();
 			}
 			const now = recordOf(job);
-			if (now?.state !== "running" || !routable(job) || !now.advisory || now.owedWake) {
+			// A note of another source since the read is not this wake's: its own claim follows.
+			const same = now?.advisory && advisorySource(now.advisory) === source;
+			if (now?.state !== "running" || !routable(job) || !same || now.owedWake) {
 				return false;
 			}
 			if (fallback) {
@@ -591,17 +601,17 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 					session?.isIdle() === true &&
 					!muted &&
 					sessionOwns(jobs) &&
-					slots(claimSlots(job)).every((claim) => claim === "_advisory._fallback") &&
+					slots(claimSlots(job)).every((claim) => claim === fallbackSlot) &&
 					slots(deliveredSlots(job)).length === 0
 				);
 			}
 			return (
 				subscribed(job, sessionId) &&
-				!existsSync(join(job, "notify", "claims", "_advisory._fallback")) &&
-				!existsSync(join(job, "notify", "delivered", "_advisory._fallback"))
+				!existsSync(join(job, "notify", "claims", fallbackSlot)) &&
+				!existsSync(join(job, "notify", "delivered", fallbackSlot))
 			);
 		};
-		const message = advisoryWake(job, label, id, branch, repo, advisory, fallback, record);
+		const message = advisoryWake(job, label, id, branch, repo, advisory.text, fallback, record);
 		const routed = claimDelivery(
 			job,
 			slot,

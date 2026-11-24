@@ -122,7 +122,8 @@ lądowania i tury koordynatora (flaga `--sessions`, wariant A wyjścia), R-098 g
 etapu 3 jest `done` albo `ready`. limen-rebuild-29: R-034 zamknięty (wznowienie po limicie subskrypcji jako krok
 `seat sweep`); D-099: przebieg implementera przyjęty mimo formy ticketu, a reguła D-089 staje się kontrolą w
 `check.mjs`; D-100: alert `failed:quota` dzwoni też przy znanym resecie po 15 min spóźnienia wznowienia; R-102 ma
-ticket.md. limen-rebuild-30: D-101: reguła jednej linii na kryterium w definicji recenzenta; R-036 w realizacji. -->
+ticket.md. limen-rebuild-30: D-101: reguła jednej linii na kryterium w definicji recenzenta; R-036 zamknięty
+(zawieszenie narzędzia mierzone na całym scope'ie joba, szczyt CPU w rekordzie, advisory ze źródłem). -->
 
 
 
@@ -1693,7 +1694,7 @@ Columns:
 | R-033 | Alerts from their own account: failures and escalations only | 3 | A-066, A-054, T-18, D-084, D-085 | R-021 | L | delegated | night | yes | systemd | 3.3 | done |
 | R-034 | Resume after the quota limit in code | 3 | A-016, A-068, §6, D-094, D-097, D-100 | R-029, R-032, R-033 | L | delegated | night | yes | pi, systemd | 3.4 | done |
 | R-035 | Start-queue thresholds: a diagnosis at 30 min, a failure at 2 h | 3 | A-036 | R-026, R-033 | L | delegated | night | — | systemd | 3.8 | done |
-| R-036 | Stall is measured over the whole job scope | 3 | A-059 | R-026 | M | delegated | night | — | systemd | 3.8 | active |
+| R-036 | Stall is measured over the whole job scope | 3 | A-059 | R-026 | M | delegated | night | — | systemd | 3.8 | done |
 | R-037 | The closing commit of land and `ticket done` is atomic | 3 | A-021, A-057, T-38, D-094 | R-023, R-031, R-092 | M | delegated | night | — | — | — | ready |
 | R-087 | The job environment is an allow-list; git and gh in a job hold no credential (T1) | 3 | A-004, A-061, E-4, D-017 | R-015, R-021, R-026 | M | delegated | night | — | pi, bridge | 3.10 | ready |
 | R-098 | `limen stats` per landed ticket and per coordinator turn | 3 | §2, A-078, A-037, D-072, D-098 | R-024, R-031 | M | delegated | night | — | pi | B.3, B.4 | ready |
@@ -1998,6 +1999,13 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   `readFile(...).catch(() => undefined)` (`src/runtime/start-queue.ts`, `removeDeadEntries`), so an entry the sweep
   cannot read is neither removed nor named (T-01); R-032 made only the folder's listing strict there, and the waiting
   wrappers and `limen seat queue` keep the listing's catch-all as well.
+- R-082 (R-036 `review.md` → Round 3, note 1, D-092): the sample at the engine's end (`last()` of `scopeSamples`,
+  `src/runtime/wrapper.ts`) awaits its log line with no catch, so a failed `cpu.stat` read and a failed log append at
+  once reject `runInternalJob`, and `src/main.ts` ends a job whose engine exited 0 `failed`, kind `internal`; a tick
+  sends the same failure to `failLog`. The end's side channel goes through the one best-effort function of T-01, as the
+  tick's does.
+- R-087 (R-036 `outcome.md`, (g)): R-036 adds the test knob `LIMEN_STALL_TICK_MS` (the stall's tick, `src/config.ts`),
+  so R-087's count of test knobs, 14 after R-032, is 15; R-087's test mode covers it as the others.
 - R-101 (R-032 `review.md` → Round 3, note 7, D-092): two tests of `test/cli/sweep.test.ts` claim more than their
   mechanism: the test of an unlistable start-queue folder also asserts that the dead job is reaped, which its step
   cannot make fail, and the test that a run removes a dead queue entry and says how many registers a second project
@@ -2544,8 +2552,9 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-24 by day (`limen-rebuild-29`, after R-034; R-029, R-032 and R-034 are `done`, by day, in "Evening
-of 2026-11-23" and "R-034 in `limen-rebuild-29`" at the end of this section, the next ticket in `Next` 2), rebuild
+Updated 2026-11-24 by day (`limen-rebuild-30`, after R-036; R-029, R-032, R-034 and R-036 are `done`, by day, in
+"Evening of 2026-11-23", "R-034 in `limen-rebuild-29`" and "R-036 in `limen-rebuild-30`" at the end of this section,
+the next ticket in `Next` 2), rebuild
 stage 5 in plan stage 3: stage 1 is closed
 at `a0.1.1` (deployed on 2026-11-20, with B.2 closed by D-050); stage 2 is closed at `a0.2.0` (gate 5.2 decided,
 D-078–D-082; deployed on 2026-11-23/24 with B.3's a0.2.0 part, "Evening of 2026-11-23"); stage 3 has started: R-026, R-030 and R-033 are `done` (by day), R-027, R-028, R-031, R-035 and R-100
@@ -4058,9 +4067,9 @@ Next (by day):
 1. Done on 2026-11-23: Adrian added the `hooks` block of D-083 to `.claude/settings.local.json`, and the live test
    blocked a push naming `Q-00` ("Evening of 2026-11-23" above); the guard is active, by day and at night.
 2. By day, with Adrian (2026-11-24: "robimy teraz"): the stage-3 tickets in protocol order (`## Agents`, step 1).
-   R-029 (`b0c033b`), R-032 and R-034 (`04d4f34`) are `done`, and D-099 (2)'s `## Change` form check is in
-   `tools/ticket-rules.mjs` (commit `Tools: …`, test in `tools/test-ticket-rules.mjs`). Next, by protocol step 1, R-036, R-037,
-   R-087 and R-098, each `ready` with its `ticket.md`, R-101 `ready (D-097)` with its `ticket.md`
+   R-029 (`b0c033b`), R-032, R-034 (`04d4f34`) and R-036 (`limen-rebuild-30`) are `done`, and D-099 (2)'s `## Change`
+   form check is in `tools/ticket-rules.mjs` (commit `Tools: …`, test in `tools/test-ticket-rules.mjs`). Next, by
+   protocol step 1, R-037, R-087 and R-098, each `ready` with its `ticket.md`, R-101 `ready (D-097)` with its `ticket.md`
    (`R-101-sweep-daily-steps/`, its Decisions 2 and 4 for gate 5.3) and R-102 `ready (D-097)` with its `ticket.md`
    (`R-102-seat-rules-cut/`, written by `limen-rebuild-29` at R-034's tree before R-034's commit, as `check.mjs`
    requires once R-034 is `done` (D-054 (1)), from a read-only agent's inventory and D-097 (6); its Decisions 1–3 for
@@ -4294,3 +4303,16 @@ R-032 and R-034 moved are `ticket.md` → `## Decisions` 15–23 (above all the 
   counts (D-101 (2)). The implementer reported `DONE` (gate 1086/1086 twice in its own runs, which do not count).
   Next: the commit `D-101:`, a new `snapshot --git`, then protocol step 4 (the main session's gate and
   `fails-before.mjs`).
+- R-036 `done` (delegated): the stall rule reads the job scope's CPU time (`usage_usec` of its `cpu.stat`, the new
+  platform member `cpuTime`) instead of the engine's process tree from `ps` (`processTable` and the identity checks
+  gone): a pending tool whose progress key holds for the window while the scope's CPU time grows by less than 2 % of
+  the wall time ends the job `stall`, `stalled tool <tool>: scope CPU idle and no tool progress for <n>s`; the wrapper
+  samples the scope at every tick (test knob `LIMEN_STALL_TICK_MS`) and records the peak share of the machine as
+  `scope.cpuPeakPercent` (M-09; a pair closer than half a tick gives no rate), which `limen show` prints; `advisory`
+  names its source (`queue` or `stall`), and the wake hook's receipts, attempts and fallback and the seat event are per
+  source (D-092). Review PASS in rounds 1–3 (each reply accepted at once by `review-verdict.mjs`, the first since
+  D-101), with two rounds of fixes (F1–F3: the end's failed read logged, the 2 % in `docs/jobs.md` as the design
+  threshold, an open point; G1–G2: the peak's minimum interval, a test split); round 3's one note went to R-082's notes
+  (D-092), and R-087's knob count to its note. Gate 1090/1090. For Adrian at gate 5.3: `outcome.md` → Open points 1–4
+  (3: a pending tool with no child process can now stall, accepted in Risk 2; seat step 3.8 shows it). Unmeasured:
+  M-09, seat step 3.8.

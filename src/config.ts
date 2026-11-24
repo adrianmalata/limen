@@ -74,6 +74,10 @@ export const ENVIRONMENT = {
 	},
 	LIMEN_START_POLL_MS: { kind: "test", carries: "the start queue's poll interval, in place of 5 s" },
 	LIMEN_START_READING: { kind: "test", carries: "a file with the CPU and memory reading, in place of the machine's" },
+	LIMEN_STALL_TICK_MS: {
+		kind: "test",
+		carries: "how often a job's wrapper samples its scope's CPU time for the stall rule and its peak, in place of 3 s",
+	},
 	LIMEN_WAKE_FALLBACK_MS: { kind: "test", carries: "the grace before a fallback wake, in place of 5 min" },
 	LIMEN_LOCK_WAIT_MS: { kind: "test", carries: "the lock's wait bound, in place of 60 s" },
 	LIMEN_CGROUP_ROOT: {

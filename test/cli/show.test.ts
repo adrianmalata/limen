@@ -1,5 +1,6 @@
-// `limen show` (src/job/listing.ts) of a finished job: the readings of its systemd user scope, and the kind and the
-// reset time of its failure; and of a running job whose wrapper is dead, which it shows and does not end (T-04).
+// `limen show` (src/job/listing.ts) of a finished job: the readings of its systemd user scope with its peak CPU share,
+// and the kind and the reset time of its failure; and of a running job whose wrapper is dead, which it shows and does
+// not end (T-04).
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
@@ -25,11 +26,11 @@ async function finished(dir: string, readings: Omit<Scope, "unit" | "cgroup">): 
 /** The scope line of the detail `limen show` prints through a pipe. */
 const scopeLine = (stdout: string) => /^ {2}scope .+$/m.exec(stdout)?.[0];
 
-// M-09: the scope's peak memory and CPU time per job are the signal of T-43's revisit.
-test("the detail of a finished job shows the memory peak, CPU time and OOM kills of its scope, and unknown for unread ones", async (t) => {
+// M-09: the scope's peak memory, CPU time and peak CPU share per job are the signal of T-43's revisit.
+test("the detail of a finished job shows the memory peak, the CPU time with its peak share and the OOM kills of its scope, and unknown for unread ones", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
-	await finished(jobDir(p, READ), SCOPE_READINGS);
+	await finished(jobDir(p, READ), { ...SCOPE_READINGS, cpuPeakPercent: 37 });
 	await finished(jobDir(p, UNREAD), { memoryPeakBytes: null, cpuMicroseconds: null, oomKills: null });
 	const read = limen(p, ["show", READ]);
 	const unread = limen(p, ["show", UNREAD]);
@@ -38,8 +39,8 @@ test("the detail of a finished job shows the memory peak, CPU time and OOM kills
 		[
 			0,
 			0,
-			"  scope memory peak 50.0 MiB · CPU 2.5 s · OOM kills 0",
-			"  scope memory peak unknown · CPU unknown · OOM kills unknown",
+			"  scope memory peak 50.0 MiB · CPU 2.5 s, peak 37% · OOM kills 0",
+			"  scope memory peak unknown · CPU unknown, peak unknown · OOM kills unknown",
 		],
 		`${read.stdout}${read.stderr}${unread.stdout}${unread.stderr}`,
 	);

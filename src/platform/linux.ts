@@ -1,12 +1,12 @@
 // The Linux implementation of the platform adapter (src/platform/platform.ts): /proc for a process's identity, its
-// cgroup, the memory reading and the boot id, ps for the process table and a program's name, kill(2) for liveness and
-// signals, Node's per-core times for the CPU reading, and systemd: for scopes of the user manager, systemd-run starts
-// one, `systemctl --user is-active` reads its state, `kill` signals it, the two together end it, and /sys/fs/cgroup
-// holds its readings and those of every unit of that manager; `systemctl` also says what the system manager knows of a
-// unit; for the seat sweep's user units, the linger file under /var/lib/systemd/linger says whether the account's
-// manager runs with no login, `systemd-analyze --user verify` checks a unit file, and `systemctl --user` reloads the
-// manager, enables or disables a timer and says what it knows of a unit. This is the only code that runs those
-// programs or reads that hierarchy (A-083, test/structure.test.ts). The parsers are exported so that tests read
+// cgroup, the memory reading and the boot id, ps for a program's name, kill(2) for liveness and signals, Node's
+// per-core times for the CPU reading, and systemd: for scopes of the user manager, systemd-run starts one, `systemctl
+// --user is-active` reads its state, `kill` signals it, the two together end it, and /sys/fs/cgroup holds its readings,
+// the CPU time of its `cpu.stat` alone, and those of every unit of that manager; `systemctl` also says what the system
+// manager knows of a unit; for the seat sweep's user units, the linger file under /var/lib/systemd/linger says whether
+// the account's manager runs with no login, `systemd-analyze --user verify` checks a unit file, and `systemctl --user`
+// reloads the manager, enables or disables a timer and says what it knows of a unit. This is the only code that runs
+// those programs or reads that hierarchy (A-083, test/structure.test.ts). The parsers are exported so that tests read
 // fixture text instead of the machine.
 import { execFileSync, type SpawnSyncReturns, spawn, spawnSync } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
@@ -19,12 +19,12 @@ import { hasCode } from "../system-error.ts";
 import type {
 	CgroupContent,
 	CoreTimes,
+	CpuTime,
 	ManagerCall,
 	MemoryReading,
 	Platform,
 	ProcessEnd,
 	ProcessQueryOutcome,
-	ProcessRow,
 	ScopedProcess,
 	ScopedStart,
 	ScopeEnd,
@@ -37,7 +37,6 @@ import type {
 	UnitUsage,
 } from "./platform.ts";
 
-const TABLE_MAX_BYTES = 1024 * 1024;
 const COMMAND_NAME_TIMEOUT_MS = 2_000;
 /** The program that starts a command in a new systemd user scope, in place, so that the command keeps its pid. */
 const SYSTEMD_RUN = "systemd-run";
@@ -91,36 +90,6 @@ export function parseStat(pid: number, stat: string): ProcessQueryOutcome {
 	return { kind: "present", process: { pid, ppid, pgid, born, command: stat.slice(stat.indexOf("(") + 1, close) } };
 }
 
-/** ps's `[DD-][HH:]MM:SS` CPU time in seconds; NaN for any other text. */
-function cpuSeconds(value: string): number {
-	const parts = value.split(":");
-	if (parts.length < 2 || parts.length > 3) {
-		return Number.NaN;
-	}
-	const first = (parts[0] ?? "").split("-");
-	if (first.length > 2) {
-		return Number.NaN;
-	}
-	const numbers = [...first, ...parts.slice(1)].map(Number);
-	if (numbers.some((n) => !Number.isFinite(n) || n < 0)) {
-		return Number.NaN;
-	}
-	const days = first.length === 2 ? (numbers.shift() ?? 0) : 0;
-	return days * 86400 + numbers.reduce((total, n) => total * 60 + n, 0);
-}
-
-/** The rows of `ps -Ao pid=,ppid=,pgid=,time=,stat=`, without the row of `scannerPid` (the ps that printed them). */
-export function parseProcessTable(output: string, scannerPid: number | undefined): ProcessRow[] {
-	return output.split("\n").flatMap((line) => {
-		const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s*$/.exec(line);
-		if (!match?.[1] || !match[2] || !match[3] || !match[4] || !match[5] || Number(match[1]) === scannerPid) {
-			return [];
-		}
-		const [pid, ppid, pgid] = [Number(match[1]), Number(match[2]), Number(match[3])];
-		return [{ pid, ppid, pgid, cpuSeconds: cpuSeconds(match[4]), state: match[5] }];
-	});
-}
-
 /** MemAvailable and MemTotal of `/proc/meminfo`; undefined when either is missing. */
 export function parseMeminfo(text: string): MemoryReading | undefined {
 	const kib = (name: string) => Number(new RegExp(`^${name}:\\s+(\\d+)`, "m").exec(text)?.[1]);
@@ -167,68 +136,6 @@ async function processInfo(pid: number): Promise<ProcessQueryOutcome> {
 	} catch (error) {
 		return hasCode(error, "ENOENT") ? { kind: "absent" } : { kind: "unavailable" };
 	}
-}
-
-async function processTable(deadline: number): Promise<readonly ProcessRow[]> {
-	let scannerPid: number | undefined;
-	const output = await runBounded("ps", ["-Ao", "pid=,ppid=,pgid=,time=,stat="], "ps discovery", deadline, (pid) => {
-		scannerPid = pid;
-	});
-	return parseProcessTable(output, scannerPid);
-}
-
-/** A query process in its own group, so a deadline or an oversized answer ends it and anything it started. */
-function runBounded(
-	command: string,
-	args: readonly string[],
-	description: string,
-	deadline: number,
-	onSpawn?: (pid: number) => void,
-): Promise<string> {
-	return new Promise((resolve, reject) => {
-		const remaining = deadline - Date.now();
-		if (remaining <= 0) {
-			return reject(new Error(`${description} exceeded the process-query deadline`));
-		}
-		const child = spawn(command, args, { detached: true, stdio: ["ignore", "pipe", "ignore"] });
-		if (child.pid) {
-			onSpawn?.(child.pid);
-		}
-		let stdout = "",
-			settled = false;
-		const finish = (error?: Error) => {
-			if (settled) {
-				return;
-			}
-			settled = true;
-			clearTimeout(timeout);
-			if (error) {
-				reject(error);
-			} else {
-				resolve(stdout);
-			}
-		};
-		const terminate = () => {
-			if (child.pid) {
-				signalTarget(-child.pid, "SIGKILL");
-			}
-		};
-		const timeout = setTimeout(() => {
-			terminate();
-			finish(new Error(`${description} exceeded the process-query deadline`));
-		}, remaining);
-		child.stdout?.on("data", (chunk: Buffer | string) => {
-			stdout += chunk.toString();
-			if (Buffer.byteLength(stdout) > TABLE_MAX_BYTES) {
-				terminate();
-				finish(new Error(`${description} exceeded ${TABLE_MAX_BYTES} bytes`));
-			}
-		});
-		child.once("error", (error) => finish(error));
-		child.once("close", (code, signal) =>
-			finish(code === 0 ? undefined : new Error(`${description} exited with ${signal ?? `code ${code ?? "unknown"}`}`)),
-		);
-	});
 }
 
 function commandName(pid: number): string {
@@ -469,6 +376,27 @@ async function scopeReadings(cgroup: string): Promise<ScopeReadings> {
 }
 
 /**
+ * The `usage_usec` of the cgroup `cgroup`'s own `cpu.stat`, the one file a job's wrapper reads at every tick (A-059):
+ * a file that is gone, one that holds no such line and one that does not read are each unreadable, with why (T-01).
+ */
+async function cpuTime(cgroup: string): Promise<CpuTime> {
+	const path = `${cgroupFolder(cgroup)}/cpu.stat`;
+	let text: string | undefined;
+	try {
+		text = await cgroupText(path);
+	} catch (error) {
+		return { kind: "unreadable", detail: error instanceof Error ? error.message : String(error) };
+	}
+	if (text === undefined) {
+		return { kind: "unreadable", detail: `${path} is missing` };
+	}
+	const microseconds = parseKeyed(text, "usage_usec");
+	return microseconds === null
+		? { kind: "unreadable", detail: `${path} holds no usage_usec line` }
+		: { kind: "read", microseconds };
+}
+
+/**
  * The cgroup of the systemd user manager of this process's own account (R-032 review round 1, note 6):
  * `user@<uid>.service` in the slice `user-<uid>.slice`, `uid` the process's own, never another slice's, whether the
  * process runs in that manager (the sweep's timer, a job's scope) or in a login session beside it (a sweep run by
@@ -544,7 +472,6 @@ function coreTimes(): readonly CoreTimes[] {
 
 export const linux: Platform = {
 	processInfo,
-	processTable,
 	commandName,
 	signalProcess: (pid, signal) => signalTarget(pid, signal),
 	signalProcessGroup: (pgid, signal) => signalTarget(-pgid, signal),
@@ -561,6 +488,7 @@ export const linux: Platform = {
 	ownCgroup,
 	cgroupPopulated,
 	scopeReadings,
+	cpuTime,
 	userUnits,
 	lingers,
 	userUnitFolder,

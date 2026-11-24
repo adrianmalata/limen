@@ -1,7 +1,7 @@
 // hook/wake.ts: the guard on the `limen` command's arguments, nothing done before `limen migrate`, damaged records
 // and progress files, which stop no wake and no status line, are named once, and are forgotten at a session start,
-// a tick that ends no dead job (T-04), and a wake the subscription limit kept from a coordinator's turn, owed until the
-// sweep releases it (A-016 (2)).
+// a tick that ends no dead job (T-04), a wake the subscription limit kept from a coordinator's turn, owed until the
+// sweep releases it (A-016 (2)), and one advisory wake per source and session (the D-092 note).
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
@@ -14,7 +14,7 @@ import { LimenError } from "../../src/outcome.ts";
 import { platform } from "../../src/platform/platform.ts";
 import { processIdentity } from "../../src/runtime/reap.ts";
 import { withEnvironment } from "../environment.ts";
-import { fakeSystemd, writeRecord } from "../plant.ts";
+import { editRecord, fakeSystemd, writeRecord } from "../plant.ts";
 
 /** The handler of the `limen` command that the hook registers on a fake `pi`. */
 function commandHandler(): (args: unknown, context: unknown) => Promise<void> {
@@ -344,8 +344,37 @@ test("an advisory wake whose turn ends on the subscription limit spends no attem
 		advisory: { text: "tool stall observation uncertain: CPU or process identity unavailable", at },
 	});
 	const coordinator = startCoordinator(t, root, session);
-	const owed = await owedAfterLimitTurn(coordinator, job, `_advisory.${session}`);
+	// A record without a source holds the wrapper's note, whose receipt is the stall's (D-092 note).
+	const owed = await owedAfterLimitTurn(coordinator, job, `_advisory.stall.${session}`);
 	assert.deepEqual([owed, readRecordSync(job)?.state], [{ reset: true, since: true, attempts: false }, "running"]);
+});
+
+// The D-092 note (Q-43): the receipt was one per job and session, so a job whose queue diagnosis a session heard got
+// no stall note after it in that session.
+test("a stall advisory reaches a session that already heard the same job's queue diagnosis", async (t) => {
+	const { root, jobs } = await hookProject(t, "limen-wake-sources-");
+	const session = "wake-sources-session";
+	const at = new Date().toISOString();
+	const queue = { text: "queued for 31m without a start: CPU 10% idle (gate 25%)", at, source: "queue" } as const;
+	const job = await jobFor(jobs, "2026-11-24-sources-0014", session, {
+		state: "running",
+		finishedAt: null,
+		identity: await processIdentity(),
+		startedAt: at,
+		advisory: queue,
+	});
+	const coordinator = startCoordinator(t, root, session);
+	await until(() => coordinator.wakes.length === 1);
+	await until(() => existsSync(join(job, "notify", "claims", `_advisory.queue.${session}`, "accepted")));
+	turn(coordinator, coordinator.wakes[0] ?? "", {});
+	await until(() => existsSync(join(job, "notify", "delivered", `_advisory.queue.${session}`)));
+	const stall = "tool stall observation uncertain: scope CPU unavailable: cpu.stat is missing";
+	await editRecord(job, () => ({ advisory: { text: stall, at: new Date().toISOString(), source: "stall" } }));
+	await until(() => coordinator.wakes.length === 2);
+	assert.deepEqual(
+		[coordinator.wakes[0]?.includes("queued for 31m"), coordinator.wakes[1]?.includes(stall)],
+		[true, true],
+	);
 });
 
 // A-016 (2): the wake waits on the record, not in the coordinator's session, until the seat sweep releases it.

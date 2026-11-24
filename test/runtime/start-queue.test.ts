@@ -120,7 +120,8 @@ test("a job queued past diagnoseAfter gets its diagnosis in queueWait and in one
 			{ wait: first.queueWait, advisory: first.advisory },
 			{
 				wait: { since, diagnosedAt, diagnosis, leftAt: null },
-				advisory: { text: `queued for 31m without a start: ${diagnosis}`, at: diagnosedAt },
+				// The D-092 note: the diagnosis is the queue's advisory, whose receipt is its own.
+				advisory: { text: `queued for 31m without a start: ${diagnosis}`, at: diagnosedAt, source: "queue" },
 			},
 		);
 		// A start just now settles, then the gate opens: the next decision is `settle`, which the record shows. The start

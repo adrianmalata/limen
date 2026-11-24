@@ -1,18 +1,19 @@
-// The operating-system primitives Limen uses, as one interface (A-083): a process's identity, the process table,
-// liveness and signals of a process and of a process group, the CPU and memory readings of the start gate, the boot id
-// that a lock's owner record carries (D-056 (1)), and the systemd user scopes every job runs in (A-029): a start in a
-// new scope, a scope's state, a signal to a whole scope, the end of a scope, a process's own cgroup, a scope's
-// readings, the units of the user manager with their memory and CPU time, which the start queue's diagnosis ranks
-// (A-036) and the seat sweep reads for the scopes of finished jobs, and the probe of `limen init`; what the system
-// manager says of a unit, which the GitHub doctor and the alerts' warning of `limen status` read; and the user units of
-// the seat sweep (R-032): whether the account lingers, the folder of its unit files, their verification, the
-// manager's reload, a timer's enable and disable, and what the user manager says of a unit, which the sweep's warning
-// of `limen status` reads. The policies built on them (birth checks, the stall rule, the start gate's thresholds, the
-// lock's owner check, the names of Limen's scopes, when one ends and the grace before its KILL, what the sweep's
-// install writes, src/platform/systemd-units.ts) stay with their callers. Whether a cgroup holds a process is read from
-// the hierarchy alone, so root's deployment gets the answer an agents' process gets. Linux is the one implementation;
-// another operating system is another implementation with its own tests. A member exists only with an implementation:
-// notifications stay Herdr's (src/integrations/herdr.ts).
+// The operating-system primitives Limen uses, as one interface (A-083): a process's identity and the name of the
+// program it runs, liveness and signals of a process and of a process group, the CPU and memory readings of the start
+// gate, the boot id that a lock's owner record carries (D-056 (1)), and the systemd user scopes every job runs in
+// (A-029): a start in a new scope, a scope's state, a signal to a whole scope, the end of a scope, a process's own
+// cgroup, a scope's readings, the CPU time of one cgroup alone, which a job's wrapper reads at every tick for the
+// stall rule and the peak CPU share (A-059, M-09), the units of the user manager with their memory and CPU time, which
+// the start queue's diagnosis ranks (A-036) and the seat sweep reads for the scopes of finished jobs, and the probe of
+// `limen init`; what the system manager says of a unit, which the GitHub doctor and the alerts' warning of `limen
+// status` read; and the user units of the seat sweep (R-032): whether the account lingers, the folder of its unit
+// files, their verification, the manager's reload, a timer's enable and disable, and what the user manager says of a
+// unit, which the sweep's warning of `limen status` reads. The policies built on them (birth checks, the stall rule,
+// the start gate's thresholds, the lock's owner check, the names of Limen's scopes, when one ends and the grace before
+// its KILL, what the sweep's install writes, src/platform/systemd-units.ts) stay with their callers. Whether a cgroup
+// holds a process is read from the hierarchy alone, so root's deployment gets the answer an agents' process gets. Linux
+// is the one implementation; another operating system is another implementation with its own tests. A member exists
+// only with an implementation: notifications stay Herdr's (src/integrations/herdr.ts).
 import { linux } from "./linux.ts";
 
 /** A process as the system reports it; `born` is its start time in clock ticks since boot, which a reused pid lacks. */
@@ -28,14 +29,6 @@ export type ProcessQueryOutcome =
 	| { readonly kind: "present"; readonly process: ProcessInfo }
 	| { readonly kind: "absent" }
 	| { readonly kind: "unavailable" };
-/** One row of the process table: `state` as ps prints it (`Z` first for a zombie), CPU time NaN when unreadable. */
-export type ProcessRow = {
-	readonly pid: number;
-	readonly ppid: number;
-	readonly pgid: number;
-	readonly cpuSeconds: number;
-	readonly state: string;
-};
 /** What a signal did: delivered, no such process, or not permitted (the process exists). */
 export type SignalResult = "sent" | "missing" | "denied";
 /** One core's cumulative time since boot, in milliseconds: idle and in total. */
@@ -89,6 +82,13 @@ export type ScopeReadings = {
 	readonly oomKills: number | null;
 };
 /**
+ * The CPU time of one cgroup (A-059): `read`, the `usage_usec` of its `cpu.stat` in microseconds, or `unreadable`, as
+ * it says, a `cpu.stat` that is gone or holds no such line included.
+ */
+export type CpuTime =
+	| { readonly kind: "read"; readonly microseconds: number }
+	| { readonly kind: "unreadable"; readonly detail: string };
+/**
  * A unit of the user manager as its cgroup reads now (A-036): its name, its current memory and its CPU time since it
  * started, each null when its file is gone or holds no number.
  */
@@ -111,8 +111,6 @@ export type ManagerCall = { readonly kind: "done" } | { readonly kind: "failed";
 export interface Platform {
 	/** The identity of the process `pid`. */
 	processInfo(pid: number): Promise<ProcessQueryOutcome>;
-	/** Every process but the one that reads the table; rejects when the read passes `deadline` (epoch milliseconds). */
-	processTable(deadline: number): Promise<readonly ProcessRow[]>;
 	/** The name of the program `pid` runs, or "" when the system cannot say. */
 	commandName(pid: number): string;
 	/** Sends `signal` to the process `pid`; 0 only checks that it exists. */
@@ -159,6 +157,8 @@ export interface Platform {
 	cgroupPopulated(cgroup: string): CgroupContent;
 	/** The readings of the cgroup `cgroup`, a path of the cgroup v2 hierarchy as `ownCgroup` gives it. */
 	scopeReadings(cgroup: string): Promise<ScopeReadings>;
+	/** The CPU time of the cgroup `cgroup` alone, from its `cpu.stat`, which a job's wrapper reads at every tick. */
+	cpuTime(cgroup: string): Promise<CpuTime>;
 	/**
 	 * Each unit of the systemd user manager of this process's account, by name, as its cgroup reads now: the scopes and
 	 * services in its slices, a unit's own child cgroups counted in the unit. The manager is the one of the process's

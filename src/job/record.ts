@@ -114,8 +114,18 @@ export type QueueWait = {
 	readonly diagnosis: string | null;
 	readonly leftAt: string | null;
 };
-/** The wrapper's note on a running job, such as an uncertain stall observation, and when it was set. */
-export type Advisory = { readonly text: string; readonly at: string };
+/** Who sets a running job's note: the start queue its diagnosis of a long wait, or the wrapper its stall note. */
+export const ADVISORY_SOURCES = ["queue", "stall"] as const;
+export type AdvisorySource = (typeof ADVISORY_SOURCES)[number];
+/**
+ * A note on a running job, when it was set, and its source, by which the wake hook and the seat sweep count who heard
+ * it (the D-092 note); a record written before R-036 holds no source, only the wrapper's note (`advisorySource`).
+ */
+export type Advisory = { readonly text: string; readonly at: string; readonly source?: AdvisorySource };
+/** The source of `advisory`: the one it names, else `stall`, the wrapper's note of a record written before R-036. */
+export function advisorySource(advisory: Advisory): AdvisorySource {
+	return advisory.source ?? "stall";
+}
 /**
  * A job whose processes the seat sweep could not end (R-032): since its first failed attempt in a row, how many
  * attempts in a row failed, and why the last one did. An attempt that ends them removes it.
@@ -141,6 +151,12 @@ export type Scope = {
 	readonly memoryPeakBytes: number | null;
 	readonly cpuMicroseconds: number | null;
 	readonly oomKills: number | null;
+	/**
+	 * The largest CPU rate between two of the wrapper's samples, as an integer percentage of the whole machine (M-09):
+	 * null from the transition to running until the wrapper ends the job, so a job another process ends keeps null;
+	 * absent in a record written before R-036 (D-079).
+	 */
+	readonly cpuPeakPercent?: number | null;
 };
 /** The route a job runs on (D-043); an older record's engine stays as it was written (D-057 (2)). */
 export type Route = {
@@ -1132,8 +1148,16 @@ function queueWaitOf(value: unknown, field: string): QueueWait {
 	};
 }
 function advisoryOf(value: unknown, field: string): Advisory {
-	const fields = object(["text", "at"])(value, field);
-	return { text: string(fields.get("text"), at(field, "text")), at: isoTime(fields.get("at"), at(field, "at")) };
+	const fields = object(["text", "at", "source"])(value, field);
+	// The source came with R-036, so an advisory written before it reads without one (D-079).
+	const source = fields.has("source")
+		? { source: oneOf(ADVISORY_SOURCES)(fields.get("source"), at(field, "source")) }
+		: {};
+	return {
+		text: string(fields.get("text"), at(field, "text")),
+		at: isoTime(fields.get("at"), at(field, "at")),
+		...source,
+	};
 }
 function migratedOf(value: unknown, field: string): { readonly at: string } {
 	const fields = object(["at"])(value, field);
@@ -1188,14 +1212,21 @@ function stuckOf(value: unknown, field: string): Stuck {
 	};
 }
 function scopeOf(value: unknown, field: string): Scope {
-	const fields = object(["unit", "cgroup", "memoryPeakBytes", "cpuMicroseconds", "oomKills"])(value, field);
+	const keys = ["unit", "cgroup", "memoryPeakBytes", "cpuMicroseconds", "oomKills", "cpuPeakPercent"];
+	const fields = object(keys)(value, field);
 	const reading = nullOr(numberIn({ integer: true, min: 0 }));
+	// The peak came with R-036, so a scope written before it reads without one (D-079).
+	const share = nullOr(numberIn({ integer: true, min: 0, max: 100 }));
+	const peak = fields.has("cpuPeakPercent")
+		? { cpuPeakPercent: share(fields.get("cpuPeakPercent"), at(field, "cpuPeakPercent")) }
+		: {};
 	return {
 		unit: matching(SCOPE_UNIT, "the unit of a systemd user scope")(fields.get("unit"), at(field, "unit")),
 		cgroup: matching(CGROUP, "a path of the cgroup v2 hierarchy")(fields.get("cgroup"), at(field, "cgroup")),
 		memoryPeakBytes: reading(fields.get("memoryPeakBytes"), at(field, "memoryPeakBytes")),
 		cpuMicroseconds: reading(fields.get("cpuMicroseconds"), at(field, "cpuMicroseconds")),
 		oomKills: reading(fields.get("oomKills"), at(field, "oomKills")),
+		...peak,
 	};
 }
 

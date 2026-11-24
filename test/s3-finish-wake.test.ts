@@ -164,7 +164,7 @@ test("stop, timeout and a stalled tool each end a job once and wake its session 
 	assert.equal(jobFile(p, ids.timeout, "log").match(/steered: 1 min left before the timeout: /g)?.length, 1);
 	assert.match(
 		jobFile(p, ids.stall, "log"),
-		/limits: ignored \.agents\/limen\/limits\.json: timeout: expected one of the fields prepare, toolStall or toolCalls, got "2h"\n.*timed out after 1 s.*CPU-idle child for 2s/s,
+		/limits: ignored \.agents\/limen\/limits\.json: timeout: expected one of the fields prepare, toolStall or toolCalls, got "2h"\n.*timed out after 1 s.*stalled tool bash sleep 600: scope CPU idle and no tool progress for 2s/s,
 	);
 	// One terminal line each; a stop logs two until F928 lands (stop.ts's 25 ms grace races the finalize).
 	for (const id of [ids.timeout, ids.stall]) {

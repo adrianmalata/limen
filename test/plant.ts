@@ -398,6 +398,8 @@ export async function plant(): Promise<Plant> {
 		// Without start-reading.json the reading is unknown and the gate is open; a test writes the file to close it.
 		LIMEN_START_READING: join(parent, "start-reading.json"),
 		LIMEN_START_POLL_MS: "50",
+		// A wrapper samples its scope's CPU time every 50 ms, not every 3 s, so a stall comes just after its window.
+		LIMEN_STALL_TICK_MS: "50",
 		// The tests' systemd keeps each scope's readings and its logs here.
 		LIMEN_CGROUP_ROOT: cgroups,
 		// The plant's own processes run in a login session of the account, beside its user manager, whose units the

@@ -1,11 +1,12 @@
 // src/runtime/wrapper.ts: a queued job's wrapper whose job folder is removed ends before its setup and its engine run,
 // a queued job whose wait passes the gate file's failAfter ends failed, a wrapper outside its job's systemd user scope
-// ends the job before it runs anything, each end has the kind its detector sets (A-016 (1)), an exhaustion whose scope
-// cannot be ended still kills its process group, a TERM or a signal without a stop request ends a job failed, and a
-// TERM after the engine ended changes nothing.
+// ends the job before it runs anything, each end has the kind its detector sets (A-016 (1)), the stall rule over the
+// scope's CPU time and its uncertainty note, the peak CPU share of the scope, an exhaustion whose scope cannot be ended
+// still kills its process group, a TERM or a signal without a stop request ends a job failed, and a TERM after the
+// engine ended changes nothing.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -31,7 +32,9 @@ import {
 	plant,
 	release,
 	routed,
+	SCOPE_READINGS,
 	spawnJob,
+	start,
 	startedJob,
 	until,
 	waitJob,
@@ -440,6 +443,145 @@ test("an engine killed by SIGKILL in a scope whose memory.events counts an OOM k
 		[jobRecord(p, id)?.failure, jobRecord(p, id)?.scope?.oomKills],
 		[{ kind: "oom", detail: "killed by SIGKILL", resetAt: null }, 1],
 	);
+});
+
+/** The cpu.stat of the job `id`'s scope in the tests' systemd (test/plant.ts), which its systemd-run wrote. */
+function cpuStat(p: Plant, id: string): string {
+	const cgroup = jobRecord(p, id)?.scope?.cgroup;
+	assert.ok(cgroup, "the record names the job's scope");
+	return join(p.env.LIMEN_CGROUP_ROOT ?? "", cgroup, "cpu.stat");
+}
+
+/** Writes `usage` microseconds as the CPU time of the cpu.stat at `path` whole, as the kernel's never reads half. */
+function writeUsage(path: string, usage: number): void {
+	writeFileSync(`${path}.next`, `usage_usec ${usage}\nuser_usec 0\nsystem_usec 0\n`);
+	renameSync(`${path}.next`, path);
+}
+
+/** The job `id` of `p` once its engine runs the tool of `idle`: the wrapper logs the tool's line as it starts. */
+async function toolPending(p: Plant, id: string): Promise<void> {
+	await until(jobDir(p, id), () => jobFile(p, id, "log").split("\n").includes("bash sleep 600"));
+}
+
+// A-059: the stall rule read the engine's process tree with ps, so what the tool waited on outside that tree did not
+// count; it reads the whole scope now.
+test("a job whose tool waits while its scope's CPU time stands still ends failed, kind stall, after the window", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	writeFileSync(join(p.root, ".agents/limen/limits.json"), '{"toolStall":"1s"}\n');
+	const id = spawnJob(p, "idle");
+	assert.equal(waitJob(p, id), "failed");
+	assert.deepEqual(jobRecord(p, id)?.failure, {
+		kind: "stall",
+		detail: "stalled tool bash sleep 600: scope CPU idle and no tool progress for 1s",
+		resetAt: null,
+	});
+});
+
+// A-059: a tool that waits on a build that works in the job's scope, detached from the tool or not, keeps the job. The
+// idle job is the clock: its tool starts after the busy job's, so its stall shows that the window passed for both, by
+// the order of events, not by time (T-31 (4)). The test's own process raises the busy scope's CPU time, so nothing
+// blocks its event loop meanwhile: the idle job is spawned and awaited without a synchronous wait.
+test("a job whose scope's CPU time grows while its tool waits, as a background build's does, is not ended by the stall rule", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	writeFileSync(join(p.root, ".agents/limen/limits.json"), '{"toolStall":"1s"}\n');
+	const busy = spawnJob(p, "idle");
+	await toolPending(p, busy);
+	const stat = cpuStat(p, busy);
+	let usage = SCOPE_READINGS.cpuMicroseconds;
+	// A write that fails stops the build: the scope's folder goes with its job's end.
+	let stopped: unknown;
+	const build = setInterval(() => {
+		usage += 100_000;
+		try {
+			writeUsage(stat, usage);
+		} catch (error) {
+			stopped = error;
+			clearInterval(build);
+		}
+	}, 50);
+	let idle = "";
+	let busyState = "";
+	try {
+		idle = startedJob(await start(p, ["spawn", ...routed([]), "idle"]).done);
+		await until(jobDir(p, idle), () => isTerminal(jobState(p, idle)));
+		busyState = jobState(p, busy);
+	} finally {
+		clearInterval(build);
+	}
+	assert.deepEqual(
+		[jobRecord(p, idle)?.failure?.kind, busyState, jobFile(p, busy, "log").includes("stalled tool"), stopped],
+		["stall", "running", false, undefined],
+	);
+});
+
+// M-09: the wrapper samples its scope's CPU time at every tick from the engine's start, also while no tool runs, and
+// writes the largest rate at its end; until then the record holds null, as a job another process ends keeps it. A rate
+// counts only over half a tick or more (review round 2, G1), so the test takes `cpu.stat` away until a tick has logged
+// its failed read: the first read of the raised value then lies at least a tick after the last read before, by the
+// order of events (T-31 (4)).
+test("a job's record holds the peak CPU share of its scope: null while it runs, and at its end the whole machine for more CPU time than the machine has", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = spawnJob(p, "block");
+	await blocked(p, id);
+	const running = jobRecord(p, id)?.scope?.cpuPeakPercent;
+	const stat = cpuStat(p, id);
+	rmSync(stat);
+	const unread = `scope CPU unavailable: ${stat} is missing`;
+	assert.equal(await within(jobDir(p, id), () => jobFile(p, id, "log").includes(unread), END_BOUND_MS), true);
+	// A million CPU seconds within the job's run is more than any machine gives in it, so the rate is all of it.
+	writeUsage(stat, 10 ** 12);
+	await release(jobDir(p, id));
+	assert.equal(waitJob(p, id), "done");
+	assert.deepEqual([running, jobRecord(p, id)?.scope?.cpuPeakPercent], [null, 100]);
+});
+
+// R-036 review round 2, G1: a pair of samples closer than half a tick gives no rate, so the samples at the start and at
+// the end of an engine run shorter than that leave the peak null. A tick of ten minutes makes the run shorter.
+test("a job whose engine runs for less than half a tick keeps a null peak CPU share", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = spawnJob(p, "say done", [], { env: { LIMEN_STALL_TICK_MS: String(10 * 60_000) } });
+	assert.equal(waitJob(p, id), "done");
+	assert.equal(jobRecord(p, id)?.scope?.cpuPeakPercent, null);
+});
+
+// T-01, (d) of R-036: a read of the scope's CPU time that fails ends no job and is never silent.
+test("a job whose scope's cpu.stat is gone while its tool waits gets the stall's uncertainty note, which clears once the file reads again", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = spawnJob(p, "idle");
+	await toolPending(p, id);
+	const stat = cpuStat(p, id);
+	const kept = readFileSync(stat, "utf8");
+	rmSync(stat);
+	const text = `tool stall observation uncertain: scope CPU unavailable: ${stat} is missing`;
+	const noted = await within(jobDir(p, id), () => jobRecord(p, id)?.advisory?.text === text, END_BOUND_MS);
+	const source = jobRecord(p, id)?.advisory?.source;
+	writeFileSync(stat, kept);
+	const cleared = await within(jobDir(p, id), () => jobRecord(p, id)?.advisory === null, END_BOUND_MS);
+	assert.deepEqual([noted, source, cleared, jobState(p, id)], [true, "stall", true, "running"]);
+});
+
+// T-01, R-036 review round 1, F1: the sample at the engine's end dropped a failed read. The test gate LIMEN_END_GATE
+// (D-029) holds the wrapper after its engine ended and its ticks stopped, so the file is gone only for that sample, by
+// the order of events (T-31 (4)).
+test("a read of the scope's CPU time that fails at the engine's end is logged once with the stall's words, and sets no note", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const gate = join(p.parent, "end-gate");
+	const id = spawnJob(p, "say all done", [], { env: { LIMEN_END_GATE: gate } });
+	const waiting = "engine ended; waiting for the test gate";
+	assert.equal(await within(jobDir(p, id), () => jobFile(p, id, "log").includes(waiting), END_BOUND_MS), true);
+	const stat = cpuStat(p, id);
+	rmSync(stat);
+	writeFileSync(gate, "");
+	assert.equal(waitJob(p, id), "done");
+	const line = `tool stall observation uncertain: scope CPU unavailable: ${stat} is missing`;
+	const lines = jobFile(p, id, "log").split("\n");
+	assert.deepEqual([lines.filter((each) => each.endsWith(`] ${line}`)).length, jobRecord(p, id)?.advisory], [1, null]);
 });
 
 // A-052: only a stop request in the record makes a stop, also before the engine starts; a TERM without one fails the job.

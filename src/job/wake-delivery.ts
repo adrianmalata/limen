@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { atomicRenameSync, atomicWriteSync, TEMPORARY_NAME } from "../atomic-write.ts";
 import { testKnob } from "../config.ts";
 import { isTerminal } from "./job.ts";
-import { readRecordSync, recordPath } from "./record.ts";
+import { ADVISORY_SOURCES, type AdvisorySource, readRecordSync, recordPath } from "./record.ts";
 
 // The notify/ record of who heard a job: claims, delivered slots, unconfirmed attempts, subscribers, and the ready marker.
 const DEFAULT_FALLBACK_GRACE_MS = 5 * 60_000;
@@ -332,7 +332,25 @@ export function sessionOwnsJobs(jobs: string, session: string): boolean {
 function isAdvisorySlot(slot: string): boolean {
 	return slot.startsWith("_advisory.") || slot.startsWith("_uncertainty.");
 }
-export function receiptFamily(slot: string): "_advisory" | "_start" | "_completion" {
+/** The receipt family of the notes of `source` (the D-092 note): one wake per source and session. */
+export function advisoryFamily(source: AdvisorySource): `_advisory.${AdvisorySource}` {
+	return `_advisory.${source}`;
+}
+/** The slot of a note of `source` for the session `session`, or for the fallback as `_fallback`; never parsed back. */
+export function advisorySlot(source: AdvisorySource, session: string): string {
+	return `${advisoryFamily(source)}.${session}`;
+}
+/**
+ * The family whose receipts and attempts a slot counts in: a note's source, the start notice, or the completion. A
+ * note's slot written before R-036 (`_advisory.<session>`, and `_uncertainty.…`) counts for no source.
+ */
+export function receiptFamily(
+	slot: string,
+): ReturnType<typeof advisoryFamily> | "_advisory" | "_start" | "_completion" {
+	const source = ADVISORY_SOURCES.find((each) => slot.startsWith(`${advisoryFamily(each)}.`));
+	if (source !== undefined) {
+		return advisoryFamily(source);
+	}
 	if (isAdvisorySlot(slot)) {
 		return "_advisory";
 	}

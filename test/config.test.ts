@@ -100,7 +100,8 @@ test("the configuration scan finds each read form and an unregistered name, but 
  * since: LIMEN_LOCK_WAIT_MS, the lock module's wait bound (R-019), LIMEN_CGROUP_ROOT and LIMEN_CGROUP, the tests'
  * systemd user scopes (R-026), LIMEN_ALERTS_URL, the ntfy server of the alerts' tests (R-033), LIMEN_STOP_GRACE_MS,
  * the one grace of stop, exhaustion and the reaper (R-027), LIMEN_END_GATE, the tests' hold of a wrapper's end
- * (R-028), and LIMEN_LINGER_DIR, the folder of the linger files the sweep's install reads (R-032).
+ * (R-028), LIMEN_LINGER_DIR, the folder of the linger files the sweep's install reads (R-032), and
+ * LIMEN_STALL_TICK_MS, the tick of a wrapper's samples of its scope's CPU time (R-036).
  */
 const INVENTORY = {
 	"transport wrapper": [
@@ -128,6 +129,7 @@ const INVENTORY = {
 		"LIMEN_END_GATE",
 		"LIMEN_START_POLL_MS",
 		"LIMEN_START_READING",
+		"LIMEN_STALL_TICK_MS",
 		"LIMEN_WAKE_FALLBACK_MS",
 		"LIMEN_LOCK_WAIT_MS",
 		"LIMEN_CGROUP_ROOT",

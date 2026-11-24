@@ -1,7 +1,7 @@
 // `limen seat sweep` (src/runtime/sweeping.ts): a run over every registered project reaps dead jobs, ends the scopes
 // finished jobs left, counts and escalates a job it cannot end, removes dead start-queue entries, rings for unheard
-// ends and names a project that fails; its refusals; the install, removal and status of its user timer against the
-// tests' systemd; and the old name `limen sweep`.
+// ends and advisories, per advisory source, and names a project that fails; its refusals; the install, removal and
+// status of its user timer against the tests' systemd; and the old name `limen sweep`.
 import assert from "node:assert/strict";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
@@ -13,6 +13,7 @@ import { type Identity, type JobRecord, readRecordSync, type Scope } from "../..
 import { platform } from "../../src/platform/platform.ts";
 import { renderUnit, sweepUnits } from "../../src/platform/systemd-units.ts";
 import { jobScope } from "../../src/runtime/launcher.ts";
+import { processIdentity } from "../../src/runtime/reap.ts";
 import { withEnvironment } from "../environment.ts";
 import { outputText, readOutcome } from "../final-line.ts";
 import {
@@ -451,6 +452,25 @@ test("the sweep rings for a finished job whose delivered folder holds only the t
 		markers.map((name) => name.replace(/\d+$/, "<since>")),
 		["_terminal.done.<since>"],
 	);
+});
+
+// The D-092 note: the seat notification of a running job's advisory waited while any advisory receipt of the job was
+// delivered, so a stall note after a heard queue diagnosis rang nothing.
+test("the sweep rings for a running job's stall advisory when a coordinator heard only its queue diagnosis", async (t) => {
+	const p = await fresh(t);
+	const job = join(p.root, ".limen/jobs/2026-11-24-sources-1a2b3c4d");
+	mkdirSync(join(job, "notify", "delivered"), { recursive: true });
+	writeFileSync(join(job, "notify", "delivered", "_advisory.queue.session-a"), "");
+	// The sweep rings for an event at least five minutes old; the advisory's time is the event's. A record without a
+	// source holds the wrapper's note, the stall's.
+	const at = new Date(Date.now() - 10 * 60_000).toISOString();
+	const advisory = { text: "tool stall observation uncertain: scope CPU unavailable: cpu.stat is missing", at };
+	await writeRecord(job, { state: "running", identity: await processIdentity(), startedAt: at, advisory });
+	const run = sweep(p);
+	assert.equal(run.status, 0, run.stderr);
+	const seat = join(job, "notify", "seat");
+	const markers = existsSync(seat) ? readdirSync(seat) : [];
+	assert.deepEqual(markers, [`_advisory.stall.${Date.parse(at)}`]);
 });
 
 /** The user unit folder of the plant's account: `~/.config/systemd/user` under the plant's HOME. */

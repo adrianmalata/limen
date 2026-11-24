@@ -2,9 +2,10 @@
 // what follows from it. A failed end takes the failure its detector passes, kind and detail (A-016 (1)). Before the
 // transition it counts the job's commits, collects the open note checks and reads its
 // scope's readings, unless the finisher read them before it ended the scope itself, as the reaper does
-// (src/runtime/reap.ts); an OOM kill those readings count names a signal death's or a reaped wrapper's failure `oom`
-// (A-052), and an end on the subscription limit of a job's last resume is `quota-exhausted` (src/job/quota.ts). A side
-// channel that fails there is written with the terminal state in `sideFailures`. The
+// (src/runtime/reap.ts), with the peak CPU share a job's wrapper measured (M-09); an OOM kill those readings count
+// names a signal death's or a reaped wrapper's failure `oom` (A-052), and an end on the subscription limit of a job's
+// last resume is `quota-exhausted` (src/job/quota.ts). A side channel that fails there is written with the terminal
+// state in `sideFailures`. The
 // transition is the commit point: a finisher that loses it writes nothing, and the group's events, the coordinator's
 // Herdr wake, the next round of its group and the job's tab, which read the terminal record, follow only the winner;
 // their failures go to the job's log, since nothing writes the record after a terminal state. The winner's last step,
@@ -74,6 +75,11 @@ export type FinalizeOptions = {
 	 * default.
 	 */
 	readonly readings?: ScopeRead;
+	/**
+	 * The peak CPU share of the job's scope that its wrapper measured over its engine's run (M-09), written into the
+	 * record's `scope` with the readings; without it, the scope's own value stays, null for a job another process ends.
+	 */
+	readonly cpuPeakPercent?: number | null;
 };
 
 /** The readings of a job's scope just before its end, with the side failure of a read that failed (T-01). */
@@ -112,6 +118,7 @@ export async function finalizeJob(jobDir: string, end: JobEnd, options: Finalize
 	// The scope's readings just before the transition, while its processes still hold it (`memory.peak` goes with it).
 	const { readings, failures } = options.readings ?? (await readScope(record));
 	sideFailures.push(...failures);
+	const peak = options.cpuPeakPercent === undefined ? {} : { cpuPeakPercent: options.cpuPeakPercent };
 	const ended = await transition(jobDir, {
 		from,
 		to: state,
@@ -135,7 +142,7 @@ export async function finalizeJob(jobDir: string, end: JobEnd, options: Finalize
 			// A job that ends while it waits leaves the queue here, its wait kept with the time it left (A-036).
 			...queueLeft(current, new Date().toISOString()),
 			sideFailures: [...current.sideFailures, ...sideFailures],
-			...(current.scope ? { scope: { ...current.scope, ...readings } } : {}),
+			...(current.scope ? { scope: { ...current.scope, ...readings, ...peak } } : {}),
 		}),
 	});
 	if (!ended) {

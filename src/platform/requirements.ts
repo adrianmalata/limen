@@ -127,7 +127,7 @@ export const REQUIREMENTS: readonly Requirement[] = [
 	{ tool: "node", probe: () => nodeFailure(process.versions.node) },
 	{ tool: "git", probe: gitFailure },
 	{ tool: "tar", probe: present("tar", "limen land unpacks the tickets of a job's branch with tar. Install tar.") },
-	{ tool: "ps", probe: present("ps", "Limen reads the process table with ps. Install ps (procps).") },
+	{ tool: "ps", probe: present("ps", "Limen reads the name of a process's program with ps. Install ps (procps).") },
 	{ tool: "systemd-run", probe: userScopeFailure },
 	{
 		tool: "systemd-analyze",

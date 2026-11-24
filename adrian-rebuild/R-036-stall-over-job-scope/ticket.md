@@ -214,3 +214,28 @@ was written at `6d17130`; the main session checked every place the ticket names.
     `limen seat sweep` now), `docs/remote.md:77`, `docs/groups.md:69` with `src/job/group-events.ts:116`, the comments
     `src/job/record.ts:118` and `src/runtime/wrapper.ts:308-309`, the headers `src/platform/platform.ts:1-11` and
     `src/platform/linux.ts:1-7`.
+
+2026-11-24, review round 1 (`review.md` → Round 1; PASS with four notes; the main session's reading, from T-01, the
+ticket's Risk and D-092), the findings to fix:
+- F1 (note 1, T-01): the sample at the engine's end (`last()`, `src/runtime/wrapper.ts:629-631`) discards a failed
+  read. It logs the read's text once, as a tick does for a read with no pending tool (`logOnce`, the same words
+  `tool stall observation uncertain: scope CPU unavailable: <reason>`), and sets no note, since the job is ending. Test:
+  a job whose fake scope's `cpu.stat` is gone when its engine ends has that line in its log; it fails at `HEAD`.
+- F2 (note 2): `docs/jobs.md:209` names 2 % as the rule's design threshold instead of stating that the idle CPU of
+  the wrapper, Pi and the bridge's `claude` stays below it, and says what happens above it: the rule never ends the
+  job, and its timeout does (the ticket's Risk 1), until seat step 3.8 records the value.
+- F3 (note 4): `outcome.md` → `## Open points` names, for gate 5.3, that a pending tool with no child process (an
+  in-process tool that waits with no output) can now stall, which `HEAD` never ended (accepted in the ticket's Risk 2),
+  and that step 3.8's trial records show any `stall` end of a tool other than `bash`.
+- Note 3 is rejected (`review.md` → Round 1).
+
+2026-11-24, review round 2 (`review.md` → Round 2; PASS with three notes; the main session's reading), the findings to
+fix, the last round (`## Agents`, step 6):
+- G1 (note 1, M-09): the rate between two samples counts toward the peak only when they lie at least half a tick apart
+  (half of `stallTickMs()`); a closer pair gives no rate and leaves the peak as it was. So the end's sample counts only
+  when it lies that far after the last tick, and an engine run shorter than half a tick keeps `cpuPeakPercent` `null`.
+  The minimum is a parameter of the pure `peakAfter`, as the window is of `stallStep`. Test: a pair closer than the
+  minimum gives no rate, and one at the minimum does.
+- G2 (note 3, T-29 (3)): `test/runtime/stalled-tool.test.ts:103-109` becomes two tests: one sample gives no peak; a
+  rate above the whole machine counts as 100.
+- Note 2 is left to R-082's ratchet (`review.md` → Round 2).

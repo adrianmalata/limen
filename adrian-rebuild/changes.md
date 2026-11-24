@@ -3,7 +3,7 @@ Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, com
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
 R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025, R-097, R-099, R-026, R-030, R-033,
-R-027, R-028, R-031, R-035, R-100, R-029, R-032. -->
+R-027, R-028, R-031, R-035, R-100, R-029, R-032, R-034, R-036. -->
 
 # Changes
 
@@ -399,3 +399,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-11; `## Deployment` 3.4)
 - Commit: R-034
 - Rollback: git revert $(git log --format=%H --grep='^R-034:' adrian-rebuild --) (+ after the revert a record with `quotaAttempt` or `owedWake` is `BAD_DATA`, so the format's rollback is the snapshot of `## Deployment` 0.1; the seat's link to `quota-resume.ts` is not restored)
+
+## 2026-11-24 R-036 Stall is measured over the whole job scope
+- What: `src/runtime/stalled-tool.ts` (the pure rule `stallStep` over scope samples and progress keys, the 2 % threshold, `peakAfter` with its minimum interval, `stallTickMs`); `src/runtime/wrapper.ts` (`scopeSamples`: a sample at the engine's start, every tick and its end; the rule, the note `tool stall observation uncertain: scope CPU unavailable: <reason>`, the peak into `scope.cpuPeakPercent`; the `ps` observation and its identity checks gone); `src/platform/platform.ts`, `src/platform/linux.ts` (`cpuTime`; `processTable`, `parseProcessTable`, `runBounded` gone), `src/platform/requirements.ts`; `src/runtime/queue-diagnosis.ts` (`machineShare`); `src/job/record.ts` (`advisory.source`, `scope.cpuPeakPercent`), `src/job/finalize.ts`, `src/job/listing.ts`, `src/job/view.ts` (`limen show`'s peak); `src/runtime/start-queue.ts` (source `queue`); `src/job/wake-delivery.ts`, `hook/wake.ts`, `src/runtime/sweeping.ts` (receipts, attempts, fallback and the seat event per source); `src/config.ts` (`LIMEN_STALL_TICK_MS`); tests in the new `test/runtime/stalled-tool.test.ts` and the wrapper, s3 finish-wake, wake, wake-delivery, linux, record, show, sweep, start-queue, config files and `test/plant.ts`; `docs/jobs.md`, `docs/remote.md`
+- Why: A-059, D-092, M-09, T-01, T-18, T-25, T-29, T-31
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (1090/1090); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (eleven test files); `node --test test/runtime/stalled-tool.test.ts` → exit 0; `node --test test/runtime/wrapper.test.ts` → exit 0
+- Measurement: unmeasured (plan.md → Measurement: M-09; `## Deployment` 3.8)
+- Commit: R-036
+- Rollback: git revert $(git log --format=%H --grep='^R-036:' adrian-rebuild --) (+ after the revert a record with `advisory.source` or `scope.cpuPeakPercent` is `BAD_DATA`, so the format's rollback is the snapshot of `## Deployment` 0.1)

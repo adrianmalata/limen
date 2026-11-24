@@ -1,7 +1,7 @@
-// src/platform/linux.ts: its parsers on fixture text (/proc/<pid>/stat, ps, /proc/meminfo, the boot id, a process's
-// cgroup, a scope's readings), the units of the user manager on a fake cgroup hierarchy, the state and the signals of
-// a user scope on the tests' systemd (test/plant.ts), and the linger file, the user unit folder and the user manager's
-// answers of the seat sweep's units.
+// src/platform/linux.ts: its parsers on fixture text (/proc/<pid>/stat, /proc/meminfo, the boot id, a process's cgroup,
+// a scope's readings), the CPU time of one cgroup and the units of the user manager on a fake cgroup hierarchy, the
+// state and the signals of a user scope on the tests' systemd (test/plant.ts), and the linger file, the user unit
+// folder and the user manager's answers of the seat sweep's units.
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,7 +14,6 @@ import {
 	parseCounter,
 	parseKeyed,
 	parseMeminfo,
-	parseProcessTable,
 	parseStat,
 } from "../../src/platform/linux.ts";
 import { withEnvironment } from "../environment.ts";
@@ -37,36 +36,6 @@ test("a stat line in state Z reads as an absent process", () => {
 
 test("a stat line without the parenthesis that closes its command reads as unavailable", () => {
 	assert.deepEqual(parseStat(4321, "4321 (cut S 77 4242"), { kind: "unavailable" });
-});
-
-test("a ps row gives the process's pid, parent, group, CPU seconds and state, in that order of columns", () => {
-	assert.deepEqual(parseProcessTable("  200     1   300 00:00:03 Ss\n", undefined), [
-		{ pid: 200, ppid: 1, pgid: 300, cpuSeconds: 3, state: "Ss" },
-	]);
-});
-
-test("ps's CPU time reads in its MM:SS, HH:MM:SS and DD-HH:MM:SS forms, and as NaN in any other form", () => {
-	const rows = ["05:06", "01:02:03", "1-02:03:04", "1:2:3:4"].map((time, index) => `${index + 1} 1 1 ${time} S`);
-	assert.deepEqual(
-		parseProcessTable(rows.join("\n"), undefined).map((row) => row.cpuSeconds),
-		[5 * 60 + 6, 3600 + 2 * 60 + 3, 86_400 + 2 * 3600 + 3 * 60 + 4, Number.NaN],
-	);
-});
-
-test("the process table leaves out the row of the ps that printed it", () => {
-	const output = "  200     1   200 00:00:00 S\n  999   200   200 00:00:00 R\n";
-	assert.deepEqual(
-		parseProcessTable(output, 999).map((row) => row.pid),
-		[200],
-	);
-});
-
-test("the process table skips a header line and empty lines", () => {
-	const output = "PID PPID PGID TIME STAT\n\n  200     1   200 00:00:00 S\n\n";
-	assert.deepEqual(
-		parseProcessTable(output, undefined).map((row) => row.pid),
-		[200],
-	);
 });
 
 test("the boot id is the one UUID line of boot_id, and nothing for an empty or other text", () => {
@@ -186,6 +155,30 @@ test("userUnits of a process in a login session of another uid lists nothing of 
 		[`${theirs}/app.slice/limen-job-2026-11-24-theirs-1a2b3c4d.scope/memory.current`]: "4096\n",
 	});
 	assert.equal(await linux.userUnits(), undefined);
+});
+
+// A-059: the stall rule and the peak CPU share read the job scope's CPU time at every tick, so only `cpu.stat` is read.
+test("cpuTime gives the usage_usec of the cgroup's own cpu.stat", async (t) => {
+	const cgroup = `${MANAGER}/app.slice/limen-job-2026-11-24-cpu-1a2b3c4d.scope`;
+	await cgroupTree(t, cgroup, {
+		[`${cgroup}/cpu.stat`]: "usage_usec 2500000\nuser_usec 2000000\nsystem_usec 500000\n",
+		[`${cgroup}/memory.peak`]: "52428800\n",
+	});
+	assert.deepEqual(await linux.cpuTime(cgroup), { kind: "read", microseconds: 2_500_000 });
+});
+
+// T-01: a read that fails is never a number, so the stall rule takes it for no evidence and names it.
+test("cpuTime of a cgroup whose cpu.stat is gone, or holds no usage_usec line, is unreadable and names the file", async (t) => {
+	const gone = `${MANAGER}/app.slice/limen-job-2026-11-24-gone-1a2b3c4d.scope`;
+	const other = `${MANAGER}/app.slice/limen-job-2026-11-24-other-5e6f7a8b.scope`;
+	const root = await cgroupTree(t, gone, { [`${other}/cpu.stat`]: "user_usec 2000000\nsystem_usec 500000\n" });
+	assert.deepEqual(
+		[await linux.cpuTime(gone), await linux.cpuTime(other)],
+		[
+			{ kind: "unreadable", detail: `${root}${gone}/cpu.stat is missing` },
+			{ kind: "unreadable", detail: `${root}${other}/cpu.stat holds no usage_usec line` },
+		],
+	);
 });
 
 const UNIT = "limen-job-2026-11-22-scope-1a2b3c4d.scope";

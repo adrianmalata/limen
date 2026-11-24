@@ -34,7 +34,10 @@ export type ShownJob = {
 	readonly tokens?: string;
 	/** Detail only: a failed job's failure kind, and for quota its reset time (A-016 (1)). */
 	readonly failure?: string;
-	/** Detail only: the memory peak, CPU time and OOM kills of a finished job's systemd user scope (M-09). */
+	/**
+	 * Detail only: the memory peak, CPU time with its peak share and OOM kills of a finished job's systemd user scope
+	 * (M-09).
+	 */
 	readonly scope?: string;
 	readonly cleanup?: string;
 	readonly herdrWake?: string;

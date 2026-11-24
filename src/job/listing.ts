@@ -182,8 +182,10 @@ function recordTexts(record: JobRecord): { openChecks: string; commits: string; 
 	};
 }
 /**
- * The readings of a finished job's systemd user scope (M-09): its memory peak, its CPU time and its OOM kills, each
- * `unknown` where its finisher could not read it; "" for a job that runs, or that never recorded its scope.
+ * The readings of a finished job's systemd user scope (M-09): its memory peak, its CPU time with the peak CPU share of
+ * the whole machine beside it, and its OOM kills, each `unknown` where its finisher could not read it, or, for the
+ * peak, where its wrapper did not end the job or a record from before R-036 has none; "" for a job that runs, or that
+ * never recorded its scope.
  */
 function scopeText(record: JobRecord): string {
 	const scope = record.scope;
@@ -191,9 +193,10 @@ function scopeText(record: JobRecord): string {
 		return "";
 	}
 	const shown = (value: number | null, text: (value: number) => string) => (value === null ? "unknown" : text(value));
+	const cpu = shown(scope.cpuMicroseconds, (micro) => `${(micro / 1_000_000).toFixed(1)} s`);
 	return [
 		`memory peak ${shown(scope.memoryPeakBytes, (bytes) => `${(bytes / 1_048_576).toFixed(1)} MiB`)}`,
-		`CPU ${shown(scope.cpuMicroseconds, (micro) => `${(micro / 1_000_000).toFixed(1)} s`)}`,
+		`CPU ${cpu}, peak ${shown(scope.cpuPeakPercent ?? null, (share) => `${share}%`)}`,
 		`OOM kills ${shown(scope.oomKills, String)}`,
 	].join(" · ");
 }
