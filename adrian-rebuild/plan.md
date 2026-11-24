@@ -4049,8 +4049,8 @@ Next (by day):
 1. Done on 2026-11-23: Adrian added the `hooks` block of D-083 to `.claude/settings.local.json`, and the live test
    blocked a push naming `Q-00` ("Evening of 2026-11-23" above); the guard is active, by day and at night.
 2. By day, with Adrian (2026-11-24: "robimy teraz"): the stage-3 tickets in protocol order (`## Agents`, step 1).
-   R-029 (`b0c033b`), R-032 and R-034 are `done`. First the commit `Tools: …` of D-099 (2) (the `## Change` form check
-   in `tools/ticket-rules.mjs`, with its test in `tools/test-ticket-rules.mjs`); then, by protocol step 1, R-036, R-037,
+   R-029 (`b0c033b`), R-032 and R-034 (`04d4f34`) are `done`, and D-099 (2)'s `## Change` form check is in
+   `tools/ticket-rules.mjs` (commit `Tools: …`, test in `tools/test-ticket-rules.mjs`). Next, by protocol step 1, R-036, R-037,
    R-087 and R-098, each `ready` with its `ticket.md`, R-101 `ready (D-097)` with its `ticket.md`
    (`R-101-sweep-daily-steps/`, its Decisions 2 and 4 for gate 5.3) and R-102 `ready (D-097)` with its `ticket.md`
    (`R-102-seat-rules-cut/`, written by `limen-rebuild-29` at R-034's tree before R-034's commit, as `check.mjs`

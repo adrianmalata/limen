@@ -2,7 +2,8 @@
    Sprawdza status `ready` z ticket.md albo wpisem decyzji, `Run` = `night` ticketu pair z zapisanymi wyborami,
    wyciąganie poleceń kryteriów (tylko „`polecenie` → exit”) i dopasowanie poleceń do allow-listy Claude Code
    według faktów z nocnych logów: goły program pasuje do reguły z „ *”, każda część złożonego polecenia osobno,
-   `$`, przekierowanie i reguła deny odrzucają. Stan: działa. */
+   `$`, przekierowanie i reguła deny odrzucają; ścieżka w jednym spanie z `git rm` albo `git mv` w `## Change`
+   ticketu `ready` lub `active` jest błędem (D-099). Stan: działa. */
 // Usage: node --test adrian-rebuild/tools/test-ticket-rules.mjs
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -189,6 +190,19 @@ test("A criterion command of a ready or active ticket must pass the allow-list w
 		assert.match(errors[0], /R-017-x\/ticket\.md: AC-1: `node seat\/deploy\.ts`.*no allow rule/);
 	}
 	assert.deepEqual(checkReady([row({ Status: "ready" })], { files: file(text), decisions }), []);
+});
+
+test("D-099 (2): a ready or active ticket names each deleted or moved path of ## Change in its own backticks", () => {
+	const withChange = (change) => ticketText("- AC-1: `ls` → exit 0").replace("## Change\n", `## Change\n${change}\n`);
+	const joined = withChange("(h) Cuts: `git rm docs/seat/quota-resume.ts`; and `git mv a/b.ts c/d.ts`.");
+	for (const status of ["ready", "active"]) {
+		const errors = checkReady([row({ Status: status })], { files: file(joined), decisions });
+		assert.deepEqual(errors.length, 2);
+		assert.match(errors[0], /R-017-x\/ticket\.md: ## Change: `git rm docs\/seat\/quota-resume\.ts`.*own backticks/);
+	}
+	const apart = withChange("(h) Cuts: `docs/seat/quota-resume.ts` with `git rm`; `picture/` with `git rm -r`.");
+	assert.deepEqual(checkReady([row({ Status: "ready" })], { files: file(apart), decisions }), []);
+	assert.deepEqual(checkReady([row({ Status: "done" })], { files: file(joined), decisions }), []);
 });
 
 test("Tickets of other statuses keep their criteria unchecked", () => {

@@ -1,8 +1,9 @@
 /* PL: Reguły wierszy `## Tickets` zależne od plików ticket.md (Node, bez zależności), wydzielone z check.mjs, żeby
    dało się je testować na napisach (D-054). Status `ready` wymaga ticket.md albo, gdy zależności nie są `done`,
    wpisu decyzji wskazanego w statusie; ticket pair może mieć `Run` = `night` dopiero z datowanym wpisem w swoim
-   `## Decisions`; polecenia kryteriów ticketów `ready` i `active` są dopasowywane do allow-listy Claude Code.
-   Stan: działa; test w tools/test-ticket-rules.mjs. */
+   `## Decisions`; polecenia kryteriów ticketów `ready` i `active` są dopasowywane do allow-listy Claude Code, a ich
+   `## Change` nie może trzymać ścieżki w jednym spanie z `git rm` albo `git mv` (D-099). Stan: działa; test w
+   tools/test-ticket-rules.mjs. */
 
 const PLAN = "adrian-rebuild/plan.md";
 
@@ -271,8 +272,24 @@ function criterionErrors({ path, text }, permissions) {
 }
 
 /**
- * D-054 (1): the record a ready ticket needs, and the criteria of every ready or active ticket. Other statuses are not
- * checked, so a blocked ticket keeps the criterion that blocked it. `permissions` is absent without a settings file.
+ * D-089, D-099 (2): `review-guard.mjs` reads a deleted or moved path of `## Change` only from a backtick span without
+ * spaces, so a span that holds `git rm` or `git mv` with a path would void the implementer's run.
+ */
+function changeFormErrors({ path, text }) {
+	const errors = [];
+	for (const [span, body] of section(text, "Change").matchAll(/`([^`]+)`/g)) {
+		const [git, verb, ...rest] = body.trim().split(/\s+/);
+		if (git === "git" && (verb === "rm" || verb === "mv") && rest.some((word) => /\/|\.\w+$/.test(word))) {
+			errors.push(`${path}: ## Change: ${span} holds a path; write each path in its own backticks (D-089, D-099)`);
+		}
+	}
+	return errors;
+}
+
+/**
+ * D-054 (1): the record a ready ticket needs, and the criteria and the `## Change` form of every ready or active
+ * ticket. Other statuses are not checked, so a blocked ticket keeps the criterion that blocked it, and a done one its
+ * history. `permissions` is absent without a settings file.
  */
 export function checkReady(tickets, { files, decisions, permissions }) {
 	const done = new Set(tickets.filter(({ Status }) => Status === "done").map(({ ID }) => ID));
@@ -283,7 +300,7 @@ export function checkReady(tickets, { files, decisions, permissions }) {
 			errors.push(...readyRecordErrors(ticket, file, done, decisions));
 		}
 		if (file !== undefined && /^(ready|active)\b/.test(ticket.Status)) {
-			errors.push(...criterionErrors(file, permissions));
+			errors.push(...criterionErrors(file, permissions), ...changeFormErrors(file));
 		}
 	}
 	return errors;
