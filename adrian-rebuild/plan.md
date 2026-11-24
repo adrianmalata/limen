@@ -4350,3 +4350,40 @@ R-032 and R-034 moved are `ticket.md` → `## Decisions` 15–23 (above all the 
   left to the night; a night could then commit nothing before R-103, the last of its queue. `limen-rebuild-31` writes
   R-103's `ticket.md` before the night, at `HEAD` after R-037, from D-096 (3) (a)–(l), R-103's notes in `## Tickets` and
   a read-only inventory, and sets it `ready` again.
+
+Handover of 2026-11-24 (D-047, at 41 % context, after the commit `R-037:` (`c8a92b0`), with the tree clean and
+pushed): `limen-rebuild-30` starts `limen-rebuild-31` with `node adrian-rebuild/tools/handover.mjs start 31` and ends
+its turn. By day, Adrian at the terminal. Adrian's decision for tonight (2026-11-24, in the conversation): "wszystko
+dziś, rozpoczęcie przebiegu nocnego po zakończeniu otwartej pracy, przebieg nocny do 8:00", on the main session's
+proposal of D-102, A and C below. The next session's acts, in this order:
+1. A push notification to Adrian (one line in Polish) that it takes over before the night; then `node
+   adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into this section.
+2. R-103's `ticket.md` (`adrian-rebuild/R-103-<slug>/`), at `HEAD`, from D-096 (3) (a)–(l), R-103's notes in
+   `## Tickets` (among them R-037's round-1 note 6 and round-3 note 1) and a read-only agent's inventory of land's
+   code after R-037 (as R-102's was written); status `ready` again; a commit `State: ticket.md of R-103`.
+3. D-102 in `## Decisions` (dated 2026-11-24, Adrian's words above; amends D-024): (1) while `.night/lock` is held by
+   a live `night.mjs`, a day session only reads, whatever Adrian writes, and changes nothing in the repository; (2) the
+   main session starts the runner as a background task that Claude Code tracks (`run_in_background`), as `nohup node
+   adrian-rebuild/tools/night.mjs --until HH:MM` with stdout and stderr appended to `adrian-rebuild/.night/launcher.log`,
+   so the runner's end wakes the session that started it; (3) at that wake the session sends Adrian a push, reads
+   `## State` and `.night/status.json`, and takes over by day (a handover by D-047 when at 30–50 % context); (4) A, the
+   resume rule, in `## Agents` → protocol: a session that finds a ticket `active` with a changed working tree runs
+   `review-guard.mjs compare --git node_modules/.rebuild-review/R-NNN.git <ticket.md>` first (exit 1 voids the run,
+   and Adrian decides); on exit 0 it starts a fresh `rebuild-implementer` with the ticket's path and "the previous run
+   was cut; finish from the working tree", then protocol steps 4–7; a review cut before its reply was saved runs
+   again; (5) C below is the guarantee of (1) in code. One commit `D-102: …` with `check.mjs` and Biome.
+4. C: `night.mjs` exports the liveness check of `.night/lock` (the owner's pid, start time and boot id, as
+   `removeAbandoned` reads them; an unreadable lock is not live, as there); `handover.mjs start` and `close-previous`
+   refuse with exit 1 and the lock's owner while it is live (a `close-previous` during a night would stop the night's
+   `claude -p`, which is older than the new session and runs in the repository, at a clean moment between its
+   commits). Tests in `adrian-rebuild/tools/test-handover.mjs` (a live lock refuses both commands and opens or stops
+   nothing; a dead or unreadable lock does not refuse) and, if `night.mjs` changes beyond the export, in
+   `test-night.mjs`; review by `rebuild-reviewer` as for D-026 (`evidence/night-runner-d026/` is the pattern:
+   `evidence/handover-night-lock/` with ticket, review and outcome); one commit `Tools: …`.
+5. D-024's preflight: `node --test adrian-rebuild/tools/test-night.mjs` and `test-handover.mjs`, the reviewer's
+   verdict, the pushed SHA and a clean tree, and a new `claude -p` session lists both subagent definitions; then the
+   runner by D-102 (2) with `--until 08:00`, and a push to Adrian with its start time. The night's queue: R-087,
+   R-098, R-101, R-102, R-103 (each `ready`, `Run` `night`, dependencies `done`). Then the session ends its turn and
+   changes nothing until the runner's end wakes it (D-102 (1), (3)).
+Open for Adrian at gate 5.3 from `limen-rebuild-30`: R-036 `outcome.md` → Open points 1–4, R-037 `outcome.md` → Open
+points 1–6 and its new wordings (above). The handover after `limen-rebuild-31` is `limen-rebuild-32`.
