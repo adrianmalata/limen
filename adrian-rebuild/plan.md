@@ -124,7 +124,10 @@ etapu 3 jest `done` albo `ready`. limen-rebuild-29: R-034 zamknięty (wznowienie
 `check.mjs`; D-100: alert `failed:quota` dzwoni też przy znanym resecie po 15 min spóźnienia wznowienia; R-102 ma
 ticket.md. limen-rebuild-30: D-101: reguła jednej linii na kryterium w definicji recenzenta; R-036 zamknięty
 (zawieszenie narzędzia mierzone na całym scope'ie joba, szczyt CPU w rekordzie, advisory ze źródłem); R-037 zamknięty
-(atomowy commit zamknięcia ticketów, wspólny dla land i ticket done); noc do 08:00 po D-102 i strażniku blokady nocy. -->
+(atomowy commit zamknięcia ticketów, wspólny dla land i ticket done); noc do 08:00 po D-102 i strażniku blokady nocy.
+limen-rebuild-31: R-103 gotowy (ticket.md z inwentarza, 18 pytań rozstrzygniętych dokumentami); D-102: przy żywej
+blokadzie nocy sesja dzienna tylko czyta, biegacz nocny startuje jako śledzone zadanie w tle, reguła wznowienia
+przerwanego przebiegu w `## Agents`. -->
 
 
 
@@ -1305,6 +1308,24 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   for the reserved path alone; the run counts because `compare --git` named only that file and its blob was `0426fed`,
   the one the main session read after his edit (the pattern of D-099 (1)); a new `snapshot --git` follows the commit.
   Check: `node --test adrian-rebuild/tools/test-review-verdict.mjs`; the next replies of `rebuild-reviewer`.
+- 2026-11-24 D-102 (Adrian: "wszystko dziś, rozpoczęcie przebiegu nocnego po zakończeniu otwartej pracy, przebieg
+  nocny do 8:00", on `limen-rebuild-30`'s proposal in the conversation; amends D-024): (1) while
+  `adrian-rebuild/.night/lock` is held by a live `night.mjs` (the owner's pid, start time and boot id match a running
+  process), a day session only reads, whatever Adrian writes, and changes nothing in the repository; (2) the main
+  session starts the runner as a background task that Claude Code tracks (`run_in_background`), as `nohup node
+  adrian-rebuild/tools/night.mjs --until HH:MM` with stdout and stderr appended to `adrian-rebuild/.night/launcher.log`,
+  so the runner's end wakes the session that started it; D-024's preflight stays; (3) at that wake the session sends
+  Adrian a push, reads `## State` and `.night/status.json`, and takes over by day (a handover by D-047 when at 30–50 %
+  context); (4) the resume rule, in `## Agents` → protocol: a session that finds a ticket `active` with a changed
+  working tree first runs `review-guard.mjs compare --git` on that ticket's snapshot (exit 1 voids the run, and Adrian
+  decides); on exit 0 it starts a fresh `rebuild-implementer` with the ticket's path and "the previous run was cut;
+  finish from the working tree", then protocol steps 4–7; a review cut before its reply was saved runs again; (5) the
+  guarantee of (1) in code: `night.mjs` exports the liveness check of `.night/lock` (as its takeover of an abandoned
+  lock reads it; a lock whose text is no owner record is not live), and `handover.mjs start` and `close-previous`
+  refuse with exit 1 and the lock's owner while it is live, since a `close-previous` during a night would stop the
+  night's `claude -p`, which is older than the new session and runs in the repository, at a clean moment between its
+  commits; built by the main session and reviewed by `rebuild-reviewer` as D-026 was, in the commit `Tools: …` after
+  this one. Check: `node --test adrian-rebuild/tools/test-handover.mjs` (from that commit); `## Agents` → protocol.
 
 ### Gate 2 §2, copied
 
@@ -2508,6 +2529,13 @@ Protocol per ticket (rebuild stage 5):
   run starts a fresh `rebuild-implementer` by its name with the paths of `ticket.md` and `review.md` (and, in step 4,
   the failing output in `ticket.md` → `## Decisions`); by day `SendMessage` stays. No command stands in for waiting:
   when the session cannot wait for a subagent, it updates `## State` and ends with the reason `cannot-wait`.
+- Resume after a cut run (D-102 (4)): a session that finds a ticket `active` with a changed working tree first runs
+  `node adrian-rebuild/tools/review-guard.mjs compare --git node_modules/.rebuild-review/R-NNN.git <ticket.md>`; exit
+  1 voids the cut run, and Adrian decides; on exit 0 it starts a fresh `rebuild-implementer` by its name with the
+  ticket folder's path and "the previous run was cut; finish from the working tree", then steps 4–7. A review cut
+  before its reply was saved runs again from step 5.
+- While `adrian-rebuild/.night/lock` is held by a live `night.mjs`, a day session only reads and changes nothing in the
+  repository (D-102 (1)); `handover.mjs start` and `close-previous` refuse then (D-102 (5)).
 
 ## Commands
 
@@ -4398,4 +4426,7 @@ the terminal being active; context 7 % at the start.
   `## Decisions` 1–18; items 2, 5, 6, 9, 15, 16 and 18 named for Adrian's attention at gate 5.3); size L (was M,
   Decision 19). The ticket builds on R-101's closing function when R-101 is `done` (R-101 comes first in the queue).
   AC-7–AC-9 are the only scans, each confined to a path of `## Change` and matching at `9601408` only lines the change
-  removes (D-025). Next: act 3, D-102.
+  removes (D-025).
+- D-102 in `## Decisions` (acts 3 of the handover), with two bullets in `## Agents` → protocol: the resume after a cut
+  run and the day session's read-only rule while a night holds `.night/lock`. Next: act 4, C (the night-lock guard of
+  `handover.mjs`, reviewed by `rebuild-reviewer`, `evidence/handover-night-lock/`).
