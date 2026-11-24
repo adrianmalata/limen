@@ -1,16 +1,18 @@
-// hook/wake.ts: the guard on the `limen` command's arguments, nothing done before `limen migrate`, and damaged records
-// and progress files, which stop no wake and no status line, are named once, and are forgotten at a session start.
+// hook/wake.ts: the guard on the `limen` command's arguments, nothing done before `limen migrate`, damaged records
+// and progress files, which stop no wake and no status line, are named once, and are forgotten at a session start,
+// and a tick that ends no dead job (T-04).
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import limenWake, { notMigratedNotice } from "../../hook/wake.ts";
-import { emptyRecord, serialized } from "../../src/job/record.ts";
+import { emptyRecord, readRecordSync, serialized } from "../../src/job/record.ts";
 import { LimenError } from "../../src/outcome.ts";
+import { platform } from "../../src/platform/platform.ts";
 import { processIdentity } from "../../src/runtime/reap.ts";
 import { withEnvironment } from "../environment.ts";
-import { writeRecord } from "../plant.ts";
+import { fakeSystemd, writeRecord } from "../plant.ts";
 
 /** The handler of the `limen` command that the hook registers on a fake `pi`. */
 function commandHandler(): (args: unknown, context: unknown) => Promise<void> {
@@ -243,4 +245,17 @@ test("a finished job whose progress.json is damaged still gets its completion wa
 	const damage = damageNotes(coordinator);
 	assert.equal(damage.length, 1, coordinator.notes.join("\n"));
 	assert.match(damage[0] ?? "", new RegExp(`a file of job ${id} is damaged: .*${id}/progress\\.json: `));
+});
+
+// T-04, D-094 (1): the tick ran the reaper inside the coordinator's Pi process; only the seat sweep finalizes a job
+// now.
+test("the hook's tick does not end a running job whose wrapper is dead, however many ticks pass", async (t) => {
+	const { root, jobs } = await hookProject(t, "limen-wake-dead-");
+	withEnvironment(t, { ...(await fakeSystemd(root)), LIMEN_REAP_CONFIRM_MS: "1" });
+	const id = "2026-11-24-dead-0007";
+	const identity = { pid: 2_147_483_646, born: "1", bootId: platform.bootId() ?? null };
+	await writeRecord(join(jobs, id), { state: "running", label: "dead", identity, startedAt: new Date().toISOString() });
+	const coordinator = startCoordinator(t, root, "wake-dead-session");
+	await sweeps(coordinator, 4);
+	assert.equal(readRecordSync(join(jobs, id))?.state, "running");
 });

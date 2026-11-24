@@ -154,6 +154,14 @@ export const OLD_NAMES: readonly OldName[] = [
 		happened: "was renamed to limen seat queue",
 		next: "limen seat queue",
 	},
+	{
+		name: "sweep",
+		feature: "the seat group",
+		ticket: "R-032",
+		instead: "limen seat sweep",
+		happened: "was renamed to limen seat sweep",
+		next: "limen seat sweep",
+	},
 ];
 
 /** Every cut ticket that removes a value of `--engine` adds its entry here. */

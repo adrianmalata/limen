@@ -37,7 +37,7 @@ import { readOptional } from "../project/inherit.ts";
 import { inheritedPlanning, ticketPointers } from "../project/planning.ts";
 import { type EngineProfile, preflightEngine, resolveSpawnEngine } from "../runtime/engine.ts";
 import { launchWrapper } from "../runtime/launcher.ts";
-import { KILL_WAIT_MS, liveJob, waitForProcessGroup } from "../runtime/reap.ts";
+import { holdsProcesses, KILL_WAIT_MS, waitForProcessGroup } from "../runtime/reap.ts";
 import { DEFAULT_PRIORITY, parsePriority, queuedLine } from "../runtime/start-queue.ts";
 import { normalizeWorkerExtensions } from "../runtime/worker-extensions.ts";
 import { hasCode } from "../system-error.ts";
@@ -609,13 +609,16 @@ function assertTicketsAtBase(repository: string, baseCommit: string, task: strin
 		}
 	}
 }
-/** Says how many jobs already run, and warns about a bare feature-number label or a label a live job holds. */
+/**
+ * Says how many jobs already run, a running one whose wrapper died while its scope holds a process included (R-032
+ * (c)), and warns about a bare feature-number label or a label a live job holds.
+ */
 async function noteRunningJobs(view: StateView, jobsRoot: string, label: string, out: CommandText): Promise<void> {
 	let running = 0;
 	let held = false;
 	for (const id of await view.jobs(jobsRoot)) {
 		const record = await view.record(`${jobsRoot}/${id}`);
-		if (!(await liveJob(record))) {
+		if (!(await holdsProcesses(record))) {
 			continue;
 		}
 		running += 1;
@@ -961,7 +964,7 @@ export function normalizeLabel(value: string): string {
 async function liveJobUsesBranch(view: StateView, jobsRoot: string, branch: string, repo?: string): Promise<boolean> {
 	for (const id of await view.jobs(jobsRoot)) {
 		const record = await view.record(`${jobsRoot}/${id}`);
-		if (record?.branch === branch && (!repo || record.repo === repo) && (await liveJob(record))) {
+		if (record?.branch === branch && (!repo || record.repo === repo) && (await holdsProcesses(record))) {
 			return true;
 		}
 	}

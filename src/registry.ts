@@ -43,7 +43,7 @@ import { statsCommand } from "./commands/stats.ts";
 import { statusCommand } from "./commands/status.ts";
 import { steerCommand } from "./commands/steer.ts";
 import { stopCommand } from "./commands/stop.ts";
-import { sweepCommand } from "./commands/sweep.ts";
+import { seatSweepCommand } from "./commands/sweep.ts";
 import { ticketCheckCommand, ticketDoneCommand, ticketNewCommand } from "./commands/ticket.ts";
 import { unwatchCommand, watchCommand } from "./commands/watch.ts";
 import type { CommandText, IdKey, Success } from "./outcome.ts";
@@ -464,14 +464,13 @@ const JOBS: readonly Entry[] = [
 	{
 		name: "show",
 		object: "job",
-		// A change while it reaps dead jobs first (D-045 (6.2)); R-032 makes it a read again.
-		kind: "change",
+		// A read since the seat sweep reaps dead jobs, and no read command does (T-04, R-032).
+		kind: "read",
 		visibility: "public",
 		summary: "one job's record",
 		schema: [JOB],
 		ids: [],
-		// The reap finalizes a dead job, whose group it reads.
-		refuses: refusals(IN_PROJECT, JOB_WORD, RECORDED_GROUP),
+		refuses: refusals(IN_PROJECT, JOB_WORD),
 		example: "limen show a1b2c3d4",
 		handler: showCommand,
 	},
@@ -541,14 +540,13 @@ const PROJECT: readonly Entry[] = [
 	{
 		name: "status",
 		object: "project",
-		// A change while it reaps dead jobs first (D-045 (6.2)); R-032 makes it a read again.
-		kind: "change",
+		// A read since the seat sweep reaps dead jobs, and no read command does (T-04, R-032).
+		kind: "read",
 		visibility: "public",
 		summary: "what runs, what landed, what waits for the owner; --all lists every job",
 		schema: [{ flag: "all", about: "also the records older than 7 days, then one row for every job" }],
 		ids: [],
-		// The reap finalizes a dead job, whose group it reads.
-		refuses: refusals(IN_PROJECT, RECORDED_GROUP),
+		refuses: refusals(IN_PROJECT),
 		example: "limen status --all",
 		handler: statusCommand,
 	},
@@ -590,7 +588,7 @@ const PROJECT: readonly Entry[] = [
 		// A job of an open group keeps its worktree and record, so prune reads the group a record names.
 		refuses: refusals(IN_PROJECT, RECORDED_GROUP, ["BAD_REPO"]),
 		example: "limen prune --retire --dry-run",
-		movedBy: "R-032",
+		movedBy: "R-101",
 		handler: pruneCommand,
 	},
 	{
@@ -735,21 +733,21 @@ const SEAT: readonly Entry[] = [
 		handler: seatQueueCommand,
 	},
 	{
-		name: "sweep",
+		name: "seat sweep",
 		object: "seat",
 		kind: "change",
 		visibility: "public",
-		summary: "reap dead jobs in every project and notify about jobs nobody heard of",
+		summary: "end dead jobs and notify about job ends nobody heard of; --install runs it every minute",
 		schema: [
-			{ flag: "install", about: "install a macOS LaunchAgent that runs the sweep every 60 s" },
-			{ flag: "uninstall", about: "remove that LaunchAgent" },
+			{ flag: "install", about: "install the user timer that runs the sweep every minute; needs lingering" },
+			{ flag: "uninstall", about: "stop that timer and remove its units" },
+			{ flag: "status", about: "say whether that timer runs, as limen status does" },
 		],
 		ids: [],
-		// The reap finalizes a dead job, whose group it reads; its own refusal is untyped until R-082.
-		refuses: refusals(RECORDED_GROUP),
-		example: "limen sweep",
-		movedBy: "R-032",
-		handler: sweepCommand,
+		// A refusal of a step after its first write is an internal error (src/operation.ts), so only the run's own.
+		refuses: refusals(["SWEEP_FLAGS", "SWEEP_IN_JOB"]),
+		example: "limen seat sweep --status",
+		handler: seatSweepCommand,
 	},
 	{
 		name: "rule",

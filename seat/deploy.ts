@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { inspect } from "node:util";
 import { oldJobLive, oldLabel } from "../src/job/migration.ts";
 import { jobFolderNames, readRecord, unmigratedFolder } from "../src/job/record.ts";
-import { liveJob, startingJob } from "../src/runtime/reap.ts";
+import { holdsProcesses, startingJob } from "../src/runtime/reap.ts";
 import { absent, type ReadLine, readRegistry, registryPaths } from "./registries.ts";
 import { counted, printable, reason, requiredText, SeatFailure, type SeatOutcome } from "./tool-outcome.ts";
 import { ALERTS_SERVICE, accountName, unitUser } from "./units.ts";
@@ -65,8 +65,14 @@ type RunningJob = { readonly root: string; readonly id: string; readonly label: 
 type Registry = { readonly path: string; readonly lines: readonly ReadLine[] };
 type GitRun = { readonly status: number | null; readonly stdout: string; readonly stderr: string };
 
-/** The verifications at this commit, in order. R-017, R-032 and R-056 add the Pi type contract, units and nftables. */
-const VERIFICATIONS: readonly Verification[] = [];
+/**
+ * The verifications at this commit, in order: the seat sweep's user units, rendered by the new checkout's code and
+ * verified by `systemd-analyze verify` in a temporary folder, with no write in any home (R-032 (g),
+ * seat/sweep-units.ts). R-056 adds the nftables check.
+ */
+export const VERIFICATIONS: readonly Verification[] = [
+	{ name: "sweep units", argv: [process.execPath, join("seat", "sweep-units.ts")], timeoutMs: 60_000 },
+];
 /** The folder of the system manager's units, where `seat/alerts.ts install` put the alerts' units. */
 const SYSTEM_UNITS = "/etc/systemd/system";
 const UNITS_STEP_TIMEOUT_MS = 120_000;
@@ -271,10 +277,11 @@ async function registries(passwd: string, retry: string): Promise<readonly Regis
 }
 
 /**
- * The jobs of one project that run or start, by their records (src/job/record.ts). The job folders come from the
- * record module's listing, as for every other reader (T-25 (1)): a hidden folder is no job, and a project without
- * `.limen/jobs/` has none. A folder an older Limen wrote is read as that Limen read it (src/job/migration.ts), since
- * the migration runs after this deployment (D-057 (1)).
+ * The jobs of one project that run or start, by their records (src/job/record.ts), a running job whose wrapper died
+ * while its scope still holds a process included (R-032 (c)). The job folders come from the record module's listing,
+ * as for every other reader (T-25 (1)): a hidden folder is no job, and a project without `.limen/jobs/` has none. A
+ * folder an older Limen wrote is read as that Limen read it (src/job/migration.ts), since the migration runs after this
+ * deployment (D-057 (1)).
  */
 async function runningJobs(root: string, now: number, retry: string): Promise<readonly RunningJob[]> {
 	const jobs = join(root, ".limen", "jobs");
@@ -294,7 +301,7 @@ async function runningJobs(root: string, now: number, retry: string): Promise<re
 			}
 			continue;
 		}
-		if ((await liveJob(record, now)) || startingJob(record)) {
+		if ((await holdsProcesses(record, now)) || startingJob(record)) {
 			running.push({ root, id, label: record.label ?? "" });
 		}
 	}

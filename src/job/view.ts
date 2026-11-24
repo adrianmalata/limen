@@ -1,4 +1,4 @@
-import { formatDuration, type Job, type Pulse } from "./job.ts";
+import { DEAD_WRAPPER, formatDuration, type Job, type Pulse } from "./job.ts";
 
 /** A job as `limen status` and `limen show` show it, built from its record (src/job/record.ts) and its content files. */
 export type ShownJob = {
@@ -150,7 +150,7 @@ function runningFacts(record: ShownJob, paint: Paint): string[] {
 	const facts = [formatDuration(record.elapsedMs ?? 0)];
 	const pulse = record.pulse ?? "think";
 	if (pulse === "dead") {
-		facts.push(paint("red", "dead"));
+		facts.push(paint("red", DEAD_WRAPPER));
 	} else if (pulse === "unknown") {
 		facts.push(paint("yellow", "owner unknown"));
 	} else if (pulse === "starting") {

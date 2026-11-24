@@ -78,3 +78,18 @@ test("MISSING_TOOL: the user-scope probe refuses with an environment error when 
 		[["environment", "MISSING_TOOL"], true],
 	);
 });
+
+// T-12 (2), R-032 review round 1, note 10: `limen seat sweep --install` runs systemd-analyze, so it is declared.
+test("MISSING_TOOL: the requirements declare systemd-analyze, and its probe refuses with an environment error when it is not on PATH", async (t) => {
+	const probe = REQUIREMENTS.find(({ tool }) => tool === "systemd-analyze")?.probe;
+	assert.ok(probe, "the requirements declare systemd-analyze");
+	withEnvironment(t, { PATH: await folder(t) });
+	const missing = probe();
+	assert.deepEqual(
+		[
+			missing instanceof LimenError && [missing.class, missing.code],
+			missing?.message.startsWith("systemd-analyze is not on PATH"),
+		],
+		[["environment", "MISSING_TOOL"], true],
+	);
+});

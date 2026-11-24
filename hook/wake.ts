@@ -53,7 +53,7 @@ import {
 	piEvent,
 	recorded,
 } from "../src/runtime/pi-api.ts";
-import { ownerState, reapDeadJobs } from "../src/runtime/reap.ts";
+import { ownerState } from "../src/runtime/reap.ts";
 
 const CACHE_REFRESH_MS = 30_000;
 const SWEEP_MS = 500;
@@ -109,7 +109,6 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 	let finishedCache:
 		| { readonly key: string; readonly until: number; readonly jobs: readonly FinishedJob[] }
 		| undefined;
-	const firstDead = new Map<string, number>();
 	// The job folders whose damaged file this session already named, so each one is reported once.
 	const reportedDamage = new Set<string>();
 	// Records with nothing left to deliver here, oldest first. A watch event, a fallback due time, or the refresh reopens one.
@@ -727,7 +726,30 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 		sweeping = true;
 		void finishSweep(jobsDir);
 	};
-	// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: split pending: finish sweep in the wake hook
+	/** The first tick of a session observes each running job with an advisory, so a note set before it is heard. */
+	const observeAdvisories = (jobs: string, running: readonly string[]) => {
+		for (const id of running) {
+			if (recordOf(join(jobs, id))?.advisory) {
+				observe(jobs, id);
+			}
+		}
+	};
+	/** Observes each job a tick found, and settles each one with nothing left to deliver in this session. */
+	const observeEach = (jobs: string, ids: readonly string[]) => {
+		for (const id of ids) {
+			const job = join(jobs, id);
+			if (stateOf(jobs, id) === "running" && !routable(job)) {
+				enrollLegacyRunning(job);
+			}
+			if (leftFor(job) === "nothing") {
+				settled.add(id);
+				continue;
+			}
+			observe(jobs, id);
+			// Observing can claim or deliver, so the verdict is read again.
+			settle(jobs, id, leftFor(job));
+		}
+	};
 	const finishSweep = async (jobs: string) => {
 		const generation = sessionGeneration;
 		injectedThisSweep = false;
@@ -744,34 +766,16 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 			const { observe: ids, running } = collectSweep(jobs, jobIds(jobs), settled);
 			if (initialSweep) {
 				initialSweep = false;
-				for (const id of running) {
-					if (recordOf(join(jobs, id))?.advisory) {
-						observe(jobs, id);
-					}
-				}
+				observeAdvisories(jobs, running);
 			}
-			await reapDeadJobs(jobs, firstDead, Date.now(), running).catch((error: unknown) => {
-				// The reaper reads only records this tick read as running; one damaged since then is named on the next tick.
-				if (!(error instanceof LimenError && error.code === "BAD_DATA")) {
-					throw error;
-				}
-			});
+			// The tick reaps nothing: only the seat sweep finalizes a dead job (T-04, R-032), from outside every job's scope.
+			// It still delivers only once the code that started it has run to its end, as it did while it awaited the reap
+			// here: a handler that starts a tick, such as `/limen on` with its notice, finishes before a wake goes out.
+			await Promise.resolve();
 			if (!active || generation !== sessionGeneration) {
 				return;
 			}
-			for (const id of ids) {
-				const job = join(jobs, id);
-				if (stateOf(jobs, id) === "running" && !routable(job)) {
-					enrollLegacyRunning(job);
-				}
-				if (leftFor(job) === "nothing") {
-					settled.add(id);
-					continue;
-				}
-				observe(jobs, id);
-				// Observing can claim or deliver, so the verdict is read again.
-				settle(jobs, id, leftFor(job));
-			}
+			observeEach(jobs, ids);
 			await updateStatus(
 				jobs,
 				running.filter((id) => stateOf(jobs, id) === "running"),
@@ -883,7 +887,6 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 			finishedCache = undefined;
 			pendingDeliveries.clear();
 			activeDeliveries.clear();
-			firstDead.clear();
 			reportedDamage.clear();
 			damaged.clear();
 			reopenAll();

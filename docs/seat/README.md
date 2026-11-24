@@ -4,7 +4,7 @@ Operator checklist and the current setup steps. Limen does not run these. Copy t
 
 The seat owns the project copy (the Git checkout), the worktrees, and the job files in `.limen/jobs/`. The laptop is only a window.
 
-Units next to this file: `limen-prune.{service,timer}`, and the Pi extensions `coordinator-handoff.ts`, `quota-resume.ts` and `statusline.ts`. The alerts' units are written by `seat/alerts.ts` (below).
+Units next to this file: `limen-prune.{service,timer}`, and the Pi extensions `coordinator-handoff.ts`, `quota-resume.ts` and `statusline.ts`. The alerts' units are written by `seat/alerts.ts`, and the sweep's by `limen seat sweep --install` (both below).
 
 ## Box
 
@@ -39,6 +39,17 @@ Install, as root, once:
 A project the alerts read for the first time, on their first run or later, has its events recorded as reported the same way, and none is sent; then it alerts as the others do. `limen init` in a new project rewrites the registry, which drops its ACL, and the new project has no rights yet: run the install again after it, and the next run reads the new project first, so its old events send nothing. `node /opt/limen/seat/deploy.ts <sha>` writes the units of the new release again for the account in their `User=`. To stop the alerts: `systemctl disable --now limen-alerts.timer`.
 
 Moshi rings the phone when an agent needs you, through Herdr's agent hooks: pair `moshi-hook` on the box (`--store file` on Linux), `service install`, `loginctl enable-linger`.
+
+## Sweep
+
+`limen seat sweep` is the seat's one reaper: every minute its user timer ends each running job whose wrapper is dead, in every registered project, ends the scope a finished job left with processes in it, removes dead coordinator registrations and dead start-queue entries, and rings Herdr for an end nobody heard of ([Seat sweep](../commands.md#seat-sweep)). `limen status` and `limen show` only show a dead job (`wrapper dead; limen-sweep will finalize`), so without the timer no dead job is finalized, and `limen status` warns under `Sweep not working` while the timer is not active or the service's last run failed. A job whose processes it cannot end three runs in a row is listed under `Jobs the sweep cannot end` and sends the alert `<project folder's base name> stuck <job id>`.
+
+It runs as `limen-sweep.service`, a user service of the agents' account (no root), with `/usr/bin/node /opt/limen/bin/limen seat sweep`, stopped after 300 s. Install, on the agents' account, once lingering is on:
+
+1. `limen seat sweep --install`. Without lingering it exits 4 and names the command for root, `loginctl enable-linger <account>`; then run it again. It writes `limen-sweep.service` and `limen-sweep.timer` into `~/.config/systemd/user/` where they differ, verifies them with `systemd-analyze --user verify` (a failure puts the earlier units back), reloads the user manager and enables the timer. Run again, it changes nothing that is in place.
+2. `limen seat sweep --status` prints `limen-sweep.timer is active`, and after the first minute `journalctl --user -u limen-sweep.service` ends with a final line of class `ok`.
+
+`node /opt/limen/seat/deploy.ts <sha>` verifies the units of the new release with `systemd-analyze verify` in a temporary folder and writes no home, so a release that changes them needs the install again. To stop the sweep: `limen seat sweep --uninstall`.
 
 ## Pi extensions
 

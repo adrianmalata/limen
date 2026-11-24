@@ -17,7 +17,7 @@ import { LimenError, type Success } from "../outcome.ts";
 import { platform } from "../platform/platform.ts";
 import { branchTip, committerTime, headHistory, isGitRepository, limenRoot } from "../project/git.ts";
 import { landedJobOf } from "../project/lanes.ts";
-import { liveJob, STARTUP_GRACE_MS, startingJob } from "../runtime/reap.ts";
+import { holdsProcesses, STARTUP_GRACE_MS, startingJob } from "../runtime/reap.ts";
 import { hasCode } from "../system-error.ts";
 import { hexEndOf, TOKEN, tokenOf } from "./id.ts";
 import { isTerminal, SESSION_ID } from "./job.ts";
@@ -278,11 +278,14 @@ function abandonedOf(root: string, record: JobRecord): Pick<MarkerStep, "abandon
 	};
 }
 
-/** Whether the folder's job runs or starts now: by its record, or by the files of the older record. */
+/**
+ * Whether the folder's job runs or starts now: by its record, a dead wrapper whose scope still holds a process included
+ * (R-032 (c)), or by the files of the older record.
+ */
 export async function folderLive(jobDir: string): Promise<boolean> {
 	if (existsSync(recordPath(jobDir))) {
 		const record = await readRecord(jobDir);
-		return (await liveJob(record)) || startingJob(record);
+		return (await holdsProcesses(record)) || startingJob(record);
 	}
 	return oldJobLive(jobDir);
 }

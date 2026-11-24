@@ -1433,7 +1433,7 @@ check it, and a missing tool or another version exits with code 4 naming both ve
 | Pi (`@earendil-works/pi-coding-agent`) | 1.5.1 | R-020; another version refused at coordinator start and spawn by R-049 | root, seat script (5.3) |
 | Claude bridge (`@vanillagreen/pi-claude-bridge`) | 5.0.3 | R-020; R-049 | root, seat script (5.3) |
 | Claude Code | the version Adrian pins at installation (5.3), recorded here then; updated only by the seat script after the contracts pass | R-049 (D-017); the bridge gets its path (R-048) | root, in a root directory (5.3); the agents' copy removed (5.20) |
-| systemd user instance with lingering | scopes and timers work (`systemd-run --user --scope true`) | R-026, R-032 | root enables lingering (3.1) |
+| systemd user instance with lingering | scopes and timers work (`systemd-run --user --scope true`); `systemd-analyze` present, which verifies the sweep's units at `--install` (R-032 F9) | R-026, R-032 | root enables lingering (3.1) |
 | Herdr | 0.9.3 on the seat | R-020 (T-12: tools found in use) | the seat |
 | setfacl, systemd-analyze, systemctl (system manager) | present for root: the alerts' install grants ACLs, verifies and enables system units | R-033 (`SEAT_TOOLS` in `seat/alerts.ts`) | the seat (Ubuntu's `acl` and `systemd`) |
 
@@ -1658,7 +1658,7 @@ Columns:
 | R-029 | One recorded failure cause per job | 3 | A-016, E-9, T-31, T-32, D-055, D-095 | R-017, R-021, R-100 | M | delegated | night | — | bridge | 3.4 | done |
 | R-030 | Unlanded work survives: `limen abandon`, a guarded prune, a refusing spawn | 3 | A-001 | R-023, R-092 | M | delegated | night | yes | herdr | 3.6 | done |
 | R-031 | `landed` and `abandoned` markers; retire moves records to the archive | 3 | A-002, §6 | R-030 | L | delegated | night | yes | — | 3.6 | done |
-| R-032 | `limen seat sweep` runs on a timer; read commands never write or wait | 3 | A-024, T-04, T-18, A-017, §6, D-045 | R-012, R-027, R-031 | L | delegated | night | yes | systemd | 3.1 | ready |
+| R-032 | `limen seat sweep` runs on a timer; read commands never write or wait | 3 | A-024, T-04, T-18, A-017, §6, D-045 | R-012, R-027, R-031 | L | delegated | night | yes | systemd | 3.1 | done |
 | R-033 | Alerts from their own account: failures and escalations only | 3 | A-066, A-054, T-18, D-084, D-085 | R-021 | L | delegated | night | yes | systemd | 3.3 | done |
 | R-034 | Resume after the quota limit in code | 3 | A-016, A-068, §6, D-094, D-097 | R-029, R-032, R-033 | L | delegated | night | yes | pi, systemd | 3.4 | ready (D-097) |
 | R-035 | Start-queue thresholds: a diagnosis at 30 min, a failure at 2 h | 3 | A-036 | R-026, R-033 | L | delegated | night | — | systemd | 3.8 | done |
@@ -1959,6 +1959,19 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   line instead of failing the whole `limen status`.
 - R-081 (R-026 `outcome.md` → Open points): `SECURITY.md:9` still describes the escaped-descendant check of the
   removed `src/runtime/contain.ts`; the job's scope replaces it.
+- R-102 (R-032 `ticket.md` → `## Decisions` 16): the T-04 import scan of `test/structure.test.ts` lists `rule` as an
+  exception that names R-102; when R-102 moves `rule`, the exception goes, and the scan passes without it.
+- R-087 (R-032 `ticket.md` → `## Decisions` 17): R-032 adds the test knob `LIMEN_LINGER_DIR` (the linger folder,
+  `src/config.ts`), so R-087's count of 13 test knobs is 14; R-087's test mode covers it as the others.
+- R-082 (R-032 `review.md` → Round 3, note 5, D-092): on the sweep's path each start-queue entry file is still read with
+  `readFile(...).catch(() => undefined)` (`src/runtime/start-queue.ts`, `removeDeadEntries`), so an entry the sweep
+  cannot read is neither removed nor named (T-01); R-032 made only the folder's listing strict there, and the waiting
+  wrappers and `limen seat queue` keep the listing's catch-all as well.
+- R-101 (R-032 `review.md` → Round 3, note 7, D-092): two tests of `test/cli/sweep.test.ts` claim more than their
+  mechanism: the test of an unlistable start-queue folder also asserts that the dead job is reaped, which its step
+  cannot make fail, and the test that a run removes a dead queue entry and says how many registers a second project
+  no assertion reads; R-101, which adds its daily steps to the sweep and these tests, makes each test check one
+  mechanism (T-29).
 
 ## Deployment
 
@@ -2134,7 +2147,13 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
   section, and after the first minute `journalctl --user -u limen-sweep.service` ends with a final line of class `ok`
   and no `herdr is not available`. The old `limen-prune@ledger` and `limen-prune@synchronizer` timers were disabled on
   2026-11-17 (Adrian, `systemctl disable --now`; item 5, done); what remains is to check that `systemctl list-timers
-  --all` shows no `limen-prune` (R-032).
+  --all` shows no `limen-prune` (R-032). The engine facts R-032 relies on (`R-032-seat-sweep-timer/outcome.md` →
+  `## Unmeasured`), during a trial job and after its end: as root, the job scope's `cgroup.events` under the agents'
+  `user@<uid>.service/app.slice/` reads `populated 1` while the job runs and `populated 0` (or the folder is gone) after
+  it, which the deployment gate reads; on the agents' account `systemctl --user is-active limen-job-<id>.scope` prints
+  `inactive` or `failed` (exit 3) after the end and for a unit name that never existed (a scope systemd is still
+  stopping prints `deactivating`, which R-032 reads as not ended); and `limen seat sweep` run by hand from an SSH and a
+  Herdr shell of the agents' account ends with a final line of class `ok`, as the timer's run does.
 - **3.2** From a Herdr pane on the agents' account, `systemd-run --user --scope true` exits 0 (item 12); during a trial
   job, `systemd-cgls` shows the engine and its tools in the job's scope, and `systemctl --user is-active --quiet
   limen-job-<id>.scope` exits 0 while the job runs and 3 after it ended, as it does for a unit name that never
@@ -2494,7 +2513,8 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-23 by day (`limen-rebuild-26`, after D-098), rebuild stage 5 in plan stage 3: stage 1 is closed
+Updated 2026-11-24 by day (`limen-rebuild-28`, after R-032; R-029 and R-032 are `done`, by day, in "Evening of
+2026-11-23", the next ticket in `Next` 2), rebuild stage 5 in plan stage 3: stage 1 is closed
 at `a0.1.1` (deployed on 2026-11-20, with B.2 closed by D-050); stage 2 is closed at `a0.2.0` (gate 5.2 decided,
 D-078–D-082; deployed on 2026-11-23/24 with B.3's a0.2.0 part, "Evening of 2026-11-23"); stage 3 has started: R-026, R-030 and R-033 are `done` (by day), R-027, R-028, R-031, R-035 and R-100
 `done` in the night of D-091 (until 09:00; it ended with `no-ticket`), D-092 settles its Q-42 and Q-43, and D-083's
@@ -3983,14 +4003,37 @@ the seat's project registry (only the wake hook and `limen init` do). It gave Ad
   all) that `test/u11-live-activity.test.ts:99` and `:121` leave there on every gate run; `rm` is denied to the
   sessions, so Adrian removes them if he wants, and the leak is a note for the ticket that rewrites those tests.
 - 2.4: `limen status` names `LIMEN_COORDINATOR` in both projects (read until R-050, so it stays).
+- `limen-rebuild-28` (its `close-previous` printed `handover: closed tmux session limen-rebuild-27` and one `handover:
+  stopped claude …` line and exited 0; its takeover push was skipped as redundant, the terminal being active; context
+  8 % at the start): R-032 `done` (delegated), from `8b1ec4c`. `limen seat sweep` (`src/runtime/sweeping.ts`) replaces
+  `limen sweep` (exit 2): the reap, the end of terminal jobs' leftover scopes, coordinators and the Herdr ring per
+  project, each step and record failing alone, the start queue's dead entries once per run, `SWEEP_IN_JOB` inside a
+  job scope; `status`, `show`, `seat queue` and the wake hook's tick no longer write; `stuck` is escalated from the
+  third attempt (alert and `limen status`); the user-unit installer with lingering and `TimeoutStartSec=300`
+  (`src/platform/systemd-units.ts`, one placement policy that the alerts share); `holdsProcesses` reads
+  `cgroup.events`, so root's deployment gate sees a dead wrapper's engine; deploy verifies the new checkout's units.
+  The implementer's one `BLOCKED` (the ticket's module names broke the unique-basename test) and its defaults were
+  settled by the documents, `ticket.md` → `## Decisions` 15–17 (named for Adrian at gate 5.3: 15, 16, and the new
+  test knob of 17). Review PASS in rounds 1–3 with two rounds of fixes (F1–F9, G1–G4); round 2's first reply was
+  rejected by `review-verdict.mjs` on form and sent again unchanged in substance; round 3's notes went to R-082's and
+  R-101's notes and to `outcome.md` → Open point 6 (D-092); step 3.1 names the engine facts it relies on, and the
+  system requirements name `systemd-analyze`. Gate 1030/1030. For Adrian at gate 5.3: `outcome.md` → Open points 1–6
+  (the transitive import closure of read commands, `endDueRules` until R-102, `diff` and `open` until R-103, the two
+  bounded probes, `--install` not refused inside a job scope, `--uninstall`'s tolerance). One command of this session
+  was refused by the permissions (a heredoc append to the ticket with a stray `python3`) and was not worked around.
 
 Next (by day):
 1. Done on 2026-11-23: Adrian added the `hooks` block of D-083 to `.claude/settings.local.json`, and the live test
    blocked a push naming `Q-00` ("Evening of 2026-11-23" above); the guard is active, by day and at night.
 2. By day, with Adrian (2026-11-24: "robimy teraz"): the stage-3 tickets in protocol order (`## Agents`, step 1).
-   R-029 is `done` (`b0c033b`); next is R-032 (L), then R-036, R-037, R-087 and R-098, each `ready` with its
-   `ticket.md`; R-101 `ready (D-097)` waits for R-032, R-034 `ready (D-097)` for R-032 (R-029 and R-033 are done),
-   R-102 `ready (D-097)` for R-034, R-103 `ready (D-096)` for R-037. The main session's estimate given to Adrian
+   R-029 (`b0c033b`) and R-032 are `done`; by protocol step 1 the next is R-034 (L; `ready (D-097)`, its dependencies
+   R-029, R-032 and R-033 done; its `ticket.md` (`R-034-quota-resume/`) was written by `limen-rebuild-28` at R-032's
+   tree before R-032's commit, as `check.mjs` requires once R-032 is `done` (D-054 (1), as R-019's and R-094's were),
+   from `evidence/inventories/R-034.md` re-located by a read-only agent after R-029 and R-032, and D-097 (5); its
+   Decisions 2, 3 and 5 are for gate 5.3), then R-036, R-037, R-087 and R-098, each `ready` with its `ticket.md`, and
+   R-101 `ready (D-097)` with its `ticket.md` (`R-101-sweep-daily-steps/`, written the same way from D-096 (1) and
+   D-097 (4); its Decisions 2 and 4 for gate 5.3); both are committed with the handover after R-032. R-102 `ready
+   (D-097)` waits for R-034, R-103 `ready (D-096)` for R-037. The main session's estimate given to Adrian
    (2026-11-24): about 25 h of work for the ten tickets (18–32 h, from stage 3's eight tickets at 44 min to 3 h 49), so
    the last ticket on 2026-11-25 before noon if a night runs between, then the close and gate 5.3. Whether and when to
    start a night is Adrian's (D-024: the main session starts the runner when he asks).

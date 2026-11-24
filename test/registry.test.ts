@@ -1,7 +1,8 @@
 // The command registry: each entry's fields, the wrapper's hold on its ids, and the coverage T-28 derives from it.
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { type TestContext, test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -12,6 +13,7 @@ import { OLD_FLAGS } from "../src/old-names.ts";
 import { SHARED_CODES } from "../src/operation.ts";
 import { LimenError } from "../src/outcome.ts";
 import { parse } from "../src/parser.ts";
+import { platform } from "../src/platform/platform.ts";
 import { type Entry, GROUPS, REGISTRY } from "../src/registry.ts";
 import {
 	type Case,
@@ -28,7 +30,7 @@ import {
 } from "./coverage.ts";
 import { readOutcome } from "./final-line.ts";
 import { knownFilesBelow } from "./known-files.ts";
-import { jobDir, jobRecord, limen, type Plant, plant, spawnJob, waitJob } from "./plant.ts";
+import { jobDir, jobRecord, limen, type Plant, plant, spawnJob, waitJob, writeRecord } from "./plant.ts";
 import { snapshot } from "./snapshot.ts";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -36,10 +38,9 @@ const OBJECTS = ["job", "owner", "project", "ticket", "seat", "github", "group",
 const TYPES = ["job", "ticket", "text", "path", "branch", "word"];
 // D-039 and D-042: the commands a subsequent ticket moves or cuts, each with that ticket.
 const MOVED = {
-	prune: "R-032",
+	prune: "R-101",
 	close: "R-037",
 	keeper: "R-066",
-	sweep: "R-032",
 	rule: "R-034",
 	"rule set": "R-034",
 	"rule end": "R-034",
@@ -275,14 +276,21 @@ test("T-26: the wrapper prints a command's text when the command ends, the text 
 	);
 });
 
-// D-045 (6), D-075: a command that reaps dead jobs writes, so status and show are change commands until R-032 makes the
-// reap the sweep's; `rule` only lists, since `rule set` and `rule end` are entries of their own.
-test("D-045: status and show, which reap dead jobs, are change commands, and rule, which only lists, is a read command", () => {
-	assert.deepEqual(Object.fromEntries(["status", "show", "rule"].map((name) => [name, byName(name)?.kind])), {
-		status: "change",
-		show: "change",
-		rule: "read",
-	});
+// D-045 (6), D-075: status and show were change commands while they reaped dead jobs; R-032 made the reap the seat
+// sweep's alone, so they are reads; `rule` only lists, since `rule set` and `rule end` are entries of their own.
+test("D-045: status and show, which no longer reap, and rule, which only lists, are read commands; seat sweep is a change", () => {
+	assert.deepEqual(
+		Object.fromEntries(["status", "show", "rule", "seat sweep"].map((name) => [name, byName(name)?.kind])),
+		{ status: "read", show: "read", rule: "read", "seat sweep": "change" },
+	);
+});
+
+// D-039, R-032: the ticket that moves a command leaves no entry moved by it.
+test("D-039: no registry entry is moved by R-032, which made sweep the seat's seat sweep and moved prune to R-101", () => {
+	assert.deepEqual(
+		REGISTRY.filter((entry) => entry.movedBy === "R-032").map((entry) => entry.name),
+		[],
+	);
 });
 
 test("the code scan reads a literal, both branches, a constant and a caller's argument, and names an unreadable refusal", () => {
@@ -734,22 +742,30 @@ const READ_REFUSALS: Readonly<Record<string, { readonly code: string; readonly w
  * `assertUnprivileged` refuses before it runs `id`, so the stubs cannot hold there.
  */
 const UNPRIVILEGED = { id: "#!/bin/sh\necho staff\n", sudo: "#!/bin/sh\nexit 1\n" };
-/** The finished job of the test below: its token, its branch, and the root of its project. */
-type Finished = { readonly token: string; readonly branch: string; readonly root: string };
+/**
+ * The jobs of the test below: the finished one by its token, its branch and the root of its project, and a running
+ * one whose wrapper is dead by its token.
+ */
+type Jobs = { readonly token: string; readonly branch: string; readonly root: string; readonly dead: string };
 /** The words after its name that each read command takes on the test project; a command not named takes none. */
-const READ_ARGUMENTS: Readonly<Record<string, (job: Finished) => readonly string[]>> = {
-	diff: (job) => [job.token],
-	"ticket check": (job) => [job.branch],
-	"github ensure": (job) => [job.root],
+const READ_ARGUMENTS: Readonly<Record<string, (jobs: Jobs) => readonly string[]>> = {
+	diff: (jobs) => [jobs.token],
+	show: (jobs) => [jobs.dead],
+	"ticket check": (jobs) => [jobs.branch],
+	"github ensure": (jobs) => [jobs.root],
 };
 /** The seat's folder of a test project, beside its root (LIMEN_HOME, test/plant.ts), which the snapshot digests too. */
 const SEAT = ["../.limen"] as const;
+/** A running job whose wrapper is gone: a pid no process holds, under this boot, as a wrapper killed alone leaves
+ * it. */
+const DEAD_JOB = "2026-11-24-dead-wrapper-5e6f7a8b";
 
 /**
- * A test project with one job that ran, committed and finished, with its transcript, on an account with no sudo;
- * removed after the test.
+ * A test project with one job that ran, committed and finished, with its transcript, and one running job whose wrapper
+ * is dead, which a reap would end, with the start-queue entry it left, on an account with no sudo; removed after the
+ * test.
  */
-async function finishedProject(t: TestContext): Promise<{ p: Plant; job: Finished }> {
+async function readProject(t: TestContext): Promise<{ p: Plant; jobs: Jobs }> {
 	const p = await plant();
 	t.after(() => p.cleanup());
 	for (const [name, text] of Object.entries(UNPRIVILEGED)) {
@@ -764,34 +780,73 @@ async function finishedProject(t: TestContext): Promise<{ p: Plant; job: Finishe
 		session.some((name) => name.endsWith(".jsonl")),
 		`job ${id} has a transcript: ${session.join(", ")}`,
 	);
-	return { p, job: { token: tokenOf(id) ?? id, branch: record.branch, root: p.root } };
+	const identity = { pid: 2_147_483_646, born: "1", bootId: platform.bootId() ?? null };
+	const startedAt = new Date().toISOString();
+	await writeRecord(jobDir(p, DEAD_JOB), {
+		state: "running",
+		label: "dead",
+		branch: "limen/dead",
+		identity,
+		startedAt,
+	});
+	await writeFile(join(jobDir(p, DEAD_JOB), "task.md"), "block\n");
+	await writeFile(join(jobDir(p, DEAD_JOB), "log"), "");
+	// Its entry of the start queue, which its dead wrapper left; `seat queue` lists it as dead and leaves it there.
+	const entries = join(p.parent, ".limen", "start-queue", "entries");
+	await mkdir(entries, { recursive: true });
+	const entry = {
+		id: DEAD_JOB,
+		jobDir: jobDir(p, DEAD_JOB),
+		label: "dead",
+		priority: 2,
+		queuedAt: 1,
+		pid: identity.pid,
+	};
+	await writeFile(join(entries, `${DEAD_JOB}.json`), `${JSON.stringify(entry)}\n`);
+	const jobs = { token: tokenOf(id) ?? id, branch: record.branch, root: p.root, dead: tokenOf(DEAD_JOB) ?? DEAD_JOB };
+	return { p, jobs };
 }
 
-// D-045 (6.3): a read run on a project leaves its files, `.limen/` and the seat as they were; status and show join it
-// once R-032 makes them read commands again.
-test("T-04: every read command of the registry, run on a project with a finished job, leaves the project and the seat unchanged", async (t) => {
-	const { p, job } = await finishedProject(t);
+/** Runs `work` with the folders `folders` and all below them read-only, and gives their write right back after it. */
+async function readOnly<T>(folders: readonly string[], work: () => T): Promise<T> {
+	execFileSync("chmod", ["-R", "a-w", ...folders]);
+	try {
+		return work();
+	} finally {
+		execFileSync("chmod", ["-R", "u+w", ...folders]);
+	}
+}
+
+// D-045 (6.3), T-04: a read run on a project leaves its files, `.limen/` and the seat as they were, and needs no write
+// right there; status and show are reads since R-032, and a dead job is left to the seat sweep.
+test("T-04: every read command of the registry, run on a read-only .limen/ with a dead running job, leaves the project and the seat unchanged", async (t) => {
+	const { p, jobs } = await readProject(t);
 	const reads = REGISTRY.filter((entry) => entry.kind === "read").map((entry) => entry.name);
 	const runs = reads.filter((read) => !Object.hasOwn(READS_NOT_RUN, read));
 	assert.deepEqual(
 		[
 			...Object.keys(READS_NOT_RUN).filter((name) => !reads.includes(name)),
 			...Object.keys(READ_REFUSALS).filter((name) => !runs.includes(name)),
+			...["status", "show"].filter((name) => !runs.includes(name)),
 		],
 		[],
-		"an exception names a read command that the test runs or names as not run",
+		"an exception names a read command that the test runs or names as not run, or status or show is no read",
 	);
 	const wrong: string[] = [];
-	for (const name of runs) {
-		const before = snapshot(p.root, SEAT);
-		const run = limen(p, [...name.split(" "), ...(READ_ARGUMENTS[name]?.(job) ?? [])]);
-		const code = READ_REFUSALS[name]?.code ?? null;
-		if (run.status !== (code === null ? 0 : 1) || readOutcome(run).code !== code) {
-			wrong.push(`${name} exited ${run.status}, not as ${code ?? "a success"}: ${run.stderr.trim()}`);
+	await readOnly([join(p.root, ".limen"), join(p.parent, ".limen")], () => {
+		for (const name of runs) {
+			const before = snapshot(p.root, SEAT);
+			const run = limen(p, [...name.split(" "), ...(READ_ARGUMENTS[name]?.(jobs) ?? [])], {
+				env: { LIMEN_REAP_CONFIRM_MS: "1" },
+			});
+			const code = READ_REFUSALS[name]?.code ?? null;
+			if (run.status !== (code === null ? 0 : 1) || readOutcome(run).code !== code) {
+				wrong.push(`${name} exited ${run.status}, not as ${code ?? "a success"}: ${run.stderr.trim()}`);
+			}
+			if (!isDeepStrictEqual(snapshot(p.root, SEAT), before)) {
+				wrong.push(`${name} changed the project or the seat`);
+			}
 		}
-		if (!isDeepStrictEqual(snapshot(p.root, SEAT), before)) {
-			wrong.push(`${name} changed the project or the seat`);
-		}
-	}
-	assert.deepEqual(wrong, []);
+	});
+	assert.deepEqual([wrong, jobRecord(p, DEAD_JOB)?.state], [[], "running"]);
 });

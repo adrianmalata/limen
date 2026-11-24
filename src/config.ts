@@ -86,6 +86,10 @@ export const ENVIRONMENT = {
 			"the cgroup of a process in a tests' scope, in place of the one the system gives; its processes inherit it",
 	},
 	LIMEN_ALERTS_URL: { kind: "test", carries: "the ntfy server the seat's alerts post to, in place of https://ntfy.sh" },
+	LIMEN_LINGER_DIR: {
+		kind: "test",
+		carries: "a folder in place of /var/lib/systemd/linger, where systemd marks each account whose manager lingers",
+	},
 	LIMEN_WORKER_MODEL: { kind: "exception", carries: "the model of a continue without --model", until: "R-062" },
 	LIMEN_COORDINATOR: { kind: "exception", carries: "1 in the owner-facing coordinator's session", until: "R-050" },
 	LIMEN_GITHUB_APP_ID: { kind: "exception", carries: "the GitHub App of the poller", until: "R-059" },

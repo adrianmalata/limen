@@ -1,18 +1,10 @@
 /**
- * Systemd units as typed data, and the one renderer of the text systemd reads (D-010): each unit is a list of sections,
- * each section a list of directives, and a value that would start a line of its own is refused. The alerts' service
- * and timer (D-085) come first; the sweep's units (R-032) reuse the renderer. `seat/alerts.ts install` writes these
- * units, and `seat/deploy.ts` has the new version's `units` step write them again at each deployment.
+ * The alerts' systemd units as typed data (D-010, D-085): their service and timer, rendered by the one renderer of
+ * src/platform/systemd-units.ts, which holds the unit model and the seat sweep's user units too (R-032).
+ * `seat/alerts.ts install` writes these units, and `seat/deploy.ts` has the new version's `units` step write them
+ * again at each deployment.
  */
-
-/** One `Key=value` line of a section. */
-export type Directive = readonly [key: string, value: string];
-export type UnitSection = {
-	readonly name: "Unit" | "Service" | "Timer" | "Install";
-	readonly directives: readonly Directive[];
-};
-/** A unit file: its name under the unit folder, and its sections in order. */
-export type UnitDefinition = { readonly file: string; readonly sections: readonly UnitSection[] };
+import { renderUnit, type UnitDefinition } from "../src/platform/systemd-units.ts";
 
 export const ALERTS_SERVICE = "limen-alerts.service";
 export const ALERTS_TIMER = "limen-alerts.timer";
@@ -22,8 +14,7 @@ export const TOPIC_FILE = "/etc/limen/alerts-topic";
 const ALERTS_RUN = "/usr/bin/node /opt/limen/seat/alerts.ts run";
 /** A system account's name as `useradd` takes it by default, so a unit's `User=` holds nothing else. */
 const ACCOUNT = /^[a-z_][a-z0-9_-]{0,31}$/;
-const KEY = /^[A-Z][A-Za-z]*$/;
-/** The first line of every unit; at most 100 characters, as every line Limen generates (T-10). */
+/** The first line of each alerts unit; at most 100 characters, as every line Limen generates (T-10). */
 const HEADER = "# Written by /opt/limen/seat/alerts.ts install; seat/deploy.ts rewrites it at each deployment.";
 
 /** Whether `name` has the form of a system account's name. */
@@ -43,6 +34,7 @@ export function alertsUnits(account: string): readonly UnitDefinition[] {
 	return [
 		{
 			file: ALERTS_SERVICE,
+			header: HEADER,
 			sections: [
 				{
 					name: "Unit",
@@ -68,6 +60,7 @@ export function alertsUnits(account: string): readonly UnitDefinition[] {
 		},
 		{
 			file: ALERTS_TIMER,
+			header: HEADER,
 			sections: [
 				{ name: "Unit", directives: [["Description", "Run the Limen alerts every minute"]] },
 				{
@@ -85,20 +78,9 @@ export function alertsUnits(account: string): readonly UnitDefinition[] {
 	];
 }
 
-/** The text of `unit`: the header line, then each section with its directives, sections apart by one empty line. */
-export function renderUnit(unit: UnitDefinition): string {
-	const sections = unit.sections.map(({ name, directives }) =>
-		[`[${name}]`, ...directives.map((directive) => directiveLine(unit.file, directive))].join("\n"),
-	);
-	return `${HEADER}\n${sections.join("\n\n")}\n`;
-}
-
-/** `Key=value`; a key of another form, an empty value or a control character in it would change what systemd reads. */
-function directiveLine(file: string, [key, value]: Directive): string {
-	if (!KEY.test(key) || value === "" || /\p{Cc}/u.test(value)) {
-		throw new Error(`${file}: the directive ${JSON.stringify(key)}=${JSON.stringify(value)} cannot be written`);
-	}
-	return `${key}=${value}`;
+/** The alerts' units for `account` as the files systemd reads: each one's name and its rendered text. */
+export function alertsUnitFiles(account: string): readonly { readonly file: string; readonly text: string }[] {
+	return alertsUnits(account).map((unit) => ({ file: unit.file, text: renderUnit(unit) }));
 }
 
 /** The account the unit text `text` runs as: the last `User=` of its `[Service]` section, as systemd reads it. */

@@ -436,6 +436,7 @@ const NEXTS: Readonly<Record<string, readonly [string, string]>> = {
 	"picture watch": ["limen status", "limen status"],
 	jobs: ["limen status --all", "limen show a1b2c3d4"],
 	queue: ["limen seat queue", "limen seat queue"],
+	sweep: ["limen seat sweep", "limen seat sweep"],
 	"group status --json": ["limen group status", "limen group status a1b2c3d4"],
 };
 

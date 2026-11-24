@@ -99,8 +99,8 @@ test("the configuration scan finds each read form and an unregistered name, but 
  * The inventory of R-015's ticket (`## Decisions`): every name Limen's code held at 9f247a5, by kind, and the names added
  * since: LIMEN_LOCK_WAIT_MS, the lock module's wait bound (R-019), LIMEN_CGROUP_ROOT and LIMEN_CGROUP, the tests'
  * systemd user scopes (R-026), LIMEN_ALERTS_URL, the ntfy server of the alerts' tests (R-033), LIMEN_STOP_GRACE_MS,
- * the one grace of stop, exhaustion and the reaper (R-027), and LIMEN_END_GATE, the tests' hold of a wrapper's end
- * (R-028).
+ * the one grace of stop, exhaustion and the reaper (R-027), LIMEN_END_GATE, the tests' hold of a wrapper's end
+ * (R-028), and LIMEN_LINGER_DIR, the folder of the linger files the sweep's install reads (R-032).
  */
 const INVENTORY = {
 	"transport wrapper": [
@@ -133,6 +133,7 @@ const INVENTORY = {
 		"LIMEN_CGROUP_ROOT",
 		"LIMEN_CGROUP",
 		"LIMEN_ALERTS_URL",
+		"LIMEN_LINGER_DIR",
 	],
 	exception: [
 		"LIMEN_WORKER_MODEL",

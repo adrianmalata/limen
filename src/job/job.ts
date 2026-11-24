@@ -28,6 +28,11 @@ export const isTerminal = (state: string): state is TerminalState =>
 	(TERMINAL_STATES as readonly string[]).includes(state);
 /** A session ID that is safe as one path segment, for example under `notify/delivered/`. */
 export const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+/**
+ * How a running job whose wrapper is dead shows in `limen status` and `limen show` (T-04): a read leaves it running,
+ * and the seat sweep finalizes it. It names no time of death, which no record holds (z. 2).
+ */
+export const DEAD_WRAPPER = "wrapper dead; limen-sweep will finalize";
 /** A running job's pulse; `unknown` when its record does not say which process runs it (A-056). */
 export type Pulse = "starting" | "queued" | "think" | "tool" | "wait" | "dead" | "unknown";
 export type JobView = {
@@ -189,7 +194,7 @@ export function renderJob(job: Job, view: JobView): string {
 		`silent ${formatDuration(view.silentMs)}`,
 	];
 	if (view.pulse) {
-		facts.push(view.pulse);
+		facts.push(view.pulse === "dead" ? DEAD_WRAPPER : view.pulse);
 	}
 	if (view.queue) {
 		facts.push(view.queue);

@@ -3,7 +3,7 @@ Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, com
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
 R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025, R-097, R-099, R-026, R-030, R-033,
-R-027, R-028, R-031, R-035, R-100. -->
+R-027, R-028, R-031, R-035, R-100, R-029, R-032. -->
 
 # Changes
 
@@ -383,3 +383,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-11; `## Deployment` 3.4)
 - Commit: R-029
 - Rollback: git revert $(git log --format=%H --grep='^R-029:' adrian-rebuild --)
+
+## 2026-11-24 R-032 `limen seat sweep` runs on a timer; read commands never write or wait
+- What: the new `src/runtime/sweeping.ts` (`limen seat sweep` through `operationHandler`: every registered project's reap, the end of terminal jobs' leftover scopes, dead coordinator registrations and the Herdr ring, each step and each record failing alone, once per run the start queue's dead entries; `SWEEP_IN_JOB` inside a job scope; `NO_USER_MANAGER`); the new `src/platform/systemd-units.ts` (the unit model and renderer moved from `seat/units.ts`, the sweep's units with `TimeoutStartSec=300`, `placeUnitFiles` as the one placement policy, `--install` with the linger check `NO_LINGER`, `--uninstall`, `--status`); the new `src/runtime/queue-report.ts` (`seat queue`'s report, which removes nothing); the new `seat/sweep-units.ts` (deploy's check of the new checkout's units); `src/runtime/reap.ts` (`stuck` written per failed attempt and escalated from the third, `endLeftoverScopes`, `holdsProcesses` from `cgroup.events`); `src/job/record.ts` (`stuck`, `writeStuck`); `src/platform/linux.ts`, `src/platform/platform.ts` (`deactivating` not ended, the user manager of the process's own uid, linger, user-unit probes, `cgroupPopulated`); `src/platform/requirements.ts` (`systemd-analyze`); `src/config.ts` (`LIMEN_LINGER_DIR`); `src/project/summary.ts`, `src/job/detail.ts`, `src/job/job.ts`, `src/job/view.ts` (no reap; `wrapper dead; limen-sweep will finalize`; the sections `Jobs the sweep cannot end` and `Sweep not working`); `src/runtime/start-queue.ts`, `src/commands/seat-queue.ts`, `src/commands/sweep.ts`, `src/registry.ts`, `src/old-names.ts` (`limen sweep` exits 2), `src/job/group-control.ts`, `src/job/spawning.ts`, `src/job/migration.ts`, `src/project/seat.ts` (the LaunchAgent installer cut); `hook/wake.ts` (the tick does not reap); `seat/alerts.ts` (the `stuck` event, the shared placement), `seat/units.ts`, `seat/deploy.ts`; tests in `test/cli/sweep.test.ts`, `test/platform/systemd-units.test.ts`, `test/plant.ts` and the linux, reap, registry, structure, status, show, wake, alerts, start-queue, queue-diagnosis, deploy, units, requirements, s9-housekeeping, group, old-names, help and config files; `docs/commands.md`, `docs/jobs.md`, `docs/herdr-status.md`, `docs/groups.md`, `docs/seat/README.md`, `CONTRIBUTING.md`, `templates/agents.md` with `templates/.history/agents.md`
+- Why: A-024, A-017, T-04, T-18, T-25, T-02, T-01, T-12, D-045, D-056, D-094
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (1030/1030); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (twenty test files); `node --test test/cli/sweep.test.ts` → exit 0; `git grep -q 'movedBy: "R-032"' -- src/registry.ts` → exit 1
+- Measurement: unmeasured (plan.md → Measurement: M-10, M-11; `## Deployment` 3.1)
+- Commit: R-032
+- Rollback: git revert $(git log --format=%H --grep='^R-032:' adrian-rebuild --) (+ on the agents' account: `systemctl --user disable --now limen-sweep.timer`, remove both units, `systemctl --user daemon-reload`)

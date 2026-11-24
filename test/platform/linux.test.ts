@@ -1,6 +1,7 @@
 // src/platform/linux.ts: its parsers on fixture text (/proc/<pid>/stat, ps, /proc/meminfo, the boot id, a process's
-// cgroup, a scope's readings), the units of the user manager on a fake cgroup hierarchy, and the state and the signals
-// of a user scope on the tests' systemd (test/plant.ts).
+// cgroup, a scope's readings), the units of the user manager on a fake cgroup hierarchy, the state and the signals of
+// a user scope on the tests' systemd (test/plant.ts), and the linger file, the user unit folder and the user manager's
+// answers of the seat sweep's units.
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -115,7 +116,9 @@ test("a scope's reading is null for a file that is gone or holds no number of it
 });
 
 /** The cgroup of the user manager in the fake hierarchies of the tests of `userUnits`. */
-const MANAGER = "/user.slice/user-1000.slice/user@1000.service";
+/** The account the tests run as, whose user manager `userUnits` reads (R-032 review round 1, note 6). */
+const UID = process.getuid?.() ?? 0;
+const MANAGER = `/user.slice/user-${UID}.slice/user@${UID}.service`;
 
 /**
  * A fake cgroup hierarchy for one test, which this process reads in place of the system's, as one that runs in the
@@ -148,7 +151,7 @@ test("userUnits lists each unit of this process's user manager with its current 
 		[`${MANAGER}/app.slice/herdr.service/payload/memory.current`]: "777\n",
 		[`${MANAGER}/session.slice/dbus.service/memory.current`]: "max\n",
 		// A login session sits beside the user manager, not in it.
-		"/user.slice/user-1000.slice/session-3.scope/memory.current": "123456789\n",
+		[`/user.slice/user-${UID}.slice/session-3.scope/memory.current`]: "123456789\n",
 	});
 	assert.deepEqual(await linux.userUnits(), [
 		{ unit: "dbus.service", memoryBytes: null, cpuMicroseconds: null },
@@ -163,10 +166,26 @@ test("userUnits gives nothing for a process outside a user manager", async (t) =
 	assert.equal(await linux.userUnits(), undefined);
 });
 
-// A unit can end while the walk reads, and a folder that is gone holds no unit.
-test("userUnits lists no unit for a user manager whose cgroup folder is gone", async (t) => {
+// R-032 review round 1, note 6: an empty listing read as "no leftover scope" would clear what the sweep counts.
+test("userUnits gives nothing, not an empty listing, when the user manager of the process's account has no cgroup folder", async (t) => {
 	await cgroupTree(t, `${MANAGER}/app.slice/gone.scope`, {});
+	assert.equal(await linux.userUnits(), undefined);
+});
+
+// A unit can end while the walk reads, and a folder that is gone holds no unit.
+test("userUnits lists no unit for a user manager whose cgroup folder holds none", async (t) => {
+	await cgroupTree(t, `${MANAGER}/app.slice/gone.scope`, { [`${MANAGER}/memory.current`]: "4096\n" });
 	assert.deepEqual(await linux.userUnits(), []);
+});
+
+// R-032 review round 1, note 6: the manager is the account's own, never the one a cgroup's slice names.
+test("userUnits of a process in a login session of another uid lists nothing of that uid's manager", async (t) => {
+	const other = UID + 1;
+	const theirs = `/user.slice/user-${other}.slice/user@${other}.service`;
+	await cgroupTree(t, `/user.slice/user-${other}.slice/session-3.scope`, {
+		[`${theirs}/app.slice/limen-job-2026-11-24-theirs-1a2b3c4d.scope/memory.current`]: "4096\n",
+	});
+	assert.equal(await linux.userUnits(), undefined);
 });
 
 const UNIT = "limen-job-2026-11-22-scope-1a2b3c4d.scope";
@@ -192,7 +211,7 @@ test("scopeState reads a scope that holds a process as active and sends its proc
 	const member = await scopeProcess(t, cgroup);
 	assert.deepEqual(
 		[linux.scopeState(UNIT, cgroup), systemdCalls(cgroups, "systemctl"), linux.processAlive(member.pid)],
-		[{ kind: "active" }, [`--user is-active --quiet ${UNIT}`], true],
+		[{ kind: "active" }, [`--user is-active ${UNIT}`], true],
 	);
 });
 
@@ -202,7 +221,7 @@ test("scopeState reads a scope with no process left as gone, and one whose cgrou
 	rmSync(join(cgroups, cgroup), { recursive: true });
 	assert.deepEqual(
 		[empty, linux.scopeState(UNIT, cgroup), systemdCalls(cgroups, "systemctl")],
-		[{ kind: "gone" }, { kind: "gone" }, [`--user is-active --quiet ${UNIT}`]],
+		[{ kind: "gone" }, { kind: "gone" }, [`--user is-active ${UNIT}`]],
 	);
 });
 
@@ -233,4 +252,80 @@ test("signalScope gives the user manager's words for a scope with no process lef
 		detail: `Failed to kill unit ${UNIT}: Unit ${UNIT} not loaded.`,
 	});
 	assert.deepEqual(linux.scopeState(UNIT, cgroup), { kind: "gone" });
+});
+
+/**
+ * A folder below `parent` whose systemctl answers `--user is-active` of every unit with `word` and exit code `status`,
+ * as systemd answers for a unit in that state, and fails every other call; for one test of the user manager's answers.
+ */
+function answeringSystemctl(parent: string, word: string, status: number): string {
+	const folder = join(parent, `systemctl-${word}`);
+	mkdirSync(folder);
+	const script = [
+		"#!/bin/sh",
+		`[ "$1 $2" = "--user is-active" ] && { echo ${word}; exit ${status}; }`,
+		'echo "systemctl (tests): only --user is-active is emulated" >&2',
+		"exit 1",
+	];
+	writeFileSync(join(folder, "systemctl"), `${script.join("\n")}\n`, { mode: 0o755 });
+	return folder;
+}
+
+// R-027 review round 1, finding 4: `is-active` exits 3 for a scope systemd is still stopping, which may hold processes.
+test("scopeState reads a scope systemd is still stopping (deactivating) as active, not as gone", async (t) => {
+	const { cgroup, folder } = await scopeFolder(t);
+	process.env.PATH = `${answeringSystemctl(folder, "deactivating", 3)}:${process.env.PATH ?? ""}`;
+	assert.deepEqual(linux.scopeState(UNIT, cgroup), { kind: "active" });
+});
+
+test("scopeState reads a scope that is-active calls inactive or failed, with exit 3, as gone", async (t) => {
+	const { cgroup, folder } = await scopeFolder(t);
+	const path = process.env.PATH ?? "";
+	const states = ["inactive", "failed"].map((word) => {
+		process.env.PATH = `${answeringSystemctl(folder, word, 3)}:${path}`;
+		return linux.scopeState(UNIT, cgroup);
+	});
+	assert.deepEqual(states, [{ kind: "gone" }, { kind: "gone" }]);
+});
+
+// A-024: the sweep's install reads the linger state from the file systemd keeps, with no call.
+test("lingers reads whether the account's linger file exists, and runs no program", async (t) => {
+	const folder = mkdtempSync(join(tmpdir(), "limen-linger-"));
+	t.after(() => rmSync(folder, { recursive: true, force: true }));
+	writeFileSync(join(folder, "agents"), "");
+	withEnvironment(t, { LIMEN_LINGER_DIR: folder, PATH: "/nonexistent" });
+	assert.deepEqual([linux.lingers("agents"), linux.lingers("other")], [true, false]);
+});
+
+test("the user unit folder is $XDG_CONFIG_HOME/systemd/user, and ~/.config/systemd/user when it is unset or relative", (t) => {
+	withEnvironment(t, { HOME: "/home/agents", XDG_CONFIG_HOME: "/srv/config" });
+	const set = linux.userUnitFolder();
+	process.env.XDG_CONFIG_HOME = "relative/config";
+	const relative = linux.userUnitFolder();
+	delete process.env.XDG_CONFIG_HOME;
+	assert.deepEqual(
+		[set, relative, linux.userUnitFolder()],
+		["/srv/config/systemd/user", "/home/agents/.config/systemd/user", "/home/agents/.config/systemd/user"],
+	);
+});
+
+// R-032 (f): `limen status` names a sweep that does not run from two probes of the user manager.
+test("userUnitState gives what the user manager prints for a unit in the state asked, and nothing when it says no", async (t) => {
+	const { folder } = await scopeFolder(t);
+	const path = process.env.PATH ?? "";
+	process.env.PATH = `${answeringSystemctl(folder, "active", 0)}:${path}`;
+	const active = linux.userUnitState("limen-sweep.timer", "is-active");
+	process.env.PATH = `${answeringSystemctl(folder, "inactive", 3)}:${path}`;
+	assert.deepEqual([active, linux.userUnitState("limen-sweep.timer", "is-active")], ["active", undefined]);
+});
+
+// R-032 Decision 2: a sweep run by hand from a login shell lists the units its timer lists.
+test("userUnits of a process in a login session lists the units of the user manager of that session's account", async (t) => {
+	await cgroupTree(t, `/user.slice/user-${UID}.slice/session-3.scope`, {
+		[`${MANAGER}/app.slice/limen-job-2026-11-24-session-1a2b3c4d.scope/memory.current`]: "4096\n",
+		[`/user.slice/user-${UID}.slice/session-3.scope/memory.current`]: "123456789\n",
+	});
+	assert.deepEqual(await linux.userUnits(), [
+		{ unit: "limen-job-2026-11-24-session-1a2b3c4d.scope", memoryBytes: 4096, cpuMicroseconds: null },
+	]);
 });

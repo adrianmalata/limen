@@ -1,12 +1,10 @@
 import * as fs from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join, resolve } from "node:path";
 import { atomicWrite } from "../atomic-write.ts";
 import { testKnob } from "../config.ts";
 import { withLock } from "../lock.ts";
 
-const PACKAGE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const home = () => testKnob("LIMEN_HOME") || homedir();
 /** The seat's own folder: one per machine, shared by every plant. */
 export const seatDir = () => join(home(), ".limen");
@@ -37,21 +35,3 @@ export async function registerProject(root: string): Promise<void> {
 	const project = resolve(root);
 	await updateRegisteredProjects((projects) => (projects.includes(project) ? projects : [...projects, project]));
 }
-/** Writes the LaunchAgent that runs the sweep every 60 s; returns the lines that say what it wrote. */
-export async function installSeatSweep(): Promise<string> {
-	const path = join(home(), "Library", "LaunchAgents", "limen-sweep.plist");
-	const values = [process.execPath, join(PACKAGE_ROOT, "bin", "limen"), "sweep"]
-		.map((value) => `<string>${xml(value)}</string>`)
-		.join("");
-	const plist = `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>Label</key><string>works.earendil.limen-sweep</string><key>ProgramArguments</key><array>${values}</array><key>StartInterval</key><integer>60</integer></dict></plist>\n`;
-	fs.mkdirSync(dirname(path), { recursive: true });
-	fs.writeFileSync(path, plist);
-	return `wrote ${path}\nnode ${process.execPath}\nlimen ${join(PACKAGE_ROOT, "bin", "limen")}\nMoving this checkout requires running limen sweep --install again.`;
-}
-/** Removes that LaunchAgent; returns the line that says so. */
-export async function uninstallSeatSweep(): Promise<string> {
-	const path = join(home(), "Library", "LaunchAgents", "limen-sweep.plist");
-	fs.rmSync(path, { force: true });
-	return `removed ${path}`;
-}
-const xml = (value: string) => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");

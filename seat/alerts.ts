@@ -1,6 +1,7 @@
 /**
- * The seat's alerts (A-066, A-054, D-084, D-085): one ntfy line for each failed job and each long wait in the start
- * queue (A-036) of every registered project, sent from their own account, which reads the job records read-only and
+ * The seat's alerts (A-066, A-054, D-084, D-085): one ntfy line for each failed job, each long wait in the start queue
+ * (A-036) and each job the seat sweep cannot end (R-032) of every registered project, sent from their own account,
+ * which reads the job records read-only and
  * keeps the events it reported and the projects it has read in its own state folder (D-090). An alert holds only the
  * project folder's base name, the event and the job id: it leaves the seat through a public relay, so it carries no
  * path, label or job text, and the topic comes only from the systemd credential.
@@ -11,16 +12,19 @@
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, realpathSync, type Stats } from "node:fs";
-import { lstat, readFile, realpath, rm, stat } from "node:fs/promises";
+import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { inspect } from "node:util";
 import { atomicWrite } from "../src/atomic-write.ts";
 import { testKnob } from "../src/config.ts";
-import { type JobRecord, jobFolderNames, readRecord, unmigratedFolder } from "../src/job/record.ts";
+import { escalatedStuck, type JobRecord, jobFolderNames, readRecord, unmigratedFolder } from "../src/job/record.ts";
+import { LimenError } from "../src/outcome.ts";
+import type { ManagerCall } from "../src/platform/platform.ts";
+import { placeUnitFiles } from "../src/platform/systemd-units.ts";
 import { absent, readRegistry, registryOf, registryPaths } from "./registries.ts";
 import { counted, printable, reason, requiredText, SeatFailure, type SeatOutcome } from "./tool-outcome.ts";
-import { ALERTS_SERVICE, ALERTS_TIMER, accountName, alertsUnits, renderUnit, TOPIC_FILE } from "./units.ts";
+import { ALERTS_SERVICE, ALERTS_TIMER, accountName, alertsUnitFiles, TOPIC_FILE } from "./units.ts";
 
 const SCRIPT = "/opt/limen/seat/alerts.ts";
 const INSTALL = `node ${SCRIPT} install --account <account>`;
@@ -94,6 +98,12 @@ const EVENTS: ReadonlyArray<{
 		kind: "queue",
 		counted: "long start-queue wait",
 		of: (record) => ((record.queueWait?.diagnosedAt ?? null) === null ? undefined : "queue"),
+	},
+	// A job whose processes the seat sweep failed to end three times in a row (R-032), read from the record's `stuck`.
+	{
+		kind: "stuck",
+		counted: "stuck job",
+		of: (record) => (escalatedStuck(record) === undefined ? undefined : "stuck"),
 	},
 ];
 
@@ -683,92 +693,35 @@ async function requireRealPath(path: string, what: string): Promise<void> {
 }
 
 /**
- * Writes each unit whose text differs from this version's and verifies both with `systemd-analyze verify` (D-010); a
- * failed verification puts every unit back as it was. Then it reloads the manager, also when no unit changed: a
- * reload that failed before left the written units unloaded, and the next run finds them unchanged.
+ * Places this version's units in the system manager's folder through the one placement policy of unit files
+ * (src/platform/systemd-units.ts): only a unit whose text differs is written, both are verified with `systemd-analyze
+ * verify` (D-010) when one was, and a failure puts every unit back as it was. Then it reloads the manager, also when no
+ * unit changed: a reload that failed before left the written units unloaded, and the next run finds them unchanged.
  */
 async function placeUnits(input: AlertsInput, account: string, said: string[]): Promise<void> {
-	const units = alertsUnits(account).map((unit) => ({
-		name: unit.file,
-		path: join(input.unitFolder, unit.file),
-		text: renderUnit(unit),
-	}));
-	const changed: { readonly name: string; readonly path: string; readonly earlier: string | undefined }[] = [];
-	for (const unit of units) {
-		const earlier = await currentText(unit.path);
-		if (earlier !== unit.text) {
-			changed.push({ name: unit.name, path: unit.path, earlier });
-			await writeUnit(unit.path, unit.text, changed);
+	const files = alertsUnitFiles(account);
+	const units = files.map((unit) => ({ path: join(input.unitFolder, unit.file), text: unit.text }));
+	const verify = (paths: readonly string[]): ManagerCall => {
+		const result = input.run(["systemd-analyze", "verify", ...paths]);
+		return failed(result) ? { kind: "failed", detail: why(result) } : { kind: "done" };
+	};
+	let written: readonly string[];
+	try {
+		written = await placeUnitFiles(units, { name: "systemd-analyze verify", verify }, null);
+	} catch (error) {
+		if (!(error instanceof LimenError)) {
+			throw error;
 		}
-	}
-	const names = units.map((unit) => unit.name).join(" and ");
-	if (changed.length > 0) {
-		const verify = input.run(["systemd-analyze", "verify", ...units.map((unit) => unit.path)]);
-		if (failed(verify)) {
-			const back = await putBack(changed);
-			throw new SeatFailure(
-				4,
-				`systemd-analyze verify failed for ${names}: ${why(verify)}; ${back}`,
-				"fix the units, then run the same command again",
-			);
-		}
+		const fix = error.code === "UNITS_INVALID" ? "fix the units" : "fix it";
+		throw new SeatFailure(4, error.message, `${fix}, then run the same command again`);
 	}
 	step(input.run, ["systemctl", "daemon-reload"], "reloading the units");
+	const names = files.map((unit) => unit.file).join(" and ");
 	said.push(
-		changed.length === 0
+		written.length === 0
 			? `${names} unchanged in ${input.unitFolder}; reloaded`
-			: `wrote ${changed.map((unit) => unit.name).join(" and ")} in ${input.unitFolder}; verified and reloaded`,
+			: `wrote ${written.map((path) => basename(path)).join(" and ")} in ${input.unitFolder}; verified and reloaded`,
 	);
-}
-
-async function currentText(path: string): Promise<string | undefined> {
-	try {
-		return await readFile(path, "utf8");
-	} catch (error) {
-		if (absent(error)) {
-			return undefined;
-		}
-		throw new SeatFailure(4, `cannot read ${path}: ${reason(error)}`, `fix it, then run the same command again`);
-	}
-}
-
-/** Writes one unit; when that fails, the units written before it go back as they were. */
-async function writeUnit(
-	path: string,
-	text: string,
-	changed: readonly { readonly path: string; readonly earlier: string | undefined }[],
-): Promise<void> {
-	try {
-		await atomicWrite(path, text, { mode: 0o644 });
-	} catch (error) {
-		const back = await putBack(changed.filter((unit) => unit.path !== path));
-		throw new SeatFailure(
-			4,
-			`cannot write ${path}: ${reason(error)}; ${back}`,
-			"fix it, then run the same command again",
-		);
-	}
-}
-
-/** Puts each unit back as it was, or removes the ones that were not there; the words that say how that went. */
-async function putBack(
-	units: readonly { readonly path: string; readonly earlier: string | undefined }[],
-): Promise<string> {
-	const left: string[] = [];
-	for (const { path, earlier } of units) {
-		try {
-			if (earlier === undefined) {
-				await rm(path, { force: true });
-			} else {
-				await atomicWrite(path, earlier, { mode: 0o644 });
-			}
-		} catch (error) {
-			left.push(`${path} (${reason(error)})`);
-		}
-	}
-	return left.length === 0
-		? "the units are back as they were"
-		: `these units could not be put back: ${left.join(", ")}`;
 }
 
 /** Runs one step of the install; a step that fails ends it with exit 4, naming the step and what the program said. */

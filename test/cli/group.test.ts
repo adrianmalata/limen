@@ -412,14 +412,14 @@ async function unstoppable(p: Plant) {
 // stop-report.json; after its first write a stop's failure takes the class T-02 gives its cause. Before R-099 that
 // class was transient here too, so a timer retried a stop that every rerun ends the same way: a record that runs with
 // no pid names no process to signal, a state of the seat's files that the sweep ends (A-056).
-test("GROUP_STOP_INCOMPLETE: group stop of a member that runs with no pid exits 4, names limen sweep in next and reports the member", async (t) => {
+test("GROUP_STOP_INCOMPLETE: group stop of a member that runs with no pid exits 4, names limen seat sweep in next and reports the member", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const { run, stop, report } = await unstoppable(p);
 	const first = stop();
 	assert.deepEqual(
 		[first.status, readOutcome(first), (await runOf(p, run.id)).stopped, (await report()).length],
-		[4, { class: "environment", code: "GROUP_STOP_INCOMPLETE", next: "limen sweep" }, true, 1],
+		[4, { class: "environment", code: "GROUP_STOP_INCOMPLETE", next: "limen seat sweep" }, true, 1],
 		first.stderr,
 	);
 });

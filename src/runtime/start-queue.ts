@@ -48,7 +48,8 @@ export type StartGate = { readonly cpuIdle: number; readonly memoryFree: number;
 export type WaitLimits = { readonly diagnoseAfterMs: number; readonly failAfterMs: number };
 /** Percentages; a value the machine could not report is undefined and does not hold a job back. */
 export type Reading = { readonly cpuIdle: number | undefined; readonly memoryFree: number | undefined };
-type Entry = {
+/** One job's place in the start queue, as its wrapper writes it. */
+export type Entry = {
 	readonly id: string;
 	readonly jobDir: string;
 	readonly label: string;
@@ -155,7 +156,7 @@ function waitLimits(
 	return { limits: DEFAULT_WAIT, ignored: [refusedValue(GATE_FILE, refused)] };
 }
 /** The messages of the gate values Limen ignored, for the job log and `limen seat queue`; each names the file. */
-function ignoredText(ignored: readonly BadData[]): string {
+export function ignoredText(ignored: readonly BadData[]): string {
 	return ignored.map(({ message }) => message).join("; ");
 }
 
@@ -205,15 +206,17 @@ export function readingText(reading: Reading | undefined, gate: StartGate | unde
 	const cpu = `CPU ${shown(reading.cpuIdle)} idle (gate ${gate.cpuIdle}%)`;
 	return `${cpu}, memory ${shown(reading.memoryFree)} free (gate ${gate.memoryFree}%)`;
 }
-function gateOpen(reading: Reading, gate: StartGate): boolean {
+/** Whether `reading` passes the gate `gate`; a value the machine did not report does not hold a job back. */
+export function gateOpen(reading: Reading, gate: StartGate): boolean {
 	return (reading.cpuIdle ?? 100) >= gate.cpuIdle && (reading.memoryFree ?? 100) >= gate.memoryFree;
 }
 
 /** The active rules that hold a job of this priority: each one whose start priority is more urgent. */
-function holdingRules(priority: number): readonly SeatRule[] {
+export function holdingRules(priority: number): readonly SeatRule[] {
 	return activeRules().filter((rule) => rule.startPriority !== undefined && priority > rule.startPriority);
 }
-const heldText = (rules: readonly SeatRule[]): string =>
+/** The words that say which rules hold a job and until when. */
+export const heldText = (rules: readonly SeatRule[]): string =>
 	rules
 		.map((rule) => `held by rule ${rule.name} until ${localTime(rule.until)} (start priority ${rule.startPriority})`)
 		.join("; ");
@@ -564,7 +567,8 @@ async function started(jobDir: string, entry: Entry, detail: string, waited: boo
 	);
 	await appendLimenLog(jobDir, `start queue: started after ${wait}; ${detail}`);
 }
-async function settleLeft(gate: StartGate): Promise<number> {
+/** How long the settle after the seat's last start still runs, in milliseconds; 0 once it passed. */
+export async function settleLeft(gate: StartGate): Promise<number> {
 	const last = Date.parse(await textFile(join(queueDir(), "last-start")));
 	return Number.isFinite(last) ? Math.max(0, last + gate.settleMs - Date.now()) : 0;
 }
@@ -579,11 +583,24 @@ function lastReading(): Reading | undefined {
 const order = (a: Entry, b: Entry): number =>
 	a.priority - b.priority || a.queuedAt - b.queuedAt || a.id.localeCompare(b.id);
 
-/** The queue in start order. An entry whose job ended or whose wrapper is gone is removed, so it never blocks. */
-async function liveEntries(): Promise<Entry[]> {
+/**
+ * The queue in start order, read only: the entries whose wrapper lives and whose job runs, and the files of the dead
+ * and malformed ones, which whoever may write removes. A recycled pid can keep a dead entry until the reaper ends its
+ * job; the state check then finds it dead. A missing folder is an empty queue. With `strict`, as the seat sweep reads
+ * it, any other failure to list the folder goes on (T-01, review round 2, note 13); the waiting wrappers and `limen
+ * seat queue` still read such a folder as empty, until R-082 brings the swallowed errors to zero.
+ */
+async function readEntries(strict = false): Promise<{ readonly live: Entry[]; readonly dead: string[] }> {
 	const folder = join(queueDir(), "entries");
-	const entries: Entry[] = [];
-	for (const name of await readdir(folder).catch(() => [] as string[])) {
+	const live: Entry[] = [];
+	const dead: string[] = [];
+	const names = await readdir(folder).catch((error: unknown) => {
+		if (strict && !hasCode(error, "ENOENT")) {
+			throw error;
+		}
+		return [] as string[];
+	});
+	for (const name of names) {
 		if (!name.endsWith(".json")) {
 			continue;
 		}
@@ -592,14 +609,40 @@ async function liveEntries(): Promise<Entry[]> {
 			continue;
 		}
 		const entry = parseEntry(body);
-		// A recycled pid can keep a dead entry until the reaper ends its job; the state check then removes it.
 		if (entry && platform.processAlive(entry.pid) && (await entryState(entry.jobDir)) === "running") {
-			entries.push(entry);
+			live.push(entry);
 		} else {
-			await rm(join(folder, name), { force: true });
+			dead.push(join(folder, name));
 		}
 	}
-	return entries.sort(order);
+	return { live: live.sort(order), dead };
+}
+
+/** The queue in start order, for a waiting wrapper: a dead or malformed entry is removed, so it never blocks. */
+async function liveEntries(): Promise<Entry[]> {
+	const { live, dead } = await readEntries();
+	for (const path of dead) {
+		await rm(path, { force: true });
+	}
+	return live;
+}
+
+/** The queue in start order, as `limen seat queue` shows it: a read, which leaves a dead entry where it is (T-04). */
+export async function queueEntries(): Promise<readonly Entry[]> {
+	return (await readEntries()).live;
+}
+
+/**
+ * Removes every dead or malformed entry of the start queue, once per run of the seat sweep (R-032), since `limen seat
+ * queue` only skips one and a dead wrapper never removes its own; returns how many it removed. A queue folder that
+ * cannot be listed for another reason than its absence is the sweep's failure, never an empty queue.
+ */
+export async function removeDeadEntries(): Promise<number> {
+	const { dead } = await readEntries(true);
+	for (const path of dead) {
+		await rm(path, { force: true });
+	}
+	return dead.length;
 }
 function parseEntry(body: string): Entry | undefined {
 	try {
@@ -679,32 +722,4 @@ export async function queuedLine(jobDir: string, label: string): Promise<string 
 		}
 		await delay(20);
 	}
-}
-
-/** `limen seat queue`: the gate, the current reading, and every waiting job in start order with the rules that hold it. */
-export async function queueReport(): Promise<string> {
-	const { gate, ignored } = startGate();
-	const lines: string[] = [];
-	if (ignored.length > 0) {
-		lines.push(`start gate: ignored ${ignoredText(ignored)}`);
-	}
-	if (gate) {
-		const reading = await readLoad();
-		const settling = await settleLeft(gate);
-		const state = !gateOpen(reading, gate) ? "closed" : settling > 0 ? `settling ${formatDuration(settling)}` : "open";
-		lines.push(`start gate ${state}: ${readingText(reading, gate)}; settle ${formatDuration(gate.settleMs)}`);
-	} else {
-		lines.push(`start gate off (${GATE_FILE} is "off"): detached jobs start at once unless a rule holds them`);
-	}
-	const entries = await liveEntries();
-	if (entries.length === 0) {
-		lines.push("queue empty");
-	}
-	entries.forEach((entry, index) => {
-		const wait = formatDuration(Date.now() - entry.queuedAt);
-		const holding = holdingRules(entry.priority);
-		lines.push(`${index + 1}. ${entry.id} · priority ${entry.priority} · waiting ${wait} · ${entry.label}`);
-		lines.push(...(holding.length > 0 ? [`   ${heldText(holding)}`] : []), `   ${entry.jobDir}`);
-	});
-	return lines.join("\n");
 }

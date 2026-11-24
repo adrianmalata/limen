@@ -5,11 +5,24 @@
 // start time under the pid, means dead. What the system cannot describe (a process query that gives no answer) is not
 // dead, as in src/lock.ts. A dead wrapper can leave its engine running, so the reaper ends what is left of the job, its
 // scope or its wrapper's group, before it writes `failed`; while that is not gone, the job stays running, with a line
-// in its log.
+// in its log and its `stuck` one attempt longer (R-032). The seat sweep (src/runtime/sweeping.ts) is the reaper's one
+// caller, and it also ends the scope a finished job left behind (`endLeftoverScopes`). Whether a job holds any process
+// at all, its wrapper or its scope, is `holdsProcesses`, which the callers outside the reaper ask.
 import { testKnob } from "../config.ts";
 import { finalizeJob, readScope } from "../job/finalize.ts";
-import { appendLimenLog, type Identity, type JobRecord, jobFolders, readRecord } from "../job/record.ts";
+import { isTerminal } from "../job/job.ts";
+import {
+	appendLimenLog,
+	type Identity,
+	type JobRecord,
+	jobFolderNames,
+	notMigrated,
+	readRecord,
+	unmigratedFolder,
+	writeStuck,
+} from "../job/record.ts";
 import { platform, type ScopeSignal, type ScopeState } from "../platform/platform.ts";
+import { jobScope } from "./launcher.ts";
 import { claimRecovery } from "./recovery.ts";
 
 export const STARTUP_GRACE_MS = 10 * 60_000;
@@ -104,55 +117,90 @@ export async function liveJob(record: JobRecord | undefined, now = Date.now()): 
 }
 
 /**
+ * Whether the job of `record` holds a process now (R-032 (c)): a starting job as `liveJob` reads it; a running job
+ * while its wrapper lives or a process is in the cgroup of the scope its record names, since a wrapper killed alone
+ * leaves its engine running there. The cgroup's own `cgroup.events` answers, not a user manager: the deployment's gate
+ * runs as root, whose manager knows no scope of the agents' account (R-032 review round 1, note 7); a cgroup that does
+ * not read holds processes (z. 14). The deployment's gate, the migration and spawn ask this; the reaper asks `liveJob`,
+ * about the wrapper alone, since it ends the scope of a dead wrapper itself. A finished job's leftover scope is the
+ * sweep's (`endLeftoverScopes`).
+ */
+export async function holdsProcesses(record: JobRecord | undefined, now = Date.now()): Promise<boolean> {
+	if (await liveJob(record, now)) {
+		return true;
+	}
+	if (record?.state !== "running" || record.scope === undefined) {
+		return false;
+	}
+	return platform.cgroupPopulated(record.scope.cgroup).kind !== "empty";
+}
+
+/** A job folder the reaper could not read or end, and why; the sweep names each one and goes on (z. 10, T-01). */
+export type JobFailure = { readonly jobDir: string; readonly error: unknown };
+
+/**
+ * Each job folder of `jobsRoot` with its record, read one by one (R-032 review round 1, note 8): a folder an older
+ * Limen wrote (NOT_MIGRATED) or a record that does not read (BAD_DATA) goes into `failed` and stops no other job.
+ */
+async function eachRecord(
+	jobsRoot: string,
+	failed: JobFailure[],
+	work: (id: string, jobDir: string, record: JobRecord | undefined) => Promise<void>,
+): Promise<void> {
+	for (const id of await jobFolderNames(jobsRoot)) {
+		const jobDir = `${jobsRoot}/${id}`;
+		try {
+			if (unmigratedFolder(jobDir)) {
+				throw notMigrated(jobsRoot, id);
+			}
+			await work(id, jobDir, await readRecord(jobDir));
+		} catch (error) {
+			failed.push({ jobDir, error });
+		}
+	}
+}
+
+/**
  * Ends each running job whose wrapper is dead or unknown, once it was seen so twice `reapConfirmMs` apart (`seen` holds
  * the first sighting), under the job's recovery claim: its scope or group first, then the job (`endDeadJob`). A job
- * whose scope or group was not ended stays running and needs a new confirmation before the next attempt.
+ * whose scope or group was not ended stays running and needs a new confirmation before the next attempt. A job that
+ * fails to read or to end is returned with its failure, and the other jobs go on.
  */
 export async function reapDeadJobs(
 	jobsRoot: string,
 	seen: Map<string, number>,
 	now = Date.now(),
-	ids?: readonly string[],
-): Promise<void> {
-	const candidates = ids ?? (await jobFolders(jobsRoot));
-	if (ids) {
-		const live = new Set(ids);
-		for (const id of seen.keys()) {
-			if (!live.has(id)) {
-				seen.delete(id);
-			}
-		}
-	}
-	for (const id of candidates) {
-		const jobDir = `${jobsRoot}/${id}`;
-		const record = await readRecord(jobDir);
+): Promise<readonly JobFailure[]> {
+	const failed: JobFailure[] = [];
+	await eachRecord(jobsRoot, failed, async (id, jobDir, record) => {
 		if (record?.state !== "running" || (await liveJob(record, now))) {
 			seen.delete(id);
-			continue;
+			return;
 		}
 		const first = seen.get(id);
 		if (first === undefined) {
 			seen.set(id, now);
-			continue;
+			return;
 		}
 		if (now - first < reapConfirmMs()) {
-			continue;
+			return;
 		}
 		const release = await claimRecovery(jobDir);
 		if (!release) {
-			continue;
+			return;
 		}
 		try {
 			const current = await readRecord(jobDir);
 			if (current?.state !== "running" || (await liveJob(current, now))) {
-				continue;
+				return;
 			}
 			await endDeadJob(jobDir, current);
 			seen.delete(id);
 		} finally {
 			await release();
 		}
-	}
+	});
+	return failed;
 }
 
 /** What a reap did to what is left of a job: `gone`, with how it ended; or `not ended`, with what and why. */
@@ -174,12 +222,76 @@ async function endDeadJob(jobDir: string, record: JobRecord): Promise<void> {
 		? await terminateScope(record.scope.unit, record.scope.cgroup)
 		: await terminateGroup(record.identity);
 	if (ending.kind === "not ended") {
-		await appendLimenLog(jobDir, `reap: ${ending.target} not ended: ${ending.reason}`);
+		await notEnded(jobDir, ending);
 		return;
 	}
 	// The prefix is the pattern of the failure kind `reaped` (src/job/record.ts), which older records carry too.
 	const detail = `process group gone: ${owner.why}; ${ending.how}`;
 	await finalizeJob(jobDir, { state: "failed", failure: { kind: "reaped", detail } }, { readings });
+	await writeStuck(jobDir, () => undefined);
+}
+
+/**
+ * One failed attempt to end what is left of a job (R-032): a line in its log (T-01), and its `stuck` one attempt
+ * longer, which from the third attempt in a row the alerts send and `limen status` names (`escalatedStuck`).
+ */
+async function notEnded(jobDir: string, ending: Extract<Ending, { kind: "not ended" }>): Promise<void> {
+	const detail = `${ending.target} not ended: ${ending.reason}`;
+	await appendLimenLog(jobDir, `reap: ${detail}`);
+	const now = new Date().toISOString();
+	await writeStuck(jobDir, (stuck) => ({
+		since: stuck?.since ?? now,
+		attempts: (stuck?.attempts ?? 0) + 1,
+		detail,
+	}));
+}
+
+/**
+ * Ends the scope of each finished job of `jobsRoot` that `live`, the user manager's live units, still holds (R-032):
+ * what is left of a job whose end did not end its scope, which may still hold its engine. It ends such a scope as a
+ * reap does (TERM, the grace, KILL) under the job's recovery claim, and writes its log line and `stuck` as a reap that
+ * fails does. A job whose wrapper still runs is left alone: the wrapper finishes the job from inside its scope and ends
+ * that scope last. A finished job keeps its `stuck` until the run sees its scope gone, also one the listing lacks: a
+ * missing scope in a listing is no end (R-032 review round 1, note 6). A job that fails to read or to end is returned
+ * with its failure, and the other jobs go on.
+ */
+export async function endLeftoverScopes(jobsRoot: string, live: ReadonlySet<string>): Promise<readonly JobFailure[]> {
+	const failed: JobFailure[] = [];
+	await eachRecord(jobsRoot, failed, async (id, jobDir, record) => {
+		if (!(record && isTerminal(record.state))) {
+			return;
+		}
+		const unit = record.scope?.unit ?? jobScope(id);
+		if (!(live.has(unit) || record.stuck)) {
+			return;
+		}
+		// The listing is the run's, so a scope a reap of this run ended is in it; its state says it is gone.
+		if (platform.scopeState(unit, record.scope?.cgroup).kind === "gone") {
+			if (record.stuck) {
+				await writeStuck(jobDir, () => undefined);
+			}
+			return;
+		}
+		if ((await ownerState(record.identity)) === "alive") {
+			return;
+		}
+		const release = await claimRecovery(jobDir);
+		if (!release) {
+			return;
+		}
+		try {
+			const ending = await terminateScope(unit, record.scope?.cgroup);
+			if (ending.kind === "not ended") {
+				await notEnded(jobDir, ending);
+			} else {
+				await appendLimenLog(jobDir, `reap: the ${record.state} job's ${ending.how}`);
+				await writeStuck(jobDir, () => undefined);
+			}
+		} finally {
+			await release();
+		}
+	});
+	return failed;
 }
 
 /**
@@ -188,7 +300,7 @@ async function endDeadJob(jobDir: string, record: JobRecord): Promise<void> {
  * call fails is followed by one state read, and its failure goes into the line of whatever then decides the ending
  * (T-01).
  */
-async function terminateScope(unit: string, cgroup: string): Promise<Ending> {
+async function terminateScope(unit: string, cgroup: string | undefined): Promise<Ending> {
 	const failures: string[] = [];
 	const noted = (text: string) => [text, ...failures].join("; ");
 	const outcome = (state: ScopeState, how: string): Ending | undefined => {
@@ -225,7 +337,7 @@ async function terminateScope(unit: string, cgroup: string): Promise<Ending> {
 }
 
 /** The state of the scope `unit` once it is no longer active or `milliseconds` passed, read every `GONE_POLL_MS`. */
-async function scopeAfter(unit: string, cgroup: string, milliseconds: number): Promise<ScopeState> {
+async function scopeAfter(unit: string, cgroup: string | undefined, milliseconds: number): Promise<ScopeState> {
 	const deadline = Date.now() + milliseconds;
 	for (;;) {
 		const state = platform.scopeState(unit, cgroup);
@@ -290,14 +402,18 @@ export async function waitForProcessGroup(pgid: number, milliseconds: number): P
 	}
 	return !platform.processGroupAlive(pgid);
 }
-export async function confirmDeadJobs(jobsRoot: string): Promise<void> {
+/**
+ * One reap of `jobsRoot` as the seat sweep runs it (R-032): a first sighting of each dead running job, the confirmation
+ * `reapConfirmMs` later when it found one, then one attempt at each. Returns the jobs that failed in its last pass.
+ */
+export async function confirmDeadJobs(jobsRoot: string): Promise<readonly JobFailure[]> {
 	const seen = new Map<string, number>();
-	await reapDeadJobs(jobsRoot, seen);
+	const first = await reapDeadJobs(jobsRoot, seen);
 	if (seen.size === 0) {
-		return;
+		return first;
 	}
 	await delay(reapConfirmMs());
-	await reapDeadJobs(jobsRoot, seen);
+	return reapDeadJobs(jobsRoot, seen);
 }
 function reapConfirmMs(): number {
 	const raw = Number(testKnob("LIMEN_REAP_CONFIRM_MS"));

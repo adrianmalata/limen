@@ -1,7 +1,8 @@
 // The summary of this project (`limen status`): what runs, what landed, what waits for a decision, in the last 7 days,
 // every finished job whose unlanded work blocks a worker spawn, whatever its age (A-001), each branch of abandoned work
-// (A-002), whether the seat's alerts run (A-066), a Limen hook's refusal in a coordinator's session (T-32 (4)), and with
-// `--all` every record and one row for each job (D-038).
+// (A-002), each job the seat sweep cannot end (R-032), whether the seat's alerts and its sweep run (A-066, A-024), a
+// Limen hook's refusal in a coordinator's session (T-32 (4)), and with `--all` every record and one row for each job
+// (D-038). It is a read (T-04): a dead job is shown as dead and left to the sweep, which finalizes it.
 import { spawnSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
@@ -11,13 +12,13 @@ import { ignoredSettings } from "../config.ts";
 import { coordinatorRefusals } from "../integrations/coordinator-registration.ts";
 import { herdrBinary } from "../integrations/herdr.ts";
 import { type GroupIdentity, jobMembership } from "../job/group-cabinet.ts";
-import { isTerminal } from "../job/job.ts";
+import { DEAD_WRAPPER, isTerminal } from "../job/job.ts";
 import { orderedJobs, RECENT_MS, renderJobDirectory, shownState } from "../job/listing.ts";
-import { jobFolders, readRecord } from "../job/record.ts";
+import { escalatedStuck, type JobRecord, jobFolders, readRecord } from "../job/record.ts";
 import { abandonBranches, unlandedSummary, unlandedWork } from "../job/unlanded.ts";
 import type { ShownJob } from "../job/view.ts";
 import { platform } from "../platform/platform.ts";
-import { confirmDeadJobs } from "../runtime/reap.ts";
+import { SWEEP_SERVICE, SWEEP_TIMER } from "../platform/systemd-units.ts";
 import { limenRoot, unlandedBranches, workspaceRepositories, workspaceRepository, workspaceRoot } from "./git.ts";
 import { packageRoot } from "./inherit.ts";
 import { listLeftovers } from "./leftovers.ts";
@@ -58,6 +59,8 @@ type JobFiles = {
 	readonly started: string;
 	readonly ended: string;
 	readonly openChecks: boolean;
+	/** The line of a job the seat sweep cannot end from its third attempt in a row (R-032); "" for any other job. */
+	readonly stuck: string;
 };
 
 /** What one pass over the job directories found, before Git says which branches are unlanded. */
@@ -69,6 +72,7 @@ type Scan = {
 	readonly running: string[];
 	readonly runningBranches: Set<string>;
 	readonly uncertain: string[];
+	readonly stuck: string[];
 	readonly workerTabs: Set<string>;
 	readonly worktrees: Set<string>;
 	readonly originTabs: Set<string>;
@@ -85,7 +89,6 @@ type Scan = {
 export async function projectStatus(cwd: string, all: boolean): Promise<string> {
 	const root = existsSync(`${resolve(cwd)}/.limen/jobs`) ? resolve(cwd) : limenRoot(cwd);
 	const jobsRoot = `${root}/.limen/jobs`;
-	await confirmDeadJobs(jobsRoot);
 	const ids = await jobFolders(jobsRoot);
 	const scan: Scan = {
 		root,
@@ -95,6 +98,7 @@ export async function projectStatus(cwd: string, all: boolean): Promise<string> 
 		running: [],
 		runningBranches: new Set(),
 		uncertain: [],
+		stuck: [],
 		workerTabs: new Set(),
 		worktrees: new Set(),
 		originTabs: new Set(),
@@ -128,7 +132,9 @@ export async function projectStatus(cwd: string, all: boolean): Promise<string> 
 		...(await unlandedLines(root)),
 		...abandonLines(root, workspace),
 		...(scan.uncertain.length ? ["Unconfirmed jobs:", ...scan.uncertain] : []),
+		...(scan.stuck.length ? [`Jobs the sweep cannot end (${scan.stuck.length}):`, ...scan.stuck] : []),
 		...alertsLines(),
+		...sweepLines(),
 		...(await refusalLines(root)),
 		...leftoverLines(root),
 		...environmentLines(),
@@ -209,6 +215,39 @@ function alertsLines(): string[] {
 }
 
 /**
+ * What keeps the seat sweep from finalizing dead jobs (A-024, R-032): its timer is not active, or its last run failed;
+ * each with what the agents' account runs next. These are the lines of `limen seat sweep --status` too. Empty when the
+ * timer is active and the service has not failed.
+ */
+export function sweepLines(): string[] {
+	const problems = [
+		...(platform.userUnitState(SWEEP_TIMER, "is-active") === "active"
+			? []
+			: [
+					`  ${SWEEP_TIMER} is not active; on the agents' account, install the sweep:`,
+					"    limen seat sweep --install",
+				]),
+		...(platform.userUnitState(SWEEP_SERVICE, "is-failed") === "failed"
+			? [`  ${SWEEP_SERVICE} failed; read why:`, `    journalctl --user -u ${SWEEP_SERVICE}`]
+			: []),
+	];
+	const count = problems.length / 2;
+	return count === 0
+		? []
+		: [`Sweep not working (${count}); no dead job is finalized until each is fixed:`, ...problems];
+}
+
+/**
+ * The line of a job whose processes the seat sweep has failed to end three times in a row or more (R-032): its id,
+ * the last reason, and since when; "" for any other job. The reason holds what systemd said, so it goes through
+ * `shownField`, which keeps it on one line.
+ */
+function stuckLine(record: JobRecord | undefined): string {
+	const stuck = record === undefined ? undefined : escalatedStuck(record);
+	return stuck === undefined ? "" : `  ${record?.id}: ${shownField(stuck.detail)} (since ${stuck.since})`;
+}
+
+/**
  * One line for each coordinator session whose folder holds a Limen hook's refusal of a Pi value (T-32 (4)): the
  * session, the time and what was refused, while the folder holds it; Pi showed the refusal only in that session's
  * chat. The folder's name and the file's text come from outside Limen and reach the coordinator, so both go through
@@ -269,6 +308,7 @@ async function readJobFiles(dir: string): Promise<JobFiles> {
 		started: record?.startedAt ?? "",
 		ended: record?.finishedAt ?? "",
 		openChecks: (record?.openChecks?.length ?? 0) > 0,
+		stuck: stuckLine(record),
 	};
 }
 
@@ -277,6 +317,9 @@ async function scanJob(scan: Scan, id: string): Promise<void> {
 	const dir = `${scan.jobsRoot}/${id}`;
 	const job = await readJobFiles(dir);
 	noteJobTabs(scan, job);
+	if (job.stuck) {
+		scan.stuck.push(job.stuck);
+	}
 	if (job.state === "running") {
 		if (job.branch) {
 			scan.runningBranches.add(`${job.repo}:${job.branch}`);
@@ -362,7 +405,7 @@ function runningAttention(record: ShownJob): string {
 	const silent =
 		record.silentMs !== undefined && record.silentMs >= 90_000 ? `silent ${Math.floor(record.silentMs / 60_000)}m` : "";
 	return [
-		record.pulse === "dead" ? "dead" : (record.pulse ?? "unknown activity"),
+		record.pulse === "dead" ? DEAD_WRAPPER : (record.pulse ?? "unknown activity"),
 		silent,
 		record.advisory ? `advisory: ${record.advisory}` : "",
 	]

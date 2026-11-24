@@ -16,7 +16,7 @@ Runtime dependencies must stay empty, and TypeScript basenames stay unique acros
 
 Where code lives:
 
-- `src/main.ts` — CLI entry and the shared wrapper, which prints a command's text when it ends; `src/commands/` — one file per verb, each a thin adapter that reads its values and calls one domain operation; no command imports another. The commands whose registry entry names a later ticket in `movedBy` (`prune`, `sweep`, `rule`, `close`, `keeper`, `group wait`) keep their own logic and print as they go until those tickets move them
+- `src/main.ts` — CLI entry and the shared wrapper, which prints a command's text when it ends; `src/commands/` — one file per verb, each a thin adapter that reads its values and calls one domain operation; no command imports another. The commands whose registry entry names a later ticket in `movedBy` (`prune`, `rule`, `close`, `keeper`, `group wait`) keep their own logic and print as they go until those tickets move them
 - `src/job/` — the job record: its model, lookup, rendering, and `record.ts`, which owns state files and finalization; the operations on jobs: spawn, continue, stop, steer, watch, land, and the group's rounds
 - `src/runtime/` — starting and supervising an engine: launch profiles, stream parsing, the detached runner, stall detection, reaping, recovery, the prune of finished worktrees, and `launcher.ts`, the one module that starts Limen's own CLI and names the systemd user scopes jobs run in
 - `src/project/` — the project around jobs: Git and worktrees, template inheritance, the seat registry

@@ -1,7 +1,8 @@
 // src/runtime/start-queue.ts: the seat's start gate and the wait's two thresholds come from <seat>/start-gate.json and
 // their defaults only; a wait past the first threshold gets one diagnosis and goes on, and one past the second ends
 // failed; a queued job whose folder or record is gone leaves the queue, at whichever of its record checks meets the
-// removal; and a record check that fails for another reason than ENOENT ends the wait with that failure.
+// removal; a record check that fails for another reason than ENOENT ends the wait with that failure; and the queue as
+// `limen seat queue` reads it removes no entry, which the seat sweep removes (R-032).
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -13,7 +14,14 @@ import { type JobRecord, readRecordSync, recordPath } from "../../src/job/record
 import { withLock } from "../../src/lock.ts";
 import { LimenError } from "../../src/outcome.ts";
 import { queueDiagnosis } from "../../src/runtime/queue-diagnosis.ts";
-import { GATE_FILE, type QueueEnd, startGate, waitForStart } from "../../src/runtime/start-queue.ts";
+import {
+	GATE_FILE,
+	type QueueEnd,
+	queueEntries,
+	removeDeadEntries,
+	startGate,
+	waitForStart,
+} from "../../src/runtime/start-queue.ts";
 import { hasCode } from "../../src/system-error.ts";
 import { withEnvironment } from "../environment.ts";
 import { until, within, writeRecord } from "../plant.ts";
@@ -448,3 +456,36 @@ test("QUEUE_RECORD_UNREADABLE: a queued job whose record check fails ends its wa
 		assert.deepEqual(failureFacts(failure), CHECK_FAILED);
 		assert.match(failure.message, /its queue entry could not be removed either: /);
 	}));
+
+/**
+ * The start queue of a seat for one test with three entries: a live one, whose wrapper is this process and whose job
+ * runs; a dead one, whose wrapper is gone; and a malformed one. Returns the folder of the entries.
+ */
+async function threeEntries(t: TestContext): Promise<string> {
+	const home = await seat(t);
+	const entries = join(home, ".limen", "start-queue", "entries");
+	await mkdir(entries, { recursive: true });
+	const job = (id: string) => join(home, "repo", ".limen", "jobs", id);
+	await writeRecord(job("2026-11-24-live-1a2b3c4d"), { state: "running" });
+	const entry = (id: string, pid: number) => ({ id, jobDir: job(id), label: id, priority: 2, queuedAt: 1, pid });
+	await writeFile(join(entries, "live.json"), JSON.stringify(entry("2026-11-24-live-1a2b3c4d", process.pid)));
+	await writeFile(join(entries, "dead.json"), JSON.stringify(entry("2026-11-24-dead-5e6f7a8b", 2_147_483_646)));
+	await writeFile(join(entries, "malformed.json"), "{ not json\n");
+	return entries;
+}
+
+// T-04, R-032 (d): `limen seat queue` reads the queue through `queueEntries`, which removed what it found dead.
+test("the queue's entries as seat queue reads them hold only the live one, and every entry file stays", async (t) => {
+	const entries = await threeEntries(t);
+	const listed = await queueEntries();
+	assert.deepEqual(
+		[listed.map((entry) => entry.id), readdirSync(entries).sort()],
+		[["2026-11-24-live-1a2b3c4d"], ["dead.json", "live.json", "malformed.json"]],
+	);
+});
+
+// R-032 (a) 4: the seat sweep removes them once per run instead.
+test("removeDeadEntries removes the dead and the malformed entry, keeps the live one, and says how many it removed", async (t) => {
+	const entries = await threeEntries(t);
+	assert.deepEqual([await removeDeadEntries(), readdirSync(entries)], [2, ["live.json"]]);
+});

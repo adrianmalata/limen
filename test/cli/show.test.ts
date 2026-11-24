@@ -1,11 +1,13 @@
 // `limen show` (src/job/listing.ts) of a finished job: the readings of its systemd user scope, and the kind and the
-// reset time of its failure.
+// reset time of its failure; and of a running job whose wrapper is dead, which it shows and does not end (T-04).
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { test } from "node:test";
 import type { Scope } from "../../src/job/record.ts";
-import { jobDir, limen, plant, SCOPE_READINGS, writeRecord } from "../plant.ts";
+import { platform } from "../../src/platform/platform.ts";
+import { jobDir, jobRecord, limen, plant, SCOPE_READINGS, writeRecord } from "../plant.ts";
+import { snapshot } from "../snapshot.ts";
 
 const READ = "2026-11-22-scope-1a2b3c4d";
 const UNREAD = "2026-11-22-gone-5e6f7a8b";
@@ -79,4 +81,31 @@ test("the detail of a failed job shows its failure kind, and for quota its reset
 		],
 		shown.map((run) => `${run.stdout}${run.stderr}`).join("\n"),
 	);
+});
+
+/** A wrapper that is gone: a pid no process holds, under this boot, as a wrapper killed alone leaves it. */
+const DEAD = { pid: 2_147_483_646, born: "1", bootId: platform.bootId() ?? null };
+
+// T-04, R-032 (d): a read shows a dead job's state without writing it; only the seat sweep finalizes it.
+test("the detail of a running job whose wrapper is dead says wrapper dead; limen-sweep will finalize, and show leaves it running", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = "2026-11-24-dead-1a2b3c4d";
+	const dir = jobDir(p, id);
+	const at = new Date().toISOString();
+	await writeRecord(dir, { state: "running", label: "demo", branch: "limen/demo", identity: DEAD, startedAt: at });
+	await writeFile(join(dir, "task.md"), "block\n");
+	await writeFile(join(dir, "log"), `[limen ${at}] worker started\n`);
+	const before = snapshot(p.root);
+	const run = limen(p, ["show", id], { env: { LIMEN_REAP_CONFIRM_MS: "1" } });
+	assert.deepEqual(
+		[
+			run.status,
+			run.stdout.split("\n")[0]?.includes(" · wrapper dead; limen-sweep will finalize · "),
+			jobRecord(p, id)?.state,
+		],
+		[0, true, "running"],
+		`${run.stdout}${run.stderr}`,
+	);
+	assert.deepEqual(snapshot(p.root), before);
 });

@@ -651,14 +651,14 @@ export async function stopMemberJob(
 }
 /**
  * The class T-02 gives the cause of a member stop that failed, and its remedy. A running record with no pid names no
- * process, so every stop refuses it (JOB_NO_PID, src/job/stopping.ts): that is the seat's state, which the sweep ends,
- * since it ends a running job whose process is unknown (A-056). Any other failure keeps the class a step's failure has
- * (`stepFailure`), so a refusal there is the internal REFUSED_AFTER_VALIDATE.
+ * process, so every stop refuses it (JOB_NO_PID, src/job/stopping.ts): that is the seat's state, which `limen seat
+ * sweep` ends, since it ends a running job whose process is unknown (A-056). Any other failure keeps the class a step's
+ * failure has (`stepFailure`), so a refusal there is the internal REFUSED_AFTER_VALIDATE.
  */
 function stopCause(error: unknown): Pick<MemberFailure, "class" | "remedy"> {
 	if (error instanceof LimenError && error.code === "JOB_NO_PID") {
-		const text = "No stop can signal a job whose record names no process; limen sweep ends such a job";
-		return { class: "environment", remedy: { next: "limen sweep", text } };
+		const text = "No stop can signal a job whose record names no process; limen seat sweep ends such a job";
+		return { class: "environment", remedy: { next: "limen seat sweep", text } };
 	}
 	return { class: failureOf(stepFailure(error)).class };
 }

@@ -238,9 +238,10 @@ test("a killed wrapper is reaped at once, its engine dead; the orphan of a job t
 	const engines = engineEvents(jobDir(p, killed)).flatMap((entry) => (entry.event === "pid" ? [entry.pid ?? 0] : []));
 	assert.equal(engines.length, 1, "the engine recorded its pid");
 	process.kill(pid, "SIGKILL");
-	// A young job: only the product's dead-pid confirmation window applies, never the startup grace.
-	const listed = limen(p, ["show", killed], { env: { LIMEN_REAP_CONFIRM_MS: "1" } });
-	assert.deepEqual([listed.status, jobState(p, killed)], [0, "failed"], listed.stderr);
+	// A young job: only the product's dead-pid confirmation window applies, never the startup grace. The seat sweep is the
+	// one reaper (R-032).
+	const swept = limen(p, ["seat", "sweep"], { env: { LIMEN_REAP_CONFIRM_MS: "1" } });
+	assert.deepEqual([swept.status, jobState(p, killed)], [0, "failed"], swept.stderr);
 	const scope = jobRecord(p, killed)?.scope?.unit;
 	assert.deepEqual(jobRecord(p, killed)?.failure, {
 		kind: "reaped",
@@ -327,7 +328,7 @@ syncBuiltinESMExports();
 	const env = { NODE_OPTIONS: `${p.env.NODE_OPTIONS} --import=${barrier}` };
 	const children = [
 		...projects.map((project) => start(p, ["workspace", "init"], { cwd: project, env })),
-		...Array.from({ length: 8 }, () => start(p, ["sweep"], { env })),
+		...Array.from({ length: 8 }, () => start(p, ["seat", "sweep"], { env })),
 	];
 	// A child that fails before its first registry touch never reaches the barrier; count it so the wait still ends.
 	await until(

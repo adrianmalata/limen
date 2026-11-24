@@ -13,6 +13,8 @@ import { withEnvironment } from "../environment.ts";
 const MIB = 1_048_576;
 const JOB = "2026-11-23-diag-1a2b3c4d";
 const OTHER = "2026-11-23-other-5e6f7a8b";
+/** The account the tests run as, whose user manager the diagnosis reads (src/platform/linux.ts). */
+const UID = process.getuid?.() ?? 0;
 
 /** A unit's reading: its current memory in MiB and its CPU time in seconds, each null when unknown. */
 const usage = (unit: string, memoryMib: number | null, cpuSeconds: number | null): UnitUsage => ({
@@ -95,7 +97,7 @@ test("a process that runs under no user manager gets the gate reading and says t
 // A-036: the start queue's test checks only that the diagnosis reaches the record (test/runtime/start-queue.test.ts),
 // so the units of a real hierarchy are read here.
 test("the units are read before and after the gate's reading, so a unit's CPU counts over the reading's own window", async (t) => {
-	const manager = "/user.slice/user-1000.slice/user@1000.service";
+	const manager = `/user.slice/user-${UID}.slice/user@${UID}.service`;
 	const root = await hierarchy(t, `${manager}/app.slice/limen-job-${JOB}.scope`);
 	const busy = join(root, manager, "app.slice", `limen-job-${OTHER}.scope`);
 	const idle = join(root, manager, "app.slice", "herdr.service");
@@ -114,18 +116,18 @@ test("the units are read before and after the gate's reading, so a unit's CPU co
 
 // T-01: a failed read of the units ends no wait; the diagnosis names it, so the record and the wake carry it.
 test("a hierarchy whose units cannot be read gives the gate reading and the read's failure", async (t) => {
-	const manager = "/user.slice/user-1000.slice/user@1000.service";
+	const manager = `/user.slice/user-${UID}.slice/user@${UID}.service`;
 	const root = await hierarchy(t, `${manager}/app.slice/limen-job-${JOB}.scope`);
-	await mkdir(join(root, "user.slice/user-1000.slice"), { recursive: true });
+	await mkdir(join(root, `user.slice/user-${UID}.slice`), { recursive: true });
 	// A link to itself fails every read with ELOOP, for every user, root included.
-	await symlink("user@1000.service", join(root, "user.slice/user-1000.slice/user@1000.service"));
+	await symlink(`user@${UID}.service`, join(root, `user.slice/user-${UID}.slice/user@${UID}.service`));
 	const text = await queueDiagnosis(async () => "CPU 10% idle (gate 25%)");
 	assert.match(text, /^CPU 10% idle \(gate 25%\); units: not read: .*ELOOP/);
 });
 
 // z. 15: a failed read's message names the path it failed on, whose folders a job can name, so it is data as well.
 test("a failed read's message, which names a folder of the hierarchy, is quoted as data", async (t) => {
-	const manager = "/user.slice/user-1000.slice/user@1000.service";
+	const manager = `/user.slice/user-${UID}.slice/user@${UID}.service`;
 	const unit = join(manager, "app.slice", `${CHOSEN}.service`);
 	const root = await hierarchy(t, `${manager}/app.slice/limen-job-${JOB}.scope`);
 	await mkdir(join(root, unit), { recursive: true });

@@ -1,17 +1,19 @@
-// src/runtime/reap.ts: whether a job's recorded process runs (its pid, start time and boot, A-056), and the reaper,
-// which ends a running job whose wrapper is gone only once the job's scope, or its wrapper's group, is gone (A-005).
+// src/runtime/reap.ts: whether a job's recorded process runs (its pid, start time and boot, A-056), whether a job holds
+// any process, its wrapper or its scope (R-032), and the reaper, which ends a running job whose wrapper is gone only
+// once the job's scope, or its wrapper's group, is gone (A-005).
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
+import { folderLive } from "../../src/job/migration.ts";
 import { type Identity, type JobRecord, readRecord, type Scope } from "../../src/job/record.ts";
 import { platform } from "../../src/platform/platform.ts";
 import { jobScope } from "../../src/runtime/launcher.ts";
-import { ownerState, reapDeadJobs } from "../../src/runtime/reap.ts";
+import { holdsProcesses, liveJob, ownerState, reapDeadJobs } from "../../src/runtime/reap.ts";
 import { withEnvironment } from "../environment.ts";
 import { failingSystemctl, fakeCgroup, fakeSystemd, SCOPE_READINGS, scopeProcess, writeRecord } from "../plant.ts";
 
@@ -239,8 +241,9 @@ test("the record of a reaped job holds the scope's readings taken before the TER
 	);
 });
 
-// T-01: before R-027 the reaper wrote `failed` and only logged that the scope was not ended, which may hold the engine.
-test("a reap whose scope the user manager cannot read leaves the job running with one log line per attempt, and tries again once confirmed", async (t) => {
+// T-01: before R-027 the reaper wrote `failed` and only logged that the scope was not ended, which may hold the engine;
+// R-032 counts each attempt in the record's `stuck`, which nothing else of the record changes with.
+test("a reap whose scope the user manager cannot read leaves the job running with one log line and one more stuck attempt each time, and tries again once confirmed", async (t) => {
 	const { jobs, folder, cgroups } = await jobsFolder(t);
 	const wrapper = await killedWrapper(t);
 	const id = "2026-11-22-unread-1a2b3c4d";
@@ -257,9 +260,11 @@ test("a reap whose scope the user manager cannot read leaves the job running wit
 	const first = logged(job, "reap: ");
 	await reapDeadJobs(jobs, seen, now + 23_000);
 	const line = `reap: ${scope.unit} not ended: Failed to connect to bus: No medium found`;
+	const after = await readRecord(job);
+	const stuck = { since: after?.stuck?.since ?? "", attempts: 2, detail: line.slice("reap: ".length) };
 	assert.deepEqual(
-		{ first, record: await readRecord(job), claim: existsSync(join(job, "terminal")), lines: logged(job, "reap: ") },
-		{ first: [line], record: before, claim: false, lines: [line, line] },
+		{ first, record: after, claim: existsSync(join(job, "terminal")), lines: logged(job, "reap: ") },
+		{ first: [line], record: before && { ...before, stuck }, claim: false, lines: [line, line] },
 	);
 });
 
@@ -359,4 +364,53 @@ test("the reaper leaves running a job without a scope whose wrapper's pid runs a
 			lines: [`reap: group ${process.pid} not ended: pid ${process.pid} runs a process that may be the wrapper`],
 		},
 	);
+});
+
+/** Writes the `cgroup.events` the kernel keeps in the folder of the cgroup `cgroup`, populated or not. */
+function cgroupEvents(cgroups: string, cgroup: string, populated: boolean): void {
+	writeFileSync(join(cgroups, cgroup, "cgroup.events"), `populated ${populated ? 1 : 0}\nfrozen 0\n`);
+}
+
+// R-027 Out of scope, R-032 (c): a wrapper killed alone leaves its engine in the job's scope, so the callers outside
+// the reaper ask whether the job holds any process; the reaper asks about the wrapper alone, since it ends the scope.
+test("R-032: a running job whose wrapper is dead holds processes while its scope's cgroup is populated, though liveJob says it is not live", async (t) => {
+	const { jobs, cgroups } = await jobsFolder(t);
+	const id = "2026-11-24-engine-1a2b3c4d";
+	const scope = scopeOf(cgroups, id);
+	const job = await running(jobs, id, await killedWrapper(t), { scope });
+	cgroupEvents(cgroups, scope.cgroup, true);
+	const record = await readRecord(job);
+	const whileEngine = [await holdsProcesses(record), await liveJob(record), await folderLive(job)];
+	cgroupEvents(cgroups, scope.cgroup, false);
+	assert.deepEqual(
+		[whileEngine, await holdsProcesses(record), await folderLive(job)],
+		[[true, false, true], false, false],
+	);
+});
+
+// R-032 review round 1, note 7: the deployment's gate runs as root, whose user manager calls an agents' scope inactive.
+test("R-032: holdsProcesses asks the cgroup, not a user manager: a populated scope holds processes while systemctl says inactive", async (t) => {
+	const { jobs, folder, cgroups } = await jobsFolder(t);
+	const id = "2026-11-24-root-1a2b3c4d";
+	const scope = scopeOf(cgroups, id);
+	const job = await running(jobs, id, await killedWrapper(t), { scope });
+	cgroupEvents(cgroups, scope.cgroup, true);
+	const inactive = join(folder, "inactive");
+	mkdirSync(inactive);
+	writeFileSync(join(inactive, "systemctl"), "#!/bin/sh\necho inactive\nexit 3\n", { mode: 0o755 });
+	process.env.PATH = `${inactive}:${process.env.PATH ?? ""}`;
+	assert.deepEqual(
+		[platform.scopeState(scope.unit, scope.cgroup), await holdsProcesses(await readRecord(job))],
+		[{ kind: "gone" }, true],
+	);
+});
+
+test("R-032: a running job whose wrapper is dead holds processes when its scope's cgroup.events does not read, and none when its folder is gone", async (t) => {
+	const { jobs, cgroups } = await jobsFolder(t);
+	const id = "2026-11-24-unread-1a2b3c4d";
+	const scope = scopeOf(cgroups, id);
+	const job = await running(jobs, id, await killedWrapper(t), { scope });
+	const unread = await holdsProcesses(await readRecord(job));
+	rmSync(join(cgroups, scope.cgroup), { recursive: true });
+	assert.deepEqual([unread, await holdsProcesses(await readRecord(job))], [true, false]);
 });

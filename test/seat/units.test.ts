@@ -1,22 +1,16 @@
-// seat/units.ts: the alerts' units as golden texts, the refusal of a value that adds a line, and the User= reader.
+// seat/units.ts: the alerts' units as golden texts, the refusal of an account that is no system account name, and the
+// User= reader. The renderer itself is src/platform/systemd-units.ts's (test/platform/systemd-units.test.ts).
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-	ALERTS_SERVICE,
-	ALERTS_TIMER,
-	alertsUnits,
-	renderUnit,
-	type UnitDefinition,
-	unitUser,
-} from "../../seat/units.ts";
+import { ALERTS_SERVICE, ALERTS_TIMER, alertsUnitFiles, alertsUnits, unitUser } from "../../seat/units.ts";
 
 const ACCOUNT = "alerts-test";
 
 /** The text of the alerts unit `name` for `ACCOUNT`. */
 function rendered(name: string): string {
-	const unit = alertsUnits(ACCOUNT).find((each) => each.file === name);
+	const unit = alertsUnitFiles(ACCOUNT).find((each) => each.file === name);
 	assert.ok(unit, `no unit ${name}`);
-	return renderUnit(unit);
+	return unit.text;
 }
 
 test("limen-alerts.service renders as its golden text: a oneshot run of /usr/bin/node on the alerts account", () => {
@@ -71,14 +65,6 @@ test("T-10: every line of both alerts units is at most 100 characters", () => {
 		.flatMap((name) => rendered(name).split("\n"))
 		.filter((line) => [...line].length > 100);
 	assert.deepEqual(wide, []);
-});
-
-test("a unit value with a line break is refused, so a value cannot add a directive of its own", () => {
-	const unit = {
-		file: "odd.service",
-		sections: [{ name: "Service", directives: [["User", "alerts\nExecStartPre=/bin/sh -c id"]] }],
-	} satisfies UnitDefinition;
-	assert.throws(() => renderUnit(unit), /User/);
 });
 
 test("an account name that is not a system account name is refused before a unit holds it", () => {

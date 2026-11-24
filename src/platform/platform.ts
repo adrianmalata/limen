@@ -3,12 +3,16 @@
 // that a lock's owner record carries (D-056 (1)), and the systemd user scopes every job runs in (A-029): a start in a
 // new scope, a scope's state, a signal to a whole scope, the end of a scope, a process's own cgroup, a scope's
 // readings, the units of the user manager with their memory and CPU time, which the start queue's diagnosis ranks
-// (A-036), and the probe of `limen init`; and what the system manager says of a unit, which the GitHub doctor and the
-// alerts' warning of `limen status` read. The policies built on them (birth checks, the stall rule, the start gate's
-// thresholds, the lock's owner check, the names of Limen's scopes, when one ends and the grace before its KILL) stay
-// with their callers. Linux is the one implementation; another operating system
-// is another implementation with its own tests. A member exists only with an implementation: the scheduler install
-// comes with R-032, and notifications stay Herdr's (src/integrations/herdr.ts).
+// (A-036) and the seat sweep reads for the scopes of finished jobs, and the probe of `limen init`; what the system
+// manager says of a unit, which the GitHub doctor and the alerts' warning of `limen status` read; and the user units of
+// the seat sweep (R-032): whether the account lingers, the folder of its unit files, their verification, the
+// manager's reload, a timer's enable and disable, and what the user manager says of a unit, which the sweep's warning
+// of `limen status` reads. The policies built on them (birth checks, the stall rule, the start gate's thresholds, the
+// lock's owner check, the names of Limen's scopes, when one ends and the grace before its KILL, what the sweep's
+// install writes, src/platform/systemd-units.ts) stay with their callers. Whether a cgroup holds a process is read from
+// the hierarchy alone, so root's deployment gets the answer an agents' process gets. Linux is the one implementation;
+// another operating system is another implementation with its own tests. A member exists only with an implementation:
+// notifications stay Herdr's (src/integrations/herdr.ts).
 import { linux } from "./linux.ts";
 
 /** A process as the system reports it; `born` is its start time in clock ticks since boot, which a reused pid lacks. */
@@ -59,8 +63,8 @@ export type ScopeEnd =
 	| { readonly kind: "gone" }
 	| { readonly kind: "failed"; readonly detail: string };
 /**
- * `active`: a process is left in the scope; `gone`: no process is left in it, which ended or never started; `failed`:
- * the system did not say, as it says.
+ * `active`: a process is left in the scope, or may be, as in one systemd is still stopping (`deactivating`); `gone`: no
+ * process is left in it, which ended or never started; `failed`: the system did not say, as it says.
  */
 export type ScopeState =
 	| { readonly kind: "active" }
@@ -93,6 +97,16 @@ export type UnitUsage = {
 	readonly memoryBytes: number | null;
 	readonly cpuMicroseconds: number | null;
 };
+/**
+ * Whether a process is in a cgroup, as the kernel's `cgroup.events` says: `populated`, `empty` (also a cgroup whose
+ * folder is gone), or `unreadable`, as it says.
+ */
+export type CgroupContent =
+	| { readonly kind: "populated" }
+	| { readonly kind: "empty" }
+	| { readonly kind: "unreadable"; readonly detail: string };
+/** `done`: the call to the user manager, or its verification, succeeded; `failed`: it did not, as it says. */
+export type ManagerCall = { readonly kind: "done" } | { readonly kind: "failed"; readonly detail: string };
 
 export interface Platform {
 	/** The identity of the process `pid`. */
@@ -137,14 +151,38 @@ export interface Platform {
 	probeUserScope(): ScopeProbe;
 	/** The cgroup this process runs in, as a path of the cgroup v2 hierarchy; undefined when the system gives none. */
 	ownCgroup(): string | undefined;
+	/**
+	 * Whether a process is in the cgroup `cgroup` or below it, from the hierarchy alone: no manager is asked, so every
+	 * account that can read the hierarchy, root's deployment included, gets the same answer (R-032 review round 1,
+	 * note 7).
+	 */
+	cgroupPopulated(cgroup: string): CgroupContent;
 	/** The readings of the cgroup `cgroup`, a path of the cgroup v2 hierarchy as `ownCgroup` gives it. */
 	scopeReadings(cgroup: string): Promise<ScopeReadings>;
 	/**
-	 * Each unit of the systemd user manager this process runs under, by name, as its cgroup reads now: the scopes and
-	 * services in its slices, a unit's own child cgroups counted in the unit; undefined when this process runs under
-	 * no user manager.
+	 * Each unit of the systemd user manager of this process's account, by name, as its cgroup reads now: the scopes and
+	 * services in its slices, a unit's own child cgroups counted in the unit. The manager is the one of the process's
+	 * own uid, whether the process runs under it or in a login session beside it; undefined when that manager has no
+	 * cgroup folder, as when it does not run.
 	 */
 	userUnits(): Promise<readonly UnitUsage[] | undefined>;
+	/** Whether systemd keeps the user manager of `account` running with no login session (its linger file). */
+	lingers(account: string): boolean;
+	/** The folder whose unit files the user manager of this account reads first. */
+	userUnitFolder(): string;
+	/** Verifies the user unit files `paths`, as the user manager would load them, before they are loaded. */
+	verifyUserUnits(paths: readonly string[]): ManagerCall;
+	/** Makes the user manager read its unit files again. */
+	reloadUserManager(): ManagerCall;
+	/** Enables the user timer `timer` and starts it at once. */
+	enableUserTimer(timer: string): ManagerCall;
+	/** Disables the user timer `timer` and stops it at once. */
+	disableUserTimer(timer: string): ManagerCall;
+	/**
+	 * What the user manager prints for `is-active` or `is-failed` of its unit `unit`; undefined when it says no, so
+	 * `is-failed` gives `failed` only for a unit that failed.
+	 */
+	userUnitState(unit: string, query: "is-active" | "is-failed"): string | undefined;
 	/** The property `property` of the system manager's unit `unit` as it prints it; undefined when the call fails. */
 	systemUnitProperty(unit: string, property: string): string | undefined;
 	/**

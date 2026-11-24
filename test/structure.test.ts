@@ -168,8 +168,8 @@ test("T-01: the untyped throw new Error( sites in src/ and hook/ stay at most th
 /**
  * T-38's ratchet: the change commands without `movedBy` whose handler does not go through the runner of
  * src/operation.ts yet. The list may only shrink; R-082 brings it to zero, and a ticket that rewrites one of these
- * commands moves it onto the runner (D-070 (2)). `status` and `show` are change commands only while they reap dead jobs
- * (D-045 (6.2)), so they leave it when R-032 makes them read commands again.
+ * commands moves it onto the runner (D-070 (2)). `status` and `show` left it with R-032, which made them read commands
+ * (D-045 (6.2)), and `seat sweep` goes through the runner.
  */
 const OUTSIDE_RUNNER = [
 	"board",
@@ -185,8 +185,6 @@ const OUTSIDE_RUNNER = [
 	"init",
 	"land",
 	"migrate",
-	"show",
-	"status",
 	"steer",
 	"ticket new",
 	"unwatch",
@@ -382,16 +380,8 @@ type WriteException = {
 	readonly what: string;
 };
 
-/** The write sites the scan does not count: the LaunchAgent installer until R-032. */
-const WRITE_EXCEPTIONS: readonly WriteException[] = [
-	{
-		path: "src/project/seat.ts",
-		inside: "installSeatSweep",
-		primitives: ["writeFileSync"],
-		ticket: "R-032",
-		what: "the LaunchAgent installer",
-	},
-];
+/** The write sites the scan does not count: none, since R-032 removed the LaunchAgent installer, the last one. */
+const WRITE_EXCEPTIONS: readonly WriteException[] = [];
 
 /** The name of the innermost named function around `node`: a declaration, a method, or a function a `const` holds. */
 function enclosingFunction(node: ts.Node): string {
@@ -508,7 +498,7 @@ async function writeScan(repo: string, exceptions: readonly WriteException[]): P
 
 // A-022: a file written in place is left truncated when the disk fills; the copies of the temp-and-rename policy drifted
 // apart (eight writers, three with fsync, none of the folder). One module holds the policy, so the scan bans the rest.
-test("T-25: outside src/atomic-write.ts no file of src/, hook/ or seat/ imports or calls a write primitive or opens a file for writing, except the listed installer site", async () => {
+test("T-25: outside src/atomic-write.ts no file of src/, hook/ or seat/ imports or calls a write primitive or opens a file for writing, except the listed sites", async () => {
 	assert.deepEqual(await writeScan(root, WRITE_EXCEPTIONS), []);
 });
 
@@ -1092,6 +1082,70 @@ test("T-20 (4): the module of every handler that takes an argument of type job, 
 	);
 });
 
+/**
+ * The functions that change a job's state or write its record (A-019, T-04's Check): the record's one writer, the end
+ * of a job, the markers, the first record, the reaper and the seat sweep's `stuck`.
+ */
+const STATE_TRANSITIONS: ReadonlySet<string> = new Set([
+	"transition",
+	"finalizeJob",
+	"writeMarker",
+	"publishRecord",
+	"reapDeadJobs",
+	"confirmDeadJobs",
+	"writeStuck",
+]);
+/** The read commands whose modules still import one, each with the ticket that ends it. */
+const READS_WITH_TRANSITIONS: Readonly<Record<string, string>> = {
+	// `rule`'s file holds `rule set` and `rule timer` too, which R-102 cuts with it (D-097 (6)).
+	rule: "R-102",
+};
+
+/**
+ * Each state-transition function that the module of a read command's handler, or a `src/` module it imports directly,
+ * imports, as `<command>: <file> imports <function>`.
+ */
+async function readTransitions(): Promise<string[]> {
+	const registry = await readFile(join(root, "src", "registry.ts"), "utf8");
+	const modules = new Map(
+		importsOf("src/registry.ts", registry).flatMap(({ module, names }) => {
+			const file = module === undefined ? undefined : importedFile("src/registry.ts", module);
+			return file === undefined ? [] : names.map((name) => [name, file] as const);
+		}),
+	);
+	const found: string[] = [];
+	for (const entry of REGISTRY.filter(({ kind }) => kind === "read")) {
+		const module = modules.get(entry.handler.name);
+		assert.ok(module, `the registry imports the handler of ${entry.name}`);
+		const text = await readFile(join(root, module), "utf8");
+		for (const file of [module, ...domainModules(module, text)]) {
+			const code = file === module ? text : await readFile(join(root, file), "utf8");
+			for (const { names, typeOnly } of importsOf(file, code)) {
+				found.push(
+					...names
+						.filter((name) => !typeOnly && STATE_TRANSITIONS.has(name))
+						.map((name) => `${entry.name}: ${file} imports ${name}`),
+				);
+			}
+		}
+	}
+	return found;
+}
+
+// T-04 → Check, R-032 Decision 16: a read command that does not import what writes a job's state cannot write it from
+// its own code or from the domain module it calls; the T-04 read test of test/registry.test.ts holds the rest.
+test("T-04: the module of every read command's handler and the src/ modules it imports import no state-transition function, except the listed ones", async () => {
+	const found = await readTransitions();
+	const listed = found.filter((line) => Object.hasOwn(READS_WITH_TRANSITIONS, line.split(":")[0] ?? ""));
+	assert.deepEqual(
+		{
+			unlisted: found.filter((line) => !listed.includes(line)),
+			stale: Object.keys(READS_WITH_TRANSITIONS).filter((name) => !listed.some((line) => line.startsWith(`${name}: `))),
+		},
+		{ unlisted: [], stale: [] },
+	);
+});
+
 /** The one module of the job id's form (T-25 (2), T-20 (1), (6)): its date and slug, its token, its older 4-hex end. */
 const JOB_ID_MODULE = "src/job/id.ts";
 /** A pattern of the job id's form as source text: its date and slug, or a run of 8 or 4 hex characters. */
@@ -1207,7 +1261,6 @@ type ListedLine = { readonly path: string; readonly text: string };
  * leaves the code leaves the list too.
  */
 const ERRNO_TYPED: readonly ListedLine[] = [
-	{ path: "src/commands/sweep.ts", text: 'if ((error as NodeJS.ErrnoException).code === "EEXIST") {' },
 	{ path: "src/integrations/coordinator-wake.ts", text: 'conn.on("error", (error: NodeJS.ErrnoException) => {' },
 	{
 		path: "src/integrations/coordinator-wake.ts",

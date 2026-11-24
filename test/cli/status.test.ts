@@ -1,12 +1,14 @@
 // `limen status` lists the leftover files of cut features in the project it reports on, the Limen variables of its
 // environment that it no longer reads or reads only until a ticket, names a running job's note, lists the finished
 // jobs whose unlanded work makes a worker spawn refuse (A-001) and the branches of abandoned work (A-002), warns when
-// the alerts do not run (A-066), and names a hook's refusal in a coordinator's session (T-32 (4)).
+// the alerts do not run (A-066), names a hook's refusal in a coordinator's session (T-32 (4)), shows a dead job without
+// ending it (T-04), and names the jobs the seat sweep cannot end and a sweep that does not run (R-032).
 import assert from "node:assert/strict";
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { platform } from "../../src/platform/platform.ts";
 import { outputText, readOutcome } from "../final-line.ts";
 import {
 	editRecord,
@@ -21,6 +23,7 @@ import {
 	spawnJob,
 	until,
 	waitJob,
+	writeRecord,
 } from "../plant.ts";
 import { snapshot } from "../snapshot.ts";
 
@@ -443,4 +446,119 @@ test("limen status escapes a newline in a coordinator session's name and in its 
 			false,
 		],
 	);
+});
+
+/** A wrapper that is gone: a pid no process holds, under this boot, as a wrapper killed alone leaves it. */
+const DEAD = { pid: 2_147_483_646, born: "1", bootId: platform.bootId() ?? null };
+
+// T-04, R-032 (d): a read shows a dead job's state without writing it; only the seat sweep finalizes it.
+test("a running job whose wrapper is dead shows wrapper dead; limen-sweep will finalize in its status row, and status leaves it running", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = "2026-11-24-dead-1a2b3c4d";
+	await writeRecord(jobDir(p, id), {
+		state: "running",
+		label: "dead one",
+		branch: "limen/dead-one",
+		identity: DEAD,
+		startedAt: new Date().toISOString(),
+	});
+	writeFileSync(join(jobDir(p, id), "task.md"), "block\n");
+	writeFileSync(join(jobDir(p, id), "log"), "");
+	const before = snapshot(p.root);
+	const run = limen(p, ["status"], { env: { LIMEN_REAP_CONFIRM_MS: "1" } });
+	assert.equal(run.status, 0, run.stderr);
+	const row = run.stdout.split("\n").find((line) => line.startsWith(`  dead one (${id})`)) ?? "";
+	assert.deepEqual(
+		[row.includes(" · wrapper dead; limen-sweep will finalize"), jobRecord(p, id)?.state, snapshot(p.root)],
+		[true, "running", before],
+		run.stdout,
+	);
+});
+
+/** The lines of `stdout` from the section that starts with `header` on, up to the next line that is not part of it. */
+function block(stdout: string, header: string): string[] {
+	const lines = stdout.split("\n");
+	const at = lines.findIndex((line) => line.startsWith(header));
+	if (at < 0) {
+		return [];
+	}
+	const end = lines.findIndex((line, index) => index > at && !line.startsWith("  "));
+	return lines.slice(at, end < 0 ? undefined : end);
+}
+
+// R-032 (b), T-02: the sweep counts its failed attempts in the record; the third in a row is the owner's to see.
+test("R-032: limen status names each job the sweep failed to end three times in a row, with the last reason and since when", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const since = "2026-11-24T10:00:00.000Z";
+	const detail = "limen-job-x.scope not ended: Failed to connect to bus";
+	const jobs = { "2026-11-24-twice-1a2b3c4d": 2, "2026-11-24-thrice-5e6f7a8b": 3 };
+	for (const [id, attempts] of Object.entries(jobs)) {
+		await writeRecord(jobDir(p, id), {
+			state: "running",
+			label: id,
+			identity: DEAD,
+			startedAt: since,
+			stuck: { since, attempts, detail },
+		});
+	}
+	const run = limen(p, ["status"]);
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(block(run.stdout, "Jobs the sweep cannot end"), [
+		"Jobs the sweep cannot end (1):",
+		`  2026-11-24-thrice-5e6f7a8b: ${detail} (since ${since})`,
+	]);
+});
+
+/**
+ * The plant's PATH with a systemctl first that says `timer` for `--user is-active limen-sweep.timer` and `service` for
+ * `--user is-failed limen-sweep.service`, with systemd's exit codes, and passes every other call to the plant's own.
+ */
+function pathWithSweep(p: Plant, timer: "active" | "inactive", service: "failed" | "inactive"): string {
+	const folder = join(p.parent, `sweep-${timer}-${service}`);
+	mkdirSync(folder);
+	const script = [
+		"#!/bin/sh",
+		'case "$*" in',
+		`"--user is-active limen-sweep.timer") echo ${timer}; [ ${timer} = active ] && exit 0; exit 3 ;;`,
+		`"--user is-failed limen-sweep.service") echo ${service}; [ ${service} = failed ] && exit 0; exit 1 ;;`,
+		"esac",
+		`exec ${join(p.bin, "systemctl")} "$@"`,
+	];
+	writeFileSync(join(folder, "systemctl"), `${script.join("\n")}\n`, { mode: 0o755 });
+	return `${folder}:${p.env.PATH}`;
+}
+
+// A-024, R-032 (f): without the sweep no dead job is finalized, so status says when it does not run, as for the alerts.
+test("R-032: limen status warns that limen-sweep.timer is not active and names the install on the agents' account", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const run = limen(p, ["status"], { env: { PATH: pathWithSweep(p, "inactive", "inactive") } });
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(block(run.stdout, "Sweep not working"), [
+		"Sweep not working (1); no dead job is finalized until each is fixed:",
+		"  limen-sweep.timer is not active; on the agents' account, install the sweep:",
+		"    limen seat sweep --install",
+	]);
+});
+
+test("R-032: limen status warns that limen-sweep.service failed and names where to read why", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const run = limen(p, ["status"], { env: { PATH: pathWithSweep(p, "active", "failed") } });
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(block(run.stdout, "Sweep not working"), [
+		"Sweep not working (1); no dead job is finalized until each is fixed:",
+		"  limen-sweep.service failed; read why:",
+		"    journalctl --user -u limen-sweep.service",
+	]);
+});
+
+test("limen status prints no sweep warning when the timer is active and the service has not failed", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const run = limen(p, ["status"], { env: { PATH: pathWithSweep(p, "active", "inactive") } });
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(block(run.stdout, "Sweep not working"), []);
 });

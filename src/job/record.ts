@@ -115,6 +115,11 @@ export type QueueWait = {
 };
 /** The wrapper's note on a running job, such as an uncertain stall observation, and when it was set. */
 export type Advisory = { readonly text: string; readonly at: string };
+/**
+ * A job whose processes the seat sweep could not end (R-032): since its first failed attempt in a row, how many
+ * attempts in a row failed, and why the last one did. An attempt that ends them removes it.
+ */
+export type Stuck = { readonly since: string; readonly attempts: number; readonly detail: string };
 /** Where the job's wake goes: the Herdr tab and pane of its coordinator, and its Pi session. */
 export type Origin = { readonly tab: string | null; readonly pane: string | null; readonly session: string | null };
 /**
@@ -204,6 +209,8 @@ export type JobRecord = Facts & {
 	readonly rateLimit?: RateLimit;
 	/** The first refusal of a Limen hook in the job (T-32 (4)), which its end reads; a job with none has none. */
 	readonly refusal?: Refusal;
+	/** Set while the seat sweep cannot end the job's processes (R-032); only `writeStuck` writes it, in any state. */
+	readonly stuck?: Stuck;
 };
 
 /**
@@ -217,7 +224,9 @@ export type Abandoned = { readonly branch: string; readonly commit: string; read
 export type Marker = { readonly landed: Landed } | { readonly abandoned: Abandoned };
 
 /** The fields a change may set; the state, the transitions and the markers are the record module's own. */
-export type Fields = Partial<Omit<JobRecord, "version" | "id" | "state" | "transitions" | "landed" | "abandoned">>;
+export type Fields = Partial<
+	Omit<JobRecord, "version" | "id" | "state" | "transitions" | "landed" | "abandoned" | "stuck">
+>;
 
 /**
  * What the wrapper reports per stream event (D-057 (7.1)), which writes every part. A part is null only in a migrated
@@ -270,6 +279,7 @@ const RECORD_FIELDS = [
 	"abandoned",
 	"rateLimit",
 	"refusal",
+	"stuck",
 ] as const;
 
 /** A full commit SHA, as `git rev-parse` gives it. */
@@ -612,6 +622,47 @@ export async function writeMarker(jobDir: string, marker: Marker): Promise<JobRe
 		return next;
 	});
 }
+/**
+ * The one write of `stuck` (R-032): under the job's lock it sets the field of the record of `jobDir` to what `update`
+ * makes of the field as the lock finds it, or removes it when `update` gives undefined, and never changes the state or
+ * any other field. A finished record takes it too, since a finished job's scope can outlive its end, so this is no
+ * transition (A-019). It writes nothing when the field stays as it was, or when the folder holds no record; it returns
+ * the record as it is after the call.
+ */
+export async function writeStuck(
+	jobDir: string,
+	update: (stuck: Stuck | undefined) => Stuck | undefined,
+): Promise<JobRecord | undefined> {
+	if (!existsSync(join(jobDir, RECORD))) {
+		return undefined;
+	}
+	return withLock({ folder: jobDir }, async () => {
+		const current = await readRecord(jobDir);
+		if (current === undefined) {
+			return undefined;
+		}
+		const stuck = update(current.stuck);
+		if (JSON.stringify(stuck) === JSON.stringify(current.stuck)) {
+			return current;
+		}
+		const { stuck: _earlier, ...rest } = current;
+		const next = checkedRecord(join(jobDir, RECORD), stuck === undefined ? rest : { ...rest, stuck });
+		await atomicWrite(join(jobDir, RECORD), serialized(next));
+		return next;
+	});
+}
+
+/** The attempt in a row from which a job the sweep cannot end is escalated, as T-02 has a timer ring after several. */
+export const STUCK_ESCALATION = 3;
+
+/**
+ * The `stuck` of `record` once it is escalated, from the third failed attempt in a row (R-032): the alerts send it and
+ * `limen status` names it; undefined before then, and for a record the sweep has not failed on.
+ */
+export function escalatedStuck(record: JobRecord): Stuck | undefined {
+	return record.stuck !== undefined && record.stuck.attempts >= STUCK_ESCALATION ? record.stuck : undefined;
+}
+
 /** What tells two markers of one kind apart: the commit, and the branch of an abandoned job; never the time. */
 function markerKey(marker: Landed | Abandoned): string {
 	return "sha" in marker ? marker.sha : `${marker.branch} at ${marker.commit}`;
@@ -1054,6 +1105,14 @@ export function refusalOf(value: unknown, field: string): Refusal {
 		at: isoTime(fields.get("at"), at(field, "at")),
 	};
 }
+function stuckOf(value: unknown, field: string): Stuck {
+	const fields = object(["since", "attempts", "detail"])(value, field);
+	return {
+		since: isoTime(fields.get("since"), at(field, "since")),
+		attempts: numberIn({ integer: true, min: 1 })(fields.get("attempts"), at(field, "attempts")),
+		detail: string(fields.get("detail"), at(field, "detail")),
+	};
+}
 function scopeOf(value: unknown, field: string): Scope {
 	const fields = object(["unit", "cgroup", "memoryPeakBytes", "cpuMicroseconds", "oomKills"])(value, field);
 	const reading = nullOr(numberIn({ integer: true, min: 0 }));
@@ -1080,6 +1139,7 @@ function recordOf(value: unknown, field: string): JobRecord {
 	const abandoned = fields.has("abandoned") ? { abandoned: read("abandoned", abandonedOf) } : {};
 	const rateLimit = fields.has("rateLimit") ? { rateLimit: read("rateLimit", rateLimitOf) } : {};
 	const refusal = fields.has("refusal") ? { refusal: read("refusal", refusalOf) } : {};
+	const stuck = fields.has("stuck") ? { stuck: read("stuck", stuckOf) } : {};
 	return {
 		version: read("version", oneOf([RECORD_VERSION])),
 		id: read("id", matching(SESSION_ID, "a job ID")),
@@ -1121,6 +1181,7 @@ function recordOf(value: unknown, field: string): JobRecord {
 		...abandoned,
 		...rateLimit,
 		...refusal,
+		...stuck,
 	};
 }
 function progressOf(value: unknown, field: string): Progress {

@@ -1,16 +1,20 @@
-// seat/deploy.ts on fixtures: a bare origin, a clone of it as the checkout, and a password file whose home has a registry.
+// seat/deploy.ts on fixtures: a bare origin, a clone of it as the checkout, and a password file whose home has a
+// registry; and its check of the seat sweep's units (seat/sweep-units.ts) against a fake systemd-analyze.
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
-import { runDeploy, type Verification } from "../../seat/deploy.ts";
+import { runDeploy, VERIFICATIONS, type Verification } from "../../seat/deploy.ts";
 import type { JobRecord } from "../../src/job/record.ts";
 import { platform } from "../../src/platform/platform.ts";
-import { git, writeRecord } from "../plant.ts";
+import { renderUnit, sweepUnits } from "../../src/platform/systemd-units.ts";
+import { jobScope } from "../../src/runtime/launcher.ts";
+import { withEnvironment } from "../environment.ts";
+import { fakeCgroup, fakeSystemd, git, writeRecord } from "../plant.ts";
 
 // The deployment's git gets this process's environment (`deployTo`), so the laptop's own git configuration must not
 // reach the fixtures.
@@ -143,6 +147,29 @@ test("a job whose wrapper's process group is alive refuses the deployment before
 	} finally {
 		wrapper.kill("SIGKILL");
 	}
+});
+
+// R-027 Out of scope, R-032 (c): a wrapper killed alone leaves its engine in the job's scope, which a checkout in place
+// would change under it, so the gate asks whether the job holds any process, not whether its wrapper lives. Root runs
+// the gate, and root's user manager knows no scope of the agents' account, so the cgroup answers (review round 1,
+// note 7).
+test("R-032: a running job whose wrapper is dead while its scope's cgroup is populated refuses the deployment, though systemctl says inactive", async (t) => {
+	const f = await fixture(t);
+	const systemd = await fakeSystemd(f.dir);
+	const inactive = join(f.dir, "inactive");
+	mkdirSync(inactive);
+	writeFileSync(join(inactive, "systemctl"), "#!/bin/sh\necho inactive\nexit 3\n", { mode: 0o755 });
+	withEnvironment(t, { ...systemd, PATH: `${inactive}:${systemd.PATH}` });
+	const unit = jobScope(JOB);
+	const folder = join(systemd.LIMEN_CGROUP_ROOT, fakeCgroup(unit));
+	mkdirSync(folder, { recursive: true });
+	writeFileSync(join(folder, "cgroup.events"), "populated 1\nfrozen 0\n");
+	const scope = { unit, cgroup: fakeCgroup(unit), memoryPeakBytes: null, cpuMicroseconds: null, oomKills: null };
+	const identity = { pid: 2_147_483_646, born: "1", bootId: platform.bootId() ?? null };
+	await jobFolder(f, { state: "running", label: "engine left", identity, scope });
+	const run = await deployTo(f, f.newer);
+	assert.deepEqual([run.code, head(f), tags(f), fetched(f)], [1, f.older, "", f.older], run.stderr);
+	assert.ok(run.stderr.split("\n").includes(`${f.project}  ${JOB}  engine left`), run.stderr);
 });
 
 // D-057 (1): the deployment runs before the migration, so it reads a folder an older Limen wrote as that Limen did.
@@ -442,4 +469,70 @@ test("an installed alerts service with no account in User= refuses the deploymen
 	const run = await deployTo(f, f.newer);
 	assert.deepEqual([run.code, head(f), tags(f)], [4, f.older, ""], run.stderr);
 	assert.ok(run.stderr.includes(alertsService(f)), run.stderr);
+});
+
+const SWEEP_UNITS_TOOL = fileURLToPath(new URL("../../seat/sweep-units.ts", import.meta.url));
+const PACKAGE_ROOT = fileURLToPath(new URL("../..", import.meta.url)).replace(/\/$/, "");
+
+// R-032 (g), D-010: the deployment verifies the units of the version it deploys, rendered by that version's code.
+test("R-032: the deployment's one verification is the sweep units' check, run from the new checkout under root's Node", () => {
+	assert.deepEqual(VERIFICATIONS, [
+		{ name: "sweep units", argv: [process.execPath, join("seat", "sweep-units.ts")], timeoutMs: BOUND_MS },
+	]);
+});
+
+/**
+ * A folder of the test for the sweep units' check: a fake `systemd-analyze` on PATH that exits `status` with `said`
+ * and copies each file it is given into `seen`, a home and a temporary folder of its own, both empty.
+ */
+async function sweepUnitsCheck(t: TestContext, status: number, said = "") {
+	const dir = await realpath(await mkdtemp(join(tmpdir(), "limen-sweep-units-")));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+	const [bin, seen, home, temporary] = [join(dir, "bin"), join(dir, "seen"), join(dir, "home"), join(dir, "tmp")];
+	await Promise.all([bin, seen, home, temporary].map((folder) => mkdir(folder)));
+	const fake = [
+		"#!/bin/sh",
+		`printf '%s\\n' "$*" > ${join(seen, "args")}`,
+		`shift; for file in "$@"; do cp "$file" ${seen}/; done`,
+		...(said ? [`echo "${said}" >&2`] : []),
+		`exit ${status}`,
+	];
+	await writeFile(join(bin, "systemd-analyze"), `${fake.join("\n")}\n`, { mode: 0o755 });
+	const env = { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}`, HOME: home, TMPDIR: temporary };
+	const run = spawnSync(process.execPath, [SWEEP_UNITS_TOOL], { cwd: dir, env, encoding: "utf8", timeout: BOUND_MS });
+	return { run, seen, home, temporary };
+}
+
+test("R-032: the sweep units' check verifies both units rendered for its checkout in a temporary folder, then removes it, and writes no home", async (t) => {
+	const { run, seen, home, temporary } = await sweepUnitsCheck(t, 0);
+	assert.equal(run.status, 0, run.stderr);
+	const args = (await readFile(join(seen, "args"), "utf8")).trim().split(" ");
+	const expected = sweepUnits(PACKAGE_ROOT).map((unit) => renderUnit(unit));
+	assert.deepEqual(
+		{
+			verb: args[0],
+			files: args.slice(1).map((path) => path.slice(path.lastIndexOf("/") + 1)),
+			inTemporary: args.slice(1).every((path) => path.startsWith(`${temporary}/`)),
+			texts: await Promise.all(
+				["limen-sweep.service", "limen-sweep.timer"].map((name) => readFile(join(seen, name), "utf8")),
+			),
+			left: [await readdir(temporary), await readdir(home)],
+		},
+		{
+			verb: "verify",
+			files: ["limen-sweep.service", "limen-sweep.timer"],
+			inTemporary: true,
+			texts: expected,
+			left: [[], []],
+		},
+	);
+});
+
+test("R-032: a sweep units' check that systemd-analyze fails exits 4 with what it said, and leaves no folder behind", async (t) => {
+	const { run, temporary } = await sweepUnitsCheck(t, 1, "limen-sweep.service: Unknown key name 'Foo'");
+	assert.deepEqual([run.status, await readdir(temporary)], [4, []], run.stdout);
+	assert.match(
+		run.stderr,
+		/^systemd-analyze verify failed for limen-sweep.service and limen-sweep.timer \(exit 1\):\n.*Unknown key name 'Foo'$/m,
+	);
 });

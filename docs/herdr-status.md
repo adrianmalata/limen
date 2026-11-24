@@ -62,8 +62,9 @@ The footer shows the same job line. A warning such as `1 of 14 needs attention`
 counts only dead jobs, not every running job.
 
 The footer, `limen status`, and the reaper use the wrapper's PID, start time and
-boot id to judge its owner. When the owner is gone, the reaper ends the job's scope
-before it records the job as failed.
+boot id to judge its owner. When the owner is gone, the footer and `limen status`
+show it and change nothing; the reaper of `limen seat sweep`, which its timer runs
+every minute, ends the job's scope before it records the job as failed.
 
 A finished job stays on the job line until it lands or closes. It lands when
 its recorded commits are in the checked-out branch, by the same test as
@@ -101,10 +102,10 @@ says the owner needs to answer a question.
 
 `dead` means the job's wrapper is gone (its PID, start time or boot no longer
 match) while the job record still says RUNNING; the job's scope may still hold
-its engine until the reaper ends it. Keep that warning separate from waiting;
-inspect the job and its wrapper rather than treating it as successful
-completion. Likewise, preserve a real Herdr `blocked` prompt instead of
-replacing it with a generic idle label.
+its engine until the seat sweep ends it, within a minute on its timer. Keep that
+warning separate from waiting; inspect the job and its wrapper rather than
+treating it as successful completion. Likewise, preserve a real Herdr `blocked`
+prompt instead of replacing it with a generic idle label.
 
 ## Candidate awaiting the owner is not landed work
 

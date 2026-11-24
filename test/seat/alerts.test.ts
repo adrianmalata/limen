@@ -9,7 +9,7 @@ import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 import { type AlertsInput, alertLine, type Ran, runAlerts } from "../../seat/alerts.ts";
-import { ALERTS_SERVICE, ALERTS_TIMER, alertsUnits, renderUnit } from "../../seat/units.ts";
+import { ALERTS_SERVICE, ALERTS_TIMER, alertsUnitFiles } from "../../seat/units.ts";
 import type { JobRecord } from "../../src/job/record.ts";
 import { withEnvironment } from "../environment.ts";
 import { writeRecord } from "../plant.ts";
@@ -216,6 +216,30 @@ test("a job whose start-queue wait has no diagnosis yet sends nothing", async (t
 	assert.deepEqual([ran.code, server.posts], [0, []], ran.stderr);
 });
 
+/** A running job whose processes the seat sweep failed to end `attempts` times in a row (R-032). */
+const stuckJob = (attempts: number): Partial<JobRecord> => ({
+	state: "running",
+	stuck: { since: FINISHED, attempts, detail: "limen-job-x.scope not ended: Failed to connect to bus" },
+});
+
+// R-032 (b), T-02: a timer rings only after several runs in a row, so the alert waits for the third failed attempt.
+test("a job the sweep failed to end sends one stuck line from its third attempt in a row, none before, and nothing more after", async (t) => {
+	const [f, server] = [await fixture(t), await ntfy(t)];
+	await firstRun(f);
+	await writeRecord(job(f.synchronizer, FAILED_ID), stuckJob(2));
+	const second = await run(f);
+	const before = [...server.posts];
+	await writeRecord(job(f.synchronizer, FAILED_ID), stuckJob(3));
+	const third = await run(f);
+	await writeRecord(job(f.synchronizer, FAILED_ID), stuckJob(4));
+	const fourth = await run(f);
+	assert.deepEqual(
+		[second.code, before, third.code, fourth.code, server.posts.map((post) => post.body)],
+		[0, [], 0, 0, [`synchronizer stuck ${FAILED_ID}`]],
+		`${second.stderr}${third.stderr}${fourth.stderr}`,
+	);
+});
+
 test("a run's summary counts the events it found of each kind", async (t) => {
 	const [f] = [await fixture(t), await ntfy(t)];
 	await firstRun(f);
@@ -223,7 +247,7 @@ test("a run's summary counts the events it found of each kind", async (t) => {
 	await writeRecord(job(f.ledger, OTHER_ID), QUOTA);
 	const ran = await run(f);
 	assert.equal(ran.code, 0, ran.stderr);
-	assert.equal(ran.stdout.split("\n")[0], "read 2 projects: 1 failed job, 1 long start-queue wait");
+	assert.equal(ran.stdout.split("\n")[0], "read 2 projects: 1 failed job, 1 long start-queue wait, 0 stuck jobs");
 });
 
 // D-090 (1), A-054: the alerts kept no list of the projects they had read, so a project registered after their first
@@ -625,7 +649,7 @@ function installCommands(f: Fixture): string[] {
 }
 
 const unitText = (name: string) =>
-	renderUnit(alertsUnits(ACCOUNT).find((unit) => unit.file === name) ?? assert.fail(name));
+	(alertsUnitFiles(ACCOUNT).find((unit) => unit.file === name) ?? assert.fail(name)).text;
 
 test("install grants the account its read rights by ACL, writes both units, verifies them, reloads and enables the timer", async (t) => {
 	const f = await fixture(t);

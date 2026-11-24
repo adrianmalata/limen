@@ -3,7 +3,7 @@
 // coordinator start script of R-050 runs the same function. A failure is an environment error (exit code 4, T-02).
 // The versions of Pi, the bridge and Herdr are data: R-049 refuses another version of Pi and the bridge (T-32 (3)).
 // Every job runs in its own systemd user scope (A-029), so a host where no user scope starts is refused here, before
-// a spawn would fail on it.
+// a spawn would fail on it; the seat sweep's install verifies its units with systemd-analyze (R-032).
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -129,6 +129,13 @@ export const REQUIREMENTS: readonly Requirement[] = [
 	{ tool: "tar", probe: present("tar", "limen land unpacks the tickets of a job's branch with tar. Install tar.") },
 	{ tool: "ps", probe: present("ps", "Limen reads the process table with ps. Install ps (procps).") },
 	{ tool: "systemd-run", probe: userScopeFailure },
+	{
+		tool: "systemd-analyze",
+		probe: present(
+			"systemd-analyze",
+			"limen seat sweep --install verifies the sweep's units with it. Install systemd.",
+		),
+	},
 	{ tool: "pi", probe: present("pi", `every job runs on Pi ${PI.version} (${PI.package}). Install it.`) },
 	{ tool: "herdr", probe: herdrFailure },
 ];

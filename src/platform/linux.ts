@@ -3,17 +3,23 @@
 // signals, Node's per-core times for the CPU reading, and systemd: for scopes of the user manager, systemd-run starts
 // one, `systemctl --user is-active` reads its state, `kill` signals it, the two together end it, and /sys/fs/cgroup
 // holds its readings and those of every unit of that manager; `systemctl` also says what the system manager knows of a
-// unit. This is the only code that runs those two programs or reads that hierarchy (A-083, test/structure.test.ts). The
-// parsers are exported so that tests read fixture text instead of the machine.
+// unit; for the seat sweep's user units, the linger file under /var/lib/systemd/linger says whether the account's
+// manager runs with no login, `systemd-analyze --user verify` checks a unit file, and `systemctl --user` reloads the
+// manager, enables or disables a timer and says what it knows of a unit. This is the only code that runs those
+// programs or reads that hierarchy (A-083, test/structure.test.ts). The parsers are exported so that tests read
+// fixture text instead of the machine.
 import { execFileSync, type SpawnSyncReturns, spawn, spawnSync } from "node:child_process";
-import { statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
-import { cpus } from "node:os";
+import { cpus, homedir } from "node:os";
+import { isAbsolute, join } from "node:path";
 import { testKnob } from "../config.ts";
 import { readOptional } from "../project/inherit.ts";
 import { hasCode } from "../system-error.ts";
 import type {
+	CgroupContent,
 	CoreTimes,
+	ManagerCall,
 	MemoryReading,
 	Platform,
 	ProcessEnd,
@@ -45,8 +51,20 @@ const SCOPE_CALL_TIMEOUT_MS = 10_000;
 const SCOPE_START_POLL_MS = 10;
 /** The exit status of `systemctl is-active` for a unit that is not active (LSB "program is not running"). */
 const NOT_ACTIVE = 3;
-/** How long a question to the system manager about one of its units may take, as the GitHub doctor asks it. */
-const SYSTEM_UNIT_TIMEOUT_MS = 3_000;
+/**
+ * The states `systemctl is-active` prints for a unit with no process left. It exits 3 for every state but `active` and
+ * `reloading`, a `deactivating` scope included, which may still hold processes, so the printed word decides.
+ */
+const ENDED_STATES: ReadonlySet<string> = new Set(["inactive", "failed"]);
+/**
+ * How long a question to a manager about one of its units may take, as the GitHub doctor and `limen status` ask it,
+ * the probes of the alerts' units and of the sweep's.
+ */
+const UNIT_QUESTION_TIMEOUT_MS = 3_000;
+/** How long the verification of unit files may take: it loads each one and every unit it names. */
+const VERIFY_TIMEOUT_MS = 30_000;
+/** The folder where systemd marks each account whose user manager runs with no login session (`loginctl`). */
+const LINGER_FOLDER = "/var/lib/systemd/linger";
 
 /**
  * The identity in `/proc/<pid>/stat`. The command sits in parentheses and may hold spaces and parentheses itself, so
@@ -302,18 +320,19 @@ function cgroupFolder(cgroup: string): string {
 }
 
 /**
- * Whether a process is left in the scope `unit`. A scope with no process left is `gone`, decided from facts, never from
- * the words systemctl prints: its cgroup folder no longer exists (the manager collected it), or `is-active` exits 3, as
- * for a scope that ended, or one that never started, such as the scope of a job whose launch failed. This is the one
- * place of that rule; the end of a scope reads it here too.
+ * Whether a process is left in the scope `unit`. A scope with no process left is `gone`: its cgroup folder no longer
+ * exists (the manager collected it), or `is-active` exits 3 and prints `inactive` or `failed`, as for a scope that
+ * ended, or one that never started, such as the scope of a job whose launch failed. Every other state it exits 3 for,
+ * `deactivating` first, is not ended, since the scope may still hold processes; the job is attempted again at the next
+ * sweep (R-027 review round 1, finding 4). This is the one place of that rule; the end of a scope reads it here too.
  */
 function scopeState(unit: string, cgroup: string | undefined): ScopeState {
 	if (cgroup !== undefined && statSync(cgroupFolder(cgroup), { throwIfNoEntry: false }) === undefined) {
 		return { kind: "gone" };
 	}
-	const active = systemctl(["--user", "is-active", "--quiet", unit]);
+	const active = systemctl(["--user", "is-active", unit]);
 	if (active.status === NOT_ACTIVE) {
-		return { kind: "gone" };
+		return ENDED_STATES.has(active.stdout.trim()) ? { kind: "gone" } : { kind: "active" };
 	}
 	const failure = callFailure(active);
 	return failure === undefined ? { kind: "active" } : { kind: "failed", detail: failure };
@@ -343,10 +362,42 @@ function systemctl(args: readonly string[], timeout = SCOPE_CALL_TIMEOUT_MS): Sp
 	return spawnSync(SYSTEMCTL, args, { encoding: "utf8", timeout });
 }
 
-/** What the system manager prints for `args` about one of its units, trimmed; undefined for a call that fails. */
-function systemUnit(args: readonly string[]): string | undefined {
-	const result = systemctl(args, SYSTEM_UNIT_TIMEOUT_MS);
+/** What a manager prints for `args` about one of its units, trimmed; undefined for a call that fails. */
+function unitAnswer(args: readonly string[]): string | undefined {
+	const result = systemctl(args, UNIT_QUESTION_TIMEOUT_MS);
 	return result.status === 0 ? result.stdout.trim() : undefined;
+}
+
+/** A call of `systemctl --user` with `args`, bounded as every call to a manager is. */
+function userManager(args: readonly string[]): ManagerCall {
+	const failure = callFailure(systemctl(["--user", ...args]));
+	return failure === undefined ? { kind: "done" } : { kind: "failed", detail: failure };
+}
+
+/** `systemd-analyze --user verify` of `paths`, by its exit status, as the alerts' install reads it (seat/alerts.ts). */
+function verifyUserUnits(paths: readonly string[]): ManagerCall {
+	const result = spawnSync("systemd-analyze", ["--user", "verify", ...paths], {
+		encoding: "utf8",
+		timeout: VERIFY_TIMEOUT_MS,
+	});
+	const failure = callFailure(result);
+	return failure === undefined ? { kind: "done" } : { kind: "failed", detail: failure };
+}
+
+/**
+ * The folder of the user manager's own unit files, as systemd reads it first: `$XDG_CONFIG_HOME/systemd/user` when
+ * that variable holds an absolute path, else `~/.config/systemd/user`.
+ */
+function userUnitFolder(): string {
+	const config = process.env.XDG_CONFIG_HOME;
+	return join(config && isAbsolute(config) ? config : join(homedir(), ".config"), "systemd", "user");
+}
+
+/** The linger file of `account`, which `loginctl enable-linger` makes; the test knob LIMEN_LINGER_DIR names its folder.
+ */
+function lingers(account: string): boolean {
+	const file = join(testKnob("LIMEN_LINGER_DIR") ?? LINGER_FOLDER, account);
+	return statSync(file, { throwIfNoEntry: false }) !== undefined;
 }
 
 /** systemd-run runs `true` in a new user scope, which needs the account's user manager and its bus. */
@@ -382,6 +433,28 @@ function ownCgroup(): string | undefined {
 	return testKnob("LIMEN_CGROUP") ?? parseCgroup(readOptional("/proc/self/cgroup") ?? "");
 }
 
+/**
+ * Whether a process is in the cgroup `cgroup` or below it: the `populated` line of its `cgroup.events`, which the
+ * kernel keeps; a folder that is gone holds none, and anything else that does not read says why.
+ */
+function cgroupPopulated(cgroup: string): CgroupContent {
+	const folder = cgroupFolder(cgroup);
+	let events: string;
+	try {
+		if (statSync(folder, { throwIfNoEntry: false }) === undefined) {
+			return { kind: "empty" };
+		}
+		events = readFileSync(`${folder}/cgroup.events`, "utf8");
+	} catch (error) {
+		return { kind: "unreadable", detail: error instanceof Error ? error.message : String(error) };
+	}
+	const populated = parseKeyed(events, "populated");
+	if (populated === 1 || populated === 0) {
+		return { kind: populated === 1 ? "populated" : "empty" };
+	}
+	return { kind: "unreadable", detail: `${folder}/cgroup.events holds no populated line` };
+}
+
 /** The peak memory, the CPU time and the OOM kills of the cgroup `cgroup`, from its own files. */
 async function scopeReadings(cgroup: string): Promise<ScopeReadings> {
 	const folder = cgroupFolder(cgroup);
@@ -396,26 +469,34 @@ async function scopeReadings(cgroup: string): Promise<ScopeReadings> {
 }
 
 /**
- * The cgroup of the systemd user manager in the cgroup `cgroup`: its path up to the manager's own `user@<uid>.service`;
- * undefined for a cgroup outside every user manager, such as a system service's or a login session's.
+ * The cgroup of the systemd user manager of this process's own account (R-032 review round 1, note 6):
+ * `user@<uid>.service` in the slice `user-<uid>.slice`, `uid` the process's own, never another slice's, whether the
+ * process runs in that manager (the sweep's timer, a job's scope) or in a login session beside it (a sweep run by
+ * hand, R-032 Decision 2). The path above the slice is the one the process's own cgroup holds when it lies in that
+ * slice, else systemd's `/user.slice`; undefined for a process with no uid.
  */
-function userManagerOf(cgroup: string): string | undefined {
-	return /^(.*\/user@\d+\.service)(?:\/|$)/.exec(cgroup)?.[1];
+function userManagerOf(cgroup: string | undefined, uid: number | undefined): string | undefined {
+	if (uid === undefined) {
+		return undefined;
+	}
+	const slice = `user-${uid}.slice`;
+	const above = cgroup === undefined ? undefined : new RegExp(`^(.*)/${slice}(?:/|$)`).exec(cgroup)?.[1];
+	return `${above ?? "/user.slice"}/${slice}/user@${uid}.service`;
 }
 
 /** A cgroup folder's name that is a unit's, a scope or a service; a slice holds units, and any other name a unit's child. */
 const UNIT_NAME = /\.(?:scope|service)$/;
 
 /**
- * The units of the user manager this process runs under (A-036): every scope and service below the manager's cgroup,
+ * The units of the user manager of this process's account (A-036): every scope and service below the manager's cgroup,
  * in its slices too, by name, with `memory.current` and the `usage_usec` of `cpu.stat`. A unit's child cgroups are
- * counted in the unit's own files, so the walk does not enter a unit. A folder that is gone holds no unit, since a unit
- * can end while the walk reads; any other failure goes on (T-01).
+ * counted in the unit's own files, so the walk does not enter a unit. A manager whose folder does not exist is no
+ * manager, never an empty listing, so no reader takes a missing manager for one with no unit (T-01). A folder below it
+ * that is gone holds no unit, since a unit can end while the walk reads; any other failure goes on.
  */
 async function userUnits(): Promise<readonly UnitUsage[] | undefined> {
-	const own = ownCgroup();
-	const manager = own === undefined ? undefined : userManagerOf(own);
-	if (manager === undefined) {
+	const manager = userManagerOf(ownCgroup(), process.getuid?.());
+	if (manager === undefined || statSync(cgroupFolder(manager), { throwIfNoEntry: false }) === undefined) {
 		return undefined;
 	}
 	const units: UnitUsage[] = [];
@@ -478,8 +559,16 @@ export const linux: Platform = {
 	endScope,
 	probeUserScope,
 	ownCgroup,
+	cgroupPopulated,
 	scopeReadings,
 	userUnits,
-	systemUnitProperty: (unit, property) => systemUnit(["show", "-P", property, unit]),
-	systemUnitState: (unit, query) => systemUnit([query, unit]),
+	lingers,
+	userUnitFolder,
+	verifyUserUnits,
+	reloadUserManager: () => userManager(["daemon-reload"]),
+	enableUserTimer: (timer) => userManager(["enable", "--now", timer]),
+	disableUserTimer: (timer) => userManager(["disable", "--now", timer]),
+	userUnitState: (unit, query) => unitAnswer(["--user", query, unit]),
+	systemUnitProperty: (unit, property) => unitAnswer(["show", "-P", property, unit]),
+	systemUnitState: (unit, query) => unitAnswer([query, unit]),
 };
