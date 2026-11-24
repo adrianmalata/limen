@@ -500,14 +500,15 @@ async function sweepUnitsCheck(t: TestContext, status: number, said = "") {
 	await writeFile(join(bin, "systemd-analyze"), `${fake.join("\n")}\n`, { mode: 0o755 });
 	const env = { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}`, HOME: home, TMPDIR: temporary };
 	const run = spawnSync(process.execPath, [SWEEP_UNITS_TOOL], { cwd: dir, env, encoding: "utf8", timeout: BOUND_MS });
-	return { run, seen, home, temporary };
+	return { run, seen, home, temporary, path: env.PATH };
 }
 
 test("R-032: the sweep units' check verifies both units rendered for its checkout in a temporary folder, then removes it, and writes no home", async (t) => {
-	const { run, seen, home, temporary } = await sweepUnitsCheck(t, 0);
+	const { run, seen, home, temporary, path } = await sweepUnitsCheck(t, 0);
 	assert.equal(run.status, 0, run.stderr);
 	const args = (await readFile(join(seen, "args"), "utf8")).trim().split(" ");
-	const expected = sweepUnits(PACKAGE_ROOT).map((unit) => renderUnit(unit));
+	// The check renders the service with its own PATH, as an install writes the installing shell's (R-034 (g)).
+	const expected = sweepUnits(PACKAGE_ROOT, path).map((unit) => renderUnit(unit));
 	assert.deepEqual(
 		{
 			verb: args[0],

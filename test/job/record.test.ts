@@ -395,7 +395,56 @@ test("BAD_DATA: a scope with a reading below zero gives a typed error that names
 	);
 });
 
+/** A wake of a job the subscription limit kept from the coordinator's turn (A-016 (2)), with the reset the turn named. */
+const OWED = { since: "2026-11-24T14:10:00.000Z", resetAt: "2026-11-24T15:00:00.000Z" } as const;
+
+// D-079, A-016 (2), (5): both fields are optional, so a record written before R-034 reads as before; 3 is the last
+// attempt the cap allows.
+test("a record reads with its optional quotaAttempt and owedWake, and a record without them reads with neither", async (t) => {
+	const full = await readRecord(await recorded(t, { ...RUNNING, quotaAttempt: 3, owedWake: OWED }));
+	const unknown = await readRecord(await recorded(t, { ...RUNNING, owedWake: { ...OWED, resetAt: null } }));
+	const plain = await readRecord(await recorded(t, RUNNING));
+	assert.deepEqual(
+		[
+			full?.quotaAttempt,
+			full?.owedWake,
+			unknown?.owedWake?.resetAt,
+			plain && ("quotaAttempt" in plain || "owedWake" in plain),
+		],
+		[3, OWED, null, false],
+	);
+});
+
+test("BAD_DATA: a quotaAttempt above the cap of 3 resumes gives a typed error that names the field and the cap", async (t) => {
+	const error = await thrown(async () => readRecord(await recorded(t, { ...RUNNING, quotaAttempt: 4 })));
+	assert.deepEqual(
+		[error.code, "field" in error && error.field, error.message.includes("expected an integer from 1 to 3")],
+		["BAD_DATA", "quotaAttempt", true],
+	);
+});
+
+test("BAD_DATA: an owedWake whose since is no ISO time gives a typed error that names the field", async (t) => {
+	const error = await thrown(async () =>
+		readRecord(await recorded(t, { ...RUNNING, owedWake: { ...OWED, since: "after the limit" } })),
+	);
+	assert.deepEqual([error.code, "field" in error && error.field], ["BAD_DATA", "owedWake.since"]);
+});
+
 const DONE: Partial<JobRecord> = { ...RUNNING, state: "done", finishedAt: "2026-11-21T11:00:00.000Z" };
+
+// D-097 (5) (h): an owed wake is written as R-032's `stuck` is, so a finished record takes it with no transition.
+test("writeOwedWake sets owedWake on a finished record and removes it, and changes no other field", async (t) => {
+	// Imported here, so that the file's other tests run on a record module that has no such writer.
+	const { writeOwedWake } = await import("../../src/job/record.ts");
+	const dir = await recorded(t, DONE);
+	const before = await readRecord(dir);
+	await writeOwedWake(dir, (owed) => owed ?? OWED);
+	await writeOwedWake(dir, (owed) => owed ?? { ...OWED, since: "2026-11-24T14:20:00.000Z" });
+	const owed = await readRecord(dir);
+	await writeOwedWake(dir, () => undefined);
+	assert.deepEqual([owed, await readRecord(dir)], [before && { ...before, owedWake: OWED }, before]);
+});
+
 const LANDED = { sha: "0123456789abcdef0123456789abcdef01234567", at: "2026-11-21T12:00:00.000Z" } as const;
 const ABANDONED = { branch: `limen/abandon/${ID}`, commit: "89abcdef0123456789abcdef0123456789abcdef", at: LANDED.at };
 

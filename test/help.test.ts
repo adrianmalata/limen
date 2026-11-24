@@ -76,7 +76,7 @@ const GENERAL = [
 	"Seat: all projects on this machine",
 	"  limen seat queue                           the start queue and its CPU and memory reading",
 	"  limen seat sweep [--install] [--uninstall] [--status]",
-	"      end dead jobs and notify about job ends nobody heard of; --install runs it every minute",
+	"      end dead jobs and resume quota jobs after the reset; --install runs it every minute",
 	"  limen rule                                 the seat-wide rules that hold now",
 	'  limen rule set <name> --until <time> [--start-priority 1|2|3] "text"',
 	"                                             a rule for every coordinator on this machine",

@@ -150,7 +150,7 @@ Each checkout where `limen init` runs is its own plant, with its own `.limen/` j
 
 ## 6 · Phone: Moshi and the alerts
 
-Two channels reach the phone. Moshi's **agent hooks** ring it when an agent needs you (when `MOSHI` is `yes`). The **alerts** send one line for each failed job and each long start-queue wait of every registered project, on every seat: they are the only escalation path to the human. Moshi has a second feature, **Host setup** (Easy Pair), which gives the phone SSH access to the seat; this phase does not set it up. The hook token is not an SSH key.
+Two channels reach the phone. Moshi's **agent hooks** ring it when an agent needs you (when `MOSHI` is `yes`). The **alerts** send one line for each failed job (a job the subscription limit stopped, with a known reset, only once its resume is 15 minutes overdue or Limen's 3 resumes are used up) and each long start-queue wait of every registered project, on every seat: they are the only escalation path to the human. Moshi has a second feature, **Host setup** (Easy Pair), which gives the phone SSH access to the seat; this phase does not set it up. The hook token is not an SSH key.
 
 Moshi, when `MOSHI` is `yes`:
 

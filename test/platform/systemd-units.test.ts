@@ -19,17 +19,21 @@ import {
 	type UnitFile,
 } from "../../src/platform/systemd-units.ts";
 
-/** The text of the sweep unit `name` for the seat's package root. */
-function rendered(name: string, root = "/opt/limen"): string {
-	const unit = sweepUnits(root).find((each) => each.file === name);
+/** A PATH of an installing shell, fixed so that the golden texts do not depend on the machine (R-034 (g)). */
+const PATH = "/home/agents/.local/bin:/usr/local/bin:/usr/bin:/bin";
+
+/** The text of the sweep unit `name` for the seat's package root and the installing shell's `path`. */
+function rendered(name: string, root = "/opt/limen", path = PATH): string {
+	const unit = sweepUnits(root, path).find((each) => each.file === name);
 	assert.ok(unit, `no unit ${name}`);
 	return renderUnit(unit);
 }
 
 const HEADER = "# Written by limen seat sweep --install, which writes it again only when its text changes.";
 
-// A-024, T-26 (4), D-056 (4): `limen` by an absolute path under root's Node, with a bound above the 60 s lock wait.
-test("limen-sweep.service renders as its golden text: a oneshot run of the package's limen seat sweep, stopped after 300 s", () => {
+// A-024, T-26 (4), D-056 (4): `limen` by an absolute path under root's Node, with a bound above the 60 s lock wait;
+// R-034 (g): the installing shell's PATH, where a resumed job's start finds pi, node and herdr.
+test("limen-sweep.service renders as its golden text: a oneshot run of the package's limen seat sweep with the installing PATH, stopped after 300 s", () => {
 	assert.equal(
 		rendered(SWEEP_SERVICE),
 		[
@@ -40,6 +44,7 @@ test("limen-sweep.service renders as its golden text: a oneshot run of the packa
 			"[Service]",
 			"Type=oneshot",
 			"ExecStart=/usr/bin/node /opt/limen/bin/limen seat sweep",
+			`Environment="PATH=${PATH}"`,
 			"TimeoutStartSec=300",
 			"",
 		].join("\n"),
@@ -82,7 +87,15 @@ test("the service runs the bin/limen of the package root it is given, a trailing
 });
 
 test("a package root with a space, which ExecStart would read as two words, is refused before a unit holds it", () => {
-	assert.throws(() => sweepUnits("/opt/my limen"), /one word/);
+	assert.throws(() => sweepUnits("/opt/my limen", PATH), /one word/);
+});
+
+// systemd splits an unquoted Environment= at white space, reads C escapes inside quotes and specifiers after %.
+test("the service's PATH is quoted with its quotes, backslashes and percent signs escaped, so systemd reads it whole", () => {
+	assert.match(
+		rendered(SWEEP_SERVICE, "/opt/limen", '/opt/my tools/bin:/opt/a"b:/opt/c\\d:/opt/e%f'),
+		/^Environment="PATH=\/opt\/my tools\/bin:\/opt\/a\\"b:\/opt\/c\\\\d:\/opt\/e%%f"$/m,
+	);
 });
 
 test("a unit value with a line break is refused, so a value cannot add a directive of its own", () => {

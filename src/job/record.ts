@@ -36,6 +36,7 @@ import { LimenError } from "../outcome.ts";
 import { BOOT_ID } from "../platform/platform.ts";
 import { hasCode } from "../system-error.ts";
 import { isTerminal, SESSION_ID } from "./job.ts";
+import { QUOTA_RESUMES } from "./quota.ts";
 
 /** The record's schema version (D-057 (7.8)); a field added later is optional for a record of this version. */
 export const RECORD_VERSION = 1;
@@ -120,6 +121,13 @@ export type Advisory = { readonly text: string; readonly at: string };
  * attempts in a row failed, and why the last one did. An attempt that ends them removes it.
  */
 export type Stuck = { readonly since: string; readonly attempts: number; readonly detail: string };
+/**
+ * A wake of a job (its completion, an advisory, a start notice) that the subscription limit kept from a coordinator's
+ * turn (A-016 (2), D-097 (5) (h)): since when it is owed, and the reset that the turn's error text named, null when it
+ * named none. The job's wakes wait while it is set; the sweep releases it (src/job/quota.ts), and the coordinator's hook
+ * delivers them then.
+ */
+export type OwedWake = { readonly since: string; readonly resetAt: string | null };
 /** Where the job's wake goes: the Herdr tab and pane of its coordinator, and its Pi session. */
 export type Origin = { readonly tab: string | null; readonly pane: string | null; readonly session: string | null };
 /**
@@ -211,6 +219,13 @@ export type JobRecord = Facts & {
 	readonly refusal?: Refusal;
 	/** Set while the seat sweep cannot end the job's processes (R-032); only `writeStuck` writes it, in any state. */
 	readonly stuck?: Stuck;
+	/**
+	 * The number of this job's resume after the subscription limit, 1 to 3 (A-016 (5)), set when the sweep resumes its
+	 * parent; a job no such resume started has none.
+	 */
+	readonly quotaAttempt?: number;
+	/** Set while a wake of the job is owed (A-016 (2)); only `writeOwedWake` writes it, in any state. */
+	readonly owedWake?: OwedWake;
 };
 
 /**
@@ -225,7 +240,7 @@ export type Marker = { readonly landed: Landed } | { readonly abandoned: Abandon
 
 /** The fields a change may set; the state, the transitions and the markers are the record module's own. */
 export type Fields = Partial<
-	Omit<JobRecord, "version" | "id" | "state" | "transitions" | "landed" | "abandoned" | "stuck">
+	Omit<JobRecord, "version" | "id" | "state" | "transitions" | "landed" | "abandoned" | "stuck" | "owedWake">
 >;
 
 /**
@@ -280,6 +295,8 @@ const RECORD_FIELDS = [
 	"rateLimit",
 	"refusal",
 	"stuck",
+	"quotaAttempt",
+	"owedWake",
 ] as const;
 
 /** A full commit SHA, as `git rev-parse` gives it. */
@@ -633,6 +650,42 @@ export async function writeStuck(
 	jobDir: string,
 	update: (stuck: Stuck | undefined) => Stuck | undefined,
 ): Promise<JobRecord | undefined> {
+	return writeAnyState(jobDir, (current) => {
+		const stuck = update(current.stuck);
+		if (JSON.stringify(stuck) === JSON.stringify(current.stuck)) {
+			return undefined;
+		}
+		const { stuck: _earlier, ...rest } = current;
+		return stuck === undefined ? rest : { ...rest, stuck };
+	});
+}
+/**
+ * The one write of `owedWake` (R-034, D-097 (5) (h)), as `writeStuck` writes `stuck`: the coordinator's hook sets it
+ * on the record of a job whose wake the subscription limit kept from a turn, and the seat sweep removes it once it is
+ * due; neither changes the state or any other field.
+ */
+export async function writeOwedWake(
+	jobDir: string,
+	update: (owed: OwedWake | undefined) => OwedWake | undefined,
+): Promise<JobRecord | undefined> {
+	return writeAnyState(jobDir, (current) => {
+		const owedWake = update(current.owedWake);
+		if (JSON.stringify(owedWake) === JSON.stringify(current.owedWake)) {
+			return undefined;
+		}
+		const { owedWake: _earlier, ...rest } = current;
+		return owedWake === undefined ? rest : { ...rest, owedWake };
+	});
+}
+/**
+ * A write of a field that every state takes, with no transition (A-019): under the job's lock, `change` gives the
+ * record that the record as the lock finds it becomes, or undefined when it stays as it is; nothing is written for a
+ * folder without a record. Returns the record as it is after the call.
+ */
+async function writeAnyState(
+	jobDir: string,
+	change: (current: JobRecord) => JobRecord | undefined,
+): Promise<JobRecord | undefined> {
 	if (!existsSync(join(jobDir, RECORD))) {
 		return undefined;
 	}
@@ -641,12 +694,11 @@ export async function writeStuck(
 		if (current === undefined) {
 			return undefined;
 		}
-		const stuck = update(current.stuck);
-		if (JSON.stringify(stuck) === JSON.stringify(current.stuck)) {
+		const changed = change(current);
+		if (changed === undefined) {
 			return current;
 		}
-		const { stuck: _earlier, ...rest } = current;
-		const next = checkedRecord(join(jobDir, RECORD), stuck === undefined ? rest : { ...rest, stuck });
+		const next = checkedRecord(join(jobDir, RECORD), changed);
 		await atomicWrite(join(jobDir, RECORD), serialized(next));
 		return next;
 	});
@@ -715,8 +767,15 @@ async function writeDeadClaim(jobDir: string): Promise<boolean> {
 	return true;
 }
 
-/** The first record of a job (state `starting`), which publication writes once into its hidden folder `folder`. */
-export async function publishRecord(folder: string, id: string, facts: Facts): Promise<void> {
+/**
+ * The first record of a job (state `starting`), which publication writes once into its hidden folder `folder`, with
+ * `quotaAttempt` when the job is a resume after the subscription limit.
+ */
+export async function publishRecord(
+	folder: string,
+	id: string,
+	facts: Facts & Pick<JobRecord, "quotaAttempt">,
+): Promise<void> {
 	const at = new Date().toISOString();
 	const record: JobRecord = {
 		...emptyRecord(id),
@@ -829,8 +888,8 @@ const FAILURE_PATTERNS: ReadonlyArray<readonly [RegExp, FailureKind]> = [
 ];
 /**
  * The provider's text when a subscription limit is hit (D-071): "You've hit your session limit · resets <hour> (UTC)"
- * for the 5-hour limit (audit.md, gate 2 §1, Q1), "You've hit your weekly limit · …" for the weekly one, as the
- * seat's quota extension matches it (docs/seat/quota-resume.ts).
+ * for the 5-hour limit (audit.md, gate 2 §1, Q1), "You've hit your weekly limit · …" for the weekly one; with the 429
+ * rule, the one definition of a limit end (`isLimitEnd`).
  */
 const SUBSCRIPTION_LIMIT = /hit your (?:[\w-]+ )?limit/i;
 function failureKind(detail: string): FailureKind | null {
@@ -849,7 +908,15 @@ function failureKind(detail: string): FailureKind | null {
  * as a retryable overload, stays `engine-error` (R-029, Decision 6).
  */
 export function engineStopKind(stopReason: string): "quota" | "engine-error" {
-	return SUBSCRIPTION_LIMIT.test(stopReason) || isRateLimit(stopReason) ? "quota" : "engine-error";
+	return isLimitEnd(stopReason) ? "quota" : "engine-error";
+}
+/**
+ * Whether the provider's text `text` says that a limit ended the turn: a subscription limit, or a 429 with a rate
+ * limit. The one definition (T-25 (1)) that a job's failure kind and the wake hook's reading of a coordinator's turn
+ * that ended on `error` share (D-097 (5) (h)).
+ */
+export function isLimitEnd(text: string): boolean {
+	return SUBSCRIPTION_LIMIT.test(text) || isRateLimit(text);
 }
 /**
  * A 429 of the provider's API with its rate-limit error: the one rule, which the failure kind and the stop summary of a
@@ -1105,6 +1172,13 @@ export function refusalOf(value: unknown, field: string): Refusal {
 		at: isoTime(fields.get("at"), at(field, "at")),
 	};
 }
+function owedWakeOf(value: unknown, field: string): OwedWake {
+	const fields = object(["since", "resetAt"])(value, field);
+	return {
+		since: isoTime(fields.get("since"), at(field, "since")),
+		resetAt: nullOr(isoTime)(fields.get("resetAt"), at(field, "resetAt")),
+	};
+}
 function stuckOf(value: unknown, field: string): Stuck {
 	const fields = object(["since", "attempts", "detail"])(value, field);
 	return {
@@ -1140,6 +1214,9 @@ function recordOf(value: unknown, field: string): JobRecord {
 	const rateLimit = fields.has("rateLimit") ? { rateLimit: read("rateLimit", rateLimitOf) } : {};
 	const refusal = fields.has("refusal") ? { refusal: read("refusal", refusalOf) } : {};
 	const stuck = fields.has("stuck") ? { stuck: read("stuck", stuckOf) } : {};
+	const attempt = numberIn({ integer: true, min: 1, max: QUOTA_RESUMES });
+	const quotaAttempt = fields.has("quotaAttempt") ? { quotaAttempt: read("quotaAttempt", attempt) } : {};
+	const owedWake = fields.has("owedWake") ? { owedWake: read("owedWake", owedWakeOf) } : {};
 	return {
 		version: read("version", oneOf([RECORD_VERSION])),
 		id: read("id", matching(SESSION_ID, "a job ID")),
@@ -1182,6 +1259,8 @@ function recordOf(value: unknown, field: string): JobRecord {
 		...rateLimit,
 		...refusal,
 		...stuck,
+		...quotaAttempt,
+		...owedWake,
 	};
 }
 function progressOf(value: unknown, field: string): Progress {

@@ -140,9 +140,10 @@ export type JobFailure = { readonly jobDir: string; readonly error: unknown };
 
 /**
  * Each job folder of `jobsRoot` with its record, read one by one (R-032 review round 1, note 8): a folder an older
- * Limen wrote (NOT_MIGRATED) or a record that does not read (BAD_DATA) goes into `failed` and stops no other job.
+ * Limen wrote (NOT_MIGRATED) or a record that does not read (BAD_DATA) goes into `failed` and stops no other job. The
+ * sweep's steps share it, its resume after the subscription limit included (src/runtime/resuming.ts).
  */
-async function eachRecord(
+export async function eachRecord(
 	jobsRoot: string,
 	failed: JobFailure[],
 	work: (id: string, jobDir: string, record: JobRecord | undefined) => Promise<void>,

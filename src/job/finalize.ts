@@ -3,7 +3,8 @@
 // transition it counts the job's commits, collects the open note checks and reads its
 // scope's readings, unless the finisher read them before it ended the scope itself, as the reaper does
 // (src/runtime/reap.ts); an OOM kill those readings count names a signal death's or a reaped wrapper's failure `oom`
-// (A-052). A side channel that fails there is written with the terminal state in `sideFailures`. The
+// (A-052), and an end on the subscription limit of a job's last resume is `quota-exhausted` (src/job/quota.ts). A side
+// channel that fails there is written with the terminal state in `sideFailures`. The
 // transition is the commit point: a finisher that loses it writes nothing, and the group's events, the coordinator's
 // Herdr wake, the next round of its group and the job's tab, which read the terminal record, follow only the winner;
 // their failures go to the job's log, since nothing writes the record after a terminal state. The winner's last step,
@@ -18,6 +19,7 @@ import { commitList } from "../project/git.ts";
 import { jobScope } from "../runtime/launcher.ts";
 import { jobMembership, startGroupAdvance } from "./group-cabinet.ts";
 import { syncLifecycle } from "./group-events.ts";
+import { limitKind } from "./quota.ts";
 import {
 	appendLimenLog,
 	type DetectedFailure,
@@ -124,7 +126,10 @@ export async function finalizeJob(jobDir: string, end: JobEnd, options: Finalize
 			await appendLimenLog(jobDir, line).catch((error: unknown) => sideFailures.push(sideFailure("log", error)));
 		},
 		set: (current) => ({
-			failure: end.state === "failed" ? recordedFailure(end.failure, current.scope ? readings : UNREAD) : null,
+			failure:
+				end.state === "failed"
+					? recordedFailure(end.failure, current.scope ? readings : UNREAD, current.quotaAttempt)
+					: null,
 			openChecks: open.length ? open : null,
 			commits,
 			// A job that ends while it waits leaves the queue here, its wait kept with the time it left (A-036).
@@ -150,10 +155,15 @@ export async function finalizeJob(jobDir: string, end: JobEnd, options: Finalize
  * The failure its detector passed, with kind `oom` in place of `signal` or `reaped` when `readings`, the scope's
  * readings the terminal record holds, count an OOM kill (A-052): the kernel's OOM killer ends a process by SIGKILL, so
  * it shows as the engine's signal death or as a wrapper found gone. Any other kind stays, since its own detector
- * decided the end, also when a tool's process was OOM-killed earlier in the job.
+ * decided the end, also when a tool's process was OOM-killed earlier in the job; only `quota` on the last resume after
+ * the limit, `quotaAttempt` 3, is `quota-exhausted`, so the one terminal record says it (D-097 (5) (g)).
  */
-function recordedFailure(passed: DetectedFailure, readings: ScopeReadings): Failure {
-	const failure = { kind: passed.kind, detail: passed.detail, resetAt: passed.resetAt ?? null };
+function recordedFailure(passed: DetectedFailure, readings: ScopeReadings, quotaAttempt: number | undefined): Failure {
+	const failure = {
+		kind: limitKind(passed.kind, quotaAttempt),
+		detail: passed.detail,
+		resetAt: passed.resetAt ?? null,
+	};
 	const oomKilled = (readings.oomKills ?? 0) > 0;
 	return oomKilled && (failure.kind === "signal" || failure.kind === "reaped") ? { ...failure, kind: "oom" } : failure;
 }

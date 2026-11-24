@@ -6,6 +6,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { isTerminal } from "../../src/job/job.ts";
+import { processIdentity } from "../../src/runtime/reap.ts";
 import { outputText, readOutcome } from "../final-line.ts";
 import {
 	editRecord,
@@ -264,6 +265,33 @@ test("GROUP_EXTENSIONS_PARENT: the continuation of a group worker whose extensio
 		[continued.status, readOutcome(continued).code, snapshot(p.root)],
 		[1, "GROUP_EXTENSIONS_PARENT", before],
 		continued.stderr,
+	);
+});
+
+// D-097 (5) (d), z. 14: only a group worker was checked, so two continuations of one ordinary job could both run on
+// its worktree, and a resume after the subscription limit beside a coordinator's own continue started a second job.
+test("LIVE_CONTINUATION: a second continuation of an ordinary job while its first one runs exits 1 and leaves the snapshot identical", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const parent = spawnJob(p, "say first");
+	assert.equal(waitJob(p, parent), "done");
+	// The first continuation runs on the parent's worktree, owned by this test's process, which writes nothing.
+	const first = "2026-11-24-first-1a2b3c4d";
+	await writeRecord(jobDir(p, first), {
+		state: "running",
+		label: "first continuation",
+		parent,
+		worktree: jobRecord(p, parent)?.worktree ?? null,
+		branch: jobRecord(p, parent)?.branch ?? null,
+		identity: await processIdentity(),
+		startedAt: new Date().toISOString(),
+	});
+	const before = snapshot(p.root);
+	const second = limen(p, ["continue", parent, "say second"]);
+	assert.deepEqual(
+		[second.status, readOutcome(second), snapshot(p.root)],
+		[1, { class: "refused", code: "LIVE_CONTINUATION", next: `limen show ${first}` }, before],
+		second.stderr,
 	);
 });
 

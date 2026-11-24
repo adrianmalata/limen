@@ -41,10 +41,10 @@ const MOVED = {
 	prune: "R-101",
 	close: "R-037",
 	keeper: "R-066",
-	rule: "R-034",
-	"rule set": "R-034",
-	"rule end": "R-034",
-	"rule timer": "R-034",
+	rule: "R-102",
+	"rule set": "R-102",
+	"rule end": "R-102",
+	"rule timer": "R-102",
 	"group wait": "R-077",
 };
 // Change 1: the entries that return identifiers, with their keys; every other entry returns none (D-022).
@@ -601,7 +601,6 @@ const WITHOUT_CODE_TEST: readonly string[] = [
 	"JOB_NO_BRANCH",
 	"JOB_NO_SESSION",
 	"JOB_NO_WORKTREE",
-	"LIVE_CONTINUATION",
 	"MERGE_FAILED",
 	"NOT_A_PROJECT",
 	"NO_COMMIT",

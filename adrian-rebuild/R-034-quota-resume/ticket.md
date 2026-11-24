@@ -125,8 +125,8 @@ limit, so no terminal record is written twice and a fourth resume has no candida
 (d) The alerts (`seat/alerts.ts`, `EVENTS`): `failed:quota` is sent only for a `quota` failure whose `resetAt` is
 `null`; with a known reset nothing rings until `failed:quota-exhausted`.
 
-(e) Owed wakes, an optional record field `owedWake` on the finished job (`{ since, resetAt }`, `resetAt` a time or
-`null`), written under the job's lock in any state with no transition, as `writeStuck` is (its writer joins
+(e) Owed wakes, an optional record field `owedWake` on the job whose wake is owed (`{ since, resetAt }`, `resetAt` a
+time or `null`), written under the job's lock in any state with no transition, as `writeStuck` is (its writer joins
 `STATE_TRANSITIONS` of the T-04 import scan):
 - The wake hook keeps the coordinator turn's `errorMessage` (`eventMessage`), tells a turn that ended on the limit by
   the one definition (`isRateLimit`, `src/job/record.ts`), and then writes `owedWake` on each job whose wake that turn
@@ -146,7 +146,7 @@ process>`, so a resumed job's `preflightEngine` finds `pi` and `node` and the fi
 manager's, so the bridge's path under `homedir()` resolves. `--install` run again with the same `PATH` changes nothing;
 with another `PATH` it rewrites the service (Decision 2). The golden test renders a fixed `PATH`.
 
-(h) Cuts: `git rm docs/seat/quota-resume.ts`; its entries in `biome.jsonc` (`:97`) and in `test/structure.test.ts`
+(h) Cuts: `docs/seat/quota-resume.ts` with `git rm`; its entries in `biome.jsonc` (`:97`) and in `test/structure.test.ts`
 (`:720`); its lines in `docs/seat/README.md`; the comment `src/job/record.ts:830-834` names the definition, not the
 file. `package.json`'s `"docs/seat"` stays (other files remain).
 
@@ -235,5 +235,68 @@ mechanism; items 2, 3 and 5 are named for Adrian's attention at gate 5.3):
 4. A refusal of one resume (a race, `LIVE_CONTINUATION`) is an output line and no failure: another path already
    resumed the job, so nothing is lost (T-01 holds: it is named); a failure to start is the job's, named, and the run's
    worst class.
-5. `owedWake` lives on the finished job whose wake is owed, not on the coordinator, since the hook already looks up a
-   job's wake by its job, and a coordinator session has no record (D-057 (7.2)).
+5. `owedWake` lives on the job whose wake is owed (every wake family, F7), not on the coordinator, since the hook
+   looks up a job's wake by its job, and a coordinator session has no record (D-057 (7.2)).
+
+2026-11-24, D-099 (1) (Adrian: "oba zgodnie z rekomendacjami"; the precedent is D-089):
+6. `compare --git` voided the implementer's run only because (h) wrote the deletion as one span with spaces
+   (`git rm` and the path together), which `changePaths` does not read; nothing else differed. Adrian accepted the
+   run: (h) names `docs/seat/quota-resume.ts` in its own backticks, a new `snapshot --git` is taken, and `compare --git`
+   runs again.
+
+2026-11-24, review round 1 (`review.md` → Round 1; FAIL on AC-9 alone, the findings to fix, each with a test that
+fails at `HEAD` on its mechanism where it changes code; D-100 is Adrian's, the rest the main session's reading):
+- F1 (blocking, AC-9): `outcome.md` → `## Fails before` holds the first line of the main session's
+  `fails-before.mjs` run. The main session writes it after the fixes; the implementer keeps its per-file runs there.
+- F2 (D-097 (5) (d), exactly one resume): the resume passes the parent's id into `startContinue` as the record that
+  must be the newest on its worktree, and validate's held read under the jobs lock refuses when another record is
+  newest (a race, so a line of the run, Decision 4). Test: a continuation of the parent published and ended between
+  the step's read and the resume's validate leaves no second resume and names the parent in a line.
+- F3: a test drives two continuations of one ordinary job through the window between validate and apply (through
+  `startContinue`, as `test/runtime/resuming.test.ts` does): the second is refused `STATE_CHANGED`, one job starts.
+- F4 (T-29): the `quotaAttempt` reading test asserts what `HEAD` cannot give: 3 is read, 4 is refused `BAD_DATA` with
+  the cap's expectation text.
+- F5 (T-29 (3) and check 4): `test/hook/wake.test.ts` loads at `HEAD` (it imports no module or export `HEAD` lacks;
+  it plants the fields through the record's JSON), so each owed-wake test fails at `HEAD` on its mechanism, one
+  mechanism per test: a limit turn spends no attempt and writes `owedWake` with the reset; a wake is held while
+  `owedWake` is on its job; once the field is gone the wake is delivered. The sweep's release keeps its own test in
+  `test/runtime/resuming.test.ts`.
+- F6 (T-29 (2), (3)): `test/runtime/resuming.test.ts:84` becomes one test per mechanism (the record-field filter:
+  `migrated`, `landed`, `abandoned`, exhausted; the due time; the newest record on the worktree); each test name holds
+  at most one identifier (`:188`).
+- F7 (D-097 (5) (h)): a coordinator turn that ends on the limit spends neither attempt for every wake family
+  (`_advisory`, `_start`, `_completion`), each claim lies in its job's folder, so the wake is owed on that job's record,
+  held and released the same way. Deviation 5 is withdrawn, and Decision 5 reads "the job whose wake is owed". Test:
+  an advisory wake whose turn ends on the limit.
+- F8 (D-100): `failed:quota` also rings for a known `resetAt` once the job is overdue (`resetAt` + 5 min + 15 min, a
+  named constant beside `AFTER_RESET_MS` in `src/job/quota.ts`) while it has no continuation (still the newest record
+  on its worktree, no `landed` or `abandoned` marker), once per job; a group member is covered by the same rule. Tests:
+  a known reset not yet overdue sends nothing; overdue and not resumed sends `failed:quota` once; overdue with a newer
+  record on the worktree sends nothing; an overdue group member sends it. `docs/jobs.md`, `docs/remote.md` and
+  `docs/seat/agent-setup.md` say so.
+- F9 (T-18): the sweep's output lines name the limit as the task and the wake do ("the subscription limit"); the help
+  keeps "quota jobs", the failure kind `quota`.
+- F10 (T-10): `templates/agents.md:68` states no number of the resume (no "5 minutes", no "3 times"), since the wake,
+  built from the constants, says when and which resume; its new first hash in `templates/.history/agents.md`.
+- F11: the exit-code table of `docs/commands.md` (row 4) names `NO_PATH` beside `NO_LINGER`.
+- F12 (T-30 (1)): the headers of `src/runtime/resuming.ts` and `src/job/quota.ts` say why the module exists, not a
+  restatement of D-097 (5).
+- Rejected: (a) the note that (k)'s "a coordinator's own turn that ends on the limit wakes nothing" passes at `HEAD`:
+  it asserts an absence `HEAD` already has and guards the new hook code against a false owed wake, and `outcome.md`
+  says so; (k)'s rule is for the tests of a new mechanism. (b) The note that one damaged record refuses every
+  `limen continue` of its project: an unreadable record may be a live job on the same worktree, so refusing is the safe
+  side (z. 14), as spawn does; the resume's case is now rung by F8. (c) The reviewer's process note (test output in the
+  session's scratchpad, outside the tree; `compare` unchanged).
+- For gate 5.3, unchanged: the words for a `null` reset until R-059 (D-097 (5) (b), (i)), and `outcome.md`'s open
+  points 4–6.
+
+2026-11-24, review round 2 (`review.md` → Round 2; PASS; the second and last round of fixes, D-053 (2)):
+- G1 (note 1, T-30 (2)): every comment that cites this ticket's decision names it "R-034 Decision N".
+- G2 (note A, T-29 (2)): the hook test of a held wake has a name that claims one thing.
+- G3 (note D): the hook clears `limitEnd` with the delivery maps at `session_start` and `session_shutdown`, so no run
+  owes a wake on an earlier session's limit. Test: a limit `message_end`, then a new session, then an unconfirmed wake
+  spends its attempt as before.
+- By the main session: Decision 5 and `## Change` (e) say "the job whose wake is owed" (F7); `outcome.md` →
+  `## Open points` names the past resume time of a late owed wake (note 3, for gate 5.3) and the two "split pending"
+  suppressions for R-082's ratchet (note C).
+- Rejected: notes A (the failure at `HEAD`) and B, for the reasons in `review.md` → Round 2.

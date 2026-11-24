@@ -737,7 +737,7 @@ const SEAT: readonly Entry[] = [
 		object: "seat",
 		kind: "change",
 		visibility: "public",
-		summary: "end dead jobs and notify about job ends nobody heard of; --install runs it every minute",
+		summary: "end dead jobs and resume quota jobs after the reset; --install runs it every minute",
 		schema: [
 			{ flag: "install", about: "install the user timer that runs the sweep every minute; needs lingering" },
 			{ flag: "uninstall", about: "stop that timer and remove its units" },
@@ -759,7 +759,7 @@ const SEAT: readonly Entry[] = [
 		ids: [],
 		refuses: [],
 		example: "limen rule",
-		movedBy: "R-034",
+		movedBy: "R-102",
 		handler: ruleCommand,
 	},
 	{
@@ -784,10 +784,10 @@ const SEAT: readonly Entry[] = [
 			{ positional: "text", type: "text", about: "the rule; every coordinator sees it in its turn" },
 		],
 		ids: [],
-		// Its refusals are untyped until R-034 cuts it.
+		// Its refusals are untyped until R-102 cuts it.
 		refuses: [],
 		example: 'limen rule set claude-week --until 12h --start-priority 1 "Only urgent jobs until the reset"',
-		movedBy: "R-034",
+		movedBy: "R-102",
 		handler: ruleSetCommand,
 	},
 	{
@@ -801,10 +801,10 @@ const SEAT: readonly Entry[] = [
 			{ positional: "reason", type: "text", optional: true, about: "why; each coordinator's end ping names it" },
 		],
 		ids: [],
-		// Its refusals are untyped until R-034 cuts it.
+		// Its refusals are untyped until R-102 cuts it.
 		refuses: [],
 		example: 'limen rule end claude-week "the limit reset"',
-		movedBy: "R-034",
+		movedBy: "R-102",
 		handler: ruleEndCommand,
 	},
 	{
@@ -821,7 +821,7 @@ const SEAT: readonly Entry[] = [
 		ids: [],
 		refuses: [],
 		example: "limen rule timer .limen/rules/claude-week 1763540000000-4242",
-		movedBy: "R-034",
+		movedBy: "R-102",
 		handler: ruleTimerCommand,
 	},
 ];

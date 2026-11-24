@@ -1,9 +1,10 @@
 /**
  * The deployment's check of the seat sweep's user units (D-010, R-032 (g)): `seat/deploy.ts` runs it as a process from
- * the new checkout, so it renders the units with that checkout's code, for that checkout's `bin/limen`, into a new
- * folder of the OS temporary folder, and runs `systemd-analyze verify` on them. It writes nothing in any home: the
- * agents' account installs the units itself (`limen seat sweep --install`, plan step 3.1), so a unit change of a later
- * tag is that tag's seat step (R-032 Decision 5).
+ * the new checkout, so it renders the units with that checkout's code, for that checkout's `bin/limen` and with its
+ * own PATH in place of the installing shell's (R-034 (g)), into a new folder of the OS temporary folder, and runs
+ * `systemd-analyze verify` on them. It writes nothing in any home: the agents' account installs the units itself
+ * (`limen seat sweep --install`, plan step 3.1), so a unit change of a later tag is that tag's seat step (R-032
+ * Decision 5).
  *
  *   node seat/sweep-units.ts      from the checkout, as root, at each deployment
  */
@@ -20,14 +21,17 @@ import { printable, reason, type SeatOutcome } from "./tool-outcome.ts";
 /** How long `systemd-analyze verify` may take: it loads both units and every unit they name. */
 const VERIFY_TIMEOUT_MS = 30_000;
 
-/** What the check needs: the checkout whose units it renders, and the folder of its temporary folder. */
-export type SweepUnitsInput = { readonly checkout: string; readonly temporary: string };
+/** What the check needs: the checkout whose units it renders, the PATH the service gets, and the temporary folder. */
+export type SweepUnitsInput = { readonly checkout: string; readonly path: string; readonly temporary: string };
 
 /** The check's exit code and its text; only the entry point sets the code. */
 export async function verifySweepUnits(input: SweepUnitsInput): Promise<SeatOutcome> {
 	const folder = await mkdtemp(join(input.temporary, "limen-sweep-units-"));
 	try {
-		const units = sweepUnits(input.checkout).map((unit) => ({ path: join(folder, unit.file), text: renderUnit(unit) }));
+		const units = sweepUnits(input.checkout, input.path).map((unit) => ({
+			path: join(folder, unit.file),
+			text: renderUnit(unit),
+		}));
 		for (const unit of units) {
 			await atomicWrite(unit.path, unit.text, { mode: 0o644 });
 		}
@@ -56,6 +60,7 @@ const started = process.argv[1];
 if (started !== undefined && existsSync(started) && realpathSync(started) === fileURLToPath(import.meta.url)) {
 	const outcome = await verifySweepUnits({
 		checkout: dirname(dirname(fileURLToPath(import.meta.url))),
+		path: process.env.PATH ?? "",
 		temporary: tmpdir(),
 	});
 	process.stdout.write(outcome.stdout);

@@ -78,6 +78,8 @@ type NewJob = {
 	readonly session?: { readonly source: string; readonly name: string };
 	/** Files a continuation carries from its parent's job folder, such as the task note. */
 	readonly carried?: Readonly<Record<string, string>>;
+	/** The number of a resume after the subscription limit (A-016 (5)), which the record keeps as `quotaAttempt`. */
+	readonly quotaAttempt?: number;
 };
 
 /**
@@ -97,7 +99,8 @@ export async function publishJob(jobDir: string, job: NewJob): Promise<void> {
 			files[`notify/subscribers/${job.notificationSession}`] = `${startedAt}\n`;
 		}
 		await mkdir(`${publishing}/notify/subscribers`, { recursive: true });
-		await publishRecord(publishing, basename(jobDir), startingFacts(job, startedAt));
+		const attempt = job.quotaAttempt === undefined ? {} : { quotaAttempt: job.quotaAttempt };
+		await publishRecord(publishing, basename(jobDir), { ...startingFacts(job, startedAt), ...attempt });
 		await writeProgress(publishing, { activity: "think", lastTool: "", toolCalls: 0 });
 		// Sequential writes settle before cleanup on failure; no write can outlive the hidden directory.
 		for (const [name, body] of Object.entries(files)) {

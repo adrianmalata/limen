@@ -40,7 +40,7 @@ import { queueDiagnosis } from "./queue-diagnosis.ts";
 // "Start queue"). A detached job's own wrapper waits in it after its handshake and before setup; no daemon runs it. The
 // gate's defaults, 25% CPU idle and 20% memory free, are the values Limen started with, kept as the starting point of
 // every limit (T-10); only the seat's gate file changes them (T-03). A seat rule with a start priority holds every less
-// urgent job, gate or not, so that only urgent work spends the engine's budget while the rule lasts; R-034 cuts seat
+// urgent job, gate or not, so that only urgent work spends the engine's budget while the rule lasts; R-102 cuts seat
 // rules (A-010). A wait has two thresholds (A-036): past the first the job's coordinator gets one diagnosis and the job
 // waits on; past the second the job ends failed, so no wait outlasts it.
 export type StartGate = { readonly cpuIdle: number; readonly memoryFree: number; readonly settleMs: number };

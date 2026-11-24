@@ -94,7 +94,6 @@
 			"!!node_modules",
 			"!!package-lock.json",
 			"!!docs/seat/coordinator-handoff.ts",
-			"!!docs/seat/quota-resume.ts",
 			"!!docs/seat/statusline.ts"
 		]
 	}

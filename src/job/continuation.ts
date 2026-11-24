@@ -1,7 +1,8 @@
-// The continuation of a finished job in its own session and worktree (T-26 (2)): `limen continue` and the group round
-// driver start one through `startContinue`. It is an operation of T-38 (src/operation.ts), as a spawn is: its validate
-// makes every check, its apply names and publishes the job under the jobs lock after the re-check, and the restored
-// worktree and the wrapper follow. Its text goes to `out`, which the shared wrapper prints at the end.
+// The continuation of a finished job in its own session and worktree (T-26 (2)): `limen continue`, the group round
+// driver and the seat sweep's resume after the subscription limit (src/runtime/resuming.ts) start one through
+// `startContinue`. It is an operation of T-38 (src/operation.ts), as a spawn is: its validate makes every check, its
+// apply names and publishes the job under the jobs lock after the re-check, and the restored worktree and the wrapper
+// follow. Its text goes to `out`, which the shared wrapper prints at the end.
 import { existsSync } from "node:fs";
 import { readdir, rm } from "node:fs/promises";
 import type { TransportName } from "../config.ts";
@@ -51,6 +52,7 @@ import { publishJob } from "./publication.ts";
 import { type JobRecord, readRecord } from "./record.ts";
 import { type JobReference, jobsLock, newJobId, referenceWord, resolveJob } from "./reference.ts";
 import { normalizeLabel, recordVersions, resolvePreamble, waitForHandshake } from "./spawning.ts";
+import { worktreeJobs } from "./unlanded.ts";
 import { currentNotificationSession, herdrWakePane } from "./watching.ts";
 
 /**
@@ -68,6 +70,13 @@ export type ContinueRequest = {
 	readonly timeout?: string | undefined;
 	readonly priority?: string | undefined;
 	readonly extensions?: readonly string[] | undefined;
+	/** The number of a resume after the subscription limit, which only the seat sweep's resume gives (A-016 (5)). */
+	readonly quotaAttempt?: number | undefined;
+	/**
+	 * A continuation only of the newest record on the parent's worktree: the sweep's resume gives it, since the sweep
+	 * chose the parent as the newest outside the jobs lock (D-097 (5) (d)); `limen continue` may continue an older job.
+	 */
+	readonly onlyNewest?: boolean | undefined;
 };
 /**
  * Resume a finished job's own engine session; restore a pruned checkout from its branch. `round` is set only by the
@@ -80,13 +89,35 @@ export async function startContinue(
 	round?: number,
 	again: string | null = null,
 ): Promise<Success> {
-	const checked = await validated({
+	return continueChecked(await checkContinue(request, cwd, out, round, again));
+}
+/** A continuation that its checks passed and that has written nothing yet: the first half of `startContinue`. */
+export type CheckedContinuation = Checked<ContinuePlan, ContinuedRecord>;
+/**
+ * The checks of a continuation (T-38 (1)), which write nothing; `continueChecked` makes its writes. `startContinue`
+ * runs both; a test runs two checks before either write, the window that the newest record held under the jobs lock
+ * closes (D-097 (5) (d)).
+ */
+export function checkContinue(
+	request: ContinueRequest,
+	cwd: string,
+	out: CommandText,
+	round?: number,
+	again: string | null = null,
+): Promise<CheckedContinuation> {
+	return validated({
 		validate: (view: StateView) => validateContinue(view, request, cwd, out, round),
 		lock: (plan: ContinuePlan) => jobsLock(plan.root),
 		apply: publishContinue,
 		again,
 	});
-	const { membership } = checked.plan;
+}
+/**
+ * The writes of a checked continuation: its record under the jobs lock after the held facts were read again, then the
+ * restored worktree and the wrapper; returns the new job's id.
+ */
+export async function continueChecked(checked: CheckedContinuation): Promise<Success> {
+	const { membership, round } = checked.plan;
 	// A worker's continuation takes the group's launch lock, which a group stop waits for; the round driver holds it.
 	let id: string;
 	try {
@@ -111,6 +142,8 @@ type ContinueOptions = {
 	readonly selected: readonly string[];
 	readonly query: JobReference;
 	readonly instruction: string;
+	readonly quotaAttempt: number | undefined;
+	readonly onlyNewest: boolean;
 };
 /** The checked options of a continuation; a value that does not hold refuses before any job record exists. */
 function continueOptions(request: ContinueRequest): ContinueOptions {
@@ -130,6 +163,8 @@ function continueOptions(request: ContinueRequest): ContinueOptions {
 		selected: request.extensions ?? [],
 		query: request.query,
 		instruction,
+		quotaAttempt: request.quotaAttempt,
+		onlyNewest: request.onlyNewest === true,
 	};
 }
 type ParentJob = {
@@ -159,6 +194,7 @@ type ContinuationRecord = {
 	readonly membership: GroupIdentity | undefined;
 	readonly group: ContinuationGroup | undefined;
 	readonly route: WakeRouting;
+	readonly quotaAttempt: number | undefined;
 };
 /** A published continuation, ready to start as a detached wrapper. */
 type Continuation = {
@@ -225,7 +261,7 @@ async function validateContinue(
 	if (membership) {
 		await checkGroupContinuation(membership, cwd, options, round);
 	}
-	const parent = await readParentJob(view, root, parentId, parentDir, membership, options.engine);
+	const parent = await readParentJob(view, root, parentId, parentDir, options);
 	const profile = engineProfile(parent.engine);
 	const extensions = await continuationExtensions(parent, membership, options.selected, cwd);
 	preflightEngine(profile, chosenModel, provider);
@@ -316,11 +352,12 @@ async function publishContinue(plan: ContinuePlan): Promise<ContinuedRecord> {
 		membership,
 		group,
 		route: plan.route,
+		quotaAttempt: plan.options.quotaAttempt,
 	});
 	return { id, jobDir, group };
 }
 /** The steps after continue's apply: the parent's worktree restored when a prune took it, then the wrapper. */
-async function launchContinued(checked: Checked<ContinuePlan, ContinuedRecord>): Promise<string> {
+async function launchContinued(checked: CheckedContinuation): Promise<string> {
 	const { plan } = checked;
 	const record = await checked.apply();
 	try {
@@ -395,14 +432,16 @@ async function checkGroupContinuation(
 		throw usageError("GROUP_ROUTE", "group continuation requires recorded engine/provider/model/reasoning explicitly");
 	}
 }
-/** The finished parent job: worktree, branch, repo, engine, newest session transcript and `--engine`, in that order. */
+/**
+ * The finished parent job: worktree, the jobs on it, branch, repo, engine, newest session transcript and `--engine`,
+ * in that order.
+ */
 async function readParentJob(
 	view: StateView,
 	root: string,
 	parentId: string,
 	parentDir: string,
-	membership: GroupIdentity | undefined,
-	engine: string | undefined,
+	{ engine, onlyNewest }: Pick<ContinueOptions, "engine" | "onlyNewest">,
 ): Promise<ParentJob> {
 	// A terminal state is final (nothing writes after it), so the parent's state needs no re-check.
 	const record = await view.record(parentDir);
@@ -416,11 +455,9 @@ async function readParentJob(
 	if (!worktree) {
 		throw refused("JOB_NO_WORKTREE", `parent record ${parentId} has no worktree path`);
 	}
-	if (membership) {
-		await view.hold(`the live jobs on worktree ${worktree}`, () =>
-			assertNoLiveContinuation(view, root, parentId, worktree),
-		);
-	}
+	await view.hold(`the jobs on worktree ${worktree}`, () =>
+		assertNoLiveContinuation(view, root, parentId, worktree, onlyNewest),
+	);
 	const branch = record.branch;
 	if (!branch) {
 		throw refused("JOB_NO_BRANCH", `parent record ${parentId} has no branch`);
@@ -441,22 +478,39 @@ async function readParentJob(
 	}
 	return { id: parentId, dir: parentDir, record, worktree, branch, repo, session, engine: parentEngine };
 }
+/**
+ * LIVE_CONTINUATION (D-097 (5) (d), z. 14): one worktree runs one job at a time, so a continuation of any job, a group
+ * member's, an ordinary job's or the sweep's resume after the subscription limit, refuses while another record on the
+ * parent's worktree has not finished. The answer it holds is the newest record on the worktree: a continuation that another
+ * process published between this validate and its apply ends this one in STATE_CHANGED, also once that one has ended,
+ * so two resumes of one parent never both start. A later continuation of the same parent, once the first has ended, is
+ * a choice of its caller and starts, unless `onlyNewest` asks for the newest record, as the sweep's resume does: one
+ * that another path continued since the sweep read it is refused too, a race the sweep names in a line.
+ */
 async function assertNoLiveContinuation(
 	view: StateView,
 	root: string,
 	parentId: string,
 	worktree: string,
+	onlyNewest: boolean,
 ): Promise<string> {
-	for (const existing of await view.jobs(`${root}/.limen/jobs`)) {
-		if (existing === parentId) {
-			continue;
-		}
-		const record = await view.record(`${root}/.limen/jobs/${existing}`);
-		if (record?.state === "running" && record.worktree === worktree) {
-			throw refused("LIVE_CONTINUATION", "group worker worktree already has a live continuation");
-		}
+	const { newest, live } = await worktreeJobs(root, worktree, view);
+	const other = live.find((id) => id !== parentId);
+	if (other !== undefined) {
+		throw refused(
+			"LIVE_CONTINUATION",
+			`job ${other} has not finished on the worktree ${worktree} of job ${parentId}, and one worktree runs one job at a time; continue once its wake comes`,
+			`limen show ${other}`,
+		);
 	}
-	return "none";
+	if (onlyNewest && newest !== undefined && newest !== parentId) {
+		throw refused(
+			"LIVE_CONTINUATION",
+			`job ${newest} took over the worktree ${worktree} of job ${parentId} after it, so a resume of ${parentId} would run on work that ${newest} holds now`,
+			`limen show ${newest}`,
+		);
+	}
+	return newest ?? parentId;
 }
 /** A group worker keeps its team's recorded extensions; any other job takes --extension or inherits its parent's. */
 async function continuationExtensions(
@@ -518,6 +572,7 @@ async function publishContinuation(record: ContinuationRecord): Promise<void> {
 		...(coordinatorTab ? { originTab: coordinatorTab } : {}),
 		...(coordinatorPane ? { originPane: coordinatorPane } : {}),
 		...(record.group ? { group: { id: record.group.id, team: record.group.team } } : {}),
+		...(record.quotaAttempt === undefined ? {} : { quotaAttempt: record.quotaAttempt }),
 		carried,
 	});
 }

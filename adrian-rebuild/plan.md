@@ -119,7 +119,10 @@ limen-rebuild-26: D-097 (Q-51–Q-53): wznowienie po limicie to krok `seat sweep
 wznowienia z wdrożeniem to przyjęte ryzyko, stary folder reguł seata usuwa ręcznie Adrian; z rozstrzygnięciami
 dokumentów R-034, R-101 i R-102 są gotowe na noc za swoimi zależnościami; D-098 (Q-54–Q-57): `limen stats` liczy
 lądowania i tury koordynatora (flaga `--sessions`, wariant A wyjścia), R-098 gotowy z ticket.md, więc każdy ticket
-etapu 3 jest `done` albo `ready`. -->
+etapu 3 jest `done` albo `ready`. limen-rebuild-29: R-034 zamknięty (wznowienie po limicie subskrypcji jako krok
+`seat sweep`); D-099: przebieg implementera przyjęty mimo formy ticketu, a reguła D-089 staje się kontrolą w
+`check.mjs`; D-100: alert `failed:quota` dzwoni też przy znanym resecie po 15 min spóźnienia wznowienia; R-102 ma
+ticket.md. -->
 
 
 
@@ -1272,6 +1275,25 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   every session file of the `--sessions` directory counts, with no filter on the recorded `cwd`, since B.3 runs on a
   copy in another folder. R-098 is `ready` with its `ticket.md`. Check: R-098's criteria; `## Deployment` B.3 and B.4;
   the paragraph after the `## Measurement` table.
+- 2026-11-24 D-099 (Adrian: "oba zgodnie z rekomendacjami"; Q-58 and Q-59, option 1 each, asked in the conversation
+  with a push as "Q-51" and "Q-52", numbers D-097 and D-098 had already used; the precedent is D-089): (1) Q-58:
+  `compare --git` voided R-034's implementer run only because `## Change` (h) wrote its one deletion as the span
+  `git rm docs/seat/quota-resume.ts`, with spaces, which D-089's rule forbids and `changePaths` does not read; HEAD, the
+  refs, git's config, hooks and the reserved paths were unchanged. Adrian accepted the run: (h) names the path in its
+  own backticks, the main session takes a new `snapshot --git` and runs `compare --git` again, which must exit 0. (2)
+  Q-59: the second occurrence of the slip makes D-089's rule code (z. 38): `check.mjs` rejects, in `## Change` of a
+  ticket that is `ready` or `active` (the tickets an implementer gets; the `done` R-007 and R-023 keep the form in their
+  history), a backtick span that holds `git rm` or `git mv` together with a path; a commit `Tools: …` with its test,
+  after the commit `R-034:`. Check: `node --test adrian-rebuild/tools/test-ticket-rules.mjs`;
+  `node adrian-rebuild/tools/check.mjs`.
+- 2026-11-24 D-100 (Adrian: "rekomendowane, może być 15 min"; Q-60, option 1, asked in the conversation with a push
+  after R-034's review round 1; amends D-097 (5) (b)): the alert `failed:quota` also rings for a `quota` failure with a
+  known `resetAt` once the job is overdue, 15 minutes after its due time (`resetAt` + 5 min + 15 min), while it has no
+  continuation (it is still the newest record on its worktree, with no `landed` or `abandoned` marker), once per job as
+  every alert. One rule on record fields covers a group member (which the sweep never resumes) and a resume refused at
+  every run (`ENGINE_MISSING`, `JOB_TREE_GONE`, `BAD_DATA`), with no counter and no new state (z. 1, T-01; the 15-minute
+  grace is A-033's pattern); a resume that succeeds rings nothing, as D-097 (5) (b) intends. Check: R-034's
+  `test/seat/alerts.test.ts`.
 
 ### Gate 2 §2, copied
 
@@ -1660,7 +1682,7 @@ Columns:
 | R-031 | `landed` and `abandoned` markers; retire moves records to the archive | 3 | A-002, §6 | R-030 | L | delegated | night | yes | — | 3.6 | done |
 | R-032 | `limen seat sweep` runs on a timer; read commands never write or wait | 3 | A-024, T-04, T-18, A-017, §6, D-045 | R-012, R-027, R-031 | L | delegated | night | yes | systemd | 3.1 | done |
 | R-033 | Alerts from their own account: failures and escalations only | 3 | A-066, A-054, T-18, D-084, D-085 | R-021 | L | delegated | night | yes | systemd | 3.3 | done |
-| R-034 | Resume after the quota limit in code | 3 | A-016, A-068, §6, D-094, D-097 | R-029, R-032, R-033 | L | delegated | night | yes | pi, systemd | 3.4 | ready (D-097) |
+| R-034 | Resume after the quota limit in code | 3 | A-016, A-068, §6, D-094, D-097, D-100 | R-029, R-032, R-033 | L | delegated | night | yes | pi, systemd | 3.4 | done |
 | R-035 | Start-queue thresholds: a diagnosis at 30 min, a failure at 2 h | 3 | A-036 | R-026, R-033 | L | delegated | night | — | systemd | 3.8 | done |
 | R-036 | Stall is measured over the whole job scope | 3 | A-059 | R-026 | M | delegated | night | — | systemd | 3.8 | ready |
 | R-037 | The closing commit of land and `ticket done` is atomic | 3 | A-021, A-057, T-38, D-094 | R-023, R-031, R-092 | M | delegated | night | — | — | — | ready |
@@ -2513,8 +2535,9 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-24 by day (`limen-rebuild-28`, after R-032; R-029 and R-032 are `done`, by day, in "Evening of
-2026-11-23", the next ticket in `Next` 2), rebuild stage 5 in plan stage 3: stage 1 is closed
+Updated 2026-11-24 by day (`limen-rebuild-29`, after R-034; R-029, R-032 and R-034 are `done`, by day, in "Evening
+of 2026-11-23" and "R-034 in `limen-rebuild-29`" at the end of this section, the next ticket in `Next` 2), rebuild
+stage 5 in plan stage 3: stage 1 is closed
 at `a0.1.1` (deployed on 2026-11-20, with B.2 closed by D-050); stage 2 is closed at `a0.2.0` (gate 5.2 decided,
 D-078–D-082; deployed on 2026-11-23/24 with B.3's a0.2.0 part, "Evening of 2026-11-23"); stage 3 has started: R-026, R-030 and R-033 are `done` (by day), R-027, R-028, R-031, R-035 and R-100
 `done` in the night of D-091 (until 09:00; it ended with `no-ticket`), D-092 settles its Q-42 and Q-43, and D-083's
@@ -4026,14 +4049,13 @@ Next (by day):
 1. Done on 2026-11-23: Adrian added the `hooks` block of D-083 to `.claude/settings.local.json`, and the live test
    blocked a push naming `Q-00` ("Evening of 2026-11-23" above); the guard is active, by day and at night.
 2. By day, with Adrian (2026-11-24: "robimy teraz"): the stage-3 tickets in protocol order (`## Agents`, step 1).
-   R-029 (`b0c033b`) and R-032 are `done`; by protocol step 1 the next is R-034 (L; `ready (D-097)`, its dependencies
-   R-029, R-032 and R-033 done; its `ticket.md` (`R-034-quota-resume/`) was written by `limen-rebuild-28` at R-032's
-   tree before R-032's commit, as `check.mjs` requires once R-032 is `done` (D-054 (1), as R-019's and R-094's were),
-   from `evidence/inventories/R-034.md` re-located by a read-only agent after R-029 and R-032, and D-097 (5); its
-   Decisions 2, 3 and 5 are for gate 5.3), then R-036, R-037, R-087 and R-098, each `ready` with its `ticket.md`, and
-   R-101 `ready (D-097)` with its `ticket.md` (`R-101-sweep-daily-steps/`, written the same way from D-096 (1) and
-   D-097 (4); its Decisions 2 and 4 for gate 5.3); both are committed with the handover after R-032. R-102 `ready
-   (D-097)` waits for R-034, R-103 `ready (D-096)` for R-037. The main session's estimate given to Adrian
+   R-029 (`b0c033b`), R-032 and R-034 are `done`. First the commit `Tools: …` of D-099 (2) (the `## Change` form check
+   in `tools/ticket-rules.mjs`, with its test in `tools/test-ticket-rules.mjs`); then, by protocol step 1, R-036, R-037,
+   R-087 and R-098, each `ready` with its `ticket.md`, R-101 `ready (D-097)` with its `ticket.md`
+   (`R-101-sweep-daily-steps/`, its Decisions 2 and 4 for gate 5.3) and R-102 `ready (D-097)` with its `ticket.md`
+   (`R-102-seat-rules-cut/`, written by `limen-rebuild-29` at R-034's tree before R-034's commit, as `check.mjs`
+   requires once R-034 is `done` (D-054 (1)), from a read-only agent's inventory and D-097 (6); its Decisions 1–3 for
+   gate 5.3); R-103 `ready (D-096)` waits for R-037. The main session's estimate given to Adrian
    (2026-11-24): about 25 h of work for the ten tickets (18–32 h, from stage 3's eight tickets at 44 min to 3 h 49), so
    the last ticket on 2026-11-25 before noon if a night runs between, then the close and gate 5.3. Whether and when to
    start a night is Adrian's (D-024: the main session starts the runner when he asks).
@@ -4232,3 +4254,14 @@ acts are a push notification to Adrian (one line in Polish) that it takes over a
 adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into this section, then `Next` 2 from R-034
 (`## Agents`, protocol steps 2–7; its `ticket.md` is written at R-032's tree, so it first runs its grep criteria at
 HEAD, D-025, and notes any fact R-032's commit moved). The handover after it is `limen-rebuild-30`.
+
+R-034 in `limen-rebuild-29` (2026-11-24, by day, Adrian at the terminal): `close-previous` closed `limen-rebuild-28`
+(exit 0). The implementer's run was void by `compare --git` for the ticket's form alone and accepted (Q-58 → D-099
+(1)); Q-59 → D-099 (2) makes D-089's rule a check (a commit `Tools: …` after `R-034:`). Review round 1 FAIL on AC-9
+alone (after one reply rejected by `review-verdict.mjs` for its form); Q-60 → D-100 (the overdue `failed:quota`);
+fixes F1–F12, gate 1067/1067. Review round 2 PASS (after one reply rejected for its form); fixes G1–G3, gate
+1068/1068, `fails-before.mjs` exit 0 (fourteen files). Review round 3 PASS with two notes (one to `outcome.md` →
+`## Open points`, D-092). A pause at Adrian's request between rounds 2 and 3 ("przez chwilę nie będę miał internetu"),
+with nothing running. R-034 `done`; R-102's `ticket.md` is written. For Adrian, proposed in the conversation and not
+yet answered: one line in `.claude/agents/rebuild-reviewer.md` → `## Reply format`, since nine replies of the rebuild
+were rejected for the same form (bullet lines below a judged criterion, `met` with no colon).

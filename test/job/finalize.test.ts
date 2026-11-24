@@ -145,6 +145,25 @@ test("finalizeJob records kind oom for a signal death or a reaped wrapper when t
 	assert.deepEqual(kinds, ["oom", "oom", "quota", "timeout"]);
 });
 
+// A-016 (5), D-097 (5) (g): the third resume is the last, so its end on the limit is the one terminal record that says
+// so; a resume before it stays `quota`, for the next one.
+test("finalizeJob records kind quota-exhausted for a limit end of a job whose quotaAttempt is 3, and quota for attempt 2", async (t) => {
+	const { folder } = await jobFolder(t);
+	const failure = {
+		kind: "quota",
+		detail: "error: You've hit your session limit · resets 3pm (UTC)",
+		resetAt: "2026-11-24T15:00:00.000Z",
+	} as const;
+	const failures = [];
+	for (const quotaAttempt of [2, 3]) {
+		const job = join(folder, `job-${quotaAttempt}`);
+		await writeRecord(job, { state: "running", identity: IDENTITY, quotaAttempt });
+		await finalizeJob(job, { state: "failed", failure });
+		failures.push((await readRecord(job))?.failure);
+	}
+	assert.deepEqual(failures, [failure, { ...failure, kind: "quota-exhausted" }]);
+});
+
 test("finalizeJob writes null readings when the job's scope is already gone, and a record without a scope keeps none", async (t) => {
 	const { job } = await jobFolder(t);
 	await writeRecord(job, { state: "running", identity: IDENTITY, scope: RECORDED });

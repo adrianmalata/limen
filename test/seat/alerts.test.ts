@@ -578,6 +578,82 @@ test("a failed job whose record names the kind launch sends the kind launch", as
 	);
 });
 
+/** The provider's text of the 5-hour limit, which no alert carries. */
+const LIMIT_TEXT = "error: You've hit your session limit · resets 3pm (UTC)";
+/** An ISO time `minutes` from now: in the past when negative. */
+const fromNow = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString();
+/** The ids of the quota jobs these tests plant in the ledger project. */
+const QUOTA_ID = "2026-11-24-f001-limit-1a2b3c4d";
+const NEWER_ID = "2026-11-24-f001-continued-2b3c4d5e";
+
+/** A job of the ledger project that stopped on the limit with the reset `resetAt`, on a worktree of its own. */
+async function quotaJob(f: Fixture, resetAt: string, fields: Partial<JobRecord> = {}): Promise<void> {
+	await writeRecord(job(f.ledger, QUOTA_ID), {
+		...QUOTA,
+		worktree: join(f.dir, "worktrees", QUOTA_ID),
+		startedAt: fromNow(-120),
+		failure: { kind: "quota", detail: LIMIT_TEXT, resetAt },
+		...fields,
+	});
+}
+
+/** The bodies the alerts sent in two runs after the first, each run exiting 0. */
+async function twoRuns(f: Fixture, server: Ntfy): Promise<string[]> {
+	for (const _ of [1, 2]) {
+		const ran = await run(f);
+		assert.equal(ran.code, 0, ran.stderr);
+	}
+	return server.posts.map((post) => post.body);
+}
+
+// D-097 (5) (b): Limen resumes a quota job with a known reset itself, 5 minutes after it, so the phone stays quiet then.
+test("a quota failure with a known reset whose resume is not yet 15 minutes overdue sends nothing", async (t) => {
+	const [f, server] = [await fixture(t), await ntfy(t)];
+	await firstRun(f);
+	await quotaJob(f, fromNow(-10));
+	assert.deepEqual(await twoRuns(f, server), []);
+});
+
+// D-100: a resume that never started, refused at every run, rang nothing at all.
+test("a quota failure whose resume is overdue and that nothing continued sends failed:quota once", async (t) => {
+	const [f, server] = [await fixture(t), await ntfy(t)];
+	await firstRun(f);
+	await quotaJob(f, fromNow(-30));
+	assert.deepEqual(await twoRuns(f, server), [`ledger failed:quota ${QUOTA_ID}`]);
+});
+
+// D-100: a continuation took the job's worktree, a resume or the coordinator's own, so nothing is left to report.
+test("an overdue quota failure whose worktree a newer record holds sends nothing", async (t) => {
+	const [f, server] = [await fixture(t), await ntfy(t)];
+	await firstRun(f);
+	await quotaJob(f, fromNow(-30));
+	await writeRecord(job(f.ledger, NEWER_ID), {
+		state: "running",
+		worktree: join(f.dir, "worktrees", QUOTA_ID),
+		startedAt: fromNow(-20),
+	});
+	assert.deepEqual(await twoRuns(f, server), []);
+});
+
+// D-100: the sweep never resumes a member of a group, so its overdue resume rings as any other.
+test("an overdue quota failure of a group member sends failed:quota", async (t) => {
+	const [f, server] = [await fixture(t), await ntfy(t)];
+	await firstRun(f);
+	await quotaJob(f, fromNow(-30), { group: "f001-group", team: "team-1" });
+	assert.deepEqual(await twoRuns(f, server), [`ledger failed:quota ${QUOTA_ID}`]);
+});
+
+// A-016 (5): the third resume that stops on the limit again ends Limen's resumes, which the phone hears of.
+test("a quota-exhausted job sends failed:quota-exhausted", async (t) => {
+	const [f, server] = [await fixture(t), await ntfy(t)];
+	await firstRun(f);
+	await quotaJob(f, fromNow(-10), {
+		quotaAttempt: 3,
+		failure: { kind: "quota-exhausted", detail: LIMIT_TEXT, resetAt: fromNow(-10) },
+	});
+	assert.deepEqual(await twoRuns(f, server), [`ledger failed:quota-exhausted ${QUOTA_ID}`]);
+});
+
 test("D-084: an alert is the project folder's base name, the event and the job id, with no path", () => {
 	assert.equal(
 		alertLine("/home/agents/synchronizer", "failed:quota", FAILED_ID),

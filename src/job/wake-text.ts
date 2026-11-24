@@ -4,6 +4,7 @@ import { TEMPORARY_NAME } from "../atomic-write.ts";
 import { readOptional } from "../project/inherit.ts";
 import { ticketPointers } from "../project/planning.ts";
 import { producedNothing } from "./job.ts";
+import { QUOTA_RESUMES, quotaResume } from "./quota.ts";
 import { type JobRecord, type Progress, readProgressSync, readRecordSync } from "./record.ts";
 import { openChecks } from "./task-note.ts";
 import { claimSlots, deliveryExists } from "./wake-delivery.ts";
@@ -15,13 +16,16 @@ function text(path: string): string {
 /**
  * How the job ended: stop reason, bounded commits, the whole final message, and undelivered steers. The coordinator
  * decides the next step from this, so the final message is never cut. A part the record or the folder does not hold
- * is omitted; that absence is information.
+ * is omitted; that absence is information. An end on the subscription limit is said from the record's fields
+ * (`limitStop`), never with the provider's text (A-068).
  */
 export function jobEnding(job: string, record = readRecordSync(job)): string {
 	const sections: string[] = [];
-	const stop = record?.stopReason;
+	const stop = record && limitStop(record);
 	if (stop) {
-		sections.push(`Stop reason: ${stop}`);
+		sections.push(stop);
+	} else if (record?.stopReason) {
+		sections.push(`Stop reason: ${record.stopReason}`);
 	}
 	const commits = record?.commits;
 	if (commits) {
@@ -105,11 +109,48 @@ export function completionWake(
 		instruction =
 			"Inspect the job record and log/session to understand why, then resume focused work if the ticket remains open. Keep the user informed; ask only when genuine product ambiguity, a scope or risk tradeoff, or an irreversible action needs a human decision.";
 	}
+	// D-097 (5) (i): Limen resumes the job after the limit itself, so the coordinator leaves it alone.
+	if (state === "failed" && record && limenResumes(record)) {
+		handoff = "Limen resumes this job by itself; it needs nothing from you now.";
+		instruction = `Go on with other work, and do not continue this job yourself: Limen resumes it. Only when the owner asks to resume it at once, run limen continue ${id} "<instruction>"; Limen then leaves it to that continuation.`;
+	}
 	if (fallback) {
 		instruction =
 			"The subscribed coordinator is busy. Do not spawn, stop, steer, or land on behalf of another coordinator unless the human asks.";
 	}
 	return joinWake(lead, jobEnding(job, record), [facts, handoff].filter(Boolean).join("\n\n"), instruction);
+}
+/**
+ * Whether Limen resumes the job of `record` after the subscription limit; never a group member's, which `continue`
+ * refuses outside its team.
+ */
+function limenResumes(record: JobRecord): boolean {
+	return record.group === null && quotaResume(record) !== undefined;
+}
+/**
+ * How a job that the subscription limit stopped ended, from its record's fields alone (D-097 (5) (i), A-068): when
+ * Limen resumes it and which resume of the cap that is, or that the cap was reached; undefined for any other end. The
+ * provider's text stays in the record, which `limen show` prints.
+ */
+function limitStop(record: JobRecord): string | undefined {
+	const kind = record.state === "failed" ? record.failure?.kind : undefined;
+	if (kind === "quota-exhausted") {
+		return `Stop: the subscription limit, after ${QUOTA_RESUMES} resumes, the most Limen makes. Limen does not resume it again.`;
+	}
+	if (kind !== "quota") {
+		return undefined;
+	}
+	const resetAt = record.failure?.resetAt ?? null;
+	const limit = `Stop: the subscription limit, ${resetAt === null ? "with no reset time read" : `which resets at ${resetAt}`}.`;
+	const resume = quotaResume(record);
+	if (record.group !== null) {
+		return `${limit} Limen does not resume a member of a group; its team continues it.`;
+	}
+	if (resume === undefined) {
+		return limit;
+	}
+	const when = resume.at === null ? "once the reset time is known" : `at ${resume.at}`;
+	return `${limit} Limen resumes the job ${when}, resume ${resume.attempt} of ${QUOTA_RESUMES}.`;
 }
 /**
  * The first line of the job's start notice, when the job waited in the start queue and `session` never got that

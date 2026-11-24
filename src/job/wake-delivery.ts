@@ -10,13 +10,14 @@ const DEFAULT_FALLBACK_GRACE_MS = 5 * 60_000;
 export const CLAIM_STALE_MS = 30_000;
 const WAKE_ATTEMPTS = 2;
 // What a job's completion still asks of this session. A group member reports through its group, never by wake, and a
-// record the migration wrote is history only (D-057 (4)): the Limen that ran it owed its wakes.
+// record the migration wrote is history only (D-057 (4)): the Limen that ran it owed its wakes. A wake owed after the
+// subscription limit waits for the seat sweep to release it (A-016 (2)); the record's change then reopens it.
 export function deliveryLeft(job: string, session: string): "nothing" | "open" | "fallback" {
 	const record = readRecordSync(job);
 	if (!(record && isTerminal(record.state))) {
 		return "open";
 	}
-	if (record.group || record.migrated || !routable(job)) {
+	if (record.group || record.migrated || record.owedWake || !routable(job)) {
 		return "nothing";
 	}
 	const delivered = deliveredSlots(job);
@@ -196,7 +197,7 @@ export function recordUnconfirmed(
 		try {
 			const stopped = attempts >= WAKE_ATTEMPTS ? "; automatic retries stopped; claim retained for human recovery" : "";
 			appendFileSync(
-				join(dirname(dirname(dirname(claim))), "log"),
+				join(claimedJob(claim), "log"),
 				`[limen ${new Date().toISOString()}] ${reason}; unsuccessful wake attempt ${attempts}/${WAKE_ATTEMPTS}${stopped}\n`,
 			);
 		} catch {
@@ -206,6 +207,17 @@ export function recordUnconfirmed(
 	} catch {
 		return false;
 	}
+}
+/** The job folder of the claim `claim`, `<job>/notify/claims/<slot>`. */
+export function claimedJob(claim: string): string {
+	return dirname(dirname(dirname(claim)));
+}
+/**
+ * Removes the claim of a wake whose turn ended on the subscription limit, with no attempt counted: the limit failed,
+ * not the wake (D-097 (5) (h)), and the job's `owedWake` holds its wakes until the seat sweep releases it.
+ */
+export function releaseOwedClaim(claim: string): void {
+	rmSync(claim, { recursive: true, force: true });
 }
 export function confirmClaim(claim: string, delivered: string): void {
 	try {

@@ -717,7 +717,6 @@ const JOB_NAME_EXCEPTIONS: ReadonlyArray<{ readonly path: string; readonly name:
 	},
 	{ path: "src/integrations/github-doctor.ts", name: "state", reason: "the GitHub poller's state folder" },
 	{ path: "docs/seat/github-setup.sh", name: "state", reason: "the GitHub poller's state folder" },
-	{ path: "docs/seat/quota-resume.ts", name: "state", reason: "the folder ~/.local/state of the XDG layout" },
 ];
 /** Whether `JOB_NAME_EXCEPTIONS` keeps the name `name` in the file `path`. */
 const keptJobName = (path: string, name: string) =>
@@ -1084,7 +1083,8 @@ test("T-20 (4): the module of every handler that takes an argument of type job, 
 
 /**
  * The functions that change a job's state or write its record (A-019, T-04's Check): the record's one writer, the end
- * of a job, the markers, the first record, the reaper and the seat sweep's `stuck`.
+ * of a job, the markers, the first record, the reaper, the seat sweep's `stuck`, and the owed wake that the wake hook
+ * writes and the sweep releases (R-034).
  */
 const STATE_TRANSITIONS: ReadonlySet<string> = new Set([
 	"transition",
@@ -1094,6 +1094,7 @@ const STATE_TRANSITIONS: ReadonlySet<string> = new Set([
 	"reapDeadJobs",
 	"confirmDeadJobs",
 	"writeStuck",
+	"writeOwedWake",
 ]);
 /** The read commands whose modules still import one, each with the ticket that ends it. */
 const READS_WITH_TRANSITIONS: Readonly<Record<string, string>> = {
@@ -1196,7 +1197,7 @@ const ISO_TIME_MODULE = "src/boundary.ts";
 const ISO_TIME_TEXT = String.raw`\d{4}-\d{2}-\d{2}T`;
 /**
  * The files outside the module that keep a pattern of a time: `limen rule --until` takes a looser form of user input,
- * with an offset, and R-034 cuts the command.
+ * with an offset, and R-102 cuts the command.
  */
 const ISO_TIME_EXCEPTIONS: ReadonlySet<string> = new Set(["src/commands/rule.ts"]);
 

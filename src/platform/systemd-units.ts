@@ -4,7 +4,9 @@
 // (T-25 (1)): read every file, write atomically only what differs, verify, and put the old files back on a failure, so
 // a second placement changes nothing that is in place. The seat's alerts (seat/units.ts, seat/alerts.ts) render and
 // place their system units through it; the sweep's install places its user units in the folder the user manager
-// reads, then reloads the manager and enables the timer. The calls to systemd are the platform adapter's.
+// reads, then reloads the manager and enables the timer. The sweep's service carries the PATH of the shell that ran
+// the install, where a job the sweep resumes after the subscription limit finds its tools (R-034 (g)). The calls to
+// systemd are the platform adapter's.
 import { existsSync } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
@@ -46,9 +48,10 @@ const LINE_LIMIT = 100;
 
 /**
  * The sweep's service and timer (A-024, R-032): a oneshot run of `limen seat sweep` by absolute paths (T-26 (4)), the
- * package's own `bin/limen` under root's Node, every minute from boot, stopped after `SWEEP_TIMEOUT_SEC`.
+ * package's own `bin/limen` under root's Node, with `path`, the installing shell's PATH, every minute from boot,
+ * stopped after `SWEEP_TIMEOUT_SEC`.
  */
-export function sweepUnits(packageRoot: string): readonly UnitDefinition[] {
+export function sweepUnits(packageRoot: string, path: string): readonly UnitDefinition[] {
 	const root = packageRoot.replace(/\/+$/, "");
 	if (!ONE_WORD_PATH.test(root)) {
 		throw new Error(`the package root ${JSON.stringify(packageRoot)} is no absolute path ExecStart holds as one word`);
@@ -67,6 +70,7 @@ export function sweepUnits(packageRoot: string): readonly UnitDefinition[] {
 					directives: [
 						["Type", "oneshot"],
 						["ExecStart", `${NODE} ${root}/bin/limen seat sweep`],
+						["Environment", pathAssignment(path)],
 						["TimeoutStartSec", SWEEP_TIMEOUT_SEC],
 					],
 				},
@@ -90,6 +94,17 @@ export function sweepUnits(packageRoot: string): readonly UnitDefinition[] {
 			],
 		},
 	];
+}
+
+/**
+ * The service's `PATH=` (R-034 (g), R-034 Decision 2): the PATH of the shell that ran the install, where a job the
+ * sweep resumes finds `pi` and `node` and its finisher `herdr`, which lie where the agents' login shell finds them and
+ * no fixed list knows; the user manager's own PATH lacks them. Quoted whole, since systemd splits an unquoted value at
+ * white space, with each backslash and quote escaped as inside quotes and `%` doubled, since systemd reads specifiers
+ * there.
+ */
+function pathAssignment(path: string): string {
+	return `"PATH=${path.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("%", "%%")}"`;
 }
 
 /** The text of `unit`: its header line, then each section with its directives, sections apart by one empty line. */
@@ -164,14 +179,18 @@ const INSTALL_AGAIN = "limen seat sweep --install";
 const UNINSTALL_AGAIN = "limen seat sweep --uninstall";
 
 /**
- * Places the sweep's units of this version in the user manager's unit folder (`placeUnitFiles`, verified as that
- * manager loads them), reloads the manager and enables the timer at once; the lines that say what it did. The reload
- * runs also when no unit changed: one that failed before left the written units unloaded, and this run finds them
- * unchanged.
+ * Places the sweep's units of this version, with the installing shell's `path`, in the user manager's unit folder
+ * (`placeUnitFiles`, verified as that manager loads them), reloads the manager and enables the timer at once; the
+ * lines that say what it did. An install from the same PATH changes no unit, and one from another rewrites the service.
+ * The reload runs also when no unit changed: one that failed before left the written units unloaded, and this run
+ * finds them unchanged.
  */
-export async function installSweepUnits(packageRoot: string): Promise<string[]> {
+export async function installSweepUnits(packageRoot: string, path: string): Promise<string[]> {
 	const folder = platform.userUnitFolder();
-	const units = sweepUnits(packageRoot).map((unit) => ({ path: join(folder, unit.file), text: renderUnit(unit) }));
+	const units = sweepUnits(packageRoot, path).map((unit) => ({
+		path: join(folder, unit.file),
+		text: renderUnit(unit),
+	}));
 	await makeDurableFolder(folder);
 	const verifier = { name: "systemd-analyze --user verify", verify: platform.verifyUserUnits };
 	const written = await placeUnitFiles(units, verifier, INSTALL_AGAIN);

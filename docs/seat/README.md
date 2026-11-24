@@ -4,7 +4,7 @@ Operator checklist and the current setup steps. Limen does not run these. Copy t
 
 The seat owns the project copy (the Git checkout), the worktrees, and the job files in `.limen/jobs/`. The laptop is only a window.
 
-Units next to this file: `limen-prune.{service,timer}`, and the Pi extensions `coordinator-handoff.ts`, `quota-resume.ts` and `statusline.ts`. The alerts' units are written by `seat/alerts.ts`, and the sweep's by `limen seat sweep --install` (both below).
+Units next to this file: `limen-prune.{service,timer}`, and the Pi extensions `coordinator-handoff.ts` and `statusline.ts`. The alerts' units are written by `seat/alerts.ts`, and the sweep's by `limen seat sweep --install` (both below).
 
 ## Box
 
@@ -24,7 +24,7 @@ Units next to this file: `limen-prune.{service,timer}`, and the Pi extensions `c
 
 ## Alerts
 
-The alerts send one line to the phone through the public ntfy relay for each failed job of every registered project, `<project folder's base name> failed:<kind> <job id>`, such as `synchronizer failed:quota 2026-11-16-f001-work-a-37c02ed6`, and for each job whose wait in the start queue got its diagnosis ([Start queue](../jobs.md#start-queue)), `<project folder's base name> queue <job id>`, with no title. No path, label or job text leaves the seat; `limen status` over SSH gives the details, and the diagnosis is in the job's record. A job that ends `done` sends nothing. They are the only escalation path to the owner, so they belong to every seat, and `limen status` warns while their timer is not active or their last run failed.
+The alerts send one line to the phone through the public ntfy relay for each failed job of every registered project, `<project folder's base name> failed:<kind> <job id>`, such as `synchronizer failed:quota 2026-11-16-f001-work-a-37c02ed6`, and for each job whose wait in the start queue got its diagnosis ([Start queue](../jobs.md#start-queue)), `<project folder's base name> queue <job id>`, with no title. No path, label or job text leaves the seat; `limen status` over SSH gives the details, and the diagnosis is in the job's record. A job that ends `done` sends nothing. A job the subscription limit stopped sends `failed:quota` at once only when no reset time was read: with a known reset the sweep resumes it (below), and it sends `failed:quota` only once that resume is 15 minutes overdue with no continuation, or `failed:quota-exhausted` when its third resume stops on the limit again. They are the only escalation path to the owner, so they belong to every seat, and `limen status` warns while their timer is not active or their last run failed.
 
 They run every minute as `limen-alerts.service`, a system service on an account of their own: `/usr/bin/node /opt/limen/seat/alerts.ts run` reads the registries and the job records, and keeps the events it reported and the projects it has read in its own state folder (`StateDirectory=limen-alerts`, the files `reported` and `projects`), so it writes no file of the agents' account. The topic reaches it only as the systemd credential `topic` (`LoadCredential=topic:/etc/limen/alerts-topic`). An event is reported only after ntfy took it, so a failed send comes again on the next run; a project or a record it cannot read is named in the journal, the run fails, and the other projects still alert. A run that reads no project at all fails too, naming why: a registry or a registered project it could not read (counted first, since root's own registry is always closed to it, and each root once, however many registries list it), registries that name no project, every registry in a home closed to it, or no registry.
 
@@ -42,26 +42,27 @@ Moshi rings the phone when an agent needs you, through Herdr's agent hooks: pair
 
 ## Sweep
 
-`limen seat sweep` is the seat's one reaper: every minute its user timer ends each running job whose wrapper is dead, in every registered project, ends the scope a finished job left with processes in it, removes dead coordinator registrations and dead start-queue entries, and rings Herdr for an end nobody heard of ([Seat sweep](../commands.md#seat-sweep)). `limen status` and `limen show` only show a dead job (`wrapper dead; limen-sweep will finalize`), so without the timer no dead job is finalized, and `limen status` warns under `Sweep not working` while the timer is not active or the service's last run failed. A job whose processes it cannot end three runs in a row is listed under `Jobs the sweep cannot end` and sends the alert `<project folder's base name> stuck <job id>`.
+`limen seat sweep` is the seat's one reaper: every minute its user timer ends each running job whose wrapper is dead, in every registered project, ends the scope a finished job left with processes in it, resumes each job the subscription limit stopped 5 minutes after the reset (at most 3 times) and releases the coordinator wakes the limit held, removes dead coordinator registrations and dead start-queue entries, and rings Herdr for an end nobody heard of ([Seat sweep](../commands.md#seat-sweep), [Subscription limit](../jobs.md#subscription-limit)). `limen status` and `limen show` only show a dead job (`wrapper dead; limen-sweep will finalize`), so without the timer no dead job is finalized, and `limen status` warns under `Sweep not working` while the timer is not active or the service's last run failed. A job whose processes it cannot end three runs in a row is listed under `Jobs the sweep cannot end` and sends the alert `<project folder's base name> stuck <job id>`.
 
-It runs as `limen-sweep.service`, a user service of the agents' account (no root), with `/usr/bin/node /opt/limen/bin/limen seat sweep`, stopped after 300 s. Install, on the agents' account, once lingering is on:
+It runs as `limen-sweep.service`, a user service of the agents' account (no root), with `/usr/bin/node /opt/limen/bin/limen seat sweep` and the PATH of the shell that installed it, stopped after 300 s; a job it resumes finds `pi`, `node` and `herdr` on that PATH. Install, on the agents' account, from its login shell, once lingering is on:
 
-1. `limen seat sweep --install`. Without lingering it exits 4 and names the command for root, `loginctl enable-linger <account>`; then run it again. It writes `limen-sweep.service` and `limen-sweep.timer` into `~/.config/systemd/user/` where they differ, verifies them with `systemd-analyze --user verify` (a failure puts the earlier units back), reloads the user manager and enables the timer. Run again, it changes nothing that is in place.
+1. `limen seat sweep --install`. Without lingering it exits 4 and names the command for root, `loginctl enable-linger <account>`; then run it again. It writes `limen-sweep.service`, with the shell's PATH (`Environment="PATH=…"`), and `limen-sweep.timer` into `~/.config/systemd/user/` where they differ, verifies them with `systemd-analyze --user verify` (a failure puts the earlier units back), reloads the user manager and enables the timer. Run again from the same PATH, it changes nothing that is in place; from another PATH it rewrites the service, so run it again after `pi`, `node` or `herdr` moves. Without a PATH it exits 4 with `NO_PATH`.
 2. `limen seat sweep --status` prints `limen-sweep.timer is active`, and after the first minute `journalctl --user -u limen-sweep.service` ends with a final line of class `ok`.
 
 `node /opt/limen/seat/deploy.ts <sha>` verifies the units of the new release with `systemd-analyze verify` in a temporary folder and writes no home, so a release that changes them needs the install again. To stop the sweep: `limen seat sweep --uninstall`.
 
 ## Pi extensions
 
-`coordinator-handoff.ts`, `quota-resume.ts` and `statusline.ts` are the Pi extensions that this seat loads from `~/.pi/agent/extensions/` for every session, byte for byte as they run there. Limen does not install them. They change how a coordinator works, so a change of them belongs in a commit here.
+`coordinator-handoff.ts` and `statusline.ts` are the Pi extensions that this seat loads from `~/.pi/agent/extensions/` for every session, byte for byte as they run there. Limen does not install them. They change how a coordinator works, so a change of them belongs in a commit here.
 
 - `coordinator-handoff.ts`: when a coordinator's context passes 30 % of the window, it asks for a handoff note and, after `.limen/coordinator-handoff.request`, opens a new session in the same pane with that note as its first message.
-- `quota-resume.ts`: when a run of a session with `LIMEN_COORDINATOR=1` ends on a Claude quota limit, it sends the session one message a few minutes after the reset.
 - `statusline.ts`: the model, the time, the cost, the context and the 5 h and 7 d limits of Claude in the status line, in Polish.
 
 `herdr-agent-state.ts` lies beside them on the seat, but `herdr integration install pi` writes and updates it, so it is not kept here.
 
-To use the copies of a checkout, link them: `ln -sf "$PWD"/docs/seat/{coordinator-handoff,quota-resume,statusline}.ts ~/.pi/agent/extensions/`. A copy that differs from the seat shows with `for f in coordinator-handoff quota-resume statusline; do diff docs/seat/$f.ts ~/.pi/agent/extensions/$f.ts; done`.
+To use the copies of a checkout, link them: `ln -sf "$PWD"/docs/seat/{coordinator-handoff,statusline}.ts ~/.pi/agent/extensions/`. A copy that differs from the seat shows with `for f in coordinator-handoff statusline; do diff docs/seat/$f.ts ~/.pi/agent/extensions/$f.ts; done`.
+
+The extension `quota-resume.ts`, which typed a message into the coordinator after a limit, is cut: `limen seat sweep` resumes the jobs itself. A seat that still links it removes the link: `rm ~/.pi/agent/extensions/quota-resume.ts`.
 
 ## Prune
 

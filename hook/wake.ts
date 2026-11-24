@@ -7,17 +7,21 @@ import { coordinatorProject, coordinatorRegistration } from "../src/integrations
 import { herdrBinary } from "../src/integrations/herdr.ts";
 import { closedFeatures, closedJobFeatures, derivePulse, isTerminal, type Pulse, SESSION_ID } from "../src/job/job.ts";
 import {
+	isLimitEnd,
 	isProgressName,
 	type JobRecord,
 	jobFoldersSync,
+	limitReset,
 	type Progress,
 	readProgressSync,
 	readRecordSync,
+	writeOwedWake,
 } from "../src/job/record.ts";
 import { openChecks } from "../src/job/task-note.ts";
 import {
 	CLAIM_STALE_MS,
 	claimDelivery,
+	claimedJob,
 	claimMarker,
 	claimSlots,
 	completionSlots,
@@ -34,6 +38,7 @@ import {
 	recordUnconfirmed,
 	recoverClaims,
 	refreshClaim,
+	releaseOwedClaim,
 	routable,
 	sessionOwnsJobs,
 	subscribed,
@@ -68,6 +73,8 @@ const METADATA_REFRESH_MS = 60_000;
 // R-006; a tab labelled then may still be open, and its old tail must still be read as one.
 const TAB_TAIL = /(?:\s*·\s*(?:◆\s+)?\d+\s+(?:running|finished))+$/;
 type FinishedJob = { readonly id: string; readonly label: string; readonly state: string; readonly finishedAt: number };
+/** A coordinator's turn that ended on the subscription limit (D-097 (5) (h)): when, and the reset its text named. */
+type LimitEnd = { readonly at: number; readonly resetAt: string | null };
 type HerdrPane = { readonly binary: string; readonly pane: string };
 
 // Toast words for a done job; one whose final "Note check" left items open asks for a decision before landing.
@@ -139,6 +146,8 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 	};
 	const pendingDeliveries = new Map<string, PendingDelivery>();
 	const activeDeliveries = new Set<string>();
+	// The run's last turn ended on the subscription limit; its settle owes the wakes it could not take (A-016 (2)).
+	let limitEnd: LimitEnd | undefined;
 	const herdrCall = (args: readonly string[]) => {
 		if (!herdr) {
 			return;
@@ -480,7 +489,7 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 			if (recoverClaims(job, (claim) => pendingDeliveries.has(claim))) {
 				blocked();
 			}
-			if (!isTerminal(stateOf(jobs, id)) || !routable(job)) {
+			if (!isTerminal(stateOf(jobs, id)) || !routable(job) || recordOf(job)?.owedWake) {
 				return false;
 			}
 			// Read claims before delivered records: rename moves atomically between them, so one side is always visible.
@@ -574,7 +583,7 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 				blocked();
 			}
 			const now = recordOf(job);
-			if (now?.state !== "running" || !routable(job) || !now.advisory) {
+			if (now?.state !== "running" || !routable(job) || !now.advisory || now.owedWake) {
 				return false;
 			}
 			if (fallback) {
@@ -633,7 +642,7 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 				blocked();
 			}
 			const now = recordOf(job);
-			return now?.state === "running" && subscribed(job, sessionId) && now.queued === null;
+			return now?.state === "running" && subscribed(job, sessionId) && now.queued === null && !now.owedWake;
 		};
 		return claimDelivery(job, slot, eligible, () => injectWake(message), deliveryCallbacks(message, blocked));
 	};
@@ -664,7 +673,8 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 				dropFooter("ui.notify failed");
 			}
 		}
-		if (muted) {
+		// A wake of the job owed after the subscription limit waits until the seat sweep releases it (A-016 (2)).
+		if (muted || record.owedWake) {
 			return;
 		}
 		if (state === "running") {
@@ -690,6 +700,24 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 			sendCompletion(jobs, id, state, "fallback");
 		}
 	};
+	/**
+	 * A wake that a turn ended on the subscription limit could not take (A-016 (2), D-097 (5) (h)), a completion, an
+	 * advisory or a start notice: owed on the record of the job whose folder holds its claim, with the reset the turn
+	 * named, then its claim released with no attempt spent, so the job's wakes wait for the seat sweep, which releases
+	 * them after the reset. A record that cannot take it spends the attempt as before, with the reason in the job's log
+	 * (T-01).
+	 */
+	const oweWake = (pending: PendingDelivery, limit: LimitEnd) => {
+		const owed = { since: new Date(limit.at).toISOString(), resetAt: limit.resetAt };
+		void writeOwedWake(claimedJob(pending.claim), (earlier) => earlier ?? owed)
+			.then(() => releaseOwedClaim(pending.claim))
+			.catch((error: unknown) => {
+				const reason = error instanceof Error ? error.message : String(error);
+				if (recordUnconfirmed(pending.claim, `wake turn ended on the subscription limit; owing it failed: ${reason}`)) {
+					pending.blocked();
+				}
+			});
+	};
 	const confirmDeliveries = () => {
 		for (const pending of pendingDeliveries.values()) {
 			if (!pending.accepted || !pending.settled) {
@@ -697,6 +725,8 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 			}
 			if (!pending.errored && pending.entered && pending.answered) {
 				confirmClaim(pending.claim, pending.delivered);
+			} else if (limitEnd) {
+				oweWake(pending, limitEnd);
 			} else if (recordUnconfirmed(pending.claim)) {
 				pending.blocked();
 			}
@@ -887,6 +917,8 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 			finishedCache = undefined;
 			pendingDeliveries.clear();
 			activeDeliveries.clear();
+			// A limit end belongs to its own session's run, so no run of this session owes a wake on it.
+			limitEnd = undefined;
 			reportedDamage.clear();
 			damaged.clear();
 			reopenAll();
@@ -961,6 +993,12 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 				return;
 			}
 			const failed = message.stopReason === "error" || message.stopReason === "aborted";
+			// The one definition of a limit end (T-25), read from the provider's errorMessage, never from model text.
+			const error = message.errorMessage ?? "";
+			if (failed && isLimitEnd(error)) {
+				const at = Date.now();
+				limitEnd = { at, resetAt: limitReset(error, at) };
+			}
 			for (const claim of activeDeliveries) {
 				const pending = pendingDeliveries.get(claim);
 				if (!pending) {
@@ -981,6 +1019,7 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 				pending.settled = true;
 			}
 			confirmDeliveries();
+			limitEnd = undefined;
 			activeDeliveries.clear();
 			finishedCache = undefined;
 			sweep();
@@ -1004,6 +1043,7 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 			}
 			pendingDeliveries.clear();
 			activeDeliveries.clear();
+			limitEnd = undefined;
 			retire(false);
 			releaseHerdr();
 		}),
@@ -1269,19 +1309,28 @@ function notifyBookkeeping(filename: string | null): boolean {
 	}
 	return /(?:^|\/)notify\/(claims|delivered|unconfirmed|seat)(?:\/|$)/.test(filename.replaceAll("\\", "/"));
 }
-/** The role, the text of the text parts, one per line, and the stop reason of an event's message. */
+/**
+ * The role, the text of the text parts, one per line, the stop reason and the provider's error text of an event's
+ * message; the error text tells a turn that ended on the subscription limit (D-097 (5) (h)).
+ */
 function eventMessage(event: PiMessageEvent): {
 	readonly role: string;
 	readonly content: string;
 	readonly stopReason?: string;
+	readonly errorMessage?: string;
 } {
 	const { message } = event;
 	const parts = typeof message.content === "string" ? [] : (message.content ?? []);
 	const textContent = parts
 		.flatMap((part) => (part.type === "text" && typeof part.text === "string" ? [part.text] : []))
 		.join("\n");
-	const { stopReason } = message;
-	return { role: message.role, content: textContent, ...(stopReason ? { stopReason } : {}) };
+	const { stopReason, errorMessage } = message;
+	return {
+		role: message.role,
+		content: textContent,
+		...(stopReason ? { stopReason } : {}),
+		...(errorMessage ? { errorMessage } : {}),
+	};
 }
 /** The tab's current name, so a rewritten tail preserves whatever stem the coordinator set. */
 function tabLabel(binary: string, tab: string): string | undefined {

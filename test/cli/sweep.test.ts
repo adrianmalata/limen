@@ -27,6 +27,8 @@ import {
 	type RunOptions,
 	scopeCalls,
 	scopeProcess,
+	spawnJob,
+	waitJob,
 	writeRecord,
 } from "../plant.ts";
 import { snapshot } from "../snapshot.ts";
@@ -260,6 +262,42 @@ test("a project whose job folder an older Limen wrote is named with that folder,
 	);
 });
 
+// A-016 (3), D-097 (5) (a), (d), (e): the resume after the subscription limit is a step of the minute run, due 5
+// minutes after the reset, on the parent's recorded route; on the next run the continuation holds the worktree, so
+// nothing is due.
+test("limen seat sweep: resumes a due quota job of a registered project once, on its recorded route, as attempt 1", async (t) => {
+	const p = await fresh(t);
+	const reset = Date.now() - 10 * 60_000;
+	const parent = spawnJob(p, `rate-limit five_hour ${reset}\nerror You've hit your session limit · resets 3pm (UTC)`);
+	assert.equal(waitJob(p, parent), "failed");
+	const first = sweep(p);
+	assert.equal(first.status, 0, first.stderr);
+	const jobs = join(p.root, ".limen", "jobs");
+	const children = () => readdirSync(jobs).filter((id) => jobRecord(p, id)?.parent === parent);
+	const [child = ""] = children();
+	assert.equal(waitJob(p, child), "done");
+	const second = sweep(p);
+	assert.equal(second.status, 0, second.stderr);
+	assert.deepEqual(
+		{
+			reset: jobRecord(p, parent)?.failure?.resetAt,
+			children: children(),
+			route: jobRecord(p, child)?.route,
+			quotaAttempt: jobRecord(p, child)?.quotaAttempt,
+			said: outputText(first).includes(`resumed ${parent} after the subscription limit as ${child}, resume 1 of 3\n`),
+			again: outputText(second).includes("resumed"),
+		},
+		{
+			reset: new Date(reset).toISOString(),
+			children: [child],
+			route: jobRecord(p, parent)?.route,
+			quotaAttempt: 1,
+			said: true,
+			again: false,
+		},
+	);
+});
+
 // z. 10, T-01 (review round 1, note 8): one record that does not read stops neither its project's other jobs nor steps.
 test("a damaged record is named with its reason, the run exits with its class, and the dead job beside it is reaped", async (t) => {
 	const p = await fresh(t);
@@ -483,7 +521,7 @@ test("--install writes both units, verifies them, reloads the user manager and e
 	assert.deepEqual(
 		{ installed: installed(p), calls: manager.calls() },
 		{
-			installed: sweepUnits(PACKAGE_ROOT).map((unit) => renderUnit(unit)),
+			installed: sweepUnits(PACKAGE_ROOT, manager.env.PATH ?? "").map((unit) => renderUnit(unit)),
 			calls: [
 				`systemd-analyze --user verify ${service} ${timer}`,
 				"systemctl --user daemon-reload",
@@ -509,6 +547,41 @@ test("--install run again writes and verifies nothing, and reloads the user mana
 		},
 	);
 	assert.match(outputText(again), /^limen-sweep.service and limen-sweep.timer unchanged in .+; reloaded$/m);
+});
+
+// R-034 (g), R-034 Decision 2: a resumed job's start needs pi, node and herdr, which lie where the installing shell
+// finds them; an install from another PATH rewrites the service, and the timer stays as it was.
+test("--install writes the PATH it runs with into the service, and an install from another PATH rewrites only the service", async (t) => {
+	const p = await fresh(t);
+	const manager = userManager(p);
+	const path = manager.env.PATH ?? "";
+	assert.equal(sweep(p, ["--install"], { env: manager.env }).status, 0);
+	const [service, timer] = installed(p);
+	const other = `${join(p.parent, "tools")}:${path}`;
+	const again = sweep(p, ["--install"], { env: { ...manager.env, PATH: other } });
+	assert.equal(again.status, 0, again.stderr);
+	const [rewritten, kept] = installed(p);
+	assert.deepEqual(
+		{
+			first: service?.split("\n").filter((line) => line.startsWith("Environment=")),
+			rewritten: rewritten?.split("\n").filter((line) => line.startsWith("Environment=")),
+			timer: kept === timer,
+			said: /^limen-sweep.service and limen-sweep.timer written in .+ and verified; reloaded$/m.test(outputText(again)),
+		},
+		{ first: [`Environment="PATH=${path}"`], rewritten: [`Environment="PATH=${other}"`], timer: true, said: true },
+	);
+});
+
+test("NO_PATH: --install from a process with no PATH exits 4, names the install, and writes no unit", async (t) => {
+	const p = await fresh(t);
+	const manager = userManager(p);
+	// The plant's own node runs the CLI, so the process needs no PATH to start; an empty one is no PATH.
+	const run = sweep(p, ["--install"], { env: { ...manager.env, PATH: "" } });
+	assert.deepEqual(
+		[run.status, readOutcome(run), installed(p), manager.calls()],
+		[4, { class: "environment", code: "NO_PATH", next: "limen seat sweep --install" }, [undefined, undefined], []],
+		run.stderr,
+	);
 });
 
 test("NO_LINGER: --install on an account that does not linger exits 4, names loginctl enable-linger and writes no unit", async (t) => {

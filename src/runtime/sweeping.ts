@@ -2,11 +2,12 @@
 // install, removal and status of the user timer that runs it. Only this run and the explicit change commands finalize
 // a job: the read commands and the coordinator's hook never reap. A run, through the runner of src/operation.ts
 // (T-38), does for each project in parallel: the reap of every dead running job (src/runtime/reap.ts), the end of each
-// finished job's scope that the user manager still lists, the removal of dead coordinator registrations, and one Herdr
-// ring for an end nobody heard of; then, once, the removal of the start queue's dead entries. A job record that does
-// not read and a step that fails are named with their reasons once every other job, step and project is done (z. 10),
-// and the run ends with the worst class among them (T-02). It refuses to run inside a job's scope, since it would
-// signal the scope it runs in.
+// finished job's scope that the user manager still lists, the resume of each job the subscription limit stopped and
+// the release of the wakes the limit kept from a coordinator (src/runtime/resuming.ts), the removal of dead coordinator
+// registrations, and one Herdr ring for an end nobody heard of; then, once, the removal of the start queue's dead
+// entries. A job record that does not read and a step that fails are named with their reasons once every other job,
+// step and project is done (z. 10), and the run ends with the worst class among them (T-02). It refuses to run inside
+// a job's scope, since it would signal the scope it runs in.
 import * as fs from "node:fs";
 import { userInfo } from "node:os";
 import { isAbsolute, join } from "node:path";
@@ -34,6 +35,7 @@ import { sweepLines } from "../project/summary.ts";
 import { hasCode } from "../system-error.ts";
 import { jobOfScope } from "./launcher.ts";
 import { confirmDeadJobs, endLeftoverScopes, type JobFailure } from "./reap.ts";
+import { resumeAfterQuota } from "./resuming.ts";
 import { removeDeadEntries } from "./start-queue.ts";
 
 /** The package root of the running CLI, whose `bin/limen` the sweep's service runs (`/opt/limen` on the seat). */
@@ -59,6 +61,7 @@ export async function seatSweep(flags: SweepFlags, out: CommandText, again: stri
 			}
 			if (mode === "install") {
 				requireLinger();
+				installingPath();
 			}
 			return mode;
 		},
@@ -66,7 +69,7 @@ export async function seatSweep(flags: SweepFlags, out: CommandText, again: stri
 			if (mode === "run") {
 				await sweepSeat(out);
 			} else if (mode === "install") {
-				printed(out, await installSweepUnits(PACKAGE_ROOT));
+				printed(out, await installSweepUnits(PACKAGE_ROOT, installingPath()));
 			} else if (mode === "uninstall") {
 				printed(out, await uninstallSweepUnits());
 			} else {
@@ -114,6 +117,22 @@ function requireLinger(): void {
 			"limen seat sweep --install",
 		);
 	}
+}
+
+/**
+ * NO_PATH (R-034 (g)): the sweep's service runs with the PATH of the process that installs it, where a job it resumes
+ * after the subscription limit finds `pi`, `node` and `herdr`, so an install with none stops before it writes.
+ */
+function installingPath(): string {
+	const path = process.env.PATH ?? "";
+	if (path === "") {
+		throw environmentError(
+			"NO_PATH",
+			"this process has no PATH, and the sweep's service runs with the PATH of its install, where a job it resumes finds pi, node and herdr; run the install from the agents' login shell",
+			"limen seat sweep --install",
+		);
+	}
+	return path;
 }
 
 /** Each line of `lines` on stdout, as the shared wrapper prints a command's text (D-061 (3)). */
@@ -185,9 +204,10 @@ const counted = (steps: number) => (steps === 1 ? "one step" : `${steps} steps`)
 
 /**
  * The steps of one project: its dead running jobs reaped, the scopes its finished jobs left in `live` ended (none when
- * the units could not be listed), its dead coordinator registrations removed, and its unheard ends rung for. A job
- * that fails to read or to end, and a step that fails, are returned with where they failed, and stop neither the
- * project's other jobs nor its other steps (z. 10, R-032 review round 1, note 8).
+ * the units could not be listed), its jobs due after the subscription limit resumed and its owed wakes released, its
+ * dead coordinator registrations removed, and its unheard ends rung for. A job that fails to read, to end or to resume,
+ * and a step that fails, are returned with where they failed, and stop neither the project's other jobs nor its other
+ * steps (z. 10, R-032 review round 1, note 8).
  */
 async function sweepProject(
 	root: string,
@@ -207,6 +227,8 @@ async function sweepProject(
 	if (live !== undefined) {
 		await step(() => endLeftoverScopes(jobs, live));
 	}
+	// After the reap, so that a dead job is finalized before it can be a candidate (R-034 Decision 1).
+	await step(() => resumeAfterQuota(root, out));
 	await step(async () => {
 		await removeDeadCoordinators(root);
 		return undefined;

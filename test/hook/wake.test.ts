@@ -1,13 +1,15 @@
 // hook/wake.ts: the guard on the `limen` command's arguments, nothing done before `limen migrate`, damaged records
 // and progress files, which stop no wake and no status line, are named once, and are forgotten at a session start,
-// and a tick that ends no dead job (T-04).
+// a tick that ends no dead job (T-04), and a wake the subscription limit kept from a coordinator's turn, owed until the
+// sweep releases it (A-016 (2)).
 import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import limenWake, { notMigratedNotice } from "../../hook/wake.ts";
-import { emptyRecord, readRecordSync, serialized } from "../../src/job/record.ts";
+import { emptyRecord, type JobRecord, readRecordSync, serialized } from "../../src/job/record.ts";
 import { LimenError } from "../../src/outcome.ts";
 import { platform } from "../../src/platform/platform.ts";
 import { processIdentity } from "../../src/runtime/reap.ts";
@@ -112,6 +114,10 @@ type Coordinator = {
 	readonly notes: string[];
 	readonly statuses: Array<string | undefined>;
 	readonly wakes: string[];
+	/** Calls the hook's handler of the Pi event `event` with `payload`, as Pi does. */
+	fire(event: string, payload: unknown): void;
+	/** Starts the session `session` in the same hook, as Pi's `session_start` of another session does. */
+	newSession(session: string): void;
 	shutdown(): void;
 };
 
@@ -137,19 +143,26 @@ function startCoordinator(t: TestContext, root: string, session: string): Coordi
 		"the hook handles the session's start and end",
 	);
 	t.after(() => shutdown({}, {}));
-	start(
-		{},
-		{
-			cwd: root,
-			isIdle: () => true,
-			sessionManager: { getSessionId: () => session },
-			ui: {
-				notify: (text: string) => notes.push(text),
-				setStatus: (_key: string, value: string | undefined) => statuses.push(value),
+	const newSession = (id: string) =>
+		start(
+			{},
+			{
+				cwd: root,
+				isIdle: () => true,
+				sessionManager: { getSessionId: () => id },
+				ui: {
+					notify: (text: string) => notes.push(text),
+					setStatus: (_key: string, value: string | undefined) => statuses.push(value),
+				},
 			},
-		},
-	);
-	return { notes, statuses, wakes, shutdown: () => shutdown({}, {}) };
+		);
+	newSession(session);
+	const fire = (event: string, payload: unknown) => {
+		const handler = handlers.get(event);
+		assert.ok(typeof handler === "function", `the hook handles ${event}`);
+		handler(payload, {});
+	};
+	return { notes, statuses, wakes, fire, newSession, shutdown: () => shutdown({}, {}) };
 }
 
 /** The notes that name a damaged file of a job. */
@@ -258,4 +271,142 @@ test("the hook's tick does not end a running job whose wrapper is dead, however 
 	const coordinator = startCoordinator(t, root, "wake-dead-session");
 	await sweeps(coordinator, 4);
 	assert.equal(readRecordSync(join(jobs, id))?.state, "running");
+});
+
+/** The provider's text of the 5-hour limit, as a coordinator's turn gets it in `errorMessage` (E-9). */
+const LIMIT_TEXT = "You've hit your session limit · resets 3pm (UTC)";
+
+/**
+ * A job of `jobs` whose wakes the session `session` waits for: finished, unless `fields` says otherwise. The fields
+ * are planted through the record's JSON, so a field this Limen reads and an older one refuses reaches both alike.
+ */
+async function jobFor(jobs: string, id: string, session: string, fields: Partial<JobRecord> = {}): Promise<string> {
+	const job = join(jobs, id);
+	await writeRecord(job, { state: "done", label: "finished", finishedAt: "2026-11-24T14:00:00.000Z", ...fields });
+	await mkdir(join(job, "notify", "subscribers"), { recursive: true });
+	await writeFile(join(job, "notify", "ready"), "1\n");
+	await writeFile(join(job, "notify", "subscribers", session), `${new Date().toISOString()}\n`);
+	return job;
+}
+
+/** One coordinator turn on `wake`, as Pi runs it: the wake enters, the reply ends with `ending`, and the run settles. */
+function turn(
+	coordinator: Coordinator,
+	wake: string,
+	ending: { readonly stopReason?: string; readonly errorMessage?: string },
+) {
+	coordinator.fire("message_start", { message: { role: "user", content: [{ type: "text", text: wake }] } });
+	coordinator.fire("message_end", { message: { role: "assistant", content: [], ...ending } });
+	coordinator.fire("agent_settled", {});
+}
+
+/**
+ * The owed wake that the limit turn on the claim `slot` of `job` left, once the claim is gone, with whether it named
+ * the reset of `LIMIT_TEXT` (the first 3pm UTC after the turn) and the turn's time, and whether an attempt was counted.
+ */
+async function owedAfterLimitTurn(coordinator: Coordinator, job: string, slot: string) {
+	await until(() => coordinator.wakes.length === 1);
+	await until(() => existsSync(join(job, "notify", "claims", slot, "accepted")));
+	const said = Date.now();
+	turn(coordinator, coordinator.wakes[0] ?? "", { stopReason: "error", errorMessage: LIMIT_TEXT });
+	await until(() => !existsSync(join(job, "notify", "claims", slot)));
+	const owed = readRecordSync(job)?.owedWake;
+	return {
+		reset: Boolean(owed?.resetAt?.endsWith("T15:00:00.000Z")) && Date.parse(owed?.resetAt ?? "") > said,
+		since: Math.abs(Date.parse(owed?.since ?? "") - said) < 60_000,
+		attempts: existsSync(join(job, "notify", "unconfirmed")),
+	};
+}
+
+/** An owed wake as the hook writes it, whose reset has not come. */
+const OWED = { since: "2026-11-24T14:10:00.000Z", resetAt: "2099-01-01T15:00:00.000Z" } as const;
+
+// A-016 (2), D-097 (5) (h): a turn that errored spent one of the two attempts, so two turns inside one limit stopped
+// the wake for good.
+test("a completion wake whose turn ends on the subscription limit spends no attempt and is owed on its job with the reset the turn named", async (t) => {
+	const { root, jobs } = await hookProject(t, "limen-wake-owed-");
+	const session = "wake-owed-session";
+	const job = await jobFor(jobs, "2026-11-24-owed-0008", session);
+	const coordinator = startCoordinator(t, root, session);
+	assert.deepEqual(await owedAfterLimitTurn(coordinator, job, session), { reset: true, since: true, attempts: false });
+});
+
+// D-097 (5) (h), review round 1, F7: every wake's claim lies in its job's folder, so an advisory is owed the same way.
+test("an advisory wake whose turn ends on the subscription limit spends no attempt and is owed on its running job", async (t) => {
+	const { root, jobs } = await hookProject(t, "limen-wake-owed-advisory-");
+	const session = "wake-owed-advisory-session";
+	const at = new Date().toISOString();
+	const job = await jobFor(jobs, "2026-11-24-advised-0010", session, {
+		state: "running",
+		finishedAt: null,
+		identity: await processIdentity(),
+		startedAt: at,
+		advisory: { text: "tool stall observation uncertain: CPU or process identity unavailable", at },
+	});
+	const coordinator = startCoordinator(t, root, session);
+	const owed = await owedAfterLimitTurn(coordinator, job, `_advisory.${session}`);
+	assert.deepEqual([owed, readRecordSync(job)?.state], [{ reset: true, since: true, attempts: false }, "running"]);
+});
+
+// A-016 (2): the wake waits on the record, not in the coordinator's session, until the seat sweep releases it.
+test("a wake of a job whose record owes one is held", async (t) => {
+	const { root, jobs } = await hookProject(t, "limen-wake-held-");
+	const session = "wake-held-session";
+	await jobFor(jobs, "2026-11-24-held-0011", session, { owedWake: OWED });
+	const coordinator = startCoordinator(t, root, session);
+	await sweeps(coordinator, 4);
+	assert.deepEqual([coordinator.wakes, damageNotes(coordinator)], [[], []]);
+});
+
+// A-016 (2), (3): the sweep's release removes the field (test/runtime/resuming.test.ts); the hook then delivers.
+test("a held wake is delivered once its job's record no longer owes it, as the sweep's release leaves the record", async (t) => {
+	const { root, jobs } = await hookProject(t, "limen-wake-released-");
+	const session = "wake-released-session";
+	const id = "2026-11-24-released-0012";
+	const job = await jobFor(jobs, id, session, { owedWake: OWED });
+	const coordinator = startCoordinator(t, root, session);
+	await sweeps(coordinator, 2);
+	const held = coordinator.wakes.length;
+	await writeRecord(job, { state: "done", label: "finished", finishedAt: "2026-11-24T14:00:00.000Z" });
+	await until(() => coordinator.wakes.length === 1);
+	assert.deepEqual([held, coordinator.wakes[0]?.includes(id), damageNotes(coordinator)], [0, true, []]);
+});
+
+// D-097 (5) (h), review round 2, G3: the limit mark of a run was cleared only when the run settled, so a session that
+// ended between a limit's message_end and its settle left the mark to the next session's first run.
+test("a limit end of an earlier session owes nothing in the next one: an errored turn there spends its attempt, and a limit turn there owes the wake", async (t) => {
+	const { root, jobs } = await hookProject(t, "limen-wake-stale-limit-");
+	const [earlier, later] = ["wake-stale-limit-session-1", "wake-stale-limit-session-2"];
+	const job = await jobFor(jobs, "2026-11-24-stale-0013", later);
+	const coordinator = startCoordinator(t, root, earlier);
+	await sweeps(coordinator, 1);
+	coordinator.fire("message_end", {
+		message: { role: "assistant", content: [], stopReason: "error", errorMessage: LIMIT_TEXT },
+	});
+	coordinator.newSession(later);
+	const claim = join(job, "notify", "claims", later);
+	await until(() => coordinator.wakes.length === 1 && existsSync(join(claim, "accepted")));
+	turn(coordinator, coordinator.wakes[0] ?? "", { stopReason: "error", errorMessage: "Internal server error" });
+	await until(() => coordinator.wakes.length === 2 && existsSync(join(claim, "accepted")));
+	turn(coordinator, coordinator.wakes[1] ?? "", { stopReason: "error", errorMessage: LIMIT_TEXT });
+	await until(() => !existsSync(claim));
+	assert.deepEqual(
+		{
+			attempts: readFileSync(join(job, "notify", "unconfirmed", "_completion"), "utf8"),
+			owed: readRecordSync(job)?.owedWake !== undefined,
+		},
+		{ attempts: "1\n", owed: true },
+	);
+});
+
+// A-068: the seat's extension sent the coordinator a turn after its own limit; nothing in Limen replaces it.
+test("a coordinator's own turn that ends on the subscription limit, with no wake in it, writes no owed wake and wakes nothing", async (t) => {
+	const { root, jobs } = await hookProject(t, "limen-wake-own-limit-");
+	const id = "2026-11-24-quiet-0009";
+	await writeRecord(join(jobs, id), { state: "done", label: "quiet", finishedAt: new Date().toISOString() });
+	const coordinator = startCoordinator(t, root, "wake-own-limit-session");
+	await sweeps(coordinator, 1);
+	turn(coordinator, "the owner's message", { stopReason: "error", errorMessage: LIMIT_TEXT });
+	await sweeps(coordinator, 4);
+	assert.deepEqual([coordinator.wakes, readRecordSync(join(jobs, id))?.owedWake], [[], undefined]);
 });

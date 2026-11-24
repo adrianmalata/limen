@@ -1,10 +1,11 @@
 /**
- * The seat's alerts (A-066, A-054, D-084, D-085): one ntfy line for each failed job, each long wait in the start queue
+ * The seat's alerts (A-066, A-054, D-084, D-085): one ntfy line for each failed job (one the subscription limit stopped
+ * with a known reset only once its resume is overdue or Limen's resumes are used up), each long wait in the start queue
  * (A-036) and each job the seat sweep cannot end (R-032) of every registered project, sent from their own account,
- * which reads the job records read-only and
- * keeps the events it reported and the projects it has read in its own state folder (D-090). An alert holds only the
- * project folder's base name, the event and the job id: it leaves the seat through a public relay, so it carries no
- * path, label or job text, and the topic comes only from the systemd credential.
+ * which reads the job records read-only and keeps the events it reported and the projects it has read in its own
+ * state folder (D-090). An alert holds only the project folder's base name, the event and the job id: it leaves the
+ * seat through a public relay, so it carries no path, label or job text, and the topic comes only from the systemd
+ * credential.
  *
  *   node /opt/limen/seat/alerts.ts run                       the service, every minute, on the alerts account
  *   node /opt/limen/seat/alerts.ts install --account <name>  root, once: the read rights, the units, the timer
@@ -18,7 +19,9 @@ import { fileURLToPath } from "node:url";
 import { inspect } from "node:util";
 import { atomicWrite } from "../src/atomic-write.ts";
 import { testKnob } from "../src/config.ts";
+import { quotaRings } from "../src/job/quota.ts";
 import { escalatedStuck, type JobRecord, jobFolderNames, readRecord, unmigratedFolder } from "../src/job/record.ts";
+import { type JobReader, newestOnWorktree } from "../src/job/unlanded.ts";
 import { LimenError } from "../src/outcome.ts";
 import type { ManagerCall } from "../src/platform/platform.ts";
 import { placeUnitFiles } from "../src/platform/systemd-units.ts";
@@ -80,18 +83,24 @@ export type AlertsInput = {
 };
 
 /**
- * The events an alert reports (A-066), each with what a run's summary counts, the job record it reads it from and the
- * words it sends. A plain `done` is no event. R-034, R-050, R-060 and R-069 add their kinds here.
+ * The events an alert reports (A-066), each with what a run's summary counts, the job record it reads it from, with
+ * the id of the newest record on that job's worktree, and the words it sends. A plain `done` is no event. R-050, R-060
+ * and R-069 add their kinds here.
  */
 const EVENTS: ReadonlyArray<{
 	readonly kind: string;
 	readonly counted: string;
-	readonly of: (record: JobRecord) => string | undefined;
+	readonly of: (record: JobRecord, newest: string | undefined) => string | undefined;
 }> = [
+	// A `quota` failure rings at once with no reset time, A-016 (4)'s "notify me once"; with a known one Limen resumes the
+	// job itself, so it rings only once that resume is overdue (src/job/quota.ts, D-100), or as `quota-exhausted`.
 	{
 		kind: "failed",
 		counted: "failed job",
-		of: (record) => (record.state === "failed" ? `failed:${record.failure?.kind ?? "unknown"}` : undefined),
+		of: (record, newest) =>
+			record.state === "failed" && (record.failure?.kind !== "quota" || quotaRings(record, newest))
+				? `failed:${record.failure?.kind ?? "unknown"}`
+				: undefined,
 	},
 	// A wait past the gate file's diagnoseAfter (A-036), read from the wait the record keeps after the job left the queue.
 	{
@@ -408,25 +417,35 @@ async function projectAlerts(root: string, scan: Scan): Promise<void> {
 		return;
 	}
 	scan.listed.push(root);
+	const records = new Map<string, JobRecord>();
 	for (const name of names) {
 		const dir = join(jobs, name);
 		// A folder an older Limen wrote holds no record yet, and the migration makes it history (D-057 (4)).
 		if (unmigratedFolder(dir)) {
 			continue;
 		}
-		let record: JobRecord | undefined;
 		try {
-			record = await readRecord(dir);
+			const record = await readRecord(dir);
+			if (record !== undefined) {
+				records.set(name, record);
+			}
 		} catch (error) {
 			scan.problems.push(`cannot read the record of ${dir}: ${reason(error)}`);
-			continue;
 		}
+	}
+	// The newest record on each worktree, from the records that read, tells a job that a continuation took over (D-100).
+	const reader: JobReader = {
+		jobs: async () => [...records.keys()],
+		record: async (dir) => records.get(basename(dir)),
+	};
+	const newest = await newestOnWorktree(root, reader);
+	for (const record of records.values()) {
 		// A record the migration wrote is history, which no alert answers (D-057 (4)).
-		if (record === undefined || record.migrated !== undefined) {
+		if (record.migrated !== undefined) {
 			continue;
 		}
 		for (const { kind, of } of EVENTS) {
-			const event = of(record);
+			const event = of(record, record.worktree === null ? undefined : newest(record.worktree));
 			if (event !== undefined) {
 				const key = `${root}/${record.id}/${kind}`;
 				scan.alerts.push({ root, kind, key, line: alertLine(root, event, record.id) });

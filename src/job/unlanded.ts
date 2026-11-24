@@ -138,6 +138,34 @@ export async function jobStanding(root: string, id: string, reader: JobReader = 
 	return standing ?? { kind: "unfinished", state: undefined };
 }
 
+/**
+ * The records of the project at `root` on the worktree `worktree`: the id of the newest one, which holds the
+ * worktree's work (the later start, then the later id), undefined when no record names it; and the ids of those that
+ * have not finished. `limen continue` holds both under the jobs lock (D-097 (5) (d)).
+ */
+export async function worktreeJobs(
+	root: string,
+	worktree: string,
+	reader: JobReader = RECORDS,
+): Promise<{ readonly newest: string | undefined; readonly live: readonly string[] }> {
+	const project = await projectJobs(root, reader);
+	const key = pathKey(worktree);
+	const live = project.entries.filter((entry) => entry.worktree === key && !isTerminal(entry.record.state));
+	return { newest: project.worktrees.get(key)?.id, live: live.map(({ id }) => id) };
+}
+
+/**
+ * The id of the newest record of the project at `root` on each worktree, by the worktree's path, from the records
+ * `reader` gives: the record that holds the worktree's work, and the only one the sweep resumes (D-097 (5) (c)).
+ */
+export async function newestOnWorktree(
+	root: string,
+	reader: JobReader = RECORDS,
+): Promise<(worktree: string) => string | undefined> {
+	const { worktrees } = await projectJobs(root, reader);
+	return (worktree) => worktrees.get(pathKey(worktree))?.id;
+}
+
 /** A record of the project with the keys its work is held by: its worktree's path and its own branch. */
 type Entry = {
 	readonly id: string;
