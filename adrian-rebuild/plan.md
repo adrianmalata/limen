@@ -4111,7 +4111,9 @@ Next (by day):
    (`R-101-sweep-daily-steps/`, its Decisions 2 and 4 for gate 5.3) and R-102 `ready (D-097)` with its `ticket.md`
    (`R-102-seat-rules-cut/`, written by `limen-rebuild-29` at R-034's tree before R-034's commit, as `check.mjs`
    requires once R-034 is `done` (D-054 (1)), from a read-only agent's inventory and D-097 (6); its Decisions 1–3 for
-   gate 5.3); R-103 `ready (D-096)` waits for R-037. The main session's estimate given to Adrian
+   gate 5.3); R-103 `ready` with its `ticket.md` (`R-103-land-recorded-steps/`, written by `limen-rebuild-31` after
+   R-037; its Decisions 2, 5, 6, 9, 15, 16 and 18 for gate 5.3). The night of 2026-11-24/25 takes these five by
+   D-102 until 08:00 ("Night of 2026-11-24/25" at the end of this section). The main session's estimate given to Adrian
    (2026-11-24): about 25 h of work for the ten tickets (18–32 h, from stage 3's eight tickets at 44 min to 3 h 49), so
    the last ticket on 2026-11-25 before noon if a night runs between, then the close and gate 5.3. Whether and when to
    start a night is Adrian's (D-024: the main session starts the runner when he asks).
@@ -4435,3 +4437,17 @@ the terminal being active; context 7 % at the start.
   unchanged (the two refusal tests failing), then 24/24; `test-night.mjs` 29/29. Review PASS in round 1 (the reply
   accepted at once), three notes: one settled by the commit, one rejected with its reason, one an open point
   (`evidence/handover-night-lock/`). Next: act 5, D-024's preflight and the runner until 08:00.
+
+Night of 2026-11-24/25 (D-102, until 08:00; Adrian: "przebieg nocny do 8:00"). The handover's acts 1–4 of
+`limen-rebuild-31` above are done; a night session runs no `handover.mjs` (it refuses during a night anyway, D-102
+(5)). Preflight at `ddce57b` (D-024): `node --test adrian-rebuild/tools/test-night.mjs` → exit 0 (29/29); `node --test
+adrian-rebuild/tools/test-handover.mjs` → exit 0 (24/24); the reviewer's verdict on C: PASS
+(`evidence/handover-night-lock/review.md`); `node adrian-rebuild/tools/check.mjs` → exit 0 (5 `ready` tickets, their
+criteria against the allow-list); `HEAD` equal to `origin/adrian-rebuild`, clean tree; a new `claude -p` session listed
+`rebuild-implementer` and `rebuild-reviewer`. Use at 23:03: five-hour window 4 %, weekly 31 %. The old
+`.night/status.json` (`no-ticket`, 2026-11-23) predates this night's runs, so the runner ignores it.
+- The night's queue, in protocol order (`## Agents`, step 1: the lowest `ready` ID whose dependencies are `done`): R-087,
+  R-098, R-101, R-102, R-103; R-103 builds on R-101's closing function when R-101 is `done` (its `## Change`, first
+  paragraph). Each ticket's `ticket.md` is checked again at `HEAD` first (protocol step 2, D-025).
+- `limen-rebuild-31` starts the runner by D-102 (2) right after the commit of this entry, as a background task, and
+  then changes nothing in the repository until the runner's end wakes it (D-102 (1), (3)).
