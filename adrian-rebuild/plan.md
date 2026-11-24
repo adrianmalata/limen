@@ -2486,7 +2486,7 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 Updated 2026-11-23 by day (`limen-rebuild-26`, after D-098), rebuild stage 5 in plan stage 3: stage 1 is closed
 at `a0.1.1` (deployed on 2026-11-20, with B.2 closed by D-050); stage 2 is closed at `a0.2.0` (gate 5.2 decided,
-D-078–D-082); stage 3 has started: R-026, R-030 and R-033 are `done` (by day), R-027, R-028, R-031, R-035 and R-100
+D-078–D-082; deployed on 2026-11-23/24 with B.3's a0.2.0 part, "Evening of 2026-11-23"); stage 3 has started: R-026, R-030 and R-033 are `done` (by day), R-027, R-028, R-031, R-035 and R-100
 `done` in the night of D-091 (until 09:00; it ended with `no-ticket`), D-092 settles its Q-42 and Q-43, and D-083's
 decision guard is built (D-086); D-093 confirms that night's defaults, D-094 splits R-032, R-034 and R-037 (new
 R-101–R-103), D-095 adds the kinds `launch` and `internal`, R-029, R-032, R-036, R-037 and R-087 are `ready`, D-096
@@ -3948,8 +3948,16 @@ the seat's project registry (only the wake hook and `limen init` do). It gave Ad
   worker more, in synchronizer, whose newest record is of 2026-11-17, the day of gate 2's count: unexplained, likely a
   job after that count. All routes are `unknown` (the older records held none).
 - 0.6 (Adrian's trial route, ledger, F011 from 2026-11-23 to 2026-11-24): 11 jobs, all done (a worker and five
-  repairs, five reviews), landed by `2026-11-24-f011-repair-5-…` (`Close F011: landed by …` on `main`); the exit codes
-  of the coordinator's calls are read from its Pi session.
+  repairs, five reviews), landed by `2026-11-24-f011-repair-5-…` (`Close F011: landed by …` on `main`). Read from the
+  records and the coordinator's Pi session with a read-only script the session gave (its fixture test on the laptop
+  was refused by the permissions and not worked around, so the script ran untested, with no error): Adrian's
+  instructions "zrób tylko jeden następny ticket, land dopiero po moim sygnale, potem stop" (21:21 UTC) and, after
+  the first job, "zapisz czas gotowości do land, potem zrób land sam, potem stop" (21:47), so the coordinator landed
+  on his word; the first spawn at 21:23:47, the last job's end at 00:48:44 (3 h 25 min, five review rounds, the fifth
+  repair documents only, landed without a sixth review); 11 wakes for 11 jobs, each at its job's end; 28 final lines,
+  all `ok null`; 0 `sleep` calls and 5 `status` reads (the `a0.1.1` trial: 19 `ok` of 22, 6 sleeps, 13 reads).
+- The deployment of `a0.2.0` is complete: 0.1–0.3, 2.1–2.4, 0.6 and B.3's a0.2.0 part. B.3's a0.3.0 part and B.4
+  follow their tags; the copies in `~/b3/` of the agents' account are kept for them.
 - 2.4: `limen status` names `LIMEN_COORDINATOR` in both projects (read until R-050, so it stays).
 
 Next (by day):
@@ -3960,12 +3968,8 @@ Next (by day):
    R-034 `ready (D-097)` behind R-029 and R-032, R-102 `ready (D-097)` behind R-034, and R-098 `ready` with its
    `ticket.md`; every stage-3 ticket is `done` or `ready`, so the rest of stage 3 is night work, and whether and when
    to start a night is Adrian's (D-024: the main session starts the runner when he asks).
-3. Adrian's manual steps, at about 20:00 on 2026-11-23 (his words: "około 20:00 chciałbym zrobić te kroki ręczne, które
-   powinienem zrobić"): item 1 above, and the deployment of `a0.2.0`, which no entry of this section records as done
-   (gate 5.2: "The seat steps 0.1, 2.0–2.4 and B.3 are Adrian's; stage 3 does not wait for them"): `## Deployment`
-   0.1, 0.2 with `56f816820786d77e7cd13485ea20bb7fc78dd9d3` (D-082), 0.3, then 2.1–2.4 in order, 0.6, and B.3's
-   a0.2.0 part. The session gives him each step's full text and command in its message; his results go into this
-   section.
+3. Done on 2026-11-23/24: Adrian's manual steps, item 1 and the deployment of `a0.2.0` ("Evening of 2026-11-23"
+   above).
 
 Resolved (Q-49 and Q-50 → D-096; Adrian: "rekomendacje"), asked on 2026-11-23 by `limen-rebuild-25` in the
 conversation with a push, after the sources were searched; the settled items went into D-096 (3):
