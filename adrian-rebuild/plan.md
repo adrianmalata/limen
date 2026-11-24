@@ -4265,3 +4265,11 @@ fixes F1–F12, gate 1067/1067. Review round 2 PASS (after one reply rejected fo
 with nothing running. R-034 `done`; R-102's `ticket.md` is written. For Adrian, proposed in the conversation and not
 yet answered: one line in `.claude/agents/rebuild-reviewer.md` → `## Reply format`, since nine replies of the rebuild
 were rejected for the same form (bullet lines below a judged criterion, `met` with no colon).
+
+Handover of 2026-11-24 (D-047, at 30 % context, after the commit `Tools: …` (`7df070d`) of D-099 (2), with the tree
+clean and pushed): `limen-rebuild-29` starts `limen-rebuild-30` with `node adrian-rebuild/tools/handover.mjs start 30`
+and ends its turn. By day, Adrian at the terminal: the next session's first acts are a push notification to Adrian
+(one line in Polish) that it takes over at R-036, then `node adrian-rebuild/tools/handover.mjs close-previous`, whose
+lines go into this section, then `Next` 2 from R-036 (`## Agents`, protocol steps 2–7). Open for Adrian, asked in
+`limen-rebuild-29`'s conversation and not answered: the reviewer definition's one-line form rule ("R-034 in
+`limen-rebuild-29`" above). The handover after it is `limen-rebuild-31`.
