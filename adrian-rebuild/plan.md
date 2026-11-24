@@ -3987,11 +3987,13 @@ the seat's project registry (only the wake hook and `limen init` do). It gave Ad
 Next (by day):
 1. Done on 2026-11-23: Adrian added the `hooks` block of D-083 to `.claude/settings.local.json`, and the live test
    blocked a push naming `Q-00` ("Evening of 2026-11-23" above); the guard is active, by day and at night.
-2. R-036 (`5acb9fc`), R-029, R-032, R-037 and R-087 are `ready`, each on its own branch of the dependency graph
-   (D-054 (1)), so a night can run them; R-103 is `ready (D-096)` behind R-037, R-101 `ready (D-097)` behind R-032,
-   R-034 `ready (D-097)` behind R-029 and R-032, R-102 `ready (D-097)` behind R-034, and R-098 `ready` with its
-   `ticket.md`; every stage-3 ticket is `done` or `ready`, so the rest of stage 3 is night work, and whether and when
-   to start a night is Adrian's (D-024: the main session starts the runner when he asks).
+2. By day, with Adrian (2026-11-24: "robimy teraz"): the stage-3 tickets in protocol order (`## Agents`, step 1).
+   R-029 is `done` (`b0c033b`); next is R-032 (L), then R-036, R-037, R-087 and R-098, each `ready` with its
+   `ticket.md`; R-101 `ready (D-097)` waits for R-032, R-034 `ready (D-097)` for R-032 (R-029 and R-033 are done),
+   R-102 `ready (D-097)` for R-034, R-103 `ready (D-096)` for R-037. The main session's estimate given to Adrian
+   (2026-11-24): about 25 h of work for the ten tickets (18–32 h, from stage 3's eight tickets at 44 min to 3 h 49), so
+   the last ticket on 2026-11-25 before noon if a night runs between, then the close and gate 5.3. Whether and when to
+   start a night is Adrian's (D-024: the main session starts the runner when he asks).
 3. Done on 2026-11-23/24: Adrian's manual steps, item 1 and the deployment of `a0.2.0` ("Evening of 2026-11-23"
    above).
 
@@ -4173,3 +4175,9 @@ it takes over at his manual steps of `Next` 3, then `node adrian-rebuild/tools/h
 lines go into this section, then one message that gives him item 1's block and each step of `Next` 3 in full (the
 text and command of `## Deployment` 0.1, 0.2 with the full SHA, 0.3, 2.1–2.4, 0.6 and B.3's a0.2.0 part, in that
 order), and it waits for his results. The handover after it is `limen-rebuild-28`.
+
+Handover of 2026-11-24 (D-047, at 33 % context, after the commit `R-029:` (`b0c033b`), with the tree clean and
+pushed): `limen-rebuild-27` starts `limen-rebuild-28` with `node adrian-rebuild/tools/handover.mjs start 28` and ends
+its turn. By day, Adrian at the terminal: the next session's first acts are a push notification to Adrian (one line in
+Polish) that it takes over at R-032, then `node adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into
+this section, then `Next` 2 from R-032 (`## Agents`, protocol steps 2–7). The handover after it is `limen-rebuild-29`.
