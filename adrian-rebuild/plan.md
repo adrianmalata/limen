@@ -1702,7 +1702,7 @@ Columns:
 | R-100 | One definition of the ISO time, the 429 rule, the error-code check and the jobs listing | 3 | T-25, D-080 | R-022, R-093, R-097 | S | delegated | night | — | — | — | done |
 | R-101 | Prune, retire and leftover Herdr tabs are steps of the sweep; nothing is deleted | 3 | A-024, A-002, T-18, T-28, D-092, D-094, D-096, D-097 | R-032 | M | delegated | night | yes | herdr | 3.9 | ready (D-097) |
 | R-102 | Seat rules are cut | 3 | A-010, T-42, D-094, D-097 | R-034 | M | delegated | night | yes | systemd | 3.5 | ready (D-097) |
-| R-103 | Land runs as recorded steps; its `cleaned` step closes the job's Herdr tabs | 3 | A-021, T-04, T-18, T-28, T-38, D-092, D-094, D-096 | R-037 | M | delegated | night | yes | herdr | 3.9 | planned |
+| R-103 | Land runs as recorded steps; its `cleaned` step closes the job's Herdr tabs | 3 | A-021, T-04, T-18, T-28, T-38, D-092, D-094, D-096 | R-037 | L | delegated | night | yes | herdr | 3.9 | ready |
 | R-038 | The fake engine shows the model's view under the bridge | 4 | T-31, A-051 | R-017 | M | delegated | night | — | bridge | 4.1 | planned |
 | R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16 | R-021, R-038 | L | delegated | night | yes | pi, bridge | 4.2 | planned |
 | R-040 | Role texts come from the package, in three registers | 4 | A-038, A-039, A-042, D-005 | R-001, R-039 | M | delegated | night | yes | — | — | planned |
@@ -2561,7 +2561,8 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-24 by day (`limen-rebuild-30`, after R-036; R-029, R-032, R-034 and R-036 are `done`, by day, in
+Updated 2026-11-24 by day (`limen-rebuild-31`, before the night: R-103 `ready` in "`limen-rebuild-31`" at the end of
+this section; before it `limen-rebuild-30`, after R-036; R-029, R-032, R-034 and R-036 are `done`, by day, in
 "Evening of 2026-11-23", "R-034 in `limen-rebuild-29`" and "R-036 in `limen-rebuild-30`" at the end of this section,
 the next ticket in `Next` 2), rebuild
 stage 5 in plan stage 3: stage 1 is closed
@@ -4387,3 +4388,14 @@ proposal of D-102, A and C below. The next session's acts, in this order:
    changes nothing until the runner's end wakes it (D-102 (1), (3)).
 Open for Adrian at gate 5.3 from `limen-rebuild-30`: R-036 `outcome.md` → Open points 1–4, R-037 `outcome.md` → Open
 points 1–6 and its new wordings (above). The handover after `limen-rebuild-31` is `limen-rebuild-32`.
+
+`limen-rebuild-31` (2026-11-24, by day, Adrian at the terminal): `close-previous` printed `handover: closed tmux session
+limen-rebuild-30` and one `handover: stopped claude …` line and exited 0; the takeover push was skipped as redundant,
+the terminal being active; context 7 % at the start.
+- R-103 `ready`: its `ticket.md` is written at `9601408` from D-096 (3) (a)–(l), the notes in `## Tickets` and a
+  read-only inventory, `evidence/inventories/R-103.md` (a `general-purpose` agent that wrote only that file). The
+  inventory's 18 open questions are settled by the documents as the main session's reading (`ticket.md` →
+  `## Decisions` 1–18; items 2, 5, 6, 9, 15, 16 and 18 named for Adrian's attention at gate 5.3); size L (was M,
+  Decision 19). The ticket builds on R-101's closing function when R-101 is `done` (R-101 comes first in the queue).
+  AC-7–AC-9 are the only scans, each confined to a path of `## Change` and matching at `9601408` only lines the change
+  removes (D-025). Next: act 3, D-102.
