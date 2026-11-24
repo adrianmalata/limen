@@ -3921,6 +3921,17 @@ the seat's project registry (only the wake hook and `limen init` do). It gave Ad
   projects' `.limen/` and the seat folder in a new root-only folder, each pair of entry counts equal) and 0.2
   (`seat/deploy.ts` with the full SHA exited 0, `git -C /opt/limen rev-parse HEAD` is the SHA), per Adrian: "wszystko
   przeszło prawidłowo" (no numbers given).
+- 2.1: no id collision and no folder moved to `.limen/unmigrated/` in either project (Adrian). 2.3 (`limen stats`,
+  both final lines `ok`): synchronizer 79 records (2026-11-08 to 2026-11-17; reviewer 29 with 6 failed, worker 49 with
+  3 failed, one reviewer on a Codex route, failed; quota 6, timeout 2, stall 1, exit 1), ledger 64 records (2026-11-10
+  to 2026-11-12; reviewer 28 with 6 failed, worker 36 with 2 failed; quota 6, timeout 1, stall 1). Together 143 jobs
+  (85 worker, 58 reviewer) and 18 failed (12 quota, 3 timeout, 2 stall, 1 exit): the failures and the reviewers match
+  gate 2, the workers are one more (in synchronizer). Open: ledger holds none of the eight jobs of the 2026-11-20 trial
+  route (ids `2026-11-20-f009-…` and `2026-11-20-f010-…`, which the 2026-11-20 session listed in `.limen/jobs/` of
+  ledger's checkout), and no `Not read` line names a folder without a record; no laptop session ran a retire or a
+  removal. Adrian checks whether the snapshot of 0.1 taken today holds them (then 2.1's `limen migrate` removed them)
+  or not (then they went between 2026-11-20 and this deployment); 0.6 and B.3 wait for that.
+- 2.4: `limen status` names `LIMEN_COORDINATOR` in both projects (read until R-050, so it stays).
 
 Next (by day):
 1. Done on 2026-11-23: Adrian added the `hooks` block of D-083 to `.claude/settings.local.json`, and the live test
