@@ -3933,7 +3933,23 @@ the seat's project registry (only the wake hook and `limen init` do). It gave Ad
   Adrian confirms where both outputs ran, and 2.3 is run again in the live checkouts. New: ledger's `main` holds
   F011, landed by `2026-11-24-f011-repair-5-…`, so 11 jobs ran after the snapshot of 0.1, while D-012 keeps the
   projects paused until `a0.3.0`; Adrian (asked whether he used the coordinator session during 0.3–2.3): "Możliwe, ale
-  z niej nie korzystałem". Whether F011 was his 0.6 trial or the coordinator's own start is asked.
+  z niej nie korzystałem". Whether F011 was his 0.6 trial or the coordinator's own start is asked. Adrian: "F011 to
+  moja próba 0.6", and the two outputs above ran in the B.3 copies (so they are B.3's a0.2.0 part, below).
+- 2.3, run again in the live checkouts (both final lines `ok`, no job running, `LIMEN_COORDINATOR` the only
+  environment line): synchronizer as above (79); ledger 83 records (2026-11-10 to 2026-11-24): F011's 11 jobs on
+  `pi-claude/claude-opus-5-5` (6 workers at `high`, 1 h 16, and 5 reviewers at `xhigh`, 2 h 04, all done), and the
+  migrated 72 on `unknown` routes (30 reviewers with 6 failed, 42 workers with 4 failed; quota 6, stall 2, timeout 1,
+  exit 1). Without the two trial routes (2026-11-20: 2 reviewers and 6 workers, with the stall stop and the repair
+  that had no provider; F011) the live counts equal B.3's.
+- B.3's a0.2.0 part (the copies of the archive taken before `a0.1.1`, migrated by `a0.2.0`): synchronizer 79 records
+  (2026-11-08 to 2026-11-17; quota 6, timeout 2, stall 1, exit 1), ledger 64 (2026-11-10 to 2026-11-12; reviewer 28
+  with 6 failed, worker 36 with 2 failed; quota 6, timeout 1, stall 1): 143 jobs (85 worker, 58 reviewer), 18 failed
+  (12 quota, 3 timeout, 2 stall, 1 exit). Against gate 2 §1 (142: 84 worker, 58 reviewer; the same 18 by kind) one
+  worker more, in synchronizer, whose newest record is of 2026-11-17, the day of gate 2's count: unexplained, likely a
+  job after that count. All routes are `unknown` (the older records held none).
+- 0.6 (Adrian's trial route, ledger, F011 from 2026-11-23 to 2026-11-24): 11 jobs, all done (a worker and five
+  repairs, five reviews), landed by `2026-11-24-f011-repair-5-…` (`Close F011: landed by …` on `main`); the exit codes
+  of the coordinator's calls are read from its Pi session.
 - 2.4: `limen status` names `LIMEN_COORDINATOR` in both projects (read until R-050, so it stays).
 
 Next (by day):
