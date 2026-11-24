@@ -2,7 +2,8 @@
 scope'ie joba (`cpu.stat`) zamiast na drzewie procesów silnika z `ps`, więc build w tle nie kończy joba, a samotny
 `sleep` tak; wrapper zapisuje szczytowe zużycie CPU scope'u; advisory dostaje źródło (`queue` albo `stall`), a hook
 liczy potwierdzenia osobno dla źródła i sesji. Stan: napisany 23.11 przy `6d17130` z inwentarza
-`evidence/inventories/R-036.md`; pytania inwentarza rozstrzygnięte dokumentami w `## Decisions`; gotowy na noc. -->
+`evidence/inventories/R-036.md`; pytania inwentarza rozstrzygnięte dokumentami w `## Decisions`; fakty sprawdzone
+ponownie 24.11 przy `903a8c9` (Decisions 15–23); w realizacji (`active`). -->
 
 # R-036 Stall is measured over the whole job scope
 
@@ -175,3 +176,41 @@ inventory's questions in `evidence/inventories/R-036.md` → section 8):
     tool count moves.
 14. Docs (question 15) as (i); `docs/jobs.md:216` is false today and is corrected here. `toolStall` from the project's
     `limits.json` (question 16) is unchanged (G2 accepted risk until R-054).
+
+2026-11-24, the facts at `HEAD` (`903a8c9`; protocol step 2, D-025). R-029, R-032, R-033 and R-034 ran after the ticket
+was written at `6d17130`; the main session checked every place the ticket names. What moved (the change is the same):
+15. `src/runtime/wrapper.ts`: the uncertainty note `:312-330` (`warnUncertain`, `clearUncertain`), the observation and
+    its identity checks `:331-374` (`observeStall`), the end `:373`, `checkStall` `:375-389` (it acts only while
+    `seen.activity` is `tool`, `:379-382`), the tick `setInterval(checkStall, 3_000)` `:390`; the wrapper's own cgroup is
+    `platform.ownCgroup()` at `:65`, checked against the job's unit at `:66-70`.
+16. (c): R-029 is done, so the kind is set where the detector runs: `exhaust({ kind: "stall", detail })`
+    (`wrapper.ts:373`). The pattern `[/^stalled tool /, "stall"]` (`src/job/record.ts:879`) stays for the migration of
+    older records, and Decision 5's prefix still keeps the two in step.
+17. `src/runtime/stalled-tool.ts` (153 lines): `sampleTree` `:24`, `hadChild` and `lastSampleAt` `:68-69`,
+    `ownedToolDescendants` `:130`, `signalOwnedProcess` `:147-153` (still no caller); `platform.processTable` is
+    `src/platform/platform.ts:115` and `src/platform/linux.ts:172-178`, with `parseProcessTable` tested in
+    `test/platform/linux.test.ts:17-67`, and its only caller is `stalled-tool.ts:16`. Decision 3's other use of `ps` is
+    `src/platform/linux.ts:236` (`ps -o comm=`).
+18. `src/job/record.ts`: `Advisory` `:118`, its reader `advisoryOf` `:1134-1137`; `Scope` `:142` (`cpuMicroseconds`),
+    its reader `scopeOf` `:1190-1200`. `src/job/finalize.ts`: `readScope` `:83-91` through `platform.scopeReadings`
+    (`src/platform/linux.ts:459`), `UNREAD` `:36`.
+19. The advisory's writers: the wrapper (fact 15) and the start queue, which writes the diagnosis
+    (`src/runtime/start-queue.ts:435`) and clears it when the job leaves the queue (`:398`); both get their `source`.
+20. The wake hook (fact 6): the slot `_advisory.${fallback ? "_fallback" : sessionId}` is `hook/wake.ts:561`, the own
+    slot's receipt check `:562`, the fallback's checks `:564-566`, `:594-595` and `:600-601`; the attempt family is
+    `attemptsPath` → `receiptFamily` (`src/job/wake-delivery.ts:163-165`, `:335-345`), and `isAdvisorySlot` (`:333`)
+    also counts the old `_uncertainty.` slots of R-005 as advisory receipts, which stays.
+21. The seat notification moved with R-032: `seatEvent` in `src/runtime/sweeping.ts:273-290` (no seat notification
+    while the family `_advisory` has a delivered receipt; the event key `_advisory.<at>`); `src/commands/sweep.ts` is now
+    the 18-line command of `limen seat sweep`. (f)'s "the seat notification (`src/commands/sweep.ts:72-77`)" means
+    `seatEvent`: per source both in the family it checks and in the event key.
+22. Fact 7: `test/s3-finish-wake.test.ts:148-162` now asserts kind `stall` for a `--prepare "sleep 30"` job (R-029), so
+    "no test asserts kind `stall`" is no longer true; that test keeps passing with the new rule (a lone `sleep`
+    stalls) and keeps its two real ticks unless the tick's knob of (g) shortens them. The `memory.events` pattern of
+    Decision 8 is `test/runtime/wrapper.test.ts:427-435`; the knob pattern `LIMEN_START_POLL_MS` is `src/config.ts:75`;
+    the 20 s cap of `limen group wait` is `src/commands/group-wait.ts:11`.
+23. (i), the lines at `HEAD`: `docs/jobs.md:53`, `:55`, `:193`, `:203`, `:209`, `:211`, `:225`, `:229` (were `:53`,
+    `:55`, `:180`, `:190`, `:196`, `:198`, `:212`, `:216`; Decision 14's false line is `:229`, which names
+    `limen seat sweep` now), `docs/remote.md:77`, `docs/groups.md:69` with `src/job/group-events.ts:116`, the comments
+    `src/job/record.ts:118` and `src/runtime/wrapper.ts:308-309`, the headers `src/platform/platform.ts:1-11` and
+    `src/platform/linux.ts:1-7`.

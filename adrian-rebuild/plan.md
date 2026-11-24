@@ -122,7 +122,7 @@ lądowania i tury koordynatora (flaga `--sessions`, wariant A wyjścia), R-098 g
 etapu 3 jest `done` albo `ready`. limen-rebuild-29: R-034 zamknięty (wznowienie po limicie subskrypcji jako krok
 `seat sweep`); D-099: przebieg implementera przyjęty mimo formy ticketu, a reguła D-089 staje się kontrolą w
 `check.mjs`; D-100: alert `failed:quota` dzwoni też przy znanym resecie po 15 min spóźnienia wznowienia; R-102 ma
-ticket.md. -->
+ticket.md. limen-rebuild-30: D-101: reguła jednej linii na kryterium w definicji recenzenta; R-036 w realizacji. -->
 
 
 
@@ -1294,6 +1294,15 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   every run (`ENGINE_MISSING`, `JOB_TREE_GONE`, `BAD_DATA`), with no counter and no new state (z. 1, T-01; the 15-minute
   grace is A-033's pattern); a resume that succeeds rings nothing, as D-097 (5) (b) intends. Check: R-034's
   `test/seat/alerts.test.ts`.
+- 2026-11-24 D-101 (Adrian: "zmodyfikowałem", then "wkleiłem, przebieg się liczy o ile będzie spełniony warunek";
+  asked in the conversation with a push, proposed by `limen-rebuild-29` after R-034): (1)
+  `.claude/agents/rebuild-reviewer.md` → `## Reply format` gets one rule, written by Adrian with its Polish summary:
+  each criterion is exactly one line, `AC-N: met: <evidence>`, with no bullet or continuation line below it and no other line in
+  `## Criteria`, since nine replies of the rebuild were rejected by `review-verdict.mjs` for that form; the rule states
+  what the script already checks. (2) Adrian wrote it while R-036's implementer ran, so `compare --git` voided that run
+  for the reserved path alone; the run counts because `compare --git` named only that file and its blob was `0426fed`,
+  the one the main session read after his edit (the pattern of D-099 (1)); a new `snapshot --git` follows the commit.
+  Check: `node --test adrian-rebuild/tools/test-review-verdict.mjs`; the next replies of `rebuild-reviewer`.
 
 ### Gate 2 §2, copied
 
@@ -1684,7 +1693,7 @@ Columns:
 | R-033 | Alerts from their own account: failures and escalations only | 3 | A-066, A-054, T-18, D-084, D-085 | R-021 | L | delegated | night | yes | systemd | 3.3 | done |
 | R-034 | Resume after the quota limit in code | 3 | A-016, A-068, §6, D-094, D-097, D-100 | R-029, R-032, R-033 | L | delegated | night | yes | pi, systemd | 3.4 | done |
 | R-035 | Start-queue thresholds: a diagnosis at 30 min, a failure at 2 h | 3 | A-036 | R-026, R-033 | L | delegated | night | — | systemd | 3.8 | done |
-| R-036 | Stall is measured over the whole job scope | 3 | A-059 | R-026 | M | delegated | night | — | systemd | 3.8 | ready |
+| R-036 | Stall is measured over the whole job scope | 3 | A-059 | R-026 | M | delegated | night | — | systemd | 3.8 | active |
 | R-037 | The closing commit of land and `ticket done` is atomic | 3 | A-021, A-057, T-38, D-094 | R-023, R-031, R-092 | M | delegated | night | — | — | — | ready |
 | R-087 | The job environment is an allow-list; git and gh in a job hold no credential (T1) | 3 | A-004, A-061, E-4, D-017 | R-015, R-021, R-026 | M | delegated | night | — | pi, bridge | 3.10 | ready |
 | R-098 | `limen stats` per landed ticket and per coordinator turn | 3 | §2, A-078, A-037, D-072, D-098 | R-024, R-031 | M | delegated | night | — | pi | B.3, B.4 | ready |
@@ -4273,3 +4282,15 @@ and ends its turn. By day, Adrian at the terminal: the next session's first acts
 lines go into this section, then `Next` 2 from R-036 (`## Agents`, protocol steps 2–7). Open for Adrian, asked in
 `limen-rebuild-29`'s conversation and not answered: the reviewer definition's one-line form rule ("R-034 in
 `limen-rebuild-29`" above). The handover after it is `limen-rebuild-31`.
+
+R-036 in `limen-rebuild-30` (2026-11-24, by day, Adrian at the terminal): `close-previous` printed `handover: closed
+tmux session limen-rebuild-29` and one `handover: stopped claude …` line and exited 0; the takeover push was skipped as
+redundant, the terminal being active; context 8 % at the start. R-036 `active`: its `ticket.md` (written at `6d17130`)
+was checked again at `HEAD` `903a8c9` (protocol step 2, D-025): no criterion is a grep or scan; the places that R-029,
+R-032 and R-034 moved are `ticket.md` → `## Decisions` 15–23 (above all the seat notification, now `seatEvent` in
+`src/runtime/sweeping.ts`, and the kind `stall` set on `exhaust`). Next: the implementer (protocol step 3).
+- D-101: Adrian added the one-line criterion rule to `.claude/agents/rebuild-reviewer.md` while R-036's implementer
+  ran; `compare --git` exited 1 naming only that file, whose blob was `0426fed`, the one read after his edit, so the run
+  counts (D-101 (2)). The implementer reported `DONE` (gate 1086/1086 twice in its own runs, which do not count).
+  Next: the commit `D-101:`, a new `snapshot --git`, then protocol step 4 (the main session's gate and
+  `fails-before.mjs`).

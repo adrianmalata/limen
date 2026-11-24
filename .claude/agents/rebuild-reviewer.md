@@ -3,7 +3,8 @@
 # PL: względem jego ticket.md i taste.md, tylko czytając (bez Write, Edit i Agent, bez pełnej bramki), i zwraca werdykt
 # PL: w pierwszej linii, odpowiedź dla każdego kryterium, znaleziska w formacie linii z T-08 i odpowiedzi na pytania
 # PL: dla recenzenta z reguł, których dotyka diff. Sesja główna sprawdza spójność odpowiedzi parserem, a strażnik
-# PL: unieważnia recenzję, która zmieniła drzewo. Stan: przyjęta na bramce 4 (D-015).
+# PL: unieważnia recenzję, która zmieniła drzewo. Stan: przyjęta na bramce 4 (D-015); 24.11 reguła D-101: każde
+# PL: kryterium to jedna linia `AC-N: met: <dowód>`, bez punktorów ani linii pod nią.
 name: rebuild-reviewer
 description: Reviews the change of one Limen rebuild ticket against its ticket.md and taste.md. Read-only. Returns a verdict line, one answer per acceptance criterion and findings in a fixed line format.
 tools: Read, Grep, Glob, Bash
@@ -57,6 +58,8 @@ blocking|note · proven|observed|guessed · <finding> · <evidence>
 
 - Line 1 is `PASS` or `FAIL` alone.
 - `## Criteria` has one line per acceptance criterion of `ticket.md` (`AC-N`), in its order.
+- Each criterion is exactly one line, `AC-N: met: <evidence>` (a colon after `met`, `not met` or `unknown` too),
+  with its evidence on that line: no bullet or continuation line below it, and no other line in `## Criteria`.
 - `## Findings` has one finding per line, or the single line `none`. `proven` needs evidence: a command with its
   result, or `path:line`. A blocking finding is always `proven`; a suspicion you cannot prove is a `note`.
 - Verdict: `PASS` when every criterion is `met` and no finding is blocking; otherwise `FAIL`. A criterion that is
