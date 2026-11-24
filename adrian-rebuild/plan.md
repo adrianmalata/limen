@@ -4224,3 +4224,11 @@ pushed): `limen-rebuild-27` starts `limen-rebuild-28` with `node adrian-rebuild/
 its turn. By day, Adrian at the terminal: the next session's first acts are a push notification to Adrian (one line in
 Polish) that it takes over at R-032, then `node adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into
 this section, then `Next` 2 from R-032 (`## Agents`, protocol steps 2–7). The handover after it is `limen-rebuild-29`.
+
+Handover of 2026-11-24 (D-047, at 32 % context, after the commit `R-032:` (`3e46310`) and the commit of the `ticket.md`
+of R-034 and R-101, with the tree clean and pushed): `limen-rebuild-28` starts `limen-rebuild-29` with `node
+adrian-rebuild/tools/handover.mjs start 29` and ends its turn. By day, Adrian at the terminal: the next session's first
+acts are a push notification to Adrian (one line in Polish) that it takes over at R-034, then `node
+adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into this section, then `Next` 2 from R-034
+(`## Agents`, protocol steps 2–7; its `ticket.md` is written at R-032's tree, so it first runs its grep criteria at
+HEAD, D-025, and notes any fact R-032's commit moved). The handover after it is `limen-rebuild-30`.
