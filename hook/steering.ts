@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { atomicRenameSync, atomicWriteSync } from "../src/atomic-write.ts";
 import { transport } from "../src/config.ts";
 import { noteSteer } from "../src/job/task-note.ts";
-import type { PiApi } from "../src/runtime/pi-api.ts";
+import { type PiApi, recorded } from "../src/runtime/pi-api.ts";
 
 const CLAIM_STALE_MS = 30_000;
 
@@ -59,45 +59,48 @@ export default function limenSteering(pi: Pick<PiApi, "on" | "sendUserMessage">)
 		}, 50);
 		changeTimer.unref();
 	};
-	pi.on("session_start", () => {
-		if (transport("LIMEN_JOB") !== "1") {
-			return;
-		}
-		stop();
-		const root = transport("LIMEN_CONTEXT_ROOT");
-		const id = transport("LIMEN_JOB_ID");
-		if (!root || !id) {
-			return;
-		}
-		const job = join(root, ".limen", "jobs", id);
-		if (!existsSync(job)) {
-			return;
-		}
-		try {
-			mkdirSync(join(job, "steer", "inbox"), { recursive: true });
-			mkdirSync(join(job, "steer", "delivered"), { recursive: true });
-			atomicWriteSync(join(job, "steer", "ready"), "1\n", { exclusive: true });
-		} catch {
-			if (!existsSync(join(job, "steer", "ready"))) {
+	pi.on(
+		"session_start",
+		recorded(() => {
+			if (transport("LIMEN_JOB") !== "1") {
 				return;
 			}
-		}
-		jobDir = job;
-		try {
-			watcher = watch(join(job, "steer"), { recursive: true }, scheduleSweep);
-			watcher.unref();
-			watcher.on("error", () => {
-				watcher?.close();
-				watcher = undefined;
-			});
-		} catch {
-			// Polling still delivers.
-		}
-		sweepTimer = setInterval(sweep, 500);
-		sweepTimer.unref();
-		sweep();
-	});
-	pi.on("session_shutdown", stop);
+			stop();
+			const root = transport("LIMEN_CONTEXT_ROOT");
+			const id = transport("LIMEN_JOB_ID");
+			if (!root || !id) {
+				return;
+			}
+			const job = join(root, ".limen", "jobs", id);
+			if (!existsSync(job)) {
+				return;
+			}
+			try {
+				mkdirSync(join(job, "steer", "inbox"), { recursive: true });
+				mkdirSync(join(job, "steer", "delivered"), { recursive: true });
+				atomicWriteSync(join(job, "steer", "ready"), "1\n", { exclusive: true });
+			} catch {
+				if (!existsSync(join(job, "steer", "ready"))) {
+					return;
+				}
+			}
+			jobDir = job;
+			try {
+				watcher = watch(join(job, "steer"), { recursive: true }, scheduleSweep);
+				watcher.unref();
+				watcher.on("error", () => {
+					watcher?.close();
+					watcher = undefined;
+				});
+			} catch {
+				// Polling still delivers.
+			}
+			sweepTimer = setInterval(sweep, 500);
+			sweepTimer.unref();
+			sweep();
+		}),
+	);
+	pi.on("session_shutdown", recorded(stop));
 }
 
 function deliver(pi: Pick<PiApi, "sendUserMessage">, job: string, name: string): boolean {

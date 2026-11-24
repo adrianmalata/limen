@@ -3,7 +3,8 @@ joba zamiast wzorców na tekście; dziewięć zakończeń bez rodzaju dostaje ro
 resetu ze zdarzenia `kendex:rate-limit` albo z `errorMessage`; odmowa strażnika zdarzeń Pi w jobie kończy go
 `engine-error`, a w sesji koordynatora daje ostrzeżenie w `limen status`; dwa punkty po R-028 (wynik TERM wyczerpania,
 flaga TERM przy `exit`). Stan: napisany 23.11 przy `6d17130` z inwentarza `evidence/inventories/R-029.md`; pytania
-rozstrzygnięte dokumentami w `## Decisions`, a rodzaje `launch` i `internal` przez Adriana (D-095); gotowy na noc. -->
+rozstrzygnięte dokumentami w `## Decisions`, a rodzaje `launch` i `internal` przez Adriana (D-095). Zrealizowany 24.11
+w dzień, z poprawkami po rundach 1 i 2 recenzji (F1–F5, G1–G2) zapisanymi w `## Decisions`. -->
 
 # R-029 One recorded failure cause per job
 
@@ -176,3 +177,29 @@ inventory's questions in `evidence/inventories/R-029.md` → section 10):
     fake engine's test (T-28 (5)), and step 2.2's "no extension error" check stays.
 14. The boundary with R-034 (question 16): R-029 records `quota` with `resetAt` or `null`, and everything that acts on
     it is R-034's.
+
+Review round 1 (2026-11-24, `review.md` → Round 1, verdict PASS; fixes for the resumed implementer, checked by round 2):
+- F1 (note 6): `limen status` prints the coordinator refusal's `message` and the session folder's name through
+  `shownField` (`src/boundary.ts`), as R-030's prune lines do, so a planted `refusal.json` cannot add lines to what the
+  coordinator reads; a test with a newline in both fails before the fix.
+- F2 (note 5): the test "a hook's refusal recorded before the job's timeout …" no longer depends on the engine's start
+  and the refusal's write finishing within the 1 s timeout: the timeout starts only once the refusal is recorded (for
+  example, the fake engine's word waits for the record to hold it before it hangs), so the order is fixed by the test,
+  not by timing.
+- F3 (note 4, T-29 (3)): `test/cli/status.test.ts:395` and `test/job/record.test.ts:241` are each split into tests of
+  one mechanism (the warning line apart from the T-04 snapshot; the two kinds apart from the two optional fields).
+- F4 (note 10): the T-32 coverage test in `test/runtime/pi-api.test.ts` takes its list of hooks from the files of
+  `hook/`, not a hand list, so a new hook file is checked for `recorded`.
+- F5 (T-30): the comment at `src/runtime/wrapper.ts:200` states what the code does (`failLog` swallows its own
+  failure).
+- Rejected or moved, with the reasons in `review.md`: notes 1, 2, 3, 7, 8, 9. Note 9 (T-18, "refusal" for a guard's
+  BAD_DATA) goes to `outcome.md` → Open points for Adrian at gate 5.3; note 2 and Open point 1 go to R-102's note in
+  `## Tickets`.
+
+Review round 2 (2026-11-24, `review.md` → Round 2, verdict PASS; the second and last round of fixes):
+- G1 (note 3): `writeCoordinatorRefusal` writes only into the registration folder whose recorded pid and `born` both
+  match this process (the identity the registration records, as its liveness check reads it), with a test where a
+  stale folder holds the same pid and another `born` and receives nothing; it fails before the fix.
+- G2 (note 1): the show test's third record takes a failure kind `HEAD` already knows (e.g. `timeout`), so at `HEAD` it
+  fails only on the missing `failure` line.
+- Rejected, with the reason in `review.md`: note 2.

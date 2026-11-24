@@ -1655,7 +1655,7 @@ Columns:
 | R-026 | Every job runs in its own systemd user scope | 3 | A-029, A-052, T-43 | R-020, R-021 | L | delegated | night | — | systemd | 3.2, 3.7, 3.8 | done |
 | R-027 | The reaper ends a job only after its process group is gone | 3 | A-005, A-056 | R-026 | M | delegated | night | — | systemd | 3.2 | done |
 | R-028 | SIGTERM reaches the engine; a signal without a stop request is a failure | 3 | A-020, A-052 | R-026 | M | delegated | night | — | pi | 3.8 | done |
-| R-029 | One recorded failure cause per job | 3 | A-016, E-9, T-31, T-32, D-055, D-095 | R-017, R-021, R-100 | M | delegated | night | — | bridge | 3.4 | ready |
+| R-029 | One recorded failure cause per job | 3 | A-016, E-9, T-31, T-32, D-055, D-095 | R-017, R-021, R-100 | M | delegated | night | — | bridge | 3.4 | done |
 | R-030 | Unlanded work survives: `limen abandon`, a guarded prune, a refusing spawn | 3 | A-001 | R-023, R-092 | M | delegated | night | yes | herdr | 3.6 | done |
 | R-031 | `landed` and `abandoned` markers; retire moves records to the archive | 3 | A-002, §6 | R-030 | L | delegated | night | yes | — | 3.6 | done |
 | R-032 | `limen seat sweep` runs on a timer; read commands never write or wait | 3 | A-024, T-04, T-18, A-017, §6, D-045 | R-012, R-027, R-031 | L | delegated | night | yes | systemd | 3.1 | ready |
@@ -1947,6 +1947,16 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
 - R-102 (R-026 review round 2, note 9; D-094 (2)): since R-026 a rule's timer that cannot start writes "rule <name>:
   its timer could not start: …" to stderr after the handler may have written its final line, which then is no longer
   the last stderr line (T-02); R-102 cuts `limen rule`, and with it this path.
+- R-102 (R-029 review round 1, note 2, and `outcome.md` → Open point 1): R-029 writes a coordinator session's newest
+  guard refusal as `refusal.json` into its registration folder `.limen/coordinators/<session>/`, which `limen status`
+  reads (T-32 (4), R-029 Decision 8); when R-102 removes that registration (D-097 (6) (b)), it keeps a per-session
+  place for the file or moves it, with `limen status`'s warning and its test, and it closes the gap of a session that
+  never registered (its refusals reach only Pi's chat). From R-029's review round 3 (D-092, the rounds of fixes
+  spent), with a test each that fails before: (1) a registration folder with no recorded `born` still takes the
+  refusal on the pid alone (`writeCoordinatorRefusal`; `born` is written fire-and-forget at registration), so a
+  folder matches only on the whole identity; (2) `coordinatorRefusals` reads `refusal.json` through the guarded read
+  of the record (no symlink followed, a size bound), and a directory or an unreadable file is shown as its BAD_DATA
+  line instead of failing the whole `limen status`.
 - R-081 (R-026 `outcome.md` → Open points): `SECURITY.md:9` still describes the escaped-descendant check of the
   removed `src/runtime/contain.ts`; the job's scope replaces it.
 
@@ -3958,6 +3968,20 @@ the seat's project registry (only the wake hook and `limen init` do). It gave Ad
   all `ok null`; 0 `sleep` calls and 5 `status` reads (the `a0.1.1` trial: 19 `ok` of 22, 6 sleeps, 13 reads).
 - The deployment of `a0.2.0` is complete: 0.1–0.3, 2.1–2.4, 0.6 and B.3's a0.2.0 part. B.3's a0.3.0 part and B.4
   follow their tags; the copies in `~/b3/` of the agents' account are kept for them.
+- Adrian (2026-11-24, asked "dzień" or "noc HH:MM" for the rest of stage 3): "robimy teraz". The session takes the
+  stage-3 tickets by day in protocol order (`## Agents`, step 1). Active ticket: R-029 (delegated), from `3a9e48c`.
+- R-029 `done` (delegated): every detector passes its failure's kind to `finalizeJob` (the text patterns stay for the
+  migration), the nine ends without a kind get `launch`, `internal` or `timeout` (D-095), a `quota` failure records its
+  reset time from `kendex:rate-limit` (the new `hook/rate-limit.ts`) or from `errorMessage` with a zone, and a guard's
+  refusal of a Pi event is written by the adapter's `recorded` before Pi sees it (a job ends `engine-error`; a
+  coordinator session gets an escaped warning line in `limen status`). Review PASS in rounds 1–3, with two rounds of
+  fixes (F1–F5: escaping, a deterministic timeout test, two test splits, the hooks listed from `hook/`, a comment;
+  G1–G2: the session folder matched by pid and `born`, the show test failing for the printing alone); round 3's two
+  notes went to R-102's note (D-092). Gate 971/971. For Adrian at gate 5.3: the naming point of `outcome.md` → Open
+  point 4 (T-18: "refusal" also names a guard's BAD_DATA). Outside the repository: two copies of `HEAD` the implementer
+  made in the gate's cache folder (`r029-head-*`) and about 640 test folders (`limen-live-*`, `limen-tree-*`, 84 MB in
+  all) that `test/u11-live-activity.test.ts:99` and `:121` leave there on every gate run; `rm` is denied to the
+  sessions, so Adrian removes them if he wants, and the leak is a note for the ticket that rewrites those tests.
 - 2.4: `limen status` names `LIMEN_COORDINATOR` in both projects (read until R-050, so it stays).
 
 Next (by day):

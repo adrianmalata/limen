@@ -32,6 +32,8 @@ export type ShownJob = {
 	readonly sideFailures?: string;
 	readonly model?: string;
 	readonly tokens?: string;
+	/** Detail only: a failed job's failure kind, and for quota its reset time (A-016 (1)). */
+	readonly failure?: string;
 	/** Detail only: the memory peak, CPU time and OOM kills of a finished job's systemd user scope (M-09). */
 	readonly scope?: string;
 	readonly cleanup?: string;
@@ -88,6 +90,7 @@ export function humanDetail(record: ShownJob, paint: Paint): string {
 	put("candidate", record.candidate);
 	put("model", record.model);
 	put("tokens", record.tokens);
+	put("failure", record.failure);
 	put("scope", record.scope);
 	if (job.phase === "running") {
 		put("up", runningFacts(record, paint).join(" · "));

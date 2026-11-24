@@ -1,11 +1,14 @@
 // The summary of this project (`limen status`): what runs, what landed, what waits for a decision, in the last 7 days,
 // every finished job whose unlanded work blocks a worker spawn, whatever its age (A-001), each branch of abandoned work
-// (A-002), whether the seat's alerts run (A-066), and with `--all` every record and one row for each job (D-038).
+// (A-002), whether the seat's alerts run (A-066), a Limen hook's refusal in a coordinator's session (T-32 (4)), and with
+// `--all` every record and one row for each job (D-038).
 import { spawnSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
+import { shownField } from "../boundary.ts";
 import { ignoredSettings } from "../config.ts";
+import { coordinatorRefusals } from "../integrations/coordinator-registration.ts";
 import { herdrBinary } from "../integrations/herdr.ts";
 import { type GroupIdentity, jobMembership } from "../job/group-cabinet.ts";
 import { isTerminal } from "../job/job.ts";
@@ -126,6 +129,7 @@ export async function projectStatus(cwd: string, all: boolean): Promise<string> 
 		...abandonLines(root, workspace),
 		...(scan.uncertain.length ? ["Unconfirmed jobs:", ...scan.uncertain] : []),
 		...alertsLines(),
+		...(await refusalLines(root)),
 		...leftoverLines(root),
 		...environmentLines(),
 		...(all ? [] : [`Older: ${scan.older} record${scan.older === 1 ? "" : "s"} (limen status --all)`]),
@@ -202,6 +206,19 @@ function alertsLines(): string[] {
 	return count === 0
 		? []
 		: [`Alerts not working (${count}); no alert reaches the phone until each is fixed:`, ...problems];
+}
+
+/**
+ * One line for each coordinator session whose folder holds a Limen hook's refusal of a Pi value (T-32 (4)): the
+ * session, the time and what was refused, while the folder holds it; Pi showed the refusal only in that session's
+ * chat. The folder's name and the file's text come from outside Limen and reach the coordinator, so both go through
+ * `shownField`, which keeps each refusal on its line. Empty when no session holds one.
+ */
+async function refusalLines(root: string): Promise<string[]> {
+	return (await coordinatorRefusals(root)).map(
+		({ session, at, detail }) =>
+			`Coordinator session ${shownField(session)}, ${at ?? "time unknown"}: ${shownField(detail)}`,
+	);
 }
 
 /** The leftover files of cut features, for the owner to check before the drop (A-042); empty when there are none. */

@@ -1,5 +1,6 @@
-// src/job/record.ts: the job's record.json, its reads, the one function that writes it, a failure's kind, the
-// optional scope of a record, the markers `landed` and `abandoned` with their one writer, and the job archive's listing.
+// src/job/record.ts: the job's record.json, its reads, the one function that writes it, a failure's kind, the reset
+// time of a limit's text, the optional fields of a record, the markers `landed` and `abandoned` with their one writer,
+// and the job archive's listing.
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
@@ -12,9 +13,11 @@ import {
 	failureFrom,
 	type JobRecord,
 	jobFolders,
+	limitReset,
 	publishRecord,
 	readRecord,
 	readRecordSync,
+	recordRefusal,
 	serialized,
 	transition,
 	writeMarker,
@@ -193,6 +196,81 @@ test("failureFrom names a detail that says which signal killed the job signal, a
 test("failureFrom names a detail that says the job waited in the start queue without a start queue", () => {
 	const detail = "queued for 2h1m without a start: CPU 10% idle (gate 25%), memory 80% free (gate 20%)";
 	assert.deepEqual(failureFrom(detail), { kind: "queue", detail, resetAt: null });
+});
+
+/** The provider's text of the 5-hour limit: a synthetic copy of the format of audit.md, gate 2 §1, Q1. */
+const SESSION_LIMIT = "error: You've hit your session limit · resets 3pm (UTC)";
+
+// A-016 (1), E-9: a reset with no date is the 5-hour window's, so it is the first such hour after the error.
+test("limitReset reads a reset hour with no date as the first such hour after the error's time", () => {
+	const before = Date.parse("2026-11-24T14:10:00.000Z");
+	const after = Date.parse("2026-11-24T16:00:00.000Z");
+	assert.deepEqual(
+		[limitReset(SESSION_LIMIT, before), limitReset(SESSION_LIMIT, after)],
+		["2026-11-24T15:00:00.000Z", "2026-11-25T15:00:00.000Z"],
+	);
+});
+
+test("limitReset reads a reset with a month, a day and minutes as that time in the zone the text names", () => {
+	const said = Date.parse("2026-11-24T14:10:00.000Z");
+	assert.deepEqual(
+		[
+			limitReset("error: You've hit your weekly limit · resets Nov 26, 5pm (Europe/Warsaw)", said),
+			limitReset("error: You've hit your session limit · resets 3:30pm (UTC)", said),
+		],
+		["2026-11-26T16:00:00.000Z", "2026-11-24T15:30:00.000Z"],
+	);
+});
+
+// A-016 (4), z. 10: a reset whose zone the text does not name is not read, so R-059's usage reading takes over.
+test("limitReset gives null for a reset with no zone, a zone no clock knows, and a text with no reset", () => {
+	const said = Date.parse("2026-11-24T14:10:00.000Z");
+	const texts = [
+		"error: You've hit your weekly limit · resets Nov 23, 5pm",
+		"error: You've hit your session limit · resets 3pm (Mars/Olympus)",
+		"error: You've hit your session limit",
+	];
+	assert.deepEqual(
+		texts.map((text) => limitReset(text, said)),
+		[null, null, null],
+	);
+});
+
+// D-095: the kinds launch and internal join A-016's.
+test("a record reads with the failure kinds launch and internal", async (t) => {
+	const kinds = [];
+	for (const kind of ["launch", "internal"] as const) {
+		const failure = { kind, detail: "the engine did not start", resetAt: null };
+		kinds.push((await readRecord(await recorded(t, { ...RUNNING, state: "failed", failure })))?.failure?.kind);
+	}
+	assert.deepEqual(kinds, ["launch", "internal"]);
+});
+
+// D-079: the rate-limit event and a hook's refusal are optional fields, so a record written before R-029 reads as before.
+test("a record reads with its optional rateLimit and refusal, and a record without them reads with neither", async (t) => {
+	const rateLimit = { type: "five_hour", resetAt: "2026-11-24T15:00:00.000Z", at: "2026-11-24T14:10:00.000Z" };
+	const refusal = {
+		event: "message_end",
+		field: "message",
+		message: "Pi event message_end: message: expected an object, got nothing",
+		at: "2026-11-24T14:10:00.000Z",
+	};
+	const full = await readRecord(await recorded(t, { ...RUNNING, rateLimit, refusal }));
+	const plain = await readRecord(await recorded(t, RUNNING));
+	assert.deepEqual(
+		[full?.rateLimit, full?.refusal, plain && ("rateLimit" in plain || "refusal" in plain)],
+		[rateLimit, refusal, false],
+	);
+});
+
+// T-32 (4), A-019: the first cause is the one the job's end reads, so a later refusal changes nothing.
+test("recordRefusal writes a hook's refusal into a running job's record and keeps the first one", async (t) => {
+	const dir = await recorded(t, RUNNING);
+	const at = "2026-11-24T14:10:00.000Z";
+	const refusal = (event: string) => ({ event, field: "", message: `Pi event ${event}: expected an object`, at });
+	await recordRefusal(dir, refusal("message_end"));
+	await recordRefusal(dir, refusal("tool_result"));
+	assert.deepEqual((await readRecord(dir))?.refusal, refusal("message_end"));
 });
 
 const WAIT = {

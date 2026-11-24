@@ -178,7 +178,8 @@ async function endDeadJob(jobDir: string, record: JobRecord): Promise<void> {
 		return;
 	}
 	// The prefix is the pattern of the failure kind `reaped` (src/job/record.ts), which older records carry too.
-	await finalizeJob(jobDir, "failed", `process group gone: ${owner.why}; ${ending.how}`, { readings });
+	const detail = `process group gone: ${owner.why}; ${ending.how}`;
+	await finalizeJob(jobDir, { state: "failed", failure: { kind: "reaped", detail } }, { readings });
 }
 
 /**

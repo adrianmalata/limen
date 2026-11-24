@@ -1,4 +1,5 @@
-// `limen show` (src/job/listing.ts) of a finished job: the readings of its systemd user scope.
+// `limen show` (src/job/listing.ts) of a finished job: the readings of its systemd user scope, and the kind and the
+// reset time of its failure.
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
@@ -39,5 +40,43 @@ test("the detail of a finished job shows the memory peak, CPU time and OOM kills
 			"  scope memory peak unknown · CPU unknown · OOM kills unknown",
 		],
 		`${read.stdout}${read.stderr}${unread.stdout}${unread.stderr}`,
+	);
+});
+
+/** The failure line of the detail `limen show` prints through a pipe. */
+const failureLine = (stdout: string) => /^ {2}failure .+$/m.exec(stdout)?.[0];
+
+// A-016 (1), R-034: the coordinator reads a failed job's kind, and for `quota` when the limit resets, in its detail.
+test("the detail of a failed job shows its failure kind, and for quota its reset time or unknown", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const at = "2026-11-24T14:10:00.000Z";
+	const failures = {
+		"2026-11-24-quota-1a2b3c4d": { kind: "quota", detail: "error: limit", resetAt: "2026-11-24T15:00:00.000Z" },
+		"2026-11-24-unread-5e6f7a8b": { kind: "quota", detail: "error: limit", resetAt: null },
+		"2026-11-24-timeout-9a8b7c6d": { kind: "timeout", detail: "timeout after 5400000ms", resetAt: null },
+	} as const;
+	for (const [id, failure] of Object.entries(failures)) {
+		const dir = jobDir(p, id);
+		await writeRecord(dir, {
+			state: "failed",
+			label: "demo",
+			branch: "limen/demo",
+			startedAt: at,
+			finishedAt: at,
+			failure,
+		});
+		await writeFile(join(dir, "task.md"), "error limit\n");
+		await writeFile(join(dir, "log"), `[limen ${at}] failed: ${failure.detail}\n`);
+	}
+	const shown = Object.keys(failures).map((id) => limen(p, ["show", id]));
+	assert.deepEqual(
+		shown.map((run) => [run.status, failureLine(run.stdout)]),
+		[
+			[0, "  failure quota · resets 2026-11-24T15:00:00.000Z"],
+			[0, "  failure quota · resets unknown"],
+			[0, "  failure timeout"],
+		],
+		shown.map((run) => `${run.stdout}${run.stderr}`).join("\n"),
 	);
 });

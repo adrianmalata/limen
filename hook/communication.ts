@@ -5,7 +5,14 @@ import { noteStart, recordNote } from "../src/job/task-note.ts";
 import { formatDrift, inheritFile, listDrift, packageRoot, readOptional } from "../src/project/inherit.ts";
 import { ticketPointers } from "../src/project/planning.ts";
 import { activeRules, ruleLine } from "../src/project/seat-rules.ts";
-import { type PiApi, type PiPart, type PiToolResultEvent, piContext, piEvent } from "../src/runtime/pi-api.ts";
+import {
+	type PiApi,
+	type PiPart,
+	type PiToolResultEvent,
+	piContext,
+	piEvent,
+	recorded,
+} from "../src/runtime/pi-api.ts";
 import { assistantStopReason } from "../src/runtime/stream.ts";
 
 const CONTEXT_TYPE = "limen-project-context";
@@ -53,71 +60,80 @@ export default function limenCommunication(pi: Pick<PiApi, "on">): void {
 	// The job folder once the first prompt showed the task note, and the note text this hook saw last.
 	let noteDir: string | undefined;
 	let noteSeen: string | undefined;
-	pi.on("before_agent_start", (raw, rawContext) => {
-		const event = piEvent("before_agent_start", raw);
-		const context = piContext("before_agent_start", rawContext, ["cwd"]);
-		const root = transport("LIMEN_CONTEXT_ROOT") ?? context.cwd;
-		const job = transport("LIMEN_JOB") === "1";
-		const touched = lastTouch;
-		const failed = lastFailure;
-		lastTouch = undefined;
-		lastFailure = undefined;
-		const extra = guidancePrompt(root, job);
-		const cue = turnCue(root, job, isWakePrompt(event.prompt), touched, failed);
-		const firstNote = job && !noteDir ? jobFolder(root) : undefined;
-		if (firstNote) {
-			noteDir = firstNote;
-			noteSeen = readOptional(join(firstNote, "note.md"));
-		}
-		const message = {
-			customType: CONTEXT_TYPE,
-			content: firstNote ? `${cue}\n\n${noteStart(firstNote)}` : cue,
-			display: false,
-		};
-		if (!extra) {
-			return { message };
-		}
-		return {
-			message,
-			systemPrompt: event.systemPrompt ? `${event.systemPrompt}\n\n${extra}` : extra,
-		};
-	});
-	pi.on("message_end", (raw) => {
-		const { message } = piEvent("message_end", raw);
-		if (message.role !== "assistant") {
-			return;
-		}
-		lastFailure = assistantStopReason(message) || undefined;
-	});
+	pi.on(
+		"before_agent_start",
+		recorded((raw: unknown, rawContext: unknown) => {
+			const event = piEvent("before_agent_start", raw);
+			const context = piContext("before_agent_start", rawContext, ["cwd"]);
+			const root = transport("LIMEN_CONTEXT_ROOT") ?? context.cwd;
+			const job = transport("LIMEN_JOB") === "1";
+			const touched = lastTouch;
+			const failed = lastFailure;
+			lastTouch = undefined;
+			lastFailure = undefined;
+			const extra = guidancePrompt(root, job);
+			const cue = turnCue(root, job, isWakePrompt(event.prompt), touched, failed);
+			const firstNote = job && !noteDir ? jobFolder(root) : undefined;
+			if (firstNote) {
+				noteDir = firstNote;
+				noteSeen = readOptional(join(firstNote, "note.md"));
+			}
+			const message = {
+				customType: CONTEXT_TYPE,
+				content: firstNote ? `${cue}\n\n${noteStart(firstNote)}` : cue,
+				display: false,
+			};
+			if (!extra) {
+				return { message };
+			}
+			return {
+				message,
+				systemPrompt: event.systemPrompt ? `${event.systemPrompt}\n\n${extra}` : extra,
+			};
+		}),
+	);
+	pi.on(
+		"message_end",
+		recorded((raw: unknown) => {
+			const { message } = piEvent("message_end", raw);
+			if (message.role !== "assistant") {
+				return;
+			}
+			lastFailure = assistantStopReason(message) || undefined;
+		}),
+	);
 	const recall: Recall = { read: new Map(), named: new Set() };
 	const forget = () => {
 		recall.read.clear();
 		recall.named.clear();
 	};
-	pi.on("session_start", forget);
-	pi.on("session_compact", forget);
-	pi.on("tool_result", (raw, rawContext) => {
-		const event = piEvent("tool_result", raw);
-		const context = piContext("tool_result", rawContext, ["cwd"]);
-		if (noteDir) {
-			noteSeen = recordNote(noteDir, noteSeen);
-		}
-		if (event.isError) {
-			return;
-		}
-		noteRead(recall, event);
-		const asks = guidanceAsks(event, transport("LIMEN_JOB") === "1");
-		if (!asks.length) {
-			return;
-		}
-		lastTouch = touchLine(event, asks);
-		const root = transport("LIMEN_CONTEXT_ROOT") ?? context.cwd;
-		const reminders = asks.map((ask) => recallReminder(recall, ask, root, context.cwd)).filter(Boolean);
-		if (!reminders.length) {
-			return;
-		}
-		return { content: appendText(event.content, reminders.join("\n\n")) };
-	});
+	pi.on("session_start", recorded(forget));
+	pi.on("session_compact", recorded(forget));
+	pi.on(
+		"tool_result",
+		recorded((raw: unknown, rawContext: unknown) => {
+			const event = piEvent("tool_result", raw);
+			const context = piContext("tool_result", rawContext, ["cwd"]);
+			if (noteDir) {
+				noteSeen = recordNote(noteDir, noteSeen);
+			}
+			if (event.isError) {
+				return;
+			}
+			noteRead(recall, event);
+			const asks = guidanceAsks(event, transport("LIMEN_JOB") === "1");
+			if (!asks.length) {
+				return;
+			}
+			lastTouch = touchLine(event, asks);
+			const root = transport("LIMEN_CONTEXT_ROOT") ?? context.cwd;
+			const reminders = asks.map((ask) => recallReminder(recall, ask, root, context.cwd)).filter(Boolean);
+			if (!reminders.length) {
+				return;
+			}
+			return { content: appendText(event.content, reminders.join("\n\n")) };
+		}),
+	);
 }
 
 function isWakePrompt(prompt: string | undefined): boolean {

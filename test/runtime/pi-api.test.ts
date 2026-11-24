@@ -1,15 +1,28 @@
-// src/runtime/pi-api.ts: each guard returns a Pi value of the right shape as it is and refuses a wrong one with BAD_DATA.
+// src/runtime/pi-api.ts: each guard returns a Pi value of the right shape as it is and refuses a wrong one with BAD_DATA,
+// and every hook's handler records a guard's refusal, in a job's record or in a coordinator's session folder.
 import assert from "node:assert/strict";
-import test from "node:test";
+import { spawnSync } from "node:child_process";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, relative } from "node:path";
+import test, { type TestContext } from "node:test";
+import { fileURLToPath } from "node:url";
+import { readRecordSync } from "../../src/job/record.ts";
 import { LimenError } from "../../src/outcome.ts";
 import {
+	isRecorded,
 	type PiSettleEvent,
 	piCommandArgs,
 	piContext,
 	piEvent,
+	piRateLimit,
 	piSettleEvent,
 	piToolInput,
+	recorded,
 } from "../../src/runtime/pi-api.ts";
+import { withEnvironment } from "../environment.ts";
+import { knownFilesBelow } from "../known-files.ts";
+import { plant, writeRecord } from "../plant.ts";
 
 /** What a refusal names: the place in Pi, the field, and the message that holds both. */
 type Refused = { readonly file: string; readonly field: string; readonly message: string };
@@ -209,4 +222,137 @@ test("piCommandArgs returns a command's arguments and refuses arguments that are
 	const error = refusal(() => piCommandArgs("limen", ["off"]));
 	assert.deepEqual(where(error), ["Pi command limen", "args"]);
 	assert.equal(error.message, 'Pi command limen: args: expected a string, got ["off"]');
+});
+
+// E-9: the bridge emits the rate-limit event on Pi's event bus, with the limit's type and its reset in epoch ms.
+test("piRateLimit returns the bridge's rate-limit event and refuses one whose resetAtMs is not a number", () => {
+	const event = {
+		rateLimitType: "five_hour",
+		resetAt: 1_795_000_000,
+		resetAtMs: 1_795_000_000_000,
+		status: "rejected",
+	};
+	assert.equal(piRateLimit(event), event);
+	assert.deepEqual(piRateLimit({ status: "rejected" }), { status: "rejected" });
+	const error = refusal(() => piRateLimit({ rateLimitType: "five_hour", resetAtMs: "soon" }));
+	assert.deepEqual(where(error), ["Pi event kendex:rate-limit", "resetAtMs"]);
+});
+
+/** A running job of a project in the OS temporary folder, removed after the test, with the job's transport names set. */
+async function runningJob(t: TestContext): Promise<string> {
+	const root = await mkdtemp(join(tmpdir(), "limen-refusal-"));
+	t.after(() => rm(root, { recursive: true, force: true }));
+	const id = "2026-11-24-refusal-1a2b3c4d";
+	const job = join(root, ".limen", "jobs", id);
+	await writeRecord(job, { state: "running", identity: { pid: 4242, born: "123", bootId: null } });
+	withEnvironment(t, { LIMEN_JOB: "1", LIMEN_CONTEXT_ROOT: root, LIMEN_JOB_ID: id });
+	return job;
+}
+
+// T-32 (4): Pi reports a handler's error and goes on, or turns it into an error tool result that only the model sees,
+// so the adapter writes a guard's refusal into the job's record before the handler's error reaches Pi.
+test("a recorded handler whose guard refuses Pi's payload in a job writes the refusal into the job's record before it rejects", async (t) => {
+	const job = await runningJob(t);
+	const handler = recorded((raw: unknown) => piEvent("message_end", raw).message.role);
+	const rejected = handler({ message: { content: "x" } });
+	assert.ok(rejected instanceof Promise, "a refusal gives Pi a promise that rejects once the refusal is written");
+	await assert.rejects(rejected, (error) => error instanceof LimenError && error.code === "BAD_DATA");
+	const refusal = readRecordSync(job)?.refusal;
+	assert.deepEqual(
+		[refusal?.event, refusal?.field, refusal?.message],
+		["message_end", "message.role", "Pi event message_end: message.role: expected a string, got nothing"],
+	);
+});
+
+test("a recorded handler returns what its handler returns, and records no error that is not a guard's refusal", async (t) => {
+	const job = await runningJob(t);
+	const role = recorded((raw: unknown) => piEvent("message_end", raw).message.role);
+	const failing = recorded(async () => {
+		throw new Error("the hook's own failure");
+	});
+	assert.equal(role({ message }), "assistant");
+	await assert.rejects(failing(), /the hook's own failure/);
+	assert.equal(readRecordSync(job)?.refusal, undefined);
+});
+
+/**
+ * The handlers, tools, commands and event-bus listeners that each hook of `files` registers on a fake `pi`, keyed by
+ * the hook's file and their place.
+ */
+async function registeredHandlers(files: readonly string[]): Promise<Map<string, unknown>> {
+	const found = new Map<string, unknown>();
+	for (const file of files) {
+		const name = relative(REPO, file);
+		const pi = {
+			on: (event: string, handler: unknown) => found.set(`${name} on ${event} ${found.size}`, handler),
+			registerTool: (tool: { name: string; execute: unknown }) => found.set(`${name} tool ${tool.name}`, tool.execute),
+			registerCommand: (command: string, entry: { handler: unknown }) =>
+				found.set(`${name} command ${command}`, entry.handler),
+			sendMessage() {},
+			sendUserMessage() {},
+			events: {
+				on: (channel: string, listener: unknown) => {
+					found.set(`${name} bus ${channel}`, listener);
+					return () => {};
+				},
+			},
+		};
+		const hook: unknown = (await import(file)).default;
+		assert.ok(typeof hook === "function", `${name} exports its factory`);
+		hook(pi);
+	}
+	return found;
+}
+
+const REPO = fileURLToPath(new URL("../..", import.meta.url));
+const HOOK_FOLDER = join(REPO, "hook");
+
+/** Every hook file of the repository: each TypeScript file git knows in `hook/`, so a new one is checked too. */
+async function hookFiles(): Promise<string[]> {
+	return (await knownFilesBelow(REPO, ["hook"])).filter((file) => file.endsWith(".ts"));
+}
+
+// T-32 (4), z. 14: a handler registered around the adapter would let a refusal pass with no record, so every handler,
+// tool and command of every hook goes through `recorded`, in a job and in a coordinator's session.
+test("T-32: every handler, tool, command and event-bus listener a hook registers goes through recorded, in a job and in a coordinator", async (t) => {
+	const files = await hookFiles();
+	await runningJob(t);
+	withEnvironment(t, { LIMEN_GROUP_ID: "group-1" });
+	const inJob = await registeredHandlers(files);
+	withEnvironment(t, { LIMEN_JOB: "", LIMEN_GROUP_ID: "" });
+	const inCoordinator = await registeredHandlers(files);
+	const unrecorded = [...inJob, ...inCoordinator].filter(([, handler]) => !isRecorded(handler)).map(([key]) => key);
+	assert.ok(
+		inJob.has("hook/rate-limit.ts bus kendex:rate-limit") &&
+			inJob.has("hook/finish.ts tool finish") &&
+			inCoordinator.has("hook/wake.ts command limen"),
+		[...inJob.keys(), ...inCoordinator.keys()].join("\n"),
+	);
+	assert.deepEqual(unrecorded, []);
+});
+
+const SESSION = "coord-refusal";
+
+// T-32 (4), D-055 (2): in a coordinator's session Pi shows a hook's error in the chat and writes nothing, so the hook
+// writes the newest refusal into the session's folder, which `limen status` reads.
+test("a hook's refusal of a malformed Pi event in a coordinator's session writes the refusal into the session's folder", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const dir = join(p.parent, SESSION);
+	await mkdir(dir);
+	await writeFile(join(dir, "task.md"), "malformed message_end\n");
+	const args = ["--session-dir", join(dir, "session"), "--extension", join(HOOK_FOLDER, "wake.ts")];
+	const env = { ...p.env, PI_SESSION_ID: SESSION, LIMEN_COORDINATOR: "1" };
+	const run = spawnSync(join(p.bin, "pi"), [...args, `@${join(dir, "task.md")}`], {
+		cwd: p.root,
+		env,
+		encoding: "utf8",
+	});
+	assert.equal(run.status, 0, run.stderr);
+	const file = join(p.root, ".limen", "coordinators", SESSION, "refusal.json");
+	const written = JSON.parse(await readFile(file, "utf8"));
+	assert.deepEqual(
+		[written.event, written.field, written.message, run.stderr.includes("Pi event message_end: message:")],
+		["message_end", "message", "Pi event message_end: message: expected an object, got nothing", true],
+	);
 });

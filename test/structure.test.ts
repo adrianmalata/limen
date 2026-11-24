@@ -145,8 +145,9 @@ test("T-26 (4): only src/outcome.ts builds the final line in src/, hook/ and bin
 
 // T-01 → Why: the author's side channels swallow their errors. A ratchet until R-082 brings both counts to zero: the
 // counts at R-013's parent commit, which a change may only lower; R-026 lowered `.catch(() => {})` to its own count, 19,
-// when the starts of the group's next round and of a rule's timer stopped swallowing a failure.
-const SWALLOWED = { "catch {": 81, ".catch(() => {})": 19 } as const;
+// when the starts of the group's next round and of a rule's timer stopped swallowing a failure, and R-029 to 18, when
+// an exhaustion's TERM stopped swallowing the failure of its log line (the D-092 note).
+const SWALLOWED = { "catch {": 81, ".catch(() => {})": 18 } as const;
 test("T-01: the catch-all sites in src/ and hook/ stay at most their baseline count, and src/outcome.ts has none", async () => {
 	for (const [literal, most] of Object.entries(SWALLOWED)) {
 		const [all, inOutcome] = await occurrences(["src", "hook"], literal, "src/outcome.ts");

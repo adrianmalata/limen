@@ -69,7 +69,7 @@ test("finalizeJob counts each steer left in the inbox in its log line, but not t
 	mkdirSync(join(job, "steer", "inbox"), { recursive: true });
 	writeFileSync(join(job, "steer", "inbox", "0001"), "check the logs\n");
 	writeFileSync(join(job, "steer", "inbox", "0002.4242.9f3c.tmp"), "stop\n");
-	await finalizeJob(job, "stopped", "stopped by request");
+	await finalizeJob(job, { state: "stopped", detail: "stopped by request" });
 	assert.equal((await readRecord(job))?.state, "stopped");
 	assert.match(
 		readFileSync(join(job, "log"), "utf8"),
@@ -77,14 +77,22 @@ test("finalizeJob counts each steer left in the inbox in its log line, but not t
 	);
 });
 
-// D-071: the wrapper ends a job whose engine stopped on an error with that stop reason, `error: <the provider's text>`.
-test("finalizeJob records the failure kind quota for a job whose engine stopped on the subscription limit", async (t) => {
-	const { job } = await jobFolder(t);
-	await writeRecord(job, { state: "running", identity: IDENTITY });
-	const stopReason = "error: You've hit your session limit · resets 3pm (UTC)";
-	await finalizeJob(job, "failed", stopReason);
-	const record = await readRecord(job);
-	assert.deepEqual([record?.state, record?.failure], ["failed", { kind: "quota", detail: stopReason, resetAt: null }]);
+// A-016 (1): the kind is set by whoever detected the failure, never read back from its detail, so a detail that one of
+// the migration's patterns would name otherwise keeps the kind its detector passed.
+test("finalizeJob records the kind, the detail and the reset time its detector passes, whatever a pattern reads in the detail", async (t) => {
+	const { folder } = await jobFolder(t);
+	const passed = [
+		{ kind: "launch", detail: "timeout after 5ms", resetAt: null },
+		{ kind: "quota", detail: "error: You've hit your session limit", resetAt: "2026-11-24T15:00:00.000Z" },
+	] as const;
+	const failures = [];
+	for (const [n, failure] of passed.entries()) {
+		const job = join(folder, `job-${n}`);
+		await writeRecord(job, { state: "running", identity: IDENTITY });
+		await finalizeJob(job, { state: "failed", failure });
+		failures.push((await readRecord(job))?.failure);
+	}
+	assert.deepEqual(failures, passed);
 });
 
 // A-036, D-072: any finisher of a queued job, such as `limen stop` or the reaper, clears `queued`, so the wait itself
@@ -93,7 +101,7 @@ test("finalizeJob of a job still in the start queue keeps its wait in queueWait,
 	const { job } = await jobFolder(t);
 	const since = "2026-11-21T09:00:00.000Z";
 	await writeRecord(job, { state: "running", identity: IDENTITY, queued: { since, detail: "held", ahead: 0 } });
-	await finalizeJob(job, "stopped", "stopped by request");
+	await finalizeJob(job, { state: "stopped", detail: "stopped by request" });
 	const record = await readRecord(job);
 	const wait = record?.queueWait;
 	assert.deepEqual(
@@ -107,30 +115,31 @@ test("finalizeJob writes the memory peak, CPU time and OOM kills of the job's sc
 	const { job, cgroups } = await jobFolder(t);
 	cgroupWithReadings(cgroups);
 	await writeRecord(job, { state: "running", identity: IDENTITY, scope: RECORDED });
-	await finalizeJob(job, "failed", "worker exited with code 137");
+	await finalizeJob(job, { state: "failed", failure: { kind: "exit", detail: "worker exited with code 137" } });
 	const record = await readRecord(job);
 	assert.deepEqual([record?.state, record?.scope], ["failed", { ...RECORDED, ...SCOPE_READINGS, oomKills: 1 }]);
 });
 
 // A-052: an OOM kill ends a process by SIGKILL, so it shows as an engine's signal death or as a wrapper the reaper
-// found gone; a limit's kind stays, since its own detector decided the end (R-034 resumes `quota` jobs). The signal
-// death is the older wrapper's detail, whose pattern names it `signal` without the newer `killed by` one, so the test
-// checks the rule alone; test/job/record.test.ts checks that pattern (T-29 (3)).
+// found gone; a limit's kind stays, since its own detector decided the end (R-034 resumes `quota` jobs).
 test("finalizeJob records kind oom for a signal death or a reaped wrapper when the job's scope counted an OOM kill, and keeps quota and timeout", async (t) => {
 	const { folder, cgroups } = await jobFolder(t);
-	const details = [
-		"process group interrupted",
-		"process group gone: wrapper 4242 is not running; scope limen-job-job.scope ended after TERM",
-		"error: You've hit your session limit · resets 3pm (UTC)",
-		"timeout after 3000ms",
-	];
+	const passed = [
+		{ kind: "signal", detail: "killed by SIGKILL" },
+		{
+			kind: "reaped",
+			detail: "process group gone: wrapper 4242 is not running; scope limen-job-job.scope ended after TERM",
+		},
+		{ kind: "quota", detail: "error: You've hit your session limit · resets 3pm (UTC)" },
+		{ kind: "timeout", detail: "timeout after 3000ms" },
+	] as const;
 	const kinds: (string | null | undefined)[] = [];
-	for (const [n, detail] of details.entries()) {
+	for (const [n, failure] of passed.entries()) {
 		// Each end ends the scope, which takes its folder with it, so each job gets the readings anew.
 		cgroupWithReadings(cgroups);
 		const job = join(folder, `job-${n}`);
 		await writeRecord(job, { state: "running", identity: IDENTITY, scope: RECORDED });
-		await finalizeJob(job, "failed", detail);
+		await finalizeJob(job, { state: "failed", failure });
 		kinds.push((await readRecord(job))?.failure?.kind);
 	}
 	assert.deepEqual(kinds, ["oom", "oom", "quota", "timeout"]);
@@ -139,10 +148,10 @@ test("finalizeJob records kind oom for a signal death or a reaped wrapper when t
 test("finalizeJob writes null readings when the job's scope is already gone, and a record without a scope keeps none", async (t) => {
 	const { job } = await jobFolder(t);
 	await writeRecord(job, { state: "running", identity: IDENTITY, scope: RECORDED });
-	await finalizeJob(job, "done", "pi exited 0");
+	await finalizeJob(job, { state: "done", detail: "pi exited 0" });
 	const plain = join(job, "..", "plain");
 	await writeRecord(plain, { state: "running", identity: IDENTITY });
-	await finalizeJob(plain, "done", "pi exited 0");
+	await finalizeJob(plain, { state: "done", detail: "pi exited 0" });
 	const [scoped, unscoped] = [await readRecord(job), await readRecord(plain)];
 	assert.deepEqual([scoped?.scope, unscoped && "scope" in unscoped], [RECORDED, false]);
 });
@@ -153,7 +162,7 @@ test("finalizeJob ends the job's scope after its terminal state: every process l
 	cgroupWithReadings(cgroups);
 	await writeRecord(job, { state: "running", identity: IDENTITY, scope: RECORDED });
 	const member = await scopeProcess(t, RECORDED.cgroup);
-	await finalizeJob(job, "done", "pi exited 0");
+	await finalizeJob(job, { state: "done", detail: "pi exited 0" });
 	assert.deepEqual(
 		[(await readRecord(job))?.state, await member.end(), systemdCalls(cgroups, "systemctl").at(-1)],
 		["done", "SIGKILL", `--user kill --signal=SIGKILL ${UNIT}`],
@@ -168,7 +177,7 @@ test("finalizeJob ends the job's scope also when a step after the transition rej
 	const member = await scopeProcess(t, RECORDED.cgroup);
 	const grace = () => Promise.reject(new Error("the grace failed"));
 	await assert.rejects(
-		finalizeJob(job, "stopped", "stopped by request", { beforeScopeEnd: grace }),
+		finalizeJob(job, { state: "stopped", detail: "stopped by request" }, { beforeScopeEnd: grace }),
 		/the grace failed/,
 	);
 	assert.equal(await member.end(), "SIGKILL");
@@ -178,7 +187,8 @@ test("finalizeJob ends the job's scope also when a step after the transition rej
 test("finalizeJob of a job whose scope never started sends no kill and logs no failed end of its scope", async (t) => {
 	const { job, cgroups } = await jobFolder(t);
 	await writeRecord(job, { state: "starting" });
-	await finalizeJob(job, "failed", "failed to launch wrapper: the job's systemd user scope did not start");
+	const detail = "failed to launch wrapper: the job's systemd user scope did not start";
+	await finalizeJob(job, { state: "failed", failure: { kind: "launch", detail } });
 	const kills = systemdCalls(cgroups, "systemctl").filter((words) => words.includes(" kill "));
 	assert.deepEqual([(await readRecord(job))?.state, kills, notEnded(job)], ["failed", [], []]);
 });
@@ -216,7 +226,7 @@ test("finalizeJob of a team's coordinator writes a line in the job's log when th
 	const job = join(root, ".limen", "jobs", id);
 	groupOf(root, id, "g1");
 	await writeRecord(job, { state: "running", identity: IDENTITY, group: "g1", team: "team-1" });
-	await finalizeJob(job, "done", "pi exited 0");
+	await finalizeJob(job, { state: "done", detail: "pi exited 0" });
 	assert.match(
 		readFileSync(join(job, "log"), "utf8"),
 		/\] the group's next round could not start: systemd-run did not run .+: it ended with exit code 1\n/,

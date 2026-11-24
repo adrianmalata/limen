@@ -494,7 +494,8 @@ async function launchChecked(checked: Checked<SpawnPlan, SpawnedRecord>): Promis
 		});
 	} catch (error) {
 		throw await cleanedUp(error, async () => {
-			await finalizeJob(jobDir, "failed", `${group ? "group launch" : "spawn"} failed: ${String(error)}`);
+			const detail = `${group ? "group launch" : "spawn"} failed: ${String(error)}`;
+			await finalizeJob(jobDir, { state: "failed", failure: { kind: "launch", detail } });
 		});
 	}
 	return id;
@@ -719,7 +720,10 @@ async function startDetachedJob(plan: SpawnPlan, job: SpawnedJob, versions: Prom
 		const message = error instanceof Error ? error.message : String(error);
 		throw await cleanedUp(error, async () => {
 			await versions.catch(() => {});
-			await finalizeJob(jobDir, "failed", `failed to launch wrapper: ${message}`);
+			await finalizeJob(jobDir, {
+				state: "failed",
+				failure: { kind: "launch", detail: `failed to launch wrapper: ${message}` },
+			});
 		});
 	}
 	await waitForHandshake(jobDir, wrapper);
@@ -1002,7 +1006,8 @@ export async function waitForHandshake(jobDir: string, wrapper: ScopedProcess): 
 	throw await cleanedUp(
 		environmentError("WRAPPER_NOT_READY", `detached wrapper did not start${how}; inspect the job record`),
 		async () => {
-			await finalizeJob(jobDir, "failed", `detached wrapper did not become ready${how}`);
+			const detail = `detached wrapper did not become ready${how}`;
+			await finalizeJob(jobDir, { state: "failed", failure: { kind: "launch", detail } });
 		},
 	);
 }

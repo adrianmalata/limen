@@ -6,10 +6,21 @@ import { fileURLToPath } from "node:url";
 import { atomicWrite } from "../atomic-write.ts";
 import { engineEnvironment, type TransportName, testKnob, transport } from "../config.ts";
 import { promptStartNotice } from "../integrations/coordinator-wake.ts";
-import { finalizeJob, isFailedStopReason, requestedTerminal } from "../job/finalize.ts";
+import { finalizeJob, isFailedStopReason, type JobEnd, requestedEnd } from "../job/finalize.ts";
 import { jobMembership } from "../job/group-cabinet.ts";
-import { formatDuration, type TerminalState } from "../job/job.ts";
-import { appendLimenLog, readRecord, textFile, transition, writeProgress } from "../job/record.ts";
+import { formatDuration } from "../job/job.ts";
+import {
+	appendLimenLog,
+	type DetectedFailure,
+	engineStopKind,
+	type JobRecord,
+	limitReset,
+	readRecord,
+	refusalDetail,
+	textFile,
+	transition,
+	writeProgress,
+} from "../job/record.ts";
 import { enqueueSteer } from "../job/steer-inbox.ts";
 import { platform, type SignalResult } from "../platform/platform.ts";
 import { limitCount } from "../project/limits.ts";
@@ -45,7 +56,9 @@ export async function runInternalJob(): Promise<void> {
 		membership &&
 		(membership.run.stopped || Date.now() >= (membership.member?.deadline ?? membership.run.deadline))
 	) {
-		await finalizeJob(jobDir, "failed", "group deadline or stop before engine launch");
+		// A group's deadline is the job's time limit, so its end before the engine starts is a timeout (D-095).
+		const detail = "group deadline or stop before engine launch";
+		await finalizeJob(jobDir, { state: "failed", failure: { kind: "timeout", detail } });
 		return;
 	}
 	// The spawner started this process in the job's own scope (A-029); outside it, the job's end could not reach what
@@ -53,11 +66,8 @@ export async function runInternalJob(): Promise<void> {
 	const unit = jobScope(jobId);
 	const cgroup = platform.ownCgroup();
 	if (!cgroup?.endsWith(`/${unit}`)) {
-		await finalizeJob(
-			jobDir,
-			"failed",
-			`not in its scope: the wrapper runs in cgroup ${cgroup ?? "unknown"}, not ${unit}`,
-		);
+		const detail = `not in its scope: the wrapper runs in cgroup ${cgroup ?? "unknown"}, not ${unit}`;
+		await finalizeJob(jobDir, { state: "failed", failure: { kind: "launch", detail } });
 		return;
 	}
 	const preamble = await readFile(preambleFile, "utf8");
@@ -114,8 +124,7 @@ export async function runInternalJob(): Promise<void> {
 	const endBeforeEngine = async (stage: string) => {
 		await pending;
 		const requested = (await readRecord(jobDir))?.stopRequested ?? null;
-		const { state, detail } = signalledEnding(requested, "SIGTERM", stage);
-		await finalizeJob(jobDir, state, detail, { shutdownDeadline });
+		await finalizeJob(jobDir, signalledEnding(requested, "SIGTERM", stage), { shutdownDeadline });
 	};
 	const record = await readRecord(jobDir);
 	const profile = jobProfile(record);
@@ -149,8 +158,8 @@ export async function runInternalJob(): Promise<void> {
 	if (typeof queueEnd === "object") {
 		await pending;
 		const requested = (await readRecord(jobDir))?.stopRequested ?? null;
-		const ending: Ending = signalledEnding(requested, null) ?? { state: "failed", detail: queueEnd.failed };
-		await finalizeJob(jobDir, ending.state, ending.detail, { shutdownDeadline });
+		const queueFailure: JobEnd = { state: "failed", failure: { kind: "queue", detail: queueEnd.failed } };
+		await finalizeJob(jobDir, signalledEnding(requested, null) ?? queueFailure, { shutdownDeadline });
 		return;
 	}
 	const notice = await textFile(`${jobDir}/start-notice`);
@@ -163,7 +172,8 @@ export async function runInternalJob(): Promise<void> {
 	}
 	const missing = worktreeMissing(worktree);
 	if (missing) {
-		await finalizeJob(jobDir, "failed", missing, { shutdownDeadline });
+		const options = { shutdownDeadline };
+		await finalizeJob(jobDir, { state: "failed", failure: { kind: "launch", detail: missing } }, options);
 		return;
 	}
 	// The timeout and a group deadline count from engine start, so time in the start queue never counts against them.
@@ -176,25 +186,34 @@ export async function runInternalJob(): Promise<void> {
 	let exhaustionTermination = Promise.resolve();
 	// The engine has exited and the last of its stream is in the job's files: what the end of the scope waits for.
 	const settled = Promise.withResolvers<void>();
-	const exhaust = (reason: string) => {
+	// A limit that runs out ends the job with its own kind (A-016 (1)): `timeout`, `tool-cap` or `stall`.
+	const exhaust = (failure: DetectedFailure) => {
 		if (exhausted) {
 			return;
 		}
-		exhausted = reason;
+		exhausted = failure.detail;
 		const graceEnd = Date.now() + stopGraceMs();
 		exhaustionTermination = (async () => {
-			await appendLimenLog(jobDir, `${reason}; sending TERM`).catch(() => {});
 			// This TERM comes back to the wrapper too, and its handler leaves it alone: the exhaustion has its own grace.
 			groupTermed = true;
-			platform.signalProcessGroup(process.pid, "SIGTERM");
+			const sent = platform.signalProcessGroup(process.pid, "SIGTERM");
+			// The line names the TERM's result, as the TERM handler's do (T-01). A failed write of it goes to `failLog`,
+			// which writes a `log write failed` line and gives up when that write fails too.
+			await appendLimenLog(jobDir, signalLine(failure.detail, "TERM", `process group ${process.pid}`, sent)).catch(
+				failLog,
+			);
 			// The group gets its grace after the TERM; then the end of the job's scope kills what is left, the engine
 			// included when it ignored the TERM, and this wrapper with it (A-029). A KILL of this group would end the
 			// wrapper before it ends its scope, so it is only the fallback for an end of the scope that failed: then the
 			// engine still ends, and this wrapper's wait for it with it.
-			await finalizeJob(jobDir, "failed", reason, {
-				beforeScopeEnd: () => settledBy(settled.promise, graceEnd),
-				onScopeNotEnded: () => platform.signalProcessGroup(process.pid, "SIGKILL"),
-			});
+			await finalizeJob(
+				jobDir,
+				{ state: "failed", failure },
+				{
+					beforeScopeEnd: () => settledBy(settled.promise, graceEnd),
+					onScopeNotEnded: () => platform.signalProcessGroup(process.pid, "SIGKILL"),
+				},
+			);
 		})();
 	};
 	const provider = transport("LIMEN_PROVIDER");
@@ -208,6 +227,7 @@ export async function runInternalJob(): Promise<void> {
 			`${HOOK}/finish.ts`,
 			`${HOOK}/steering.ts`,
 			`${HOOK}/communication.ts`,
+			`${HOOK}/rate-limit.ts`,
 			...((await jobMembership(jobDir)) ? [`${HOOK}/group-peer.ts`] : []),
 			...(await readWorkerExtensions(jobDir, record)),
 		],
@@ -225,6 +245,7 @@ export async function runInternalJob(): Promise<void> {
 		activityAt: 0,
 		assistant: "",
 		stop: "",
+		stopAt: 0,
 		tool: "",
 		lastTool: "",
 		toolCalls: 0,
@@ -239,7 +260,7 @@ export async function runInternalJob(): Promise<void> {
 					() => {
 						tools += 1;
 						if (tools >= toolCallCap()) {
-							exhaust(`tool-call cap reached after ${tools} calls`);
+							exhaust({ kind: "tool-cap", detail: `tool-call cap reached after ${tools} calls` });
 						}
 						return tools;
 					},
@@ -269,11 +290,16 @@ export async function runInternalJob(): Promise<void> {
 		seen.progress += 1;
 		pending = pending.then(() => appendFile(`${jobDir}/log`, chunk.toString())).catch(failLog);
 	});
-	// Whether the wrapper got a TERM is taken once, as the engine's outcome resolves: a TERM after the engine's end reached
-	// no engine and changes nothing (A-019).
+	// Whether the wrapper got a TERM is taken once, at the engine's exit: a TERM after it reached no engine and changes
+	// nothing (A-019), also while a process the engine left still holds its pipes. The outcome waits for `close`, so the
+	// last of the stream is read first (the D-092 note).
+	let termedAtExit: boolean | undefined;
 	const outcome = new Promise<EngineOutcome>((resolve) => {
 		child.once("error", (error) => resolve({ code: null, signal: null, error, termed }));
-		child.once("close", (code, signal) => resolve({ code, signal, termed }));
+		child.once("exit", () => {
+			termedAtExit = termed;
+		});
+		child.once("close", (code, signal) => resolve({ code, signal, termed: termedAtExit ?? termed }));
 	});
 	await appendLimenLog(jobDir, `worker started, time limit ${formatDuration(timeoutMs)}`);
 	const enginePid = child.pid;
@@ -343,9 +369,8 @@ export async function runInternalJob(): Promise<void> {
 			return;
 		}
 		await clearUncertain();
-		exhaust(
-			`stalled tool ${seen.tool}: ${stallWatch.previous?.children.length ? "CPU-idle child" : "child exited"} for ${Math.round(toolStallMs() / 1000)}s`,
-		);
+		const how = stallWatch.previous?.children.length ? "CPU-idle child" : "child exited";
+		exhaust({ kind: "stall", detail: `stalled tool ${seen.tool}: ${how} for ${Math.round(toolStallMs() / 1000)}s` });
 	};
 	const checkStall = () => {
 		if (observing || exhausted || !enginePid) {
@@ -363,7 +388,7 @@ export async function runInternalJob(): Promise<void> {
 			});
 	};
 	const stallTimer = setInterval(checkStall, 3_000);
-	const timeout = setTimeout(() => exhaust(`timeout after ${timeoutMs}ms`), timeoutMs);
+	const timeout = setTimeout(() => exhaust({ kind: "timeout", detail: `timeout after ${timeoutMs}ms` }), timeoutMs);
 	// A model cannot see the clock; one steer at 80% lets it leave a commit or a verdict before the timeout.
 	const steerAt = Math.round(timeoutMs * 0.8);
 	const deadlineSteer = setTimeout(() => {
@@ -393,8 +418,8 @@ export async function runInternalJob(): Promise<void> {
 	// The record is read after that end, so it holds every stop request written before its TERM (A-052). An exit code
 	// alone, as Pi's 143 after a TERM sent to it alone, is no signal and keeps kind `exit`.
 	await endGate(jobDir);
-	const requested = (await readRecord(jobDir))?.stopRequested ?? null;
-	const ending = signalledEnding(requested, result.termed ? "SIGTERM" : result.signal);
+	const current = await readRecord(jobDir);
+	const ending = signalledEnding(current?.stopRequested ?? null, result.termed ? "SIGTERM" : result.signal);
 	// The Herdr wake must end before a stop's KILL also when the stop's TERM came after the engine's end.
 	const options = { shutdownDeadline };
 	if (ending) {
@@ -402,26 +427,60 @@ export async function runInternalJob(): Promise<void> {
 		// after a TERM (E-17).
 		note(engineEndLine(result));
 		await pending;
-		await finalizeJob(jobDir, ending.state, ending.detail, options);
-	} else if (result.error) {
-		await finalizeJob(jobDir, "failed", result.error.message, options);
-	} else if (result.code === 0) {
-		// A `finish` handoff already in `result` outranks the words the model wrote after it.
-		if (seen.assistant && !(await textFile(`${jobDir}/result`))) {
-			await atomicWrite(`${jobDir}/result`, `${seen.assistant}\n`).catch(() => {});
-		}
-		const failedReason = isFailedStopReason(seen.stop) ? seen.stop : "";
-		await finalizeJob(jobDir, failedReason ? "failed" : "done", failedReason || `${profile.id} exited 0`, options);
-	} else {
-		await finalizeJob(jobDir, "failed", `worker exited with code ${result.code ?? "unknown"}`, options);
+		await finalizeJob(jobDir, ending, options);
+		return;
 	}
+	// A `finish` handoff already in `result` outranks the words the model wrote after it.
+	if (!result.error && result.code === 0 && seen.assistant && !(await textFile(`${jobDir}/result`))) {
+		await atomicWrite(`${jobDir}/result`, `${seen.assistant}\n`).catch(() => {});
+	}
+	await finalizeJob(jobDir, engineEnding(result, seen, current, profile.id), options);
 }
 export async function failInternalJob(error: unknown): Promise<void> {
 	const jobDir = transport("LIMEN_JOB_DIR");
 	if (!jobDir) {
 		return;
 	}
-	await finalizeJob(jobDir, "failed", error instanceof Error ? error.message : String(error));
+	// An error the wrapper itself throws is Limen's own failure (D-095, the class `internal` of T-02).
+	const detail = error instanceof Error ? error.message : String(error);
+	await finalizeJob(jobDir, { state: "failed", failure: { kind: "internal", detail } });
+}
+/**
+ * The end of a job whose engine ended by itself, no stop request, TERM or signal deciding it: a spawn error is a
+ * `launch` failure, since no engine ran; exit 0 is `done`, or the failure of a failed stop reason; any other exit
+ * `exit`. A hook's refusal the record holds (T-32 (4)) makes `done`, `exit` and an `engine-error` stop reason `failed`,
+ * kind `engine-error`, while a `quota` stop reason keeps its kind, since the job's first cause stays (A-019) and R-034
+ * resumes `quota` jobs.
+ */
+function engineEnding(result: EngineOutcome, seen: Seen, record: JobRecord | undefined, engine: string): JobEnd {
+	if (result.error) {
+		return { state: "failed", failure: { kind: "launch", detail: result.error.message } };
+	}
+	const detail = `worker exited with code ${result.code ?? "unknown"}`;
+	const exited: JobEnd = { state: "failed", failure: { kind: "exit", detail } };
+	const own =
+		result.code === 0 ? (stopFailure(seen, record) ?? { state: "done", detail: `${engine} exited 0` }) : exited;
+	if (record?.refusal && !(own.state === "failed" && own.failure.kind === "quota")) {
+		return { state: "failed", failure: { kind: "engine-error", detail: refusalDetail(record.refusal) } };
+	}
+	return own;
+}
+/**
+ * The failure of an engine that stopped on `error` or `aborted` with the provider's text, the one detector of `quota`
+ * and an engine's `engine-error` (A-016 (1)); undefined for any other stop reason. The reset time of `quota` is that of
+ * the `kendex:rate-limit` event the record holds, else the one the provider's errorMessage names, read at the time the
+ * stop reason came (E-9); it stays null when neither gives one (A-016 (4)).
+ */
+function stopFailure(seen: Seen, record: JobRecord | undefined): JobEnd | undefined {
+	if (!isFailedStopReason(seen.stop)) {
+		return undefined;
+	}
+	const kind = engineStopKind(seen.stop);
+	if (kind !== "quota") {
+		return { state: "failed", failure: { kind, detail: seen.stop } };
+	}
+	const resetAt = record?.rateLimit?.resetAt ?? limitReset(seen.stop, seen.stopAt);
+	return { state: "failed", failure: { kind, detail: seen.stop, resetAt } };
 }
 /** How the engine ended, and whether the wrapper had got a TERM by then. */
 type EngineOutcome = {
@@ -440,21 +499,20 @@ function engineEndLine({ code, signal, error }: EngineOutcome): string {
 	}
 	return error ? `engine error: ${error.message}` : `engine exited with code ${code ?? "unknown"}`;
 }
-/** A terminal state and its detail, as the wrapper ends a job with them. */
-type Ending = { readonly state: TerminalState; readonly detail: string };
 /**
  * The end of a job that no limit exhausted, decided here for each stage of the wrapper (A-020, A-052): a stop request
  * in the record ends the job as `limen stop` asked, whoever finishes first (A-019), so a `done:` stop ends `done`; else
- * `signal`, the TERM the wrapper got or else the signal the engine died by, ends it `failed` with the signal's name and
- * `stage`, where the job stood when no engine ran yet. With neither, undefined: the engine's own exit decides.
+ * `signal`, the TERM the wrapper got or else the signal the engine died by, ends it `failed`, kind `signal`, with the
+ * signal's name and `stage`, where the job stood when no engine ran yet. With neither, undefined: the engine's own exit
+ * decides.
  */
-function signalledEnding(requested: string | null, signal: NodeJS.Signals, stage?: string): Ending;
-function signalledEnding(requested: string | null, signal: NodeJS.Signals | null, stage?: string): Ending | undefined;
-function signalledEnding(requested: string | null, signal: NodeJS.Signals | null, stage = ""): Ending | undefined {
+function signalledEnding(requested: string | null, signal: NodeJS.Signals, stage?: string): JobEnd;
+function signalledEnding(requested: string | null, signal: NodeJS.Signals | null, stage?: string): JobEnd | undefined;
+function signalledEnding(requested: string | null, signal: NodeJS.Signals | null, stage = ""): JobEnd | undefined {
 	if (requested) {
-		return { state: requestedTerminal(requested), detail: requested };
+		return requestedEnd(requested);
 	}
-	return signal ? { state: "failed", detail: `killed by ${signal}${stage}` } : undefined;
+	return signal ? { state: "failed", failure: { kind: "signal", detail: `killed by ${signal}${stage}` } } : undefined;
 }
 /**
  * The log line of a signal the TERM handler sent, after `why`, with its result (T-01): a `missing` target had already
@@ -494,6 +552,8 @@ type Seen = {
 	activityAt: number;
 	assistant: string;
 	stop: string;
+	/** When the last assistant message came, the time a limit's text names its reset after (E-9). */
+	stopAt: number;
 	/** The last tool with its detail, for the stall rule and its messages. */
 	tool: string;
 	/** The last tool's name and the tool count, as the progress file shows them. */
@@ -529,6 +589,7 @@ async function recordEvents(
 		} else if (event.kind === "assistant") {
 			seen.assistant = event.text;
 			seen.stop = event.stopReason ?? "";
+			seen.stopAt = Date.now();
 			if (event.text) {
 				await appendFile(`${jobDir}/log`, `${event.text}\n`);
 			}

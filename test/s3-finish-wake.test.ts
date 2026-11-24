@@ -118,6 +118,11 @@ test("a job that ends done, failed or on a provider error wakes its session once
 	await release(second);
 	await until(second, () => engineEvents(second).some((event) => event.event === "exit"));
 	assert.deepEqual(states, { done: "done", failed: "failed", provider: "failed" });
+	// T-31 (3): each end has the kind its detector set (A-016 (1)): a nonzero exit, and an engine error with no limit.
+	assert.deepEqual(
+		[jobRecord(p, ids.failed)?.failure?.kind, jobRecord(p, ids.provider)?.failure?.kind],
+		["exit", "engine-error"],
+	);
 	assert.equal(jobFile(p, ids.done, "log").split("note check sent").length, 2);
 	// A provider error after a commit fails the job (967ab4b recorded it as done) and keeps the commit on its branch.
 	assert.equal(git(p.root, "rev-list", "--count", `main..${jobRecord(p, ids.provider)?.branch}`), "1");
@@ -151,6 +156,11 @@ test("stop, timeout and a stalled tool each end a job once and wake its session 
 	assert.equal(limen(p, ["stop", ids.stopped, "test stop"]).status, 0);
 	const states = Object.fromEntries(Object.entries(ids).map(([name, id]) => [name, waitJob(p, id)]));
 	assert.deepEqual(states, { stopped: "stopped", timeout: "failed", stall: "failed" });
+	// T-31 (3): each end has the kind its detector set (A-016 (1)).
+	assert.deepEqual(
+		[jobRecord(p, ids.timeout)?.failure?.kind, jobRecord(p, ids.stall)?.failure?.kind],
+		["timeout", "stall"],
+	);
 	assert.equal(jobFile(p, ids.timeout, "log").match(/steered: 1 min left before the timeout: /g)?.length, 1);
 	assert.match(
 		jobFile(p, ids.stall, "log"),
@@ -177,8 +187,8 @@ test("the tool cap of the project's limits file ends a job once and wakes its se
 	await delivered(Object.values(ids));
 	const log = jobFile(p, ids.cap, "log");
 	assert.deepEqual(
-		[state, log.match(/\] failed: (tool-call cap reached after \d+ calls)/)?.[1]],
-		["failed", "tool-call cap reached after 1 calls"],
+		[state, log.match(/\] failed: (tool-call cap reached after \d+ calls)/)?.[1], jobRecord(p, ids.cap)?.failure?.kind],
+		["failed", "tool-call cap reached after 1 calls", "tool-cap"],
 	);
 	assert.equal(log.match(/\] (?:done|failed|stopped):/g)?.length, 1);
 	wokeOnce(ids, [coord]);

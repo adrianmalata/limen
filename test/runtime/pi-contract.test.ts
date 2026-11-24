@@ -87,6 +87,10 @@ export interface ExtensionContext {
 }
 export type ExtensionHandler<E, R = undefined> = (event: E, ctx: ExtensionContext) => Promise<R | void> | R | void;
 export interface CustomMessage { customType: string; content: string | (TextContent | ImageContent)[]; display: boolean; details?: unknown }
+export interface EventBus {
+	emit(channel: string, data: unknown): void;
+	on(channel: string, handler: (data: unknown) => void): () => void;
+}
 export interface ExtensionAPI {
 	on(event: "session_start", handler: ExtensionHandler<SessionStartEvent>): () => void;
 	on(event: "session_shutdown", handler: ExtensionHandler<SessionShutdownEvent>): () => void;
@@ -113,6 +117,7 @@ export interface ExtensionAPI {
 	}): void;
 	sendMessage(message: Pick<CustomMessage, "customType" | "content" | "display" | "details">, options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" }): void;
 	sendUserMessage(content: string | (TextContent | ImageContent)[], options?: { deliverAs?: "steer" | "followUp" }): void;
+	events: EventBus;
 }
 `;
 
@@ -171,6 +176,16 @@ test("the contract fails Pi types that lack a context field the adapter reads, a
 	const diagnostics = await piContract(types);
 	assert.ok(
 		diagnostics.some((line) => line.includes("ExtensionContext.shutdown checks nothing")),
+		diagnostics.join("\n\n"),
+	);
+});
+
+// E-9, T-32 (1): the rate-limit event reaches a hook only on Pi's event bus, so the adapter declares it too.
+test("the contract fails Pi types that lack the event bus the adapter declares, and names it", async (t) => {
+	const types = await fixture(t, { change: (text) => text.replace("\tevents: EventBus;\n", "") });
+	const diagnostics = await piContract(types);
+	assert.ok(
+		diagnostics.some((line) => line.includes("ExtensionAPI.events checks nothing")),
 		diagnostics.join("\n\n"),
 	);
 });

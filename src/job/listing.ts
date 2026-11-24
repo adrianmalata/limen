@@ -197,6 +197,18 @@ function scopeText(record: JobRecord): string {
 		`OOM kills ${shown(scope.oomKills, String)}`,
 	].join(" · ");
 }
+/**
+ * The failure of a failed job (A-016 (1)): its kind, `unknown` for a migrated record whose text no pattern named, and
+ * for `quota` the reset time, `unknown` when none was read (R-034 resumes it); "" for a job that did not fail.
+ */
+function failureText(record: JobRecord): string {
+	const failure = record.state === "failed" ? record.failure : null;
+	if (!failure) {
+		return "";
+	}
+	const kind = failure.kind ?? "unknown";
+	return kind === "quota" ? `${kind} · resets ${failure.resetAt ?? "unknown"}` : kind;
+}
 /** Who ran the spawn: the spawner line, else the job that spawned it. */
 function spawnedBy(record: JobRecord): string {
 	return record.spawner || (record.spawnedBy ? `job ${record.spawnedBy}` : "");
@@ -212,6 +224,7 @@ function jobBlocks(loaded: LoadedJob, facts: JobFacts): string[] {
 		["parent", record.parent],
 		["spawned-by", detailed ? spawnedBy(record) : ""],
 		["candidate", record.candidate],
+		["failure", detailed ? failureText(record) : ""],
 		["engine", engine && engine !== "pi" ? engine : ""],
 		["model", evidence.model],
 		["tokens", evidence.tokens],
@@ -283,6 +296,7 @@ function shownEvidence(loaded: LoadedJob, texts: ReturnType<typeof recordTexts>,
 		...(evidence.model ? { model: evidence.model } : {}),
 		...(evidence.tokens ? { tokens: evidence.tokens } : {}),
 		...(detailed && scopeText(record) ? { scope: scopeText(record) } : {}),
+		...(detailed && failureText(record) ? { failure: failureText(record) } : {}),
 		...(evidence.cleanup ? { cleanup: evidence.cleanup } : {}),
 		...(evidence.herdrWake ? { herdrWake: evidence.herdrWake } : {}),
 		...(diffstat ? { diffstat } : {}),

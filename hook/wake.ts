@@ -1,9 +1,9 @@
 import { execFile, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, type FSWatcher, mkdirSync, readdirSync, readFileSync, watch } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { atomicWriteSync, TEMPORARY_NAME } from "../src/atomic-write.ts";
 import { transport } from "../src/config.ts";
-import { coordinatorRegistration } from "../src/integrations/coordinator-registration.ts";
+import { coordinatorProject, coordinatorRegistration } from "../src/integrations/coordinator-registration.ts";
 import { herdrBinary } from "../src/integrations/herdr.ts";
 import { closedFeatures, closedJobFeatures, derivePulse, isTerminal, type Pulse, SESSION_ID } from "../src/job/job.ts";
 import {
@@ -51,6 +51,7 @@ import {
 	piCommandArgs,
 	piContext,
 	piEvent,
+	recorded,
 } from "../src/runtime/pi-api.ts";
 import { ownerState, reapDeadJobs } from "../src/runtime/reap.ts";
 
@@ -834,7 +835,7 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 	 * (6)): the hook does nothing there and says so once.
 	 */
 	const projectToWake = (context: Pick<PiContext, "cwd" | "ui">): string | undefined => {
-		const root = projectRoot(context.cwd);
+		const root = coordinatorProject(context.cwd);
 		const unmigrated = root && notMigratedReason(join(root, ".limen", "jobs"));
 		if (unmigrated) {
 			stopTimers();
@@ -843,152 +844,167 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 		}
 		return root;
 	};
-	pi.on("session_start", (_event, rawContext) => {
-		if (transport("LIMEN_JOB") === "1") {
-			return;
-		}
-		const context = piContext("session_start", rawContext, ["cwd", "isIdle", "sessionManager", "ui"]);
-		const root = projectToWake(context);
-		if (!root) {
-			return;
-		}
-		const jobs = join(root, ".limen", "jobs");
-		coordinator.start(root, context);
-		stopTimers();
-		const id = context.sessionManager.getSessionId();
-		if (!SESSION_ID.test(id)) {
-			return;
-		}
-		try {
-			mkdirSync(jobs, { recursive: true });
-		} catch {
-			return;
-		}
-		void registerProject(root).catch(() => {});
-		active = true;
-		sessionGeneration += 1;
-		session = context;
-		jobsDir = jobs;
-		limenDir = join(root, ".limen");
-		sessionId = id;
-		lastSweepAt = 0;
-		initialSweep = true;
-		footerAlive = true;
-		footerNoted = false;
-		tabTail = undefined;
-		ownerTurnAt = 0;
-		finishedCache = undefined;
-		pendingDeliveries.clear();
-		activeDeliveries.clear();
-		firstDead.clear();
-		reportedDamage.clear();
-		damaged.clear();
-		reopenAll();
-		refreshTicks = 0;
-		listing = undefined;
-		startedEarlier.clear();
-		ownsJobs = undefined;
-		cacheExpiresAt = 0;
-		herdr = herdrTarget();
-		const tab = process.env.HERDR_TAB_ID?.trim();
-		for (const jobId of readdirSync(jobs)) {
-			const job = join(jobs, jobId);
-			const record = recordOf(job);
-			if (record?.state !== "running") {
-				continue;
+	pi.on(
+		"session_start",
+		recorded((_event: unknown, rawContext: unknown) => {
+			if (transport("LIMEN_JOB") === "1") {
+				return;
 			}
-			if (!routable(job)) {
-				enrollLegacyRunning(job);
+			const context = piContext("session_start", rawContext, ["cwd", "isIdle", "sessionManager", "ui"]);
+			const root = projectToWake(context);
+			if (!root) {
+				return;
 			}
-			// A job recording origin-pane is woken through Herdr at finalize; subscribing here would wake the same coordinator twice.
-			if (tab && record.origin.tab === tab && !record.origin.pane) {
-				subscribeSession(job, id);
+			const jobs = join(root, ".limen", "jobs");
+			coordinator.start(root, context);
+			stopTimers();
+			const id = context.sessionManager.getSessionId();
+			if (!SESSION_ID.test(id)) {
+				return;
 			}
-			if (subscribed(job, id) && record.identity?.pid && record.queued === null) {
-				claimMarker(job, "started", id);
-				startedEarlier.add(jobId);
-			}
-		}
-		watcher = watch(jobs, { recursive: true }, (_event, filename) => jobsChanged(filename));
-		watcher.unref();
-		watcher.on("error", () => {
-			watcher?.close();
-			// Without events the listing is read on every sweep again.
-			watcher = undefined;
-			cacheExpiresAt = 0;
-			clearStatus();
-		});
-		sweepTimer = setInterval(() => {
-			refreshTicks += 1;
-			sweep();
-		}, SWEEP_MS);
-		sweepTimer.unref();
-		sweep();
-	});
-	pi.on("message_start", (raw) => {
-		const message = eventMessage(piEvent("message_start", raw));
-		if (message.role !== "user") {
-			return;
-		}
-		// Every Limen wake opens with "Limen job"; any other user message is the owner's turn and resets the title's finished count.
-		if (!message.content.startsWith("Limen job ")) {
-			ownerTurnAt = Date.now();
-		}
-		const pending = [...pendingDeliveries.values()].find(
-			(candidate) => !candidate.entered && candidate.message === message.content,
-		);
-		if (!pending) {
-			return;
-		}
-		pending.entered = true;
-		activeDeliveries.add(pending.claim);
-	});
-	pi.on("message_end", (raw) => {
-		const message = eventMessage(piEvent("message_end", raw));
-		if (message.role !== "assistant") {
-			return;
-		}
-		const failed = message.stopReason === "error" || message.stopReason === "aborted";
-		for (const claim of activeDeliveries) {
-			const pending = pendingDeliveries.get(claim);
-			if (!pending) {
-				continue;
-			}
-			if (failed) {
-				pending.errored = true;
-			} else {
-				pending.answered = true;
-			}
-		}
-	});
-	pi.on("agent_settled", () => {
-		for (const pending of pendingDeliveries.values()) {
-			pending.settled = true;
-		}
-		confirmDeliveries();
-		activeDeliveries.clear();
-		finishedCache = undefined;
-		sweep();
-	});
-	pi.on("session_shutdown", () => {
-		coordinator.shutdown();
-		if (!active && !sweepTimer) {
-			return;
-		}
-		watcher?.close();
-		watcher = undefined;
-		for (const pending of pendingDeliveries.values()) {
 			try {
-				atomicWriteSync(join(pending.claim, "live"), "closed\n");
+				mkdirSync(jobs, { recursive: true });
 			} catch {
-				// The claim may already have been confirmed or recovered.
+				return;
 			}
-		}
-		pendingDeliveries.clear();
-		activeDeliveries.clear();
-		retire(false);
-		releaseHerdr();
-	});
+			void registerProject(root).catch(() => {});
+			active = true;
+			sessionGeneration += 1;
+			session = context;
+			jobsDir = jobs;
+			limenDir = join(root, ".limen");
+			sessionId = id;
+			lastSweepAt = 0;
+			initialSweep = true;
+			footerAlive = true;
+			footerNoted = false;
+			tabTail = undefined;
+			ownerTurnAt = 0;
+			finishedCache = undefined;
+			pendingDeliveries.clear();
+			activeDeliveries.clear();
+			firstDead.clear();
+			reportedDamage.clear();
+			damaged.clear();
+			reopenAll();
+			refreshTicks = 0;
+			listing = undefined;
+			startedEarlier.clear();
+			ownsJobs = undefined;
+			cacheExpiresAt = 0;
+			herdr = herdrTarget();
+			const tab = process.env.HERDR_TAB_ID?.trim();
+			for (const jobId of readdirSync(jobs)) {
+				const job = join(jobs, jobId);
+				const record = recordOf(job);
+				if (record?.state !== "running") {
+					continue;
+				}
+				if (!routable(job)) {
+					enrollLegacyRunning(job);
+				}
+				// A job recording origin-pane is woken through Herdr at finalize; subscribing here would wake the same coordinator twice.
+				if (tab && record.origin.tab === tab && !record.origin.pane) {
+					subscribeSession(job, id);
+				}
+				if (subscribed(job, id) && record.identity?.pid && record.queued === null) {
+					claimMarker(job, "started", id);
+					startedEarlier.add(jobId);
+				}
+			}
+			watcher = watch(jobs, { recursive: true }, (_event, filename) => jobsChanged(filename));
+			watcher.unref();
+			watcher.on("error", () => {
+				watcher?.close();
+				// Without events the listing is read on every sweep again.
+				watcher = undefined;
+				cacheExpiresAt = 0;
+				clearStatus();
+			});
+			sweepTimer = setInterval(() => {
+				refreshTicks += 1;
+				sweep();
+			}, SWEEP_MS);
+			sweepTimer.unref();
+			sweep();
+		}),
+	);
+	pi.on(
+		"message_start",
+		recorded((raw: unknown) => {
+			const message = eventMessage(piEvent("message_start", raw));
+			if (message.role !== "user") {
+				return;
+			}
+			// Every Limen wake opens with "Limen job"; any other user message is the owner's turn and resets the title's finished count.
+			if (!message.content.startsWith("Limen job ")) {
+				ownerTurnAt = Date.now();
+			}
+			const pending = [...pendingDeliveries.values()].find(
+				(candidate) => !candidate.entered && candidate.message === message.content,
+			);
+			if (!pending) {
+				return;
+			}
+			pending.entered = true;
+			activeDeliveries.add(pending.claim);
+		}),
+	);
+	pi.on(
+		"message_end",
+		recorded((raw: unknown) => {
+			const message = eventMessage(piEvent("message_end", raw));
+			if (message.role !== "assistant") {
+				return;
+			}
+			const failed = message.stopReason === "error" || message.stopReason === "aborted";
+			for (const claim of activeDeliveries) {
+				const pending = pendingDeliveries.get(claim);
+				if (!pending) {
+					continue;
+				}
+				if (failed) {
+					pending.errored = true;
+				} else {
+					pending.answered = true;
+				}
+			}
+		}),
+	);
+	pi.on(
+		"agent_settled",
+		recorded(() => {
+			for (const pending of pendingDeliveries.values()) {
+				pending.settled = true;
+			}
+			confirmDeliveries();
+			activeDeliveries.clear();
+			finishedCache = undefined;
+			sweep();
+		}),
+	);
+	pi.on(
+		"session_shutdown",
+		recorded(() => {
+			coordinator.shutdown();
+			if (!active && !sweepTimer) {
+				return;
+			}
+			watcher?.close();
+			watcher = undefined;
+			for (const pending of pendingDeliveries.values()) {
+				try {
+					atomicWriteSync(join(pending.claim, "live"), "closed\n");
+				} catch {
+					// The claim may already have been confirmed or recovered.
+				}
+			}
+			pendingDeliveries.clear();
+			activeDeliveries.clear();
+			retire(false);
+			releaseHerdr();
+		}),
+	);
 	if (transport("LIMEN_JOB") === "1") {
 		return;
 	}
@@ -998,7 +1014,7 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 			const items = ["on", "off"].filter((value) => value.startsWith(prefix)).map((value) => ({ value, label: value }));
 			return items.length ? items : null;
 		},
-		async handler(rawArgs, rawContext) {
+		handler: recorded(async (rawArgs: unknown, rawContext: unknown) => {
 			const request = piCommandArgs("limen", rawArgs).trim();
 			const commandContext = piContext("command limen", rawContext, ["ui"]);
 			// A removed command typed here gets its removal line; any other word would toggle the mute state below.
@@ -1022,7 +1038,7 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 				}
 			}
 			commandContext.ui.notify(`limen wake ${muted ? "off" : "on"}${active ? "" : " (inactive here)"}`, "info");
-		},
+		}),
 	});
 }
 
@@ -1243,19 +1259,6 @@ async function pulseOf(jobs: string, id: string): Promise<Pulse> {
 		queued: (record?.queued ?? null) !== null,
 		...(activity ? { activity } : {}),
 	});
-}
-function projectRoot(cwd: string): string | undefined {
-	let dir = resolve(cwd);
-	for (;;) {
-		if (existsSync(join(dir, ".agents", "limen"))) {
-			return dir;
-		}
-		const parent = dirname(dir);
-		if (parent === dir) {
-			return undefined;
-		}
-		dir = parent;
-	}
 }
 function notifyBookkeeping(filename: string | null): boolean {
 	if (!filename) {

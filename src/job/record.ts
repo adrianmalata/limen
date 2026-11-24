@@ -52,7 +52,10 @@ const PROGRESS_BYTES = 64 * 1024;
 export const JOB_STATES = ["starting", "running", "done", "failed", "stopped"] as const;
 /** `starting`: published, its wrapper not yet running; `running`; and the terminal states. */
 export type JobState = (typeof JOB_STATES)[number];
-/** The failure kinds of A-016 (1). */
+/**
+ * The failure kinds of A-016 (1), then the two of D-095: `launch`, an end where the job's engine did not start, and
+ * `internal`, an error the job's wrapper itself threw.
+ */
 export const FAILURE_KINDS = [
 	"quota",
 	"timeout",
@@ -66,13 +69,35 @@ export const FAILURE_KINDS = [
 	"queue",
 	"read-only-violation",
 	"quota-exhausted",
+	"launch",
+	"internal",
 ] as const;
 export type FailureKind = (typeof FAILURE_KINDS)[number];
 
 /** The process that runs the job (A-056): written in the transition to `running`; each part null when unknown. */
 export type Identity = { readonly pid: number | null; readonly born: string | null; readonly bootId: string | null };
-/** Why a failed job failed: a kind of A-016 or null when no known pattern names it, the original text, the reset time. */
+/**
+ * Why a failed job failed (A-016 (1)): the kind the code that detected the failure set, the detail, and for `quota` the
+ * reset time, null when it was not read. The kind is null only in a record the migration wrote from a text no pattern
+ * names (D-057 (4)).
+ */
 export type Failure = { readonly kind: FailureKind | null; readonly detail: string; readonly resetAt: string | null };
+/** A failure as its detector passes it to the job's end: always with its kind; the reset time only for `quota`. */
+export type DetectedFailure = {
+	readonly kind: FailureKind;
+	readonly detail: string;
+	readonly resetAt?: string | null;
+};
+/**
+ * A `kendex:rate-limit` event the job's engine received (E-9): the limit's type and its reset time, each null when the
+ * event held none, and when it came.
+ */
+export type RateLimit = { readonly type: string | null; readonly resetAt: string | null; readonly at: string };
+/**
+ * A Limen hook's refusal of a Pi value of the wrong shape (T-32 (4)): the event, command or tool it came with, the field
+ * and the whole message of the guard's BAD_DATA, and when.
+ */
+export type Refusal = { readonly event: string; readonly field: string; readonly message: string; readonly at: string };
 /** A side channel of the terminal transition that failed (T-01), written with the terminal state. */
 export type SideFailure = { readonly channel: string; readonly message: string; readonly at: string };
 export type Transition = { readonly from: JobState | null; readonly to: JobState; readonly at: string };
@@ -175,6 +200,10 @@ export type JobRecord = Facts & {
 	readonly landed?: Landed;
 	/** Set once `limen abandon` saved the job's whole worktree on a branch (A-002); only `writeMarker` writes it. */
 	readonly abandoned?: Abandoned;
+	/** The last `kendex:rate-limit` event the job's engine received (E-9); a job that met none has none. */
+	readonly rateLimit?: RateLimit;
+	/** The first refusal of a Limen hook in the job (T-32 (4)), which its end reads; a job with none has none. */
+	readonly refusal?: Refusal;
 };
 
 /**
@@ -239,6 +268,8 @@ const RECORD_FIELDS = [
 	"migrated",
 	"landed",
 	"abandoned",
+	"rateLimit",
+	"refusal",
 ] as const;
 
 /** A full commit SHA, as `git rev-parse` gives it. */
@@ -725,7 +756,10 @@ export function queueLeft(record: JobRecord, at: string): { readonly queued: nul
 	return { queued: null, queueWait: wait.leftAt === null ? { ...wait, leftAt: at } : wait };
 }
 
-/** The failure `detail` names by today's patterns (D-057 (4)); a detail no pattern knows keeps a null kind (z. 10). */
+/**
+ * The failure the detail of an older record names, for the migration alone (D-057 (4)): each end that Limen writes now
+ * gets its kind from its detector (A-016 (1)). A detail no pattern knows keeps a null kind (z. 10).
+ */
 export function failureFrom(detail: string): Failure {
 	return { kind: failureKind(detail), detail, resetAt: null };
 }
@@ -745,9 +779,7 @@ const FAILURE_PATTERNS: ReadonlyArray<readonly [RegExp, FailureKind]> = [
 /**
  * The provider's text when a subscription limit is hit (D-071): "You've hit your session limit · resets <hour> (UTC)"
  * for the 5-hour limit (audit.md, gate 2 §1, Q1), "You've hit your weekly limit · …" for the weekly one, as the
- * seat's quota extension matches it (docs/seat/quota-resume.ts). The reset time stays null even where the text names
- * one: the migration fills in only the kind (D-057 (4)), and finalize will take it from the provider's field, not from
- * this text (R-029).
+ * seat's quota extension matches it (docs/seat/quota-resume.ts).
  */
 const SUBSCRIPTION_LIMIT = /hit your (?:[\w-]+ )?limit/i;
 function failureKind(detail: string): FailureKind | null {
@@ -756,12 +788,17 @@ function failureKind(detail: string): FailureKind | null {
 	if (known) {
 		return known;
 	}
-	// The engine's own stop reasons (`isFailedStopReason`, src/job/finalize.ts): the subscription limit or a 429 with a
-	// rate limit is the quota.
-	if (/^(?:error|aborted)(?::|$)/.test(text)) {
-		return SUBSCRIPTION_LIMIT.test(text) || isRateLimit(text) ? "quota" : "engine-error";
-	}
-	return null;
+	// The engine's own stop reasons (`isFailedStopReason`, src/job/finalize.ts), by the rule of their one detector.
+	return /^(?:error|aborted)(?::|$)/.test(text) ? engineStopKind(text) : null;
+}
+/**
+ * The kind of a job whose engine stopped on `stopReason`, `error` or `aborted` with the provider's text after it: a
+ * subscription limit or a 429 with a rate limit is `quota`, anything else `engine-error`. The wrapper, which detects
+ * that end, and the migration's patterns share this one rule (T-25 (1)); a stalled stream of the bridge, which it frames
+ * as a retryable overload, stays `engine-error` (R-029, Decision 6).
+ */
+export function engineStopKind(stopReason: string): "quota" | "engine-error" {
+	return SUBSCRIPTION_LIMIT.test(stopReason) || isRateLimit(stopReason) ? "quota" : "engine-error";
 }
 /**
  * A 429 of the provider's API with its rate-limit error: the one rule, which the failure kind and the stop summary of a
@@ -769,6 +806,121 @@ function failureKind(detail: string): FailureKind | null {
  */
 export function isRateLimit(text: string): boolean {
 	return /\b429\b/.test(text) && /rate_limit_error|rate limit/i.test(text);
+}
+
+/**
+ * The reset that a limit's text names, as the provider writes it (Q1): `resets 3pm (UTC)`, `resets 3:30pm (UTC)` or
+ * `resets Nov 26, 5pm (Europe/Warsaw)`, the zone in brackets.
+ */
+const RESET = /\bresets\s+(?:([A-Z][a-z]{2})\s+(\d{1,2}),\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(([^)]+)\)/i;
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** How far before the error a reset with a date may lie before it means that date of the next year. */
+const HALF_YEAR_MS = 183 * DAY_MS;
+
+/**
+ * The reset time, as an ISO time, that the provider's limit text `text` names (A-016 (1), E-9), read at the epoch time
+ * `said` the error came: a reset hour with no date is the first such hour after `said`, the 5-hour window's one
+ * reading; a reset with a month and a day is that time, in the year that puts it nearest to `said`. A text with no
+ * reset, or whose reset names no zone or a zone the clock does not know, gives null, so no zone is guessed (z. 10) and
+ * R-059's usage reading takes over (A-016 (4)).
+ */
+export function limitReset(text: string, said: number): string | null {
+	const found = RESET.exec(text);
+	const zone = found?.[6]?.trim();
+	if (!(found && zone && knownZone(zone))) {
+		return null;
+	}
+	const [, month, day, hourText, minuteText, half] = found;
+	const hour = (Number(hourText) % 12) + (half?.toLowerCase() === "pm" ? 12 : 0);
+	const minute = Number(minuteText ?? 0);
+	const local = new Date(said + zoneOffset(said, zone));
+	const [year, today] = [local.getUTCFullYear(), local.getUTCDate()];
+	if (month === undefined) {
+		const moment = instant({ year, month: local.getUTCMonth(), day: today, hour, minute }, zone);
+		const next =
+			moment > said ? moment : instant({ year, month: local.getUTCMonth(), day: today + 1, hour, minute }, zone);
+		return new Date(next).toISOString();
+	}
+	const index = MONTHS.indexOf(month.toLowerCase());
+	if (index < 0) {
+		return null;
+	}
+	const moment = instant({ year, month: index, day: Number(day), hour, minute }, zone);
+	const nearest =
+		moment < said - HALF_YEAR_MS
+			? instant({ year: year + 1, month: index, day: Number(day), hour, minute }, zone)
+			: moment;
+	return new Date(nearest).toISOString();
+}
+/** Whether the clock knows the time zone `zone`; Intl refuses an unknown one with a RangeError. */
+function knownZone(zone: string): boolean {
+	try {
+		new Intl.DateTimeFormat("en-US", { timeZone: zone });
+		return true;
+	} catch (error) {
+		if (error instanceof RangeError) {
+			return false;
+		}
+		throw error;
+	}
+}
+/** The offset of the time zone `zone` from UTC at the epoch time `at`, in milliseconds. */
+function zoneOffset(at: number, zone: string): number {
+	const format = new Intl.DateTimeFormat("en-US", {
+		timeZone: zone,
+		hourCycle: "h23",
+		year: "numeric",
+		month: "numeric",
+		day: "numeric",
+		hour: "numeric",
+		minute: "numeric",
+		second: "numeric",
+	});
+	const parts = new Map(format.formatToParts(at).map((part) => [part.type, Number(part.value)]));
+	const part = (name: Intl.DateTimeFormatPartTypes) => parts.get(name) ?? 0;
+	const wall = Date.UTC(part("year"), part("month") - 1, part("day"), part("hour"), part("minute"), part("second"));
+	return wall - Math.floor(at / 1000) * 1000;
+}
+/** A wall-clock time in a zone; the month counts from 0, and a day past the month's end runs on into the next month. */
+type WallClock = {
+	readonly year: number;
+	readonly month: number;
+	readonly day: number;
+	readonly hour: number;
+	readonly minute: number;
+};
+/** The epoch time of the wall-clock time `wall` in the time zone `zone`. */
+function instant(wall: WallClock, zone: string): number {
+	const guess = Date.UTC(wall.year, wall.month, wall.day, wall.hour, wall.minute);
+	return guess - zoneOffset(guess - zoneOffset(guess, zone), zone);
+}
+
+/** The detail of a job's end that a hook's refusal decides (T-32 (4)): what the guard refused, whole. */
+export function refusalDetail(refusal: Refusal): string {
+	return `a Limen hook refused ${refusal.message}`;
+}
+
+/**
+ * Writes a Limen hook's refusal of a Pi value into the record of the running job `jobDir` and the job's log (T-32
+ * (4)); the first refusal stays, since the job's end reads the first cause (A-019).
+ */
+export async function recordRefusal(jobDir: string, refusal: Refusal): Promise<void> {
+	await transition(jobDir, { from: ["running"], set: (record) => (record.refusal ? {} : { refusal }) });
+	await appendLimenLog(jobDir, refusalDetail(refusal));
+}
+
+/**
+ * Writes a `kendex:rate-limit` event the engine of the running job `jobDir` received into its record and the line
+ * `rate-limit event: <type>, resets <ISO time>` into its log, which seat step 3.4 reads (E-9); a later event replaces an
+ * earlier one, so the record holds the one nearest the limit's end.
+ */
+export async function recordRateLimit(jobDir: string, rateLimit: RateLimit): Promise<void> {
+	await transition(jobDir, { from: ["running"], set: { rateLimit } });
+	await appendLimenLog(
+		jobDir,
+		`rate-limit event: ${rateLimit.type ?? "unknown"}, resets ${rateLimit.resetAt ?? "unknown"}`,
+	);
 }
 
 /** Appends one Limen line to the job's log, which is appended to and never rewritten. */
@@ -884,6 +1036,24 @@ function abandonedOf(value: unknown, field: string): Abandoned {
 		at: isoTime(fields.get("at"), at(field, "at")),
 	};
 }
+function rateLimitOf(value: unknown, field: string): RateLimit {
+	const fields = object(["type", "resetAt", "at"])(value, field);
+	return {
+		type: nullOr(string)(fields.get("type"), at(field, "type")),
+		resetAt: nullOr(isoTime)(fields.get("resetAt"), at(field, "resetAt")),
+		at: isoTime(fields.get("at"), at(field, "at")),
+	};
+}
+/** The validator of a hook's refusal, which the record and a coordinator session's folder hold (T-32 (4)). */
+export function refusalOf(value: unknown, field: string): Refusal {
+	const fields = object(["event", "field", "message", "at"])(value, field);
+	return {
+		event: string(fields.get("event"), at(field, "event")),
+		field: string(fields.get("field"), at(field, "field")),
+		message: string(fields.get("message"), at(field, "message")),
+		at: isoTime(fields.get("at"), at(field, "at")),
+	};
+}
 function scopeOf(value: unknown, field: string): Scope {
 	const fields = object(["unit", "cgroup", "memoryPeakBytes", "cpuMicroseconds", "oomKills"])(value, field);
 	const reading = nullOr(numberIn({ integer: true, min: 0 }));
@@ -908,6 +1078,8 @@ function recordOf(value: unknown, field: string): JobRecord {
 	const migrated = fields.has("migrated") ? { migrated: read("migrated", migratedOf) } : {};
 	const landed = fields.has("landed") ? { landed: read("landed", landedOf) } : {};
 	const abandoned = fields.has("abandoned") ? { abandoned: read("abandoned", abandonedOf) } : {};
+	const rateLimit = fields.has("rateLimit") ? { rateLimit: read("rateLimit", rateLimitOf) } : {};
+	const refusal = fields.has("refusal") ? { refusal: read("refusal", refusalOf) } : {};
 	return {
 		version: read("version", oneOf([RECORD_VERSION])),
 		id: read("id", matching(SESSION_ID, "a job ID")),
@@ -947,6 +1119,8 @@ function recordOf(value: unknown, field: string): JobRecord {
 		...migrated,
 		...landed,
 		...abandoned,
+		...rateLimit,
+		...refusal,
 	};
 }
 function progressOf(value: unknown, field: string): Progress {

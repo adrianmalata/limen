@@ -1,5 +1,6 @@
 // The end of a job (A-019, T-01): its terminal transition through the record's one writer (src/job/record.ts), then
-// what follows from it. Before the transition it counts the job's commits, collects the open note checks and reads its
+// what follows from it. A failed end takes the failure its detector passes, kind and detail (A-016 (1)). Before the
+// transition it counts the job's commits, collects the open note checks and reads its
 // scope's readings, unless the finisher read them before it ended the scope itself, as the reaper does
 // (src/runtime/reap.ts); an OOM kill those readings count names a signal death's or a reaped wrapper's failure `oom`
 // (A-052). A side channel that fails there is written with the terminal state in `sideFailures`. The
@@ -17,11 +18,10 @@ import { commitList } from "../project/git.ts";
 import { jobScope } from "../runtime/launcher.ts";
 import { jobMembership, startGroupAdvance } from "./group-cabinet.ts";
 import { syncLifecycle } from "./group-events.ts";
-import type { TerminalState } from "./job.ts";
 import {
 	appendLimenLog,
+	type DetectedFailure,
 	type Failure,
-	failureFrom,
 	type JobRecord,
 	queueLeft,
 	readRecord,
@@ -38,6 +38,19 @@ export function isFailedStopReason(reason: string): boolean {
 }
 export const requestedTerminal = (reason: string): "done" | "stopped" =>
 	reason.startsWith("done:") ? "done" : "stopped";
+
+/**
+ * How a job ends: `done` or `stopped` with its detail, or `failed` with the failure the code that detected it passes
+ * (A-016 (1)), never one read back from a detail.
+ */
+export type JobEnd =
+	| { readonly state: "done" | "stopped"; readonly detail: string }
+	| { readonly state: "failed"; readonly failure: DetectedFailure };
+
+/** The end a stop request asks for: `limen stop`'s reason, `done` when it starts with `done:` (A-052). */
+export function requestedEnd(reason: string): JobEnd {
+	return { state: requestedTerminal(reason), detail: reason };
+}
 
 /** When the wrapper's Herdr wake must give up, and the states the job may end from (starting or running by default). */
 export type FinalizeOptions = {
@@ -76,15 +89,12 @@ export async function readScope(record: JobRecord): Promise<ScopeRead> {
 }
 
 /**
- * Ends the job of `jobDir` as `state` with `detail` when it is still in a state of `options.from`; true when this call
- * ended it, false when it was in another state or another finisher already had.
+ * Ends the job of `jobDir` as `end` says when it is still in a state of `options.from`; true when this call ended it,
+ * false when it was in another state or another finisher already had.
  */
-export async function finalizeJob(
-	jobDir: string,
-	state: TerminalState,
-	detail: string,
-	options: FinalizeOptions = {},
-): Promise<boolean> {
+export async function finalizeJob(jobDir: string, end: JobEnd, options: FinalizeOptions = {}): Promise<boolean> {
+	const { state } = end;
+	const detail = end.state === "failed" ? end.failure.detail : end.detail;
 	const from = options.from ?? ["starting", "running"];
 	const record = await readRecord(jobDir);
 	if (!(record && from.some((one) => one === record.state))) {
@@ -114,7 +124,7 @@ export async function finalizeJob(
 			await appendLimenLog(jobDir, line).catch((error: unknown) => sideFailures.push(sideFailure("log", error)));
 		},
 		set: (current) => ({
-			failure: state === "failed" ? recordedFailure(detail, current.scope ? readings : UNREAD) : null,
+			failure: end.state === "failed" ? recordedFailure(end.failure, current.scope ? readings : UNREAD) : null,
 			openChecks: open.length ? open : null,
 			commits,
 			// A job that ends while it waits leaves the queue here, its wait kept with the time it left (A-036).
@@ -137,13 +147,13 @@ export async function finalizeJob(
 }
 
 /**
- * The failure `detail` names (src/job/record.ts), with kind `oom` in place of `signal` or `reaped` when `readings`, the
- * scope's readings the terminal record holds, count an OOM kill (A-052): the kernel's OOM killer ends a process by
- * SIGKILL, so it shows as the engine's signal death or as a wrapper found gone. Any other kind stays, since its own
- * detector decided the end, also when a tool's process was OOM-killed earlier in the job.
+ * The failure its detector passed, with kind `oom` in place of `signal` or `reaped` when `readings`, the scope's
+ * readings the terminal record holds, count an OOM kill (A-052): the kernel's OOM killer ends a process by SIGKILL, so
+ * it shows as the engine's signal death or as a wrapper found gone. Any other kind stays, since its own detector
+ * decided the end, also when a tool's process was OOM-killed earlier in the job.
  */
-function recordedFailure(detail: string, readings: ScopeReadings): Failure {
-	const failure = failureFrom(detail);
+function recordedFailure(passed: DetectedFailure, readings: ScopeReadings): Failure {
+	const failure = { kind: passed.kind, detail: passed.detail, resetAt: passed.resetAt ?? null };
 	const oomKilled = (readings.oomKills ?? 0) > 0;
 	return oomKilled && (failure.kind === "signal" || failure.kind === "reaped") ? { ...failure, kind: "oom" } : failure;
 }

@@ -576,7 +576,10 @@ async function startDetachedContinuation(
 		const message = error instanceof Error ? error.message : String(error);
 		throw await cleanedUp(error, async () => {
 			await versions.catch(() => {});
-			await finalizeJob(jobDir, "failed", `failed to launch wrapper: ${message}`);
+			await finalizeJob(jobDir, {
+				state: "failed",
+				failure: { kind: "launch", detail: `failed to launch wrapper: ${message}` },
+			});
 		});
 	}
 	await waitForHandshake(jobDir, wrapper);

@@ -9,7 +9,7 @@ import { runOperation, stepFailure } from "../operation.ts";
 import { LimenError, refused } from "../outcome.ts";
 import { platform } from "../platform/platform.ts";
 import { KILL_WAIT_MS, stopGraceMs, waitForProcessGroup } from "../runtime/reap.ts";
-import { finalizeJob, requestedTerminal } from "./finalize.ts";
+import { finalizeJob, requestedEnd, requestedTerminal } from "./finalize.ts";
 import { SESSION_ID } from "./job.ts";
 import { appendLimenLog, type JobRecord, readRecord, transition } from "./record.ts";
 import { type JobReference, resolveJob } from "./reference.ts";
@@ -79,7 +79,7 @@ async function endJob(
 ): Promise<string> {
 	let record = await readRecord(jobDir);
 	if (state === "starting") {
-		if (await finalizeJob(jobDir, requestedTerminal(reason), reason, { from: ["starting"] })) {
+		if (await finalizeJob(jobDir, requestedEnd(reason), { from: ["starting"] })) {
 			return `${requestedTerminal(reason)} ${id}: ${reason}`;
 		}
 		record = await readRecord(jobDir);
@@ -122,7 +122,7 @@ async function endJob(
 	do {
 		await new Promise((resolve) => setTimeout(resolve, 25));
 	} while (queued && Date.now() < turn && (await stateOf(jobDir)) === "running");
-	if (!(await finalizeJob(jobDir, requestedTerminal(reason), reason, { beforeScopeEnd: () => grace }))) {
+	if (!(await finalizeJob(jobDir, requestedEnd(reason), { beforeScopeEnd: () => grace }))) {
 		await markCallerDelivered(jobDir);
 		const settled = await stateOf(jobDir);
 		return queued ? `${settled} ${id}: ${reason}` : `${id} is already ${settled}`;

@@ -1,7 +1,7 @@
 // `limen status` lists the leftover files of cut features in the project it reports on, the Limen variables of its
 // environment that it no longer reads or reads only until a ticket, names a running job's note, lists the finished
-// jobs whose unlanded work makes a worker spawn refuse (A-001) and the branches of abandoned work (A-002), and warns
-// when the alerts do not run (A-066).
+// jobs whose unlanded work makes a worker spawn refuse (A-001) and the branches of abandoned work (A-002), warns when
+// the alerts do not run (A-066), and names a hook's refusal in a coordinator's session (T-32 (4)).
 import assert from "node:assert/strict";
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -22,6 +22,7 @@ import {
 	until,
 	waitJob,
 } from "../plant.ts";
+import { snapshot } from "../snapshot.ts";
 
 const AGENTS_TEMPLATE = fileURLToPath(new URL("../../templates/agents.md", import.meta.url));
 const STUB_TEMPLATE = fileURLToPath(new URL("../../templates/limen-extension.ts", import.meta.url));
@@ -387,4 +388,59 @@ test("limen status prints no alerts warning when the timer is active and the ser
 	assert.equal(run.status, 0, run.stderr);
 	assert.deepEqual(alertsBlock(run.stdout), []);
 	assert.ok(run.stdout.includes("Older: 0 records"), run.stdout);
+});
+
+/** A coordinator session's folder `session` in the plant's project, holding a hook's refusal with `message`. */
+function plantRefusal(p: Plant, session: string, message: string): void {
+	const folder = join(p.root, ".limen", "coordinators", session);
+	mkdirSync(folder, { recursive: true });
+	const refusal = { event: "message_end", field: "message", message, at: "2026-11-24T14:10:00.000Z" };
+	writeFileSync(join(folder, "refusal.json"), `${JSON.stringify(refusal)}\n`);
+}
+
+/** The lines of `limen status` that name a coordinator session's refusal. */
+const refusalLines = (stdout: string) => stdout.split("\n").filter((line) => line.startsWith("Coordinator session "));
+
+const REFUSED = "Pi event message_end: message: expected an object, got nothing";
+
+// T-32 (4), D-055 (2): Pi shows a hook's refusal only in the coordinator's chat, so status names it while the session's
+// folder holds it.
+test("limen status shows a hook's refusal in a coordinator's session on one line, with the session, the time and the detail", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	plantRefusal(p, "coord-1", REFUSED);
+	const run = limen(p, ["status"]);
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(refusalLines(run.stdout), [
+		`Coordinator session coord-1, 2026-11-24T14:10:00.000Z: a Limen hook refused ${REFUSED}`,
+	]);
+});
+
+test("T-04: limen status reads a coordinator session's refusal and writes nothing: the project's state snapshot stays identical", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	plantRefusal(p, "coord-1", REFUSED);
+	const before = snapshot(p.root);
+	const run = limen(p, ["status"]);
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(snapshot(p.root), before);
+});
+
+// R-029 review round 1, note 6: a planted refusal file and its folder are text from outside Limen that reaches the
+// coordinator, so a newline in either is escaped and adds no line (R-030's lines do the same through shownField).
+test("limen status escapes a newline in a coordinator session's name and in its refusal's message, so the refusal stays one line", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	plantRefusal(p, "coord\nInjected session", "Pi event message_end: message\nInjected line");
+	const run = limen(p, ["status"]);
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(
+		[refusalLines(run.stdout), run.stdout.includes("\nInjected")],
+		[
+			[
+				"Coordinator session coord\\nInjected session, 2026-11-24T14:10:00.000Z: a Limen hook refused Pi event message_end: message\\nInjected line",
+			],
+			false,
+		],
+	);
 });

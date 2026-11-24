@@ -3,7 +3,17 @@ import { join } from "node:path";
 import { atomicWriteSync } from "../src/atomic-write.ts";
 import { transport } from "../src/config.ts";
 import { noteCheck } from "../src/job/task-note.ts";
-import { type PiApi, type PiMessageDraft, piContext, piSettleEvent, piToolInput } from "../src/runtime/pi-api.ts";
+import {
+	type PiApi,
+	type PiMessageDraft,
+	type PiSettleEvent,
+	type PiSettleResult,
+	type PiToolOutput,
+	piContext,
+	piSettleEvent,
+	piToolInput,
+	recorded,
+} from "../src/runtime/pi-api.ts";
 
 /**
  * `finish` for every Limen job. The handoff becomes the job result, and the session ends after this turn.
@@ -40,37 +50,48 @@ export default function limenFinish(pi: Pick<PiApi, "on" | "registerTool">): voi
 			properties: { handoff: { type: "string", description: "Handoff for the coordinator" } },
 			required: ["handoff"],
 		},
-		async execute(_toolCallId, params, _signal, _onUpdate, rawContext) {
-			const ask = check(true);
-			if (ask) {
-				return { content: [{ type: "text", text: ask }], details: {} };
-			}
-			const input = piToolInput("finish", params);
-			const context = piContext("tool finish", rawContext, ["shutdown"]);
-			const handoff = typeof input.handoff === "string" ? input.handoff.trim() : "";
-			try {
-				if (handoff) {
-					atomicWriteSync(join(jobDir, "result"), `${handoff}\n`);
+		execute: recorded(
+			async (
+				_toolCallId: string,
+				params: unknown,
+				_signal: unknown,
+				_onUpdate: unknown,
+				rawContext: unknown,
+			): Promise<PiToolOutput> => {
+				const ask = check(true);
+				if (ask) {
+					return { content: [{ type: "text", text: ask }], details: {} };
 				}
-			} catch {
-				// The engine's exit still ends the job; only the handoff text is lost.
+				const input = piToolInput("finish", params);
+				const context = piContext("tool finish", rawContext, ["shutdown"]);
+				const handoff = typeof input.handoff === "string" ? input.handoff.trim() : "";
+				try {
+					if (handoff) {
+						atomicWriteSync(join(jobDir, "result"), `${handoff}\n`);
+					}
+				} catch {
+					// The engine's exit still ends the job; only the handoff text is lost.
+				}
+				context.shutdown();
+				return { content: [{ type: "text", text: "done" }], details: {} };
+			},
+		),
+	});
+	pi.on(
+		"agent_before_settle",
+		recorded(<Entry>(raw: PiSettleEvent<Entry>): PiSettleResult<Entry> | undefined => {
+			const event = piSettleEvent(raw);
+			const ask = event.outcome === "completed" ? check(false) : undefined;
+			if (!ask) {
+				return;
 			}
-			context.shutdown();
-			return { content: [{ type: "text", text: "done" }], details: {} };
-		},
-	});
-	pi.on("agent_before_settle", (raw) => {
-		const event = piSettleEvent(raw);
-		const ask = event.outcome === "completed" ? check(false) : undefined;
-		if (!ask) {
-			return;
-		}
-		const entry: PiMessageDraft = {
-			type: "custom_message",
-			customType: "limen-note-check",
-			content: ask,
-			display: false,
-		};
-		return { entries: [...event.entries, entry], continue: true };
-	});
+			const entry: PiMessageDraft = {
+				type: "custom_message",
+				customType: "limen-note-check",
+				content: ask,
+				display: false,
+			};
+			return { entries: [...event.entries, entry], continue: true };
+		}),
+	);
 }

@@ -540,6 +540,20 @@ test("a failed job whose record names no failure kind sends the kind unknown", a
 	);
 });
 
+// D-095: an end where the engine did not start had no kind, so its alert said `failed:unknown`.
+test("a failed job whose record names the kind launch sends the kind launch", async (t) => {
+	const [f, server] = [await fixture(t), await ntfy(t)];
+	await firstRun(f);
+	const failure = { kind: "launch", detail: "failed to launch wrapper: no scope", resetAt: null } as const;
+	await writeRecord(job(f.ledger, FAILED_ID), { ...QUOTA, failure });
+	const ran = await run(f);
+	assert.equal(ran.code, 0, ran.stderr);
+	assert.deepEqual(
+		server.posts.map((post) => post.body),
+		[`ledger failed:launch ${FAILED_ID}`],
+	);
+});
+
 test("D-084: an alert is the project folder's base name, the event and the job id, with no path", () => {
 	assert.equal(
 		alertLine("/home/agents/synchronizer", "failed:quota", FAILED_ID),

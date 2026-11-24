@@ -1,12 +1,33 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
-import { readdir, rm } from "node:fs/promises";
-import { join } from "node:path";
-import { atomicWriteSync } from "../atomic-write.ts";
+import { readdir, readFile, rm } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
+import { atomicWrite, atomicWriteSync } from "../atomic-write.ts";
+import { parseJson } from "../boundary.ts";
 import { exception, transport } from "../config.ts";
 import { SESSION_ID } from "../job/job.ts";
-import { textFile } from "../job/record.ts";
+import { type Refusal, refusalDetail, refusalOf, textFile } from "../job/record.ts";
+import { LimenError } from "../outcome.ts";
 import { platform } from "../platform/platform.ts";
 import type { PiContext } from "../runtime/pi-api.ts";
+import { hasCode } from "../system-error.ts";
+
+/** The file of a session's folder that holds the newest refusal of a Limen hook in that session (T-32 (4)). */
+const REFUSAL = "refusal.json";
+
+/** The project of a coordinator's session that runs in `cwd`: the nearest folder up that holds `.agents/limen`. */
+export function coordinatorProject(cwd: string): string | undefined {
+	let dir = resolve(cwd);
+	for (;;) {
+		if (existsSync(join(dir, ".agents", "limen"))) {
+			return dir;
+		}
+		const parent = dirname(dir);
+		if (parent === dir) {
+			return undefined;
+		}
+		dir = parent;
+	}
+}
 
 /** What the registration reads of the coordinator's Pi context, which the wake hook has checked. */
 export type CoordinatorSession = Pick<PiContext, "sessionManager">;
@@ -14,7 +35,8 @@ export type CoordinatorSession = Pick<PiContext, "sessionManager">;
 /**
  * The coordinator's registration, written by the wake hook. The session registers under `.limen/coordinators/<session>`
  * with its pid, pane, start time and process start time, so `limen rule` can find the live coordinator panes and the
- * sweep can remove the registration once the process is gone, when no code runs in the dead process.
+ * sweep can remove the registration once the process is gone, when no code runs in the dead process. The same folder
+ * holds the newest refusal of a Limen hook in the session (`writeCoordinatorRefusal`), which goes with it.
  */
 export function coordinatorRegistration() {
 	let dir: string | undefined;
@@ -140,4 +162,72 @@ function readOptional(path: string): string {
 	} catch {
 		return "";
 	}
+}
+
+/**
+ * Writes `refusal`, a Limen hook's refusal of a Pi value in this coordinator's session, as the newest refusal of the
+ * folder this process registered under the project of `cwd` (T-32 (4)): one process holds one registration, so its
+ * pid and its start time name the folder also when the context that would name the session is what the hook refused.
+ * They are matched as the sweep's liveness check reads them (`registeredProcess`): the pid, and the start time once the
+ * folder records one, so a dead session's folder whose pid this process reused takes nothing (A-058). The file goes
+ * with the folder when the sweep removes a dead session's registration. A session that registered no folder, as one
+ * with neither `LIMEN_COORDINATOR` nor a Herdr pane, gets none, and Pi's message in its chat is the one trace.
+ */
+export async function writeCoordinatorRefusal(cwd: string, refusal: Refusal): Promise<void> {
+	const root = coordinatorProject(cwd);
+	if (!root) {
+		return;
+	}
+	const own = await platform.processInfo(process.pid);
+	const born = own.kind === "present" ? own.process.born : undefined;
+	const base = join(root, ".limen", "coordinators");
+	for (const session of await folderNames(base)) {
+		const recorded = readOptional(join(base, session, "born"));
+		const ours = readOptional(join(base, session, "pid")) === String(process.pid) && (!recorded || recorded === born);
+		if (ours) {
+			await atomicWrite(join(base, session, REFUSAL), `${JSON.stringify(refusal)}\n`);
+			return;
+		}
+	}
+}
+
+/** A coordinator session's newest refusal of a Limen hook, as `limen status` shows it: when, and what was refused. */
+export type SessionRefusal = { readonly session: string; readonly at: string | null; readonly detail: string };
+
+/**
+ * The newest refusal of a Limen hook in each coordinator session of the project at `root` whose folder holds one, by
+ * session; a damaged file shows its BAD_DATA message as its detail. It reads and writes nothing else (T-04).
+ */
+export async function coordinatorRefusals(root: string): Promise<SessionRefusal[]> {
+	const base = join(root, ".limen", "coordinators");
+	const found: SessionRefusal[] = [];
+	for (const session of (await folderNames(base)).sort()) {
+		const file = join(base, session, REFUSAL);
+		const text = await readFile(file, "utf8").catch((error: unknown) => {
+			if (hasCode(error, "ENOENT") || hasCode(error, "ENOTDIR")) {
+				return undefined;
+			}
+			throw error;
+		});
+		if (text === undefined) {
+			continue;
+		}
+		const refusal = parseJson(file, text, refusalOf);
+		found.push(
+			refusal instanceof LimenError
+				? { session, at: null, detail: refusal.message }
+				: { session, at: refusal.at, detail: refusalDetail(refusal) },
+		);
+	}
+	return found;
+}
+
+/** The names in the folder `base`, none when it does not exist. */
+async function folderNames(base: string): Promise<string[]> {
+	return readdir(base).catch((error: unknown) => {
+		if (hasCode(error, "ENOENT")) {
+			return [];
+		}
+		throw error;
+	});
 }

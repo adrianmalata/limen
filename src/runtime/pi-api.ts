@@ -2,10 +2,18 @@
 // each event whose fields they read, and the fields of the context. A handler gets Pi's payload and context unchecked
 // and reads them only through a guard here, which returns the value itself or throws BAD_DATA naming the event and
 // the field (T-27 (2), D-055 (2)). Pi reports a handler's error as an extension error, except at `tool_call`, where it
-// rethrows the error and blocks the tool call, so a `tool_call` handler guards only where it may block. The contract of
+// rethrows the error and blocks the tool call, and in a tool, whose error becomes an error tool result; both reach only
+// the model. So every hook registers each handler, tool and command through `recorded`, which writes a guard's refusal
+// where Limen reads it before the error reaches Pi (T-32 (4)): in a job, its record, whose end it makes `failed`, kind
+// `engine-error`; in a coordinator's session, the session's folder, which `limen status` names. The contract of
 // test/runtime/pi-contract.test.ts compiles these declarations against Pi 1.5.1's own types (D-055 (1)), so that
 // they cannot drift from Pi unseen.
+import { join } from "node:path";
 import { at, refusedValue } from "../boundary.ts";
+import { transport } from "../config.ts";
+import { writeCoordinatorRefusal } from "../integrations/coordinator-registration.ts";
+import { type Refusal as RecordedRefusal, recordRefusal } from "../job/record.ts";
+import { LimenError } from "../outcome.ts";
 
 /** A text part of a tool result. */
 export type PiText = { readonly type: "text"; readonly text: string };
@@ -116,6 +124,13 @@ export type PiTool = {
 /** A handler of `pi.on`: Pi's payload and context arrive unchecked, so the handler reads them only through a guard. */
 export type PiHandler<Result = void> = (event: unknown, context: unknown) => Result | Promise<Result>;
 
+/** The channel of Pi's event bus on which the bridge reports a rate limit that rejected a request (E-9). */
+export const RATE_LIMIT_EVENT = "kendex:rate-limit";
+/** The fields of the bridge's rate-limit event that a hook reads: the limit's type and its reset in epoch milliseconds. */
+export type PiRateLimit = { readonly rateLimitType?: string; readonly resetAtMs?: number };
+/** Pi's event bus between extensions; a listener gets the payload unchecked, so it reads it only through a guard. */
+export type PiEventBus = { on(channel: string, handler: (data: unknown) => void): () => void };
+
 /** The members of Pi's extension API that Limen's hooks use, each event its own overload, as Pi declares them. */
 export interface PiApi {
 	on(event: "session_start", handler: PiHandler): void;
@@ -130,7 +145,10 @@ export interface PiApi {
 	// Generic in Pi's entry type, so that the handler can pass Pi's entries back and cannot make one up.
 	on(
 		event: "agent_before_settle",
-		handler: <Entry>(event: PiSettleEvent<Entry>, context: unknown) => PiSettleResult<Entry> | undefined,
+		handler: <Entry>(
+			event: PiSettleEvent<Entry>,
+			context: unknown,
+		) => PiSettleResult<Entry> | undefined | Promise<PiSettleResult<Entry> | undefined>,
 	): void;
 	on(event: "agent_settled", handler: PiHandler): void;
 	sendMessage(
@@ -140,10 +158,14 @@ export interface PiApi {
 	sendUserMessage(content: string, options?: { readonly deliverAs: "steer" | "followUp" }): void;
 	registerTool(tool: PiTool): void;
 	registerCommand(name: string, command: PiCommand): void;
+	readonly events: PiEventBus;
 }
 
-/** Where a guarded value comes from: an event, or the call of a command or a tool that a hook registered. */
-export type PiPlace = PiEventName | `command ${string}` | `tool ${string}`;
+/**
+ * Where a guarded value comes from: an event, a channel of the event bus, or the call of a command or a tool that a
+ * hook registered.
+ */
+export type PiPlace = PiEventName | typeof RATE_LIMIT_EVENT | `command ${string}` | `tool ${string}`;
 
 /** The first part of a value that is wrong: where it is, what was expected there, and what was found. */
 type Refusal = { readonly field: string; readonly expected: string; readonly got: unknown };
@@ -160,6 +182,12 @@ function isObject(value: unknown): value is object {
 }
 
 const text: Check = (value, field) => (typeof value === "string" ? undefined : refusal(field, "a string", value));
+/** The largest distance from the epoch, in milliseconds, of a time that a Date holds. */
+const MAX_EPOCH_MS = 8.64e15;
+const epochTime: Check = (value, field) =>
+	typeof value === "number" && Math.abs(value) <= MAX_EPOCH_MS
+		? undefined
+		: refusal(field, "a time in milliseconds since the epoch", value);
 const flag: Check = (value, field) => (typeof value === "boolean" ? undefined : refusal(field, "a boolean", value));
 const callable: Check = (value, field) =>
 	typeof value === "function" ? undefined : refusal(field, "a function", value);
@@ -278,15 +306,21 @@ const CONTEXT: { readonly [K in keyof PiContext]-?: Check } = {
 	shutdown: callable,
 };
 
+/** The check of the bridge's rate-limit event (E-9): the fields a hook reads, each of them optional. */
+const RATE_LIMIT = shape<PiRateLimit>({ rateLimitType: maybe(text), resetAtMs: maybe(epochTime) });
+
 /** What a BAD_DATA error names as its file: "Pi event <name>", "Pi command <name>" or "Pi tool <name>". */
 function placeName(place: PiPlace): string {
 	return place.includes(" ") ? `Pi ${place}` : `Pi event ${place}`;
 }
 
-/** Throws the BAD_DATA error of `refused`, when there is one, through src/boundary.ts. */
+/**
+ * Throws the BAD_DATA error of `refused`, when there is one, through src/boundary.ts, with the place it came from, by
+ * which `recorded` tells a guard's refusal from any other error.
+ */
 function refuse(place: PiPlace, refused: Refusal | undefined): void {
 	if (refused) {
-		throw refusedValue(placeName(place), refused);
+		throw Object.assign(refusedValue(placeName(place), refused), { place });
 	}
 }
 
@@ -300,7 +334,8 @@ function assertContext<K extends keyof PiContext>(
 	fields: readonly K[],
 ): asserts value is Pick<PiContext, K> {
 	if (!isObject(value)) {
-		throw refusedValue(placeName(place), refusal("context", "an object", value));
+		refuse(place, refusal("context", "an object", value));
+		return;
 	}
 	for (const name of fields) {
 		refuse(place, CONTEXT[name](Reflect.get(value, name), at("context", name)));
@@ -356,4 +391,87 @@ export function piToolInput(tool: string, value: unknown): Readonly<Record<strin
 export function piCommandArgs(command: string, value: unknown): string {
 	assertArgs(command, value);
 	return value;
+}
+
+function assertRateLimit(value: unknown): asserts value is PiRateLimit {
+	refuse(RATE_LIMIT_EVENT, RATE_LIMIT(value, ""));
+}
+
+/** The payload of the bridge's rate-limit event itself, when it has the fields a hook reads; otherwise BAD_DATA. */
+export function piRateLimit(value: unknown): PiRateLimit {
+	assertRateLimit(value);
+	return value;
+}
+
+/** The functions `recorded` made, so a test can tell that a hook registered each handler through it (T-32 (4)). */
+const RECORDED = new WeakSet<object>();
+
+/**
+ * `handler` as a hook registers it with Pi (T-32 (4)): what it returns, as it returns it, so a handler that returns at
+ * once still does; a guard's refusal it throws or rejects with is written first, in a job's record or in the
+ * coordinator session's folder, and only then reaches Pi as a rejection. Any other error passes through unchanged.
+ */
+export function recorded<A extends unknown[], R>(handler: (...args: A) => Promise<R>): (...args: A) => Promise<R>;
+export function recorded<A extends unknown[], R>(handler: (...args: A) => R): (...args: A) => R | Promise<never>;
+export function recorded(handler: (...args: unknown[]) => unknown): (...args: unknown[]) => unknown {
+	const wrapped = (...args: unknown[]): unknown => {
+		let result: unknown;
+		try {
+			result = handler(...args);
+		} catch (error) {
+			return afterRefusal(error);
+		}
+		return result instanceof Promise ? result.catch(afterRefusal) : result;
+	};
+	RECORDED.add(wrapped);
+	return wrapped;
+}
+
+/** Whether `handler` came from `recorded`. */
+export function isRecorded(handler: unknown): boolean {
+	return typeof handler === "function" && RECORDED.has(handler);
+}
+
+/**
+ * Writes `error` where Limen reads it when it is a guard's refusal, then throws it on; a refusal that could not be
+ * written goes on with the reason in its message, so neither is lost (T-01).
+ */
+async function afterRefusal(error: unknown): Promise<never> {
+	const refusal = thrownRefusal(error);
+	if (refusal) {
+		await keepRefusal(refusal).catch((cause: unknown) => {
+			const reason = cause instanceof Error ? cause.message : String(cause);
+			const message = `${refusal.message}; the refusal could not be written: ${reason}`;
+			throw new LimenError({ class: "environment", code: "BAD_DATA", message, next: null, cause });
+		});
+	}
+	throw error;
+}
+
+/** The refusal `error` holds when a guard here threw it: the place it came from, its field, its message and now. */
+function thrownRefusal(error: unknown): RecordedRefusal | undefined {
+	if (!(error instanceof Error)) {
+		return undefined;
+	}
+	const [event, field] = [Reflect.get(error, "place"), Reflect.get(error, "field")];
+	if (typeof event !== "string" || typeof field !== "string") {
+		return undefined;
+	}
+	return { event, field, message: error.message, at: new Date().toISOString() };
+}
+
+/**
+ * Writes `refusal` where Limen reads it: in a job, the job's record, whose end it decides (src/runtime/wrapper.ts); in
+ * a coordinator's session, the folder of the session this process registered
+ * (src/integrations/coordinator-registration.ts).
+ */
+async function keepRefusal(refusal: RecordedRefusal): Promise<void> {
+	if (transport("LIMEN_JOB") !== "1") {
+		await writeCoordinatorRefusal(process.cwd(), refusal);
+		return;
+	}
+	const [root, id] = [transport("LIMEN_CONTEXT_ROOT"), transport("LIMEN_JOB_ID")];
+	if (root && id) {
+		await recordRefusal(join(root, ".limen", "jobs", id), refusal);
+	}
 }

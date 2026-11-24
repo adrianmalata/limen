@@ -1,19 +1,25 @@
 // src/runtime/wrapper.ts: a queued job's wrapper whose job folder is removed ends before its setup and its engine run,
 // a queued job whose wait passes the gate file's failAfter ends failed, a wrapper outside its job's systemd user scope
-// ends the job before it runs anything, an exhaustion whose scope cannot be ended still kills its process group, a
-// TERM or a signal without a stop request ends a job failed, and a TERM after the engine ended changes nothing.
+// ends the job before it runs anything, each end has the kind its detector sets (A-016 (1)), an exhaustion whose scope
+// cannot be ended still kills its process group, a TERM or a signal without a stop request ends a job failed, and a
+// TERM after the engine ended changes nothing.
 import assert from "node:assert/strict";
-import { existsSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { isTerminal } from "../../src/job/job.ts";
-import type { Identity } from "../../src/job/record.ts";
+import { type Identity, readRecordSync, transition } from "../../src/job/record.ts";
 import { platform } from "../../src/platform/platform.ts";
 import { ownerState } from "../../src/runtime/reap.ts";
+import { failInternalJob } from "../../src/runtime/wrapper.ts";
+import { withEnvironment } from "../environment.ts";
 import {
 	engineEvents,
+	fakeSystemd,
 	jobDir,
 	jobFile,
 	jobRecord,
@@ -30,6 +36,7 @@ import {
 	until,
 	waitJob,
 	within,
+	writeRecord,
 } from "../plant.ts";
 
 /**
@@ -155,9 +162,149 @@ test("a wrapper that does not run in its job's systemd user scope ends the job f
 	const id = startedJob(run);
 	assert.equal(waitJob(p, id), "failed");
 	assert.deepEqual(
-		[jobRecord(p, id)?.failure?.detail.startsWith("not in its scope: "), jobFile(p, id, "fake-argv.json")],
-		[true, ""],
+		[
+			jobRecord(p, id)?.failure?.kind,
+			jobRecord(p, id)?.failure?.detail.startsWith("not in its scope: "),
+			jobFile(p, id, "fake-argv.json"),
+		],
+		["launch", true, ""],
 	);
+});
+
+// D-095: an error the wrapper itself throws had no kind, so the alert said `failed:unknown`.
+test("an error the job's wrapper throws ends its job failed, kind internal, with the error's message", async (t) => {
+	const folder = mkdtempSync(join(tmpdir(), "limen-wrapper-"));
+	t.after(() => rmSync(folder, { recursive: true, force: true }));
+	const job = join(folder, "2026-11-24-internal-1a2b3c4d");
+	withEnvironment(t, { ...(await fakeSystemd(folder)), LIMEN_JOB_DIR: job });
+	await writeRecord(job, { state: "running", identity: { pid: 4242, born: "123", bootId: null } });
+	await failInternalJob(new Error("internal job wrapper is missing LIMEN_PREAMBLE"));
+	assert.deepEqual(readRecordSync(job)?.failure, {
+		kind: "internal",
+		detail: "internal job wrapper is missing LIMEN_PREAMBLE",
+		resetAt: null,
+	});
+});
+
+/** The 5-hour limit's text as the provider gives it: a synthetic copy of the format of audit.md, gate 2 §1, Q1. */
+const SESSION_LIMIT = "You've hit your session limit · resets 3pm (UTC)";
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// A-016 (1), E-9: without a rate-limit event the reset time comes from the provider's errorMessage, the first 3pm UTC
+// after the error; a reset time that stayed null left the resume of R-034 nothing to wait for.
+test("an engine that stops on the provider's limit text ends its job failed, kind quota, with the reset time the text names", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = spawnJob(p, `error ${SESSION_LIMIT}`);
+	assert.equal(waitJob(p, id), "failed");
+	const record = jobRecord(p, id);
+	const reset = Date.parse(record?.failure?.resetAt ?? "");
+	const started = Date.parse(record?.startedAt ?? "");
+	assert.deepEqual(
+		[
+			record?.failure?.kind,
+			record?.failure?.detail,
+			record?.failure?.resetAt?.endsWith("T15:00:00.000Z"),
+			reset > started && reset - started <= DAY_MS + 60_000,
+		],
+		["quota", `error: ${SESSION_LIMIT}`, true, true],
+	);
+});
+
+// E-9: the bridge gives the structured reset time only on Pi's event bus, so it wins over the text; seat step 3.4 reads
+// the log line.
+test("a kendex:rate-limit event before the limit's text gives the job's quota failure the event's reset time and a log line", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const resetAtMs = Date.parse("2026-11-24T17:40:00.000Z");
+	const id = spawnJob(p, `rate-limit five_hour ${resetAtMs}\nerror ${SESSION_LIMIT}`);
+	assert.equal(waitJob(p, id), "failed");
+	const record = jobRecord(p, id);
+	assert.deepEqual(
+		[
+			record?.failure?.kind,
+			record?.failure?.resetAt,
+			record?.rateLimit?.type,
+			record?.rateLimit?.resetAt,
+			jobFile(p, id, "log").includes("] rate-limit event: five_hour, resets 2026-11-24T17:40:00.000Z\n"),
+		],
+		["quota", "2026-11-24T17:40:00.000Z", "five_hour", "2026-11-24T17:40:00.000Z", true],
+	);
+});
+
+// T-32 (4), D-055 (2): Pi reports a hook's error and goes on, so a job whose hook refused a malformed event ended done.
+test("a hook's refusal of a malformed Pi event in a job ends the job failed, kind engine-error, naming the event and the field", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = spawnJob(p, "malformed message_end\nsay done");
+	assert.equal(waitJob(p, id), "failed");
+	const record = jobRecord(p, id);
+	assert.deepEqual(
+		[record?.failure, record?.refusal?.event, record?.refusal?.field],
+		[
+			{
+				kind: "engine-error",
+				detail: "a Limen hook refused Pi event message_end: message: expected an object, got nothing",
+				resetAt: null,
+			},
+			"message_end",
+			"message",
+		],
+	);
+});
+
+// A-019: the first cause stays, so a refusal recorded before a limit ends the job leaves the limit's kind. The refusal
+// is written into the record while the job's --prepare waits on a FIFO, before its engine and its time limit start, so
+// the order is fixed by the test, not by how fast the engine starts (z. 17, T-31 (4)); the record's one writer writes
+// it, as the adapter's `recorded` does.
+test("a hook's refusal recorded before the job's timeout leaves the job failed, kind timeout", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const [marker, gate] = [join(p.parent, "prepare-started"), join(p.parent, "prepare-gate")];
+	execFileSync("mkfifo", [gate]);
+	const prepare = `touch ${JSON.stringify(marker)}; cat ${JSON.stringify(gate)} > /dev/null`;
+	const id = spawnJob(p, "block", ["--timeout", "1s", "--prepare", prepare]);
+	await until(p.parent, () => existsSync(marker));
+	const refusal = {
+		event: "message_end",
+		field: "message",
+		message: "Pi event message_end: message: expected an object, got nothing",
+		at: new Date().toISOString(),
+	};
+	assert.ok(await transition(jobDir(p, id), { from: ["running"], set: { refusal } }), "the running record takes it");
+	writeFileSync(gate, "go\n");
+	assert.equal(waitJob(p, id), "failed");
+	const record = jobRecord(p, id);
+	assert.deepEqual([record?.failure?.kind, record?.refusal?.event], ["timeout", "message_end"]);
+});
+
+// T-01, the D-092 note: the exhaustion's TERM dropped its result and logged only that it would send one.
+test("a timeout's TERM to the job's process group leaves its result in the log after the call", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = spawnJob(p, "block", ["--timeout", "1s"]);
+	assert.equal(waitJob(p, id), "failed");
+	const wrapper = jobRecord(p, id)?.identity?.pid;
+	assert.equal(
+		jobFile(p, id, "log").includes(`] timeout after 1000ms; TERM sent to process group ${wrapper}\n`),
+		true,
+		jobFile(p, id, "log"),
+	);
+});
+
+// The D-092 note (R-028 review, round 2): the TERM's flag was taken at the engine's `close`, which waits for every
+// holder of its pipes, so a TERM after the engine exited still made the job a signal death. The engine's child holds
+// the pipes, and the test sends the TERM once the wrapper has reaped the engine, by the order of events (T-31 (4)).
+test("a TERM to the job's wrapper after its engine exited, while a child still holds the engine's pipes, ends the job done", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = spawnJob(p, "linger\nsay all done");
+	await until(jobDir(p, id), () => engineEvents(jobDir(p, id)).some(({ event }) => event === "exit"));
+	const engine = engineEvents(jobDir(p, id)).find(({ event }) => event === "pid")?.pid;
+	assert.ok(engine, "the engine recorded its pid");
+	assert.equal(await within(jobDir(p, id), () => !platform.processAlive(engine), END_BOUND_MS), true);
+	signalWrapper(p, id, "SIGTERM");
+	assert.deepEqual([waitJob(p, id), jobRecord(p, id)?.failure, jobFile(p, id, "result")], ["done", null, "all done"]);
 });
 
 // A-029, R-026 Deviation 1: an exhaustion ends the job's scope after the group's grace instead of killing its own group,
