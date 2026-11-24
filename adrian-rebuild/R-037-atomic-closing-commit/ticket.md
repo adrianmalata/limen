@@ -4,7 +4,8 @@ indeksie z oczekiwanego commita, przechodzi przez hooki projektu, które urucham
 się jednym compare-and-swap; drzewo robocze i indeks checkoutu zmieniają się dopiero potem. Każde zamknięcie bierze
 blokadę ticket-lanes, land odmawia brudnego ticketu przed merge'em i nie kończy się już kodem 0 po nieudanym
 zamknięciu. Stan: napisany 23.11 przy `ca67568` z inwentarza `evidence/inventories/R-037.md`; pytania rozstrzygnięte
-dokumentami w `## Decisions`; gotowy na noc. -->
+dokumentami w `## Decisions`; fakty sprawdzone ponownie
+24.11 przy `bb0ae2b` (Decisions 14–16); w realizacji (`active`). -->
 
 # R-037 The closing commit of land and `ticket done` is atomic
 
@@ -261,3 +262,80 @@ attention at gate 5.3.
     `close` cut) is R-101's (D-096 (1)); question 20 is D-094.
 13. No requirement probe for `git hook run`: the probe of git 2.36's feature covers the version, and a git without
     the subcommand fails the close loudly (`GIT_FAILED`) with nothing written (T-01).
+
+2026-11-24, the facts at `HEAD` (`bb0ae2b`; protocol step 2, D-025). 25 commits ran after the ticket was written at
+`ca67568` (R-029, R-032, R-034, R-036 among them); of the files the ticket names only five changed, and the change is
+the same:
+14. The pattern's `publishJob` is `src/job/publication.ts:90-123` (was `:88-121`); land's registry entry is
+    `src/registry.ts:434-452` (was `:433-451`), its comment still `:446-447`, word for word; `close`'s
+    `movedBy: "R-037"` is `src/registry.ts:685` (was `:687`) and `close: "R-037"` is `test/registry.test.ts:42` (was
+    `:40`); land on T-38's ratchet `OUTSIDE_RUNNER` is `test/structure.test.ts:186` (was `:185`). The git probe of fact
+    5 is still `src/platform/requirements.ts:24-30` (`GIT_FEATURE` `:28`, `NEWER_GIT` `:30`).
+15. `src/project/lanes.ts`, `src/project/git.ts`, `src/job/landing.ts`, `src/project/ticket-folders.ts` and
+    `src/job/abandoning.ts` are unchanged since `ca67568`, so facts 1–5 and 7 and the places of (h) hold as written.
+16. The grep criteria at `HEAD`: AC-6 (`git grep -q 'movedBy: "R-037"' -- src/registry.ts`) exits 0 on the one line
+    `src/registry.ts:685`, which (e) changes; AC-7 (`git grep -q 'commitPaths' -- src`) exits 0 on
+    `src/project/git.ts:498` and `src/project/lanes.ts:7`, `:194`, each of which the change removes; both are in the
+    ticket's scope (D-025). `test/project/lanes.test.ts` (AC-1) does not exist yet; the change creates it.
+
+2026-11-24, the implementer's `BLOCKED` (before any write), settled by the documents (the main session's reading; not
+asked, since T-37 and D-046 decide it):
+17. (a) 5 and the (f) test named `git read-tree -m -u <head> <new>` as the error's `next`, which T-37, D-045 (5.1) and
+    D-046 (1) and (3) forbid ("`next` is always a Limen command or `null`"; `LimenError` refuses any other,
+    `src/outcome.ts:54`, `:99-101`). So the failure of the checkout's read-tree after the branch has moved is class
+    `environment` with a new code (the implementer's name, `CHECKOUT_BEHIND`, goes to gate 5.3 with the other new
+    wordings) and `next` `null`; its message says that the closing commit `<short>` is on the branch, lists the close's
+    paths the checkout still holds from before it (`git diff --name-only <head> <new>`), and gives the commands that
+    finish it, the refresh of choice 1 and `git read-tree -m -u <head> <new>`. The (f) test checks that the message holds
+    the read-tree command and that `next` is `null`.
+18. Land, (d): that one failure keeps its message, with land's own prefix, and `next` `null`. Land does not put
+    `limen ticket done <codes>` in its `next` and does not say that nothing of the close was written: after the move the
+    closing commit is on the branch, and that rerun would refuse `TICKETS_UNCOMMITTED` (D-046 (1): a successor is a
+    command that continues, not one that refuses). Every failure before the branch moves keeps (d) as written. The rerun
+    that continues after the move is R-103's recorded `closed` step (D-094 (3), D-096 (3) (f)).
+19. The implementer's technical choices 1–4, 6 and 7 hold as it gave them (the index refreshed before the read-tree;
+    `git stripspace` for the message; a git with no `hook` subcommand is `GIT_FAILED`, Decision 13; `HOOK_REJECTED` of
+    `ticket done` with the call's own command line as `next`, D-046 (1); the in-process test project with git's global
+    and system configuration off; the two-snapshot land tests). Choice 5 with one addition (z. 29, T-01): after the
+    read-tree, an old ticket folder that still exists (it holds ignored or untracked files only, which a two-way
+    read-tree does not move) is named in a line of the close's output, and its files stay. If a reader of the lanes
+    (the board, `ticket check`, the number scan) would read such a folder as an active ticket or fail on it, the
+    implementer replies `BLOCKED` with the evidence instead of widening the change.
+
+2026-11-24, protocol step 4 (the main session; `outcome.md` → `## Proof`):
+20. The main session's first gate failed on `test/group-extensions.test.ts:92` alone, under a load average of 17;
+    Adrian chose the diagnosis (D-029's question, option 1): the file alone passed 4 of 4, and the gate run once more
+    passed 1106 of 1106. The gate took 512 s and 568 s with this change, against 245–260 s through R-036, while this
+    change's own tests take about 2 s each. Review question: does the close add a fixed wait, a lock wait or a
+    retry with a delay on a path that land, `ticket done` or other commands take in the tests?
+
+2026-11-24, review round 1 (`review.md` → Round 1; FAIL on finding 1 alone; the main session's reading, from D-046 (1),
+Decision 18, T-25 and D-092), the findings to fix:
+- F1 (blocking): land's refusals before its merge (`TICKETS_UNCOMMITTED` and the destination-folder refusal) carry
+  `next` `limen land <id>`, the refused call with its job (D-046 (1)), and a message that says to commit the named
+  paths and land again; never `limen ticket done`, since nothing has merged and that close would leave the job's work
+  unlanded. Test: `test/cli/land.test.ts:162` asserts that `next` and the snapshot unchanged; it fails at `HEAD`.
+- F2 (note 2): the `CHECKOUT_BEHIND` message tells to move the changed files it lists aside (out of the checkout or
+  to another name), then run the refresh and `git read-tree -m -u <head> <new>`; it never says to commit them, since a
+  commit in that state reverts the close (Risk 3). Its test asserts the move and no commit in the text.
+- F3 (note 4, T-25, (c)): `ticket done` runs `closeOperation` itself, its job reads added through a parameter of it,
+  so one operation holds the close's validate, lock and apply for both commands.
+- F4 (note 5): `outcome.md` → `## Open points` names, for gate 5.3, that `git commit-tree` does not read
+  `commit.gpgSign`, so a project that signs commits would get unsigned closing commits, and that `## Deployment` reads
+  `git config --get commit.gpgSign` in both projects before `a0.3.0`; no code change.
+- Note 3 answers Decision 20 (no wait added; the gate's time is M-10's); note 6 goes to R-103's notes.
+
+2026-11-24, review round 2 (`review.md` → Round 2; PASS with six notes; the main session's reading), the findings to
+fix, the last round (`## Agents`, step 6):
+- G1 (note 1): the comment `src/registry.ts:446-447` says what land does when the close fails after the merge: the
+  close's class with `limen ticket done <codes>`, except a refusal there (`STATE_CHANGED`) and `CHECKOUT_BEHIND`
+  (`next` null).
+- G2 (note 2, T-30): the two pointers name the ticket: "R-037, review round 1, F1" (`src/job/landing.ts:132`) and
+  "R-037, review round 1, F2" (`src/project/lanes.ts:419`).
+- G3 (note 5): `stayedLine` says the old folder holds files git does not track (ignored or untracked), which stay
+  there; its test asserts those words.
+- G4 (notes 3 and 4): `outcome.md` → `## Fails before` opens with the main session's run after round 1 (six files,
+  `test/job/landing.test.ts` noted as a change of its request only), then the earlier ones; `## Deviations from the
+  ticket` numbered in order.
+- G5 (T-29): the land destination-folder test takes the month from the close (or fixes the close's date) instead of
+  computing it itself, so a run across a month boundary cannot fail it.

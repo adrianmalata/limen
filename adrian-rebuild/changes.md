@@ -3,7 +3,7 @@ Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, com
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
 R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025, R-097, R-099, R-026, R-030, R-033,
-R-027, R-028, R-031, R-035, R-100, R-029, R-032, R-034, R-036. -->
+R-027, R-028, R-031, R-035, R-100, R-029, R-032, R-034, R-036, R-037. -->
 
 # Changes
 
@@ -407,3 +407,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-09; `## Deployment` 3.8)
 - Commit: R-036
 - Rollback: git revert $(git log --format=%H --grep='^R-036:' adrian-rebuild --) (+ after the revert a record with `advisory.source` or `scope.cpuPeakPercent` is `BAD_DATA`, so the format's rollback is the snapshot of `## Deployment` 0.1)
+
+## 2026-11-24 R-037 The closing commit of land and `ticket done` is atomic
+- What: `src/project/lanes.ts` (`closeOperation`: the plan with the held `HEAD`, the ticket-lanes lock, the closing commit in a temporary index, the hooks through `git hook run`, the compare-and-swap of the branch, the checkout after it, `CHECKOUT_BEHIND`, the `kept <folder>` line; the destination-folder refusal; `commitPaths` and `closeTickets` gone), `src/project/git.ts` (index, hook, compare-and-swap and checkout primitives), `src/project/ticket-folders.ts` (`ticket done` through `closeOperation`), `src/job/landing.ts` and `src/commands/land.ts` (the plan before the merge, `limen land <id>` as the refusal's `next`, the close under the lock, no exit 0 after a failed close), `src/registry.ts` (land declares `TICKETS_UNCOMMITTED`; `close` `movedBy: "R-101"`); tests in the new `test/project/lanes.test.ts` and the git, ticket, land, job landing and registry files, `test/plant.ts` (`installHook`); `docs/commands.md`
+- Why: A-021, A-057, T-38, D-094, D-046, T-37, T-25, T-01
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (1109/1109); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (six test files); `git grep -q 'movedBy: "R-037"' -- src/registry.ts` → exit 1; `git grep -q 'commitPaths' -- src` → exit 1
+- Measurement: measured
+- Commit: R-037
+- Rollback: git revert $(git log --format=%H --grep='^R-037:' adrian-rebuild --) (no format change: the closing commit's subject and the `landed` marker are as before)

@@ -1,13 +1,15 @@
-// The land of a done job (T-26 (2)): the merge onto the checked-out branch after the ticket check and the test-line
-// cap, the record's `landed` marker (A-002), the delete of the branch it merged, and the close of the job's active
-// tickets; and the `landed` marker that `limen ticket done` writes on the finished jobs of the tickets it closed. Its
-// text goes to `out`.
+// The land of a done job (T-26 (2)): the merge onto the checked-out branch after the ticket check, the test-line cap
+// and the refusals of its ticket close, the record's `landed` marker (A-002), the delete of the branch it merged, and
+// the close of the job's active tickets, the operation `limen ticket done` runs, under the same lock (R-037); and the
+// `landed` marker that `limen ticket done` writes on the finished jobs of the tickets it closed. Its text goes to
+// `out`.
 import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { transport } from "../config.ts";
-import type { CommandText } from "../outcome.ts";
+import { type Checked, STATE_CHANGED, validated } from "../operation.ts";
+import { type CommandText, failureOf, isRefusal, LimenError } from "../outcome.ts";
 import {
 	abortMerge,
 	commitList,
@@ -20,7 +22,15 @@ import {
 	mergePaths,
 	workspaceRepository,
 } from "../project/git.ts";
-import { closeTickets, landReason } from "../project/lanes.ts";
+import {
+	CHECKOUT_BEHIND,
+	closeOperation,
+	landReason,
+	planTicketClose,
+	stayedLine,
+	type TicketClose,
+	type TicketsClosed,
+} from "../project/lanes.ts";
 import { landTicketCheck } from "../project/ticket-check.ts";
 import { deleteLandedBranches, keptLine } from "../runtime/pruning.ts";
 import { isTerminal, jobFeatures } from "./job.ts";
@@ -28,12 +38,16 @@ import { type JobRecord, type Landed, readRecord, textFile, writeMarker } from "
 import { type JobArgument, resolveJob } from "./reference.ts";
 import { hasWork, type JobReader, jobStandings } from "./unlanded.ts";
 
-/** What `limen land` was asked: the job, whether to skip the question in a terminal, the tickets kept open, the branch. */
+/**
+ * What `limen land` was asked: the job, whether to skip the question in a terminal, the tickets kept open, the branch,
+ * and the call's own command line, which a refusal before the merge names as its `next`.
+ */
 export type LandRequest = {
 	readonly query: JobArgument;
 	readonly yes: boolean;
 	readonly keepOpen: boolean;
 	readonly onto: string | undefined;
+	readonly again: string;
 };
 
 /** Asks `question` and says whether the answer is yes. */
@@ -63,9 +77,11 @@ export async function landJob(
 	const asked: string[] = [];
 	const before: CommandText = question ? { line: (text) => asked.push(text), diagnostic: out.diagnostic } : out;
 	let dirty: readonly string[];
+	let closing: Closing | undefined;
 	try {
 		dirty = checkCheckoutBeside(repository, target, { id, branch, base }, before);
 		await checkLandGates(repository, root, branch, id, before);
+		closing = request.keepOpen ? undefined : await closingTickets(root, repository, job, request.again);
 	} catch (error) {
 		for (const line of asked) {
 			out.line(line);
@@ -78,8 +94,6 @@ export async function landJob(
 			throw new Error("land cancelled");
 		}
 	}
-	// The commits this land brings; a branch that merged main also holds main's own commits since its base.
-	const subjects = (commitList(repository, "HEAD", branch) ?? "").split("\n").map((line) => line.replace(/^\S+ /, ""));
 	let merged: string;
 	try {
 		merged = mergeBranch(repository, branch);
@@ -93,8 +107,9 @@ export async function landJob(
 	if (merged) {
 		out.line(merged);
 	}
-	// The marker comes as soon as the merge holds, before any step that could fail after it (R-031, Decision 4). A land
-	// run again, as for a worktree that stayed, keeps the first land's marker, since the target may have moved since.
+	// The marker comes as soon as the merge holds, before the steps that can fail after it, the branch's delete and the
+	// ticket close (R-031, Decision 4). A land run again, as for a worktree that stayed, keeps the first land's marker,
+	// since the target may have moved since.
 	if (job.landed === undefined) {
 		await writeMarker(jobDir, { landed: { sha: headCommit(repository), at: new Date().toISOString() } });
 	}
@@ -104,29 +119,84 @@ export async function landJob(
 	for (const { branch: name, kept, worktree } of await deleteLandedBranches(root, [{ repository, branch }])) {
 		out.line(worktree ? keptLine(worktree) : kept ? `kept branch ${name}: ${kept}` : `deleted branch ${name}`);
 	}
-	if (request.keepOpen) {
+	if (closing === undefined) {
 		return;
 	}
-	await closeLandedTickets(root, id, [...jobFeatures(label, id, job.task, subjects)], out);
+	await closeLandedTickets(root, { id, target }, closing, out);
 }
-/** The tickets the job works on leave active/ with the land; a ticket that cannot move says why and stays. */
-async function closeLandedTickets(
-	root: string,
-	id: string,
-	features: readonly string[],
-	out: CommandText,
-): Promise<void> {
+/**
+ * The tickets the job `job` works on, which its land closes after the merge: its label, id or task pointers, else the
+ * features of the commits it brings (a branch that merged main also holds main's own commits since its base). Their
+ * close refuses here, before the merge, when the board or a ticket folder has uncommitted changes or a file is where a
+ * ticket moves, as it would after the merge (T-38 (1)); the refusal names `again`, the land's own call, since nothing
+ * has merged and `limen ticket done` would close the tickets with the job's work left out (R-037, review round 1,
+ * F1).
+ */
+async function closingTickets(root: string, repository: string, job: DoneJob, again: string): Promise<Closing> {
+	const subjects = (commitList(repository, "HEAD", job.branch) ?? "")
+		.split("\n")
+		.map((line) => line.replace(/^\S+ /, ""));
+	const features = [...jobFeatures(job.label, job.id, job.task, subjects)];
+	const planned = await planTicketClose(root, features, landReason(job.id), undefined, again);
+	return { features, active: planned.tickets.map((ticket) => ticket.code) };
+}
+/** The tickets a land closes: those the job works on, and those of them that were active before the merge. */
+type Closing = { readonly features: readonly string[]; readonly active: readonly string[] };
+/**
+ * The close of the tickets the job works on, with the land: the close operation of `limen ticket done` through the
+ * runner, under the ticket-lanes lock (R-092, finding 12). A failure ends the land with its class (`landFailure`).
+ */
+async function closeLandedTickets(root: string, landed: Landing, closing: Closing, out: CommandText): Promise<void> {
+	const { features } = closing;
+	let checked: Checked<TicketClose, TicketsClosed>;
 	try {
-		const closed = await closeTickets(root, features, landReason(id));
-		for (const path of closed.moved) {
-			out.line(`land: closed ${path}${closed.commit ? ` in ${closed.commit}` : ""}; NOW and PROVEN regenerated`);
-		}
-		if (closed.moved.length === 0) {
-			out.line(`land: no active ticket for ${features.join(", ") || "this job"}; nothing closed`);
-		}
+		const request = { root: () => root, codes: features, reason: landReason(landed.id), today: undefined, again: null };
+		checked = await validated(closeOperation(request));
 	} catch (error) {
-		out.line(`land: tickets stay active: ${error instanceof Error ? error.message : String(error)}`);
+		// A refusal names the tickets its own read found; any other failure, those active before the merge.
+		const named = closing.active.length ? `limen ticket done ${closing.active.join(" ")}` : null;
+		throw landFailure(error, landed, isRefusal(error) && error.next !== null ? error.next : named);
 	}
+	const codes = checked.plan.tickets.map((ticket) => ticket.code);
+	if (codes.length === 0) {
+		out.line(`land: no active ticket for ${features.join(", ") || "this job"}; nothing closed`);
+		return;
+	}
+	let closed: TicketsClosed;
+	try {
+		closed = await checked.apply();
+	} catch (error) {
+		throw landFailure(error, landed, `limen ticket done ${codes.join(" ")}`);
+	}
+	for (const path of closed.moved) {
+		out.line(`land: closed ${path}${closed.commit ? ` in ${closed.commit}` : ""}; NOW and PROVEN regenerated`);
+	}
+	for (const folder of closed.stayed) {
+		out.line(`land: ${stayedLine(folder)}`);
+	}
+}
+/** The job a land merged and the branch it merged onto. */
+type Landing = { readonly id: string; readonly target: string };
+/**
+ * The failure of a land whose ticket close failed after the merge (A-021): never exit 0, and the lines land printed
+ * before stay in its text. A refusal of the close's validate here, after land's own check before the merge, is a state
+ * that changed in between (STATE_CHANGED, exit 3). A close whose commit is on the branch while the checkout lags
+ * (CHECKOUT_BEHIND) keeps its message and its `next`, null, since `limen ticket done` would refuse there (R-037,
+ * Decision 18); any other keeps its class and code, says that nothing of the close was written and names `next`, the
+ * `limen ticket done` that closes the tickets that stay active (R-103 makes `limen land` itself continue).
+ */
+function landFailure(error: unknown, landed: Landing, next: string | null): LimenError {
+	const failure = failureOf(error);
+	const done = `job ${landed.id} landed onto ${landed.target}`;
+	if (failure.code === CHECKOUT_BEHIND) {
+		const message = `${done}; ${failure.message}`;
+		return new LimenError({ class: failure.class, code: failure.code, message, next: failure.next, cause: error });
+	}
+	const message = `${done}, but its tickets stay active and nothing of their close was written: ${failure.message}`;
+	if (isRefusal(error)) {
+		return new LimenError({ class: "transient", code: STATE_CHANGED, message, next, cause: error });
+	}
+	return new LimenError({ class: failure.class, code: failure.code, message, next, cause: error });
 }
 /** A done job as land reads it: its folder, its recorded facts and task, and the `landed` marker of an earlier land. */
 type DoneJob = {

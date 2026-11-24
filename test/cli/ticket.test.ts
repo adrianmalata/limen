@@ -2,12 +2,12 @@
 // closes a ticket with its board in one commit and marks its landed jobs, or refuses before anything moves (T-38).
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { lockPath, withLock } from "../../src/lock.ts";
 import { outputText, readOutcome } from "../final-line.ts";
-import { git, jobRecord, limen, type Plant, plant, spawnJob, TICKET, waitJob } from "../plant.ts";
+import { git, installHook, jobRecord, limen, type Plant, plant, spawnJob, TICKET, waitJob } from "../plant.ts";
 import { snapshot } from "../snapshot.ts";
 
 const BAD = TICKET.replace("F001-demo", "F002-bad");
@@ -177,6 +177,56 @@ test("TICKETS_UNCOMMITTED: ticket done of a ticket whose folder has uncommitted 
 		[run.status, readOutcome(run), snapshot(p.root)],
 		[1, { class: "refused", code: "TICKETS_UNCOMMITTED", next: "limen ticket done F001" }, before],
 		run.stderr,
+	);
+});
+
+// A-021, T-28 (3): before R-037 a rejected closing commit left the ticket's move and the board staged in the checkout,
+// so the run again refused NO_ACTIVE_TICKET.
+test("HOOK_REJECTED: ticket done whose pre-commit hook rejects exits 4 with the snapshot identical, and run again once the hook passes closes the ticket in one commit", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const head = git(p.root, "rev-parse", "HEAD");
+	await installHook(p, "pre-commit", "echo 'lint: the board is not formatted'\nexit 1");
+	const before = snapshot(p.root);
+	const rejected = limen(p, ["ticket", "done", "F001", "--on", "2026-11-21"]);
+	assert.deepEqual(
+		[rejected.status, readOutcome(rejected), snapshot(p.root)],
+		[4, { class: "environment", code: "HOOK_REJECTED", next: "limen ticket done F001 --on 2026-11-21" }, before],
+		rejected.stderr,
+	);
+	await installHook(p, "pre-commit", "exit 0");
+	const again = limen(p, ["ticket", "done", "F001", "--on", "2026-11-21"]);
+	assert.deepEqual(
+		[
+			again.status,
+			git(p.root, "rev-parse", "HEAD~1"),
+			git(p.root, "log", "-1", "--format=%s"),
+			git(p.root, "status", "--porcelain"),
+			git(p.root, "ls-files", "spec/features/done/2026-11"),
+		],
+		[0, head, "Close F001: landed 2026-11-21", "", "spec/features/done/2026-11/F001-demo/ticket.md"],
+		again.stderr,
+	);
+});
+
+// R-037, Decision 19: the two-way read-tree moves only what git tracks, so a file git ignores stays where it was.
+test("ticket done leaves a file git ignores in the ticket's old folder, which it names, and moves the ticket", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const swap = join(p.root, dirname(TICKET), ".ticket.md.swp");
+	await appendFile(join(p.root, ".git/info/exclude"), "*.swp\n");
+	await writeFile(swap, "an editor's state\n");
+	const run = limen(p, ["ticket", "done", "F001"]);
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(
+		[
+			outputText(run).includes(`kept ${dirname(TICKET)}: it holds files git does not track, which stay there\n`),
+			await readFile(swap, "utf8"),
+			existsSync(join(p.root, TICKET)),
+			git(p.root, "status", "--porcelain"),
+		],
+		[true, "an editor's state\n", false, ""],
+		run.stdout,
 	);
 });
 

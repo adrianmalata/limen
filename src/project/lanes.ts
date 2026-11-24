@@ -1,16 +1,45 @@
-import { existsSync } from "node:fs";
-import { mkdir, readFile } from "node:fs/promises";
+import { existsSync, readdirSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { atomicRename, atomicWrite } from "../atomic-write.ts";
-import { refused } from "../outcome.ts";
+import { type Operation, type StateView, stateChanged } from "../operation.ts";
+import { environmentError, failureOf, isRefusal, type LimenError, type Refusal, refused } from "../outcome.ts";
 import { readTickets, type TicketRecord } from "../picture/tickets.ts";
-import { commitPaths, dirtyPaths, isGitRepository } from "./git.ts";
+import {
+	blobText,
+	changedInCheckout,
+	changedPaths,
+	cleanMessage,
+	commitTree,
+	dirtyPaths,
+	editIndex,
+	followCommit,
+	headCommit,
+	type IndexEntry,
+	indexEntries,
+	indexEnvironment,
+	indexTree,
+	isGitRepository,
+	moveHead,
+	readTreeInto,
+	runHook,
+	shortCommit,
+	storeBlob,
+} from "./git.ts";
 import { ARCHIVE, type ArchiveRow, archiveRows } from "./series.ts";
 
 /** PROVEN names this many landed features; every month folder keeps a count line below them. */
 const PROVEN_SHOWN = 10;
-/** The reason of the closing commit of `limen land`, before the job's id: `Close <codes>: landed by <id>`. */
+/** The reason `limen land` gives its closing commit, before the job's id: `Close <codes>: landed by <id>`. */
 const LANDED_BY = "landed by ";
+/** The lines of a rejecting hook's output that its failure holds: the end, where a hook says why. */
+const HOOK_LINES = 20;
+/**
+ * The code of a close whose commit is on the branch while the checkout still holds the close's paths as they were
+ * before it: git refused to overwrite a file there that changed after validate (R-037, Decision 17).
+ */
+export const CHECKOUT_BEHIND = "CHECKOUT_BEHIND";
 /** The subject of a closing commit: the ticket codes joined by `, `, then its reason. */
 const CLOSE_SUBJECT = /^Close [^:]+: (.*)$/;
 const BOARD = "spec/build.md";
@@ -91,12 +120,24 @@ export async function writeBoard(root: string): Promise<boolean> {
 		return false;
 	}
 	const text = await readFile(path, "utf8");
-	const next = renderBoard(text, (await readTickets(root)).tickets, archiveRows(root));
+	const next = await boardOf(root, text, []);
 	if (next === text) {
 		return false;
 	}
 	await atomicWrite(path, next);
 	return true;
+}
+
+/**
+ * The board `text` as `limen board --write` renders it from the lanes of the checkout at `root`, once each of `moves`
+ * has put its ticket in `done/` with its `landed` date.
+ */
+async function boardOf(root: string, text: string, moves: readonly Move[]): Promise<string> {
+	const tickets = (await readTickets(root)).tickets.map((ticket) => {
+		const move = moves.find(({ from }) => `${from}/ticket.md` === ticket.path);
+		return move ? { ...ticket, lane: "done" as const, path: `${move.to}/ticket.md`, landed: move.day } : ticket;
+	});
+	return renderBoard(text, tickets, archiveRows(root));
 }
 
 /** The reason `limen land` gives the close of the job `id`'s tickets, which its closing commit's subject ends with. */
@@ -120,19 +161,28 @@ export type TicketClose = {
 	readonly tickets: readonly TicketRecord[];
 	/** Whether the project is a Git repository, where the close is one commit. */
 	readonly committed: boolean;
+	/**
+	 * The checkout's HEAD as validate read it, in a Git repository: the closing commit's only parent, and the one commit
+	 * the branch moves from, so a HEAD that moved since validate ends the close in STATE_CHANGED (T-38 (2)).
+	 */
+	readonly head: string | null;
 	readonly reason: string;
 	readonly today: string;
 };
 
 /**
- * The close of each named active ticket, decided and not yet made: the tickets, and a refusal when the board or one of
- * their folders has uncommitted changes, since another session is editing it. It writes nothing.
+ * The close of each named active ticket, decided and not yet made: the tickets and the commit it builds on, and a
+ * refusal when the board or one of their folders has uncommitted changes, since another session is editing it, or a
+ * file is where a folder moves to, which the close would otherwise meet only after it began. It writes nothing. A
+ * refusal names `retry`, the command to run once the paths are committed or moved: `limen ticket done` with the
+ * tickets, unless the caller names its own call, as `limen land` does before its merge (R-037, review round 1, F1).
  */
 export async function planTicketClose(
 	root: string,
 	codes: readonly string[],
 	reason: string,
-	today = localDate(),
+	today = localDay(),
+	retry?: string,
 ): Promise<TicketClose> {
 	const wanted = new Set(codes.map((code) => code.toUpperCase()));
 	const tickets = (await readTickets(root)).tickets.filter(
@@ -141,71 +191,268 @@ export async function planTicketClose(
 	const committed = tickets.length > 0 && isGitRepository(root);
 	if (committed) {
 		const folders = tickets.map((ticket) => dirname(ticket.path));
+		const again = retry ?? `limen ticket done ${tickets.map((ticket) => ticket.code).join(" ")}`;
 		const busy = dirtyPaths(root).paths.filter(
 			(path) => path === BOARD || folders.some((from) => path.startsWith(`${from}/`)),
 		);
 		if (busy.length) {
-			const named = tickets.map((ticket) => ticket.code).join(" ");
 			throw refused(
 				"TICKETS_UNCOMMITTED",
-				`uncommitted changes in ${busy.join(", ")}; commit them, then run limen ticket done ${named}`,
-				`limen ticket done ${named}`,
+				`uncommitted changes in ${busy.join(", ")}; commit them, then run ${again}`,
+				again,
+			);
+		}
+		const occupied = folders.flatMap((from) => filesBelow(root, doneFolder(from, today)));
+		if (occupied.length) {
+			throw refused(
+				"TICKETS_UNCOMMITTED",
+				`files are where the close moves the tickets: ${occupied.join(", ")}; move them, then run ${again}`,
+				again,
 			);
 		}
 	}
-	return { root, tickets, committed, reason, today };
+	return { root, tickets, committed, head: committed ? headCommit(root) : null, reason, today };
 }
 
 /**
- * What a close did: the folders it moved, and in a Git repository its commit, short (`commit`) and full (`sha`); and
- * the day it gave the tickets as their `landed` date.
+ * What a close did: the folders it moved, and in a Git repository its commit, short (`commit`) and full (`sha`); the
+ * day it gave the tickets as their `landed` date; and each old folder that still exists, since it holds files git does
+ * not track, ignored or untracked (one a hook made), which the checkout's catch-up leaves where they are (R-037,
+ * Decision 19 and review round 2, G3).
  */
 export type TicketsClosed = {
 	readonly moved: readonly string[];
 	readonly commit?: string;
 	readonly sha?: string;
 	readonly day: string;
+	readonly stayed: readonly string[];
+};
+
+/** The line of a close's output for an old ticket folder that `TicketsClosed.stayed` names. */
+export function stayedLine(folder: string): string {
+	return `kept ${folder}: it holds files git does not track, which stay there`;
+}
+
+/**
+ * What a command asks of the close. `root` is validate's first step, the call's own checks and then the project's
+ * root, so that their refusals come before any read of the lanes. `today` is the `landed` date, the local day when
+ * undefined. `again` is the command that runs the close again, the `next` of a STATE_CHANGED and a HOOK_REJECTED.
+ * `added` holds the reads the caller's validate makes beside the plan, such as the jobs `limen ticket done` marks; a
+ * refusal from it ends validate, and what it reads comes back with what the close did.
+ */
+export type CloseRequest<Added> = {
+	readonly root: () => string;
+	readonly codes: readonly string[];
+	readonly reason: string;
+	readonly today: string | undefined;
+	readonly again: string | null;
+	readonly added?: (view: StateView, close: TicketClose) => Promise<Added | Refusal>;
 };
 
 /**
- * The writes of `close`: each folder to `done/<month>/` with a `landed` date, then the board. In a Git repository the
- * moves and the board are one commit, `Close FNNN: <reason>`. Returns the folders it moved and the commit.
+ * The close of the active tickets `request.codes` names, the one operation of `limen land` and `limen ticket done`
+ * (T-25): validate holds the plan, so the runner reads it again under the lock and a change of the tickets, the board
+ * or HEAD since then ends the close in STATE_CHANGED before its first write (T-38 (2)); the lock is the ticket lanes',
+ * which every close takes (R-092, finding 12); apply is `applyTicketClose`.
  */
-export async function applyTicketClose(close: TicketClose): Promise<TicketsClosed> {
+export function closeOperation<Added = undefined>(
+	request: CloseRequest<Added>,
+): Operation<
+	TicketClose & { readonly added: Added | undefined },
+	TicketsClosed & { readonly added: Added | undefined }
+> {
+	const { codes, reason, today, again } = request;
+	return {
+		validate: async (view) => {
+			const root = request.root();
+			const close = await view.hold(`the active tickets ${codes.join(", ")} in ${root}`, () =>
+				planTicketClose(root, codes, reason, today),
+			);
+			const added = await request.added?.(view, close);
+			return isRefusal(added) ? added : { ...close, added };
+		},
+		lock: (close) => ({ file: join(close.root, ".limen", "ticket-lanes") }),
+		apply: async (close) => ({ ...(await applyTicketClose(close, again)), added: close.added }),
+		again,
+	};
+}
+
+/**
+ * The writes of `close`: each folder to `done/<month>/` with a `landed` date, and the board. In a Git repository they
+ * are one commit, `Close FNNN: <reason>`, made by `commitClose` before anything visible changes; in a root that is no
+ * Git repository, a workspace's, the folders move and the board is written in place. `again` is the `next` of a
+ * failure that running the close again mends.
+ */
+export async function applyTicketClose(close: TicketClose, again: string | null = null): Promise<TicketsClosed> {
 	const { root, tickets, today } = close;
-	if (tickets.length === 0) {
-		return { moved: [], day: today };
+	const moves = tickets.map((ticket) => {
+		const from = dirname(ticket.path);
+		return { from, to: doneFolder(from, today), day: today };
+	});
+	if (moves.length === 0) {
+		return { moved: [], day: today, stayed: [] };
 	}
-	const folders = tickets.map((ticket) => dirname(ticket.path));
-	const moved: string[] = [];
-	for (const from of folders) {
-		const to = `spec/features/done/${today.slice(0, 7)}/${basename(from)}`;
+	if (close.head !== null) {
+		return commitClose(close, close.head, moves, again);
+	}
+	for (const { from, to } of moves) {
 		await mkdir(join(root, dirname(to)), { recursive: true });
 		await atomicRename(join(root, from), join(root, to));
 		const file = join(root, to, "ticket.md");
 		await atomicWrite(file, withLanded(await readFile(file, "utf8"), today));
-		moved.push(to);
 	}
-	const board = (await writeBoard(root)) ? [BOARD] : [];
-	if (!close.committed) {
-		return { moved, day: today };
+	await writeBoard(root);
+	return { moved: moves.map(({ to }) => to), day: today, stayed: [] };
+}
+
+/** One ticket folder a close moves: from its lane to its month in `done/`, with `day` as its `landed` date. */
+type Move = { readonly from: string; readonly to: string; readonly day: string };
+
+/**
+ * The closing commit in a Git repository (A-021, A-057's pattern): built in a temporary index from `head`, through the
+ * hooks `git commit -m` runs before it commits, then the branch moved from `head` by compare-and-swap, so until then
+ * nothing but git's object store holds any of it; only then does the checkout follow (`followCommit`).
+ */
+async function commitClose(
+	close: TicketClose,
+	head: string,
+	moves: readonly Move[],
+	again: string | null,
+): Promise<TicketsClosed> {
+	const { root } = close;
+	const scratch = await mkdtemp(join(tmpdir(), "limen-close-"));
+	let made: { readonly commit: string; readonly subject: string };
+	try {
+		made = await closingCommit(close, head, moves, scratch, again);
+	} finally {
+		await rm(scratch, { recursive: true, force: true });
 	}
-	const message = `Close ${tickets.map((ticket) => ticket.code).join(", ")}: ${close.reason}`;
-	const { sha, short } = commitPaths(root, [...folders, ...moved, ...board], message);
-	return { moved, commit: short, sha, day: today };
+	const { commit, subject } = made;
+	const short = shortCommit(root, commit);
+	const paths = changedPaths(root, head, commit);
+	if (!moveHead(root, head, commit, `commit: ${subject}`)) {
+		throw stateChanged(`HEAD of ${root}`, again);
+	}
+	try {
+		followCommit(root, head, commit);
+	} catch (error) {
+		throw checkoutBehind(close, { head, commit, short, paths }, error);
+	}
+	const stayed = moves.filter(({ from }) => existsSync(join(root, from))).map(({ from }) => from);
+	return { moved: moves.map(({ to }) => to), commit: short, sha: commit, day: close.today, stayed };
 }
 
 /**
- * Moves each named active ticket to `done/<month>/` with a `landed` date and rebuilds the board, as `limen land`
- * closes its tickets: `planTicketClose`, then `applyTicketClose`.
+ * The closing commit's object and its subject, the branch not moved yet: the index of the folder `scratch` read from
+ * `head`, each folder's entries moved with the new `ticket.md`, the board rendered after the moves, then the hooks of
+ * `git commit -m` in its order and environment: `pre-commit`, the index read again for its tree, as git does, so that
+ * a hook's change to it is committed, then `prepare-commit-msg` and `commit-msg` on the message file, read back after.
  */
-export async function closeTickets(
+async function closingCommit(
+	close: TicketClose,
+	head: string,
+	moves: readonly Move[],
+	scratch: string,
+	again: string | null,
+): Promise<{ readonly commit: string; readonly subject: string }> {
+	const { root, tickets, today } = close;
+	const index = join(scratch, "index");
+	readTreeInto(root, index, head);
+	const entries: IndexEntry[] = [];
+	for (const { from, to } of moves) {
+		for (const entry of indexEntries(root, index, `${from}/`)) {
+			const path = `${to}${entry.path.slice(from.length)}`;
+			const oid =
+				entry.path === `${from}/ticket.md` ? storeBlob(root, withLanded(blobText(root, entry.oid), today)) : entry.oid;
+			entries.push({ mode: "0", oid: "0".repeat(entry.oid.length), path: entry.path }, { ...entry, oid, path });
+		}
+	}
+	for (const board of indexEntries(root, index, BOARD)) {
+		const text = blobText(root, board.oid);
+		const rendered = await boardOf(root, text, moves);
+		if (rendered !== text) {
+			entries.push({ ...board, oid: storeBlob(root, rendered) });
+		}
+	}
+	editIndex(root, index, entries);
+	const codes = tickets.map((ticket) => ticket.code).join(", ");
+	const hooks = { ...indexEnvironment(index), GIT_EDITOR: ":" };
+	const hook = (name: string, args: readonly string[]) => passHook(root, codes, { name, args, env: hooks }, again);
+	hook("pre-commit", []);
+	const tree = indexTree(root, index);
+	const file = join(scratch, "COMMIT_EDITMSG");
+	await atomicWrite(file, `Close ${codes}: ${close.reason}\n`);
+	hook("prepare-commit-msg", [file, "message"]);
+	hook("commit-msg", [file]);
+	const message = cleanMessage(root, await readFile(file, "utf8"));
+	// The subject goes into the reflogs as `git commit` writes it there: `commit: <subject>`.
+	return { commit: commitTree(root, tree, head, message), subject: message.split("\n")[0] ?? "" };
+}
+
+/**
+ * Runs the hook `name` of the closing commit of `codes`; one that exits non-zero ends the close before the branch
+ * moves, as the environment's failure HOOK_REJECTED, with the end of its output, where a hook says why.
+ */
+function passHook(
 	root: string,
-	codes: readonly string[],
-	reason: string,
-	today = localDate(),
-): Promise<TicketsClosed> {
-	return applyTicketClose(await planTicketClose(root, codes, reason, today));
+	codes: string,
+	hook: { readonly name: string; readonly args: readonly string[]; readonly env: NodeJS.ProcessEnv },
+	again: string | null,
+): void {
+	const run = runHook(root, hook.name, hook.args, hook.env);
+	if (run.status === 0) {
+		return;
+	}
+	const lines = run.output.trimEnd().split("\n").slice(-HOOK_LINES);
+	const said = lines.join("") === "" ? "it printed nothing" : `the end of its output:\n${lines.join("\n")}`;
+	throw environmentError(
+		"HOOK_REJECTED",
+		`the ${hook.name} hook of ${root} rejected the closing commit of ${codes} with exit code ${run.status}, so nothing of the close was written; ${said}`,
+		again,
+	);
+}
+
+/**
+ * The failure of a close whose commit `step.commit` is on the branch, while the checkout still holds `step.paths` as
+ * they were at `step.head`: git refused to overwrite a file there that changed after validate (z. 29). Its `next` is
+ * null, since what finishes it is git's, not Limen's (T-37, D-046 (1)): the message names it. It tells to move the
+ * changed files aside, never to commit them: a commit in that state reverts the close, and the read-tree then no longer
+ * finishes it (R-037's Risk 3; R-037, review round 1, F2).
+ */
+function checkoutBehind(
+	close: TicketClose,
+	step: { readonly head: string; readonly commit: string; readonly short: string; readonly paths: readonly string[] },
+	error: unknown,
+): LimenError {
+	const codes = close.tickets.map((ticket) => ticket.code).join(", ");
+	const changed = changedInCheckout(close.root, step.paths);
+	const files = changed?.length ? changed.join(", ") : "git could not name them here, so see its words above";
+	return environmentError(
+		CHECKOUT_BEHIND,
+		[
+			`the closing commit ${step.short} of ${codes} is on the branch of ${close.root}, but the checkout still holds`,
+			`these paths as they were before it: ${step.paths.join(", ")}. Git refused to bring them: ${failureOf(error).message}.`,
+			`Move the files that changed since the close's checks aside, out of the checkout or to another name: ${files};`,
+			"make no commit before the read-tree, since it would revert the close.",
+			`Then run in ${close.root}: git update-index -q --refresh, then git read-tree -m -u ${step.head} ${step.commit}`,
+		].join(" "),
+	);
+}
+
+/** Where a close on the day `today` moves the ticket folder `from`: its month folder in `done/`. */
+export function doneFolder(from: string, today: string): string {
+	return `spec/features/done/${today.slice(0, 7)}/${basename(from)}`;
+}
+
+/** The files below the folder `folder` of the checkout at `root`, tracked or not, from the root; none for no folder. */
+function filesBelow(root: string, folder: string): string[] {
+	if (!existsSync(join(root, folder))) {
+		return [];
+	}
+	return readdirSync(join(root, folder), { recursive: true, withFileTypes: true })
+		.filter((entry) => !entry.isDirectory())
+		.map((entry) => `${folder}${join(entry.parentPath, entry.name).slice(join(root, folder).length)}`)
+		.sort();
 }
 
 function replaceSection(text: string, heading: string, body: readonly string[], before: readonly string[]): string {
@@ -243,7 +490,7 @@ function number(ticket: TicketRecord): number {
 	return Number(ticket.code.slice(1));
 }
 
-function localDate(): string {
-	const now = new Date();
-	return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+/** The local day of `at` as `YYYY-MM-DD`: the `landed` date of a close that names none, as land's close. */
+export function localDay(at = new Date()): string {
+	return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`;
 }

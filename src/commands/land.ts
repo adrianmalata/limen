@@ -10,6 +10,7 @@ export async function landCommand(values: Parsed, cwd: string, out: CommandText)
 		yes: values.has("yes"),
 		keepOpen: values.has("keep-open"),
 		onto: values.get("onto"),
+		again: values.commandLine(),
 	};
 	await landJob(request, cwd, out);
 }

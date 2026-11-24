@@ -443,9 +443,17 @@ const JOBS: readonly Entry[] = [
 			{ flag: "keep-open", about: "keep the ticket active, because more slices remain" },
 		],
 		ids: [],
-		// A group member is refused before its job is resolved; a ticket close that fails leaves the tickets active and
-		// says so, without a refusal.
-		refuses: refusals(JOB_WORD, ["BAD_REPO", "MERGE_FAILED", "NOT_A_PROJECT", "PICTURE_NOT_A_FOLDER"]),
+		// A group member is refused before its job is resolved; the close of its tickets refuses before the merge, and a
+		// close that fails after it ends the land with the close's class and `limen ticket done <codes>`, except a refusal
+		// there, which is STATE_CHANGED, and CHECKOUT_BEHIND, whose `next` is null since its commit is on the branch
+		// (R-037, Decision 18).
+		refuses: refusals(JOB_WORD, [
+			"BAD_REPO",
+			"MERGE_FAILED",
+			"NOT_A_PROJECT",
+			"PICTURE_NOT_A_FOLDER",
+			"TICKETS_UNCOMMITTED",
+		]),
 		example: "limen land a1b2c3d4",
 		handler: landCommand,
 	},
@@ -682,7 +690,7 @@ const TICKETS: readonly Entry[] = [
 		ids: [],
 		refuses: refusals(IN_PROJECT),
 		example: "limen close F012",
-		movedBy: "R-037",
+		movedBy: "R-101",
 		handler: closeCommand,
 	},
 	{

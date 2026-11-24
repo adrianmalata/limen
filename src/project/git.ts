@@ -289,7 +289,7 @@ export function currentBranch(cwd: string): string {
 }
 /**
  * Merges `branch` into the checkout. A merge git stops, as on a conflict, is land's refusal (exit 1, as before R-092),
- * with git's own words; land is R-037's, which types it further.
+ * with git's own words; land is R-103's, which types it further.
  */
 export function mergeBranch(cwd: string, branch: string): string {
 	requireGit(cwd, ["check-ref-format", "--branch", branch]);
@@ -478,7 +478,7 @@ export function treeOf(cwd: string, commit: string): string {
  * the worktree's own index stays as it is and no hook runs (A-001).
  */
 export function worktreeTree(worktree: string, index: string): string {
-	const env = { ...process.env, GIT_INDEX_FILE: index };
+	const env = indexEnvironment(index);
 	requireGit(worktree, ["read-tree", "HEAD"], undefined, env);
 	requireGit(worktree, ["add", "-A"], undefined, env);
 	return requireGit(worktree, ["write-tree"], undefined, env).stdout.trim();
@@ -491,19 +491,113 @@ export function commitTree(cwd: string, tree: string, parent: string, message: s
 export function createBranchOnce(cwd: string, branch: string, commit: string): void {
 	requireGit(cwd, ["update-ref", `refs/heads/${branch}`, commit, ""]);
 }
+/** The environment in which git works on the index file `index` instead of the checkout's own index. */
+export function indexEnvironment(index: string): NodeJS.ProcessEnv {
+	return { ...process.env, GIT_INDEX_FILE: index };
+}
+/** One entry of an index: its mode, its object and its path. Mode `0` removes the path (`update-index --index-info`). */
+export type IndexEntry = { readonly mode: string; readonly oid: string; readonly path: string };
 /**
- * Commits only `paths`, as they are in the working tree, beside whatever else is staged or changed; returns the
- * commit's full SHA and its short form.
+ * Fills the index file `index`, which the caller makes in a folder of its own, from the tree of `commit`; the
+ * checkout's own index and its working tree stay as they are (the closing commit, R-037).
  */
-export function commitPaths(
-	cwd: string,
-	paths: readonly string[],
-	message: string,
-): { readonly sha: string; readonly short: string } {
-	requireGit(cwd, ["add", "-A", "--", ...paths]);
-	requireGit(cwd, ["commit", "--quiet", "-m", message, "--", ...paths]);
-	const sha = requireGit(cwd, ["rev-parse", "HEAD"]).stdout.trim();
-	return { sha, short: requireGit(cwd, ["rev-parse", "--short", sha]).stdout.trim() };
+export function readTreeInto(cwd: string, index: string, commit: string): void {
+	requireGit(cwd, ["read-tree", commit], undefined, indexEnvironment(index));
+}
+/** The entries of the index file `index` that `pathspec` names, such as a folder as `<folder>/`. */
+export function indexEntries(cwd: string, index: string, pathspec: string): readonly IndexEntry[] {
+	const listed = requireGit(cwd, ["ls-files", "-s", "-z", "--", pathspec], undefined, indexEnvironment(index));
+	return listed.stdout
+		.split("\0")
+		.filter(Boolean)
+		.map((line) => {
+			const [meta = "", path = ""] = line.split("\t");
+			const [mode = "", oid = ""] = meta.split(" ");
+			return { mode, oid, path };
+		});
+}
+/** Writes `entries` into the index file `index`, in one `update-index --index-info`. */
+export function editIndex(cwd: string, index: string, entries: readonly IndexEntry[]): void {
+	const input = entries.map(({ mode, oid, path }) => `${mode} ${oid}\t${path}\0`).join("");
+	requireGit(cwd, ["update-index", "-z", "--index-info"], input, indexEnvironment(index));
+}
+/** The tree of the index file `index`, written to the object store. */
+export function indexTree(cwd: string, index: string): string {
+	return requireGit(cwd, ["write-tree"], undefined, indexEnvironment(index)).stdout.trim();
+}
+/** Stores `text` in the object store as a blob and returns the blob's id. */
+export function storeBlob(cwd: string, text: string): string {
+	return requireGit(cwd, ["hash-object", "-w", "--stdin"], text).stdout.trim();
+}
+/** The text of the blob `oid`. */
+export function blobText(cwd: string, oid: string): string {
+	return requireGit(cwd, ["cat-file", "blob", oid]).stdout;
+}
+/** What a hook run gave: the hook's exit status, 0 when there is no such hook, and its output, stdout first. */
+export type HookRun = { readonly status: number; readonly output: string };
+/**
+ * Runs the project's hook `name` with `args` as `git commit` runs it, found through `core.hooksPath` or else in
+ * `.git/hooks` (`git hook run --ignore-missing`, git 2.36), from the top of the checkout with the environment `env`. A
+ * git that lacks the subcommand is the environment's failure, GIT_FAILED, never a hook's (R-037, Decision 13).
+ */
+export function runHook(cwd: string, name: string, args: readonly string[], env: NodeJS.ProcessEnv): HookRun {
+	const words = ["hook", "run", "--ignore-missing", name, ...(args.length ? ["--", ...args] : [])];
+	const result = git(cwd, words, undefined, env);
+	if (result.status !== 0 && result.stderr.includes("'hook' is not a git command")) {
+		throw environmentError(
+			"GIT_FAILED",
+			`git hook run is missing, so the ${name} hook cannot run: ${result.stderr.trim()}`,
+		);
+	}
+	return { status: result.status, output: `${result.stdout}${result.stderr}` };
+}
+/** `text` as `git commit -m` keeps a message: spaces at line ends, and blank lines at its ends or in a row, go. */
+export function cleanMessage(cwd: string, text: string): string {
+	return requireGit(cwd, ["stripspace"], text).stdout;
+}
+/**
+ * Moves HEAD, and the branch it names, from the commit `from` to `to` in one compare-and-swap, with `message` in the
+ * reflogs as `git commit` writes it. False when HEAD no longer is `from`, and then nothing moved; any other failure is
+ * the environment's.
+ */
+export function moveHead(cwd: string, from: string, to: string, message: string): boolean {
+	const result = git(cwd, ["update-ref", "-m", message, "HEAD", to, from]);
+	if (result.status === 0) {
+		return true;
+	}
+	if (headCommit(cwd) !== from) {
+		return false;
+	}
+	throw environmentError("GIT_FAILED", result.stderr.trim() || result.stdout.trim() || "git update-ref failed");
+}
+/**
+ * Brings the checkout at `cwd`, whose HEAD moved from the commit `from` to `to`, to `to` as `git merge --ff-only` does:
+ * the index refreshed, then a two-way `git read-tree -m -u`, which keeps every other uncommitted or staged file and,
+ * changing nothing, refuses to overwrite a file of the change that differs from `from`.
+ */
+export function followCommit(cwd: string, from: string, to: string): void {
+	requireGit(cwd, ["update-index", "-q", "--refresh"]);
+	requireGit(cwd, ["read-tree", "-m", "-u", from, to]);
+}
+/**
+ * The files of `paths` in the checkout at `cwd` that differ from its index, or that its index lacks: what a two-way
+ * read-tree refuses to overwrite. Undefined when git cannot list them, so the caller says so instead of naming none.
+ */
+export function changedInCheckout(cwd: string, paths: readonly string[]): readonly string[] | undefined {
+	const changed = git(cwd, ["diff", "--name-only", "-z", "--", ...paths]);
+	const untracked = git(cwd, ["ls-files", "--others", "-z", "--", ...paths]);
+	if (changed.status !== 0 || untracked.status !== 0) {
+		return undefined;
+	}
+	return [...changed.stdout.split("\0"), ...untracked.stdout.split("\0")].filter(Boolean).sort();
+}
+/** The paths whose content differs between the commits `from` and `to`, a rename as its two paths. */
+export function changedPaths(cwd: string, from: string, to: string): readonly string[] {
+	return requireGit(cwd, ["diff", "--name-only", "-z", "--no-renames", from, to]).stdout.split("\0").filter(Boolean);
+}
+/** The short form of the commit `commit`. */
+export function shortCommit(cwd: string, commit: string): string {
+	return requireGit(cwd, ["rev-parse", "--short", commit]).stdout.trim();
 }
 /** The committer time of the commit `commit`, in seconds since the epoch. */
 export function committerTime(cwd: string, commit: string): number {

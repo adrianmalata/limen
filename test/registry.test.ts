@@ -36,10 +36,10 @@ import { snapshot } from "./snapshot.ts";
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const OBJECTS = ["job", "owner", "project", "ticket", "seat", "github", "group", "picture", "workspace"];
 const TYPES = ["job", "ticket", "text", "path", "branch", "word"];
-// D-039 and D-042: the commands a subsequent ticket moves or cuts, each with that ticket.
+// D-039, D-042 and D-096 (1): the commands a subsequent ticket moves or cuts, each with that ticket.
 const MOVED = {
 	prune: "R-101",
-	close: "R-037",
+	close: "R-101",
 	keeper: "R-066",
 	rule: "R-102",
 	"rule set": "R-102",

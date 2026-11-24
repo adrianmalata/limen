@@ -21,7 +21,7 @@ test("in a terminal, land asks after the uncommitted-files note, which it holds 
 		questions.push(question);
 		return false;
 	};
-	const request = { query: { word: id }, yes: false, keepOpen: false, onto: undefined };
+	const request = { query: { word: id }, yes: false, keepOpen: false, onto: undefined, again: `limen land ${id}` };
 	await assert.rejects(landJob(request, p.root, out, ask), { message: "land cancelled" });
 	const label = jobRecord(p, id)?.label ?? "";
 	const target = git(p.root, "branch", "--show-current");

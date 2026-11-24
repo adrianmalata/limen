@@ -1,11 +1,28 @@
-// src/commands/land.ts: `limen land` through the CLI, the worktree with unlanded work that it keeps (A-001), and the
-// `landed` marker it writes in the job's record (A-002).
+// src/commands/land.ts: `limen land` through the CLI, the worktree with unlanded work that it keeps (A-001), the
+// `landed` marker it writes in the job's record (A-002), and the close of its tickets that refuses or fails (A-021).
 import assert from "node:assert/strict";
-import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { existsSync } from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import test from "node:test";
+import { withLock } from "../../src/lock.ts";
+import { doneFolder, localDay } from "../../src/project/lanes.ts";
 import { outputText, readOutcome } from "../final-line.ts";
-import { git, jobDir, jobRecord, limen, nestedJob, plant, spawnJob, waitJob, writeRecord } from "../plant.ts";
+import {
+	git,
+	installHook,
+	jobDir,
+	jobRecord,
+	limen,
+	nestedJob,
+	type Plant,
+	plant,
+	spawnJob,
+	TICKET,
+	waitJob,
+	writeRecord,
+} from "../plant.ts";
+import { type Snapshot, snapshot } from "../snapshot.ts";
 
 const ID = "2026-11-21-land-label-5e6f7a8b";
 
@@ -119,4 +136,99 @@ test("land keeps a landed job's clean worktree whose nested repository holds a c
 	const cause = "the nested repository vendor/lib holds a commit that the project's repository lacks";
 	assert.ok(outputText(run).includes(`kept ${worktree} (job ${id}): ${cause}\n`), run.stdout);
 	assert.equal(git(nested, "cat-file", "-t", head), "commit");
+});
+
+/** A done job of the plant whose label names its ticket F001, with one commit on its branch. */
+function ticketJob(p: Plant): string {
+	const id = spawnJob(p, "commit", ["--label", "F001 demo work"]);
+	assert.equal(waitJob(p, id), "done");
+	return id;
+}
+
+/** What a land that merged and closed nothing leaves as it was: every path under `spec/`, and the tree's status. */
+function untouched(state: Snapshot): unknown {
+	return [Object.entries(state.files).filter(([path]) => path.startsWith("spec/")), state.status];
+}
+
+// A-021: before R-037 land merged first and met the uncommitted ticket only at its close, which it then skipped.
+// Review round 1, F1: the refusal named `limen ticket done F001`, which would close the ticket with the job unmerged.
+test("TICKETS_UNCOMMITTED: land of a job whose ticket folder has uncommitted changes exits 1 before its merge, names land again, and leaves the snapshot identical", async (t) => {
+	const p = await plant();
+	t.after(p.cleanup);
+	const id = ticketJob(p);
+	await writeFile(join(p.root, dirname(TICKET), "notes.md"), "a note in progress\n");
+	const before = snapshot(p.root);
+	const run = limen(p, ["land", id]);
+	assert.deepEqual(
+		[
+			run.status,
+			readOutcome(run),
+			snapshot(p.root),
+			outputText(run).includes(`commit them, then run limen land ${id}`),
+		],
+		[1, { class: "refused", code: "TICKETS_UNCOMMITTED", next: `limen land ${id}` }, before, true],
+		run.stderr,
+	);
+});
+
+// Review round 1, F1: the refusal of a file where the ticket moves named `limen ticket done F001` too.
+test("TICKETS_UNCOMMITTED: land of a job whose ticket's destination folder holds a file exits 1 before its merge, names land again, and leaves the snapshot identical", async (t) => {
+	const p = await plant();
+	t.after(p.cleanup);
+	const id = ticketJob(p);
+	// Review round 2, G5: the folder comes from the close's own day and destination, for the day now and an hour later,
+	// so the land meets a file there even when a month ends between the two.
+	for (const at of [new Date(), new Date(Date.now() + 3_600_000)]) {
+		const folder = join(p.root, doneFolder(dirname(TICKET), localDay(at)));
+		await mkdir(folder, { recursive: true });
+		await writeFile(join(folder, "outcome.md"), "another session's draft\n");
+	}
+	const before = snapshot(p.root);
+	const run = limen(p, ["land", id]);
+	assert.deepEqual(
+		[run.status, readOutcome(run), snapshot(p.root), outputText(run).includes(`move them, then run limen land ${id}`)],
+		[1, { class: "refused", code: "TICKETS_UNCOMMITTED", next: `limen land ${id}` }, before, true],
+		run.stderr,
+	);
+});
+
+// A-021: before R-037 a rejected closing commit printed `land: tickets stay active`, exited 0 and left the ticket's
+// move and the board staged in the checkout.
+test("HOOK_REJECTED: land whose closing commit a pre-commit hook rejects exits 4 with limen ticket done F001, keeps the merge and the marker, and leaves the ticket active with nothing staged", async (t) => {
+	const p = await plant();
+	t.after(p.cleanup);
+	const id = ticketJob(p);
+	const tip = git(p.root, "rev-parse", jobRecord(p, id)?.branch ?? "");
+	await installHook(p, "pre-commit", "echo 'lint failed'\nexit 1");
+	const before = snapshot(p.root);
+	const run = limen(p, ["land", id]);
+	assert.deepEqual(
+		[run.status, readOutcome(run), untouched(snapshot(p.root)), outputText(run).includes("land: tickets stay active")],
+		[4, { class: "environment", code: "HOOK_REJECTED", next: "limen ticket done F001" }, untouched(before), false],
+		run.stderr,
+	);
+	assert.deepEqual(
+		[git(p.root, "rev-parse", "HEAD"), jobRecord(p, id)?.landed?.sha, existsSync(join(p.root, TICKET))],
+		[tip, tip, true],
+	);
+	await installHook(p, "pre-commit", "exit 0");
+	const done = limen(p, ["ticket", "done", "F001"]);
+	assert.deepEqual([done.status, git(p.root, "status", "--porcelain")], [0, ""], done.stderr);
+});
+
+// R-092, review round 1, finding 12: before R-037 land closed its tickets without the ticket-lanes lock, so a
+// `ticket done` that held it did not keep land out.
+test("LOCK_TIMEOUT: land while a live process holds the ticket-lanes lock exits 3 with limen ticket done F001 and closes nothing", async (t) => {
+	const p = await plant();
+	t.after(p.cleanup);
+	const id = ticketJob(p);
+	const before = snapshot(p.root);
+	const run = await withLock({ file: join(p.root, ".limen", "ticket-lanes") }, async () =>
+		limen(p, ["land", id], { env: { LIMEN_LOCK_WAIT_MS: "100" } }),
+	);
+	assert.deepEqual(
+		[run.status, readOutcome(run), untouched(snapshot(p.root))],
+		[3, { class: "transient", code: "LOCK_TIMEOUT", next: "limen ticket done F001" }, untouched(before)],
+		run.stderr,
+	);
 });

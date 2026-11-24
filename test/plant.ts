@@ -728,6 +728,17 @@ export async function nestedJob(p: Plant, name: string, how: Nested) {
 	return { id, worktree, nested, head: git(nested, "rev-parse", "HEAD") };
 }
 
+/**
+ * Makes `body` the project's git hook `name`, a shell script in a folder beside the repository that `core.hooksPath`
+ * names, so the hook is no file of the tree and `git status` stays as it was. Installing it again replaces it.
+ */
+export async function installHook(p: Plant, name: string, body: string): Promise<void> {
+	const folder = join(p.parent, "hooks");
+	await mkdir(folder, { recursive: true });
+	await writeFile(join(folder, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+	git(p.root, "config", "core.hooksPath", folder);
+}
+
 /** Every fetch any Limen process in this plant made; `respond` rows answer the first request whose URL contains `match`. */
 export function requests(plant: Plant): Array<{
 	readonly url: string;

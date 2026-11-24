@@ -12,7 +12,7 @@ import { type CommandText, refused, type Success, usageError } from "../outcome.
 import { readPicture } from "../picture/picture-build.ts";
 import { ID_PATTERN } from "../picture/picture-model.ts";
 import { limenRoot, repoRoot } from "./git.ts";
-import { applyTicketClose, planTicketClose, type TicketClose, type TicketsClosed } from "./lanes.ts";
+import { closeOperation, stayedLine, type TicketClose, type TicketsClosed } from "./lanes.ts";
 import { withNextTicketCode } from "./series.ts";
 
 const PLACE_ID = ID_PATTERN;
@@ -95,10 +95,12 @@ async function checkTouches(root: string, plant: string, touches: readonly strin
 /**
  * `limen ticket done`: the close `limen land` makes, for work that landed by a hand merge or needed no code, as an
  * operation of T-38 (src/operation.ts). Its validate refuses a number with no active ticket, and a ticket or board with
- * uncommitted changes, before any folder moves (D-061); it also reads there the finished jobs of those tickets, so a
- * refusal of that read comes before the commit too. Its apply moves, commits and says each closed ticket in `out`,
- * under the lock of the ticket lanes, once the tickets and their jobs are still the ones validate read. Then it writes
- * the `landed` marker, with its closing commit, on those jobs that hold no unlanded work (A-002).
+ * uncommitted changes or a file where a ticket moves, before any folder moves (D-061); it also reads there the
+ * finished jobs of those tickets, so a refusal of that read comes before the commit too. It is the one close
+ * operation of src/project/lanes.ts, whose apply runs under the lock of the ticket lanes once the tickets, their jobs
+ * and HEAD are still the ones validate read: one closing commit through the project's hooks, then the checkout. It
+ * says each closed ticket in `out`, then writes the `landed` marker, with its closing commit, on those jobs that
+ * hold no unlanded work (A-002).
  */
 export async function closeDoneTickets(
 	codes: readonly string[],
@@ -111,53 +113,58 @@ export async function closeDoneTickets(
 	for (const path of closed.moved) {
 		out.line(`closed ${path}${closed.commit ? ` in ${closed.commit}` : ""}`);
 	}
+	for (const folder of closed.stayed) {
+		out.line(stayedLine(folder));
+	}
 	if (closed.sha && closed.commit) {
 		const { sha, commit, day } = closed;
-		await markTicketJobs(limenRoot(cwd), closed.jobs, { sha, commit, day }, out);
+		await markTicketJobs(limenRoot(cwd), closed.added ?? [], { sha, commit, day }, out);
 	}
 }
 
-/** A close of `limen ticket done` as validate decided it: the tickets, and the finished jobs of those it marks. */
-type TicketDone = TicketClose & { readonly jobs: readonly TicketJob[] };
-
-/** The operation of `limen ticket done`; `again` is its command line, the `next` of a STATE_CHANGED. */
+/**
+ * The operation of `limen ticket done`: the one close operation of src/project/lanes.ts (T-25), with the call's date
+ * checked first and the reads of the jobs it marks added; `again` is its command line, the `next` of a STATE_CHANGED
+ * and a HOOK_REJECTED.
+ */
 export function ticketDoneOperation(
 	codes: readonly string[],
 	on: string | undefined,
 	cwd: string,
 	again: string | null,
-): Operation<TicketDone, TicketsClosed & { readonly jobs: readonly TicketJob[] }> {
-	return {
-		validate: async (view) => {
+): Operation<
+	TicketClose & { readonly added: readonly TicketJob[] | undefined },
+	TicketsClosed & { readonly added: readonly TicketJob[] | undefined }
+> {
+	return closeOperation({
+		root: () => {
 			if (on && !/^\d{4}-\d\d-\d\d$/.test(on)) {
 				throw usageError("BAD_DATE", "--on takes the landed date as YYYY-MM-DD");
 			}
-			const root = limenRoot(cwd);
-			const reason = on ? `landed ${on}` : "landed";
-			const close = await view.hold(`the active tickets ${codes.join(", ")} in ${root}`, () =>
-				on ? planTicketClose(root, codes, reason, on) : planTicketClose(root, codes, reason),
-			);
+			return limenRoot(cwd);
+		},
+		codes,
+		reason: on ? `landed ${on}` : "landed",
+		today: on,
+		again,
+		added: async (view, close) => {
 			const missing = codes.filter((code) => !close.tickets.some((ticket) => sameCode(ticket.code, code)));
 			if (missing.length) {
 				return refused(
 					"NO_ACTIVE_TICKET",
-					`no active ticket for ${missing.join(", ")} in ${root}/spec/features/active/`,
+					`no active ticket for ${missing.join(", ")} in ${close.root}/spec/features/active/`,
 				);
 			}
 			// Only a close that commits marks jobs; the read refuses, as NOT_MIGRATED, before anything moves (R-031, review
 			// round 2, G4).
 			const closing = close.tickets.map((ticket) => ticket.code);
-			const jobs = close.committed
-				? await view.hold(`the finished jobs of ${closing.join(", ")} in ${root}`, () =>
-						ticketDoneJobs(root, closing, view),
+			return close.committed
+				? await view.hold(`the finished jobs of ${closing.join(", ")} in ${close.root}`, () =>
+						ticketDoneJobs(close.root, closing, view),
 					)
 				: [];
-			return { ...close, jobs };
 		},
-		lock: (close) => ({ file: join(close.root, ".limen", "ticket-lanes") }),
-		apply: async (close) => ({ ...(await applyTicketClose(close)), jobs: close.jobs }),
-		again,
-	};
+	});
 }
 
 /** Whether two ticket numbers name one ticket, whatever their case. */

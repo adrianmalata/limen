@@ -123,7 +123,8 @@ etapu 3 jest `done` albo `ready`. limen-rebuild-29: R-034 zamknięty (wznowienie
 `seat sweep`); D-099: przebieg implementera przyjęty mimo formy ticketu, a reguła D-089 staje się kontrolą w
 `check.mjs`; D-100: alert `failed:quota` dzwoni też przy znanym resecie po 15 min spóźnienia wznowienia; R-102 ma
 ticket.md. limen-rebuild-30: D-101: reguła jednej linii na kryterium w definicji recenzenta; R-036 zamknięty
-(zawieszenie narzędzia mierzone na całym scope'ie joba, szczyt CPU w rekordzie, advisory ze źródłem). -->
+(zawieszenie narzędzia mierzone na całym scope'ie joba, szczyt CPU w rekordzie, advisory ze źródłem); R-037 zamknięty
+(atomowy commit zamknięcia ticketów, wspólny dla land i ticket done); noc do 08:00 po D-102 i strażniku blokady nocy. -->
 
 
 
@@ -1695,13 +1696,13 @@ Columns:
 | R-034 | Resume after the quota limit in code | 3 | A-016, A-068, §6, D-094, D-097, D-100 | R-029, R-032, R-033 | L | delegated | night | yes | pi, systemd | 3.4 | done |
 | R-035 | Start-queue thresholds: a diagnosis at 30 min, a failure at 2 h | 3 | A-036 | R-026, R-033 | L | delegated | night | — | systemd | 3.8 | done |
 | R-036 | Stall is measured over the whole job scope | 3 | A-059 | R-026 | M | delegated | night | — | systemd | 3.8 | done |
-| R-037 | The closing commit of land and `ticket done` is atomic | 3 | A-021, A-057, T-38, D-094 | R-023, R-031, R-092 | M | delegated | night | — | — | — | ready |
+| R-037 | The closing commit of land and `ticket done` is atomic | 3 | A-021, A-057, T-38, D-094 | R-023, R-031, R-092 | M | delegated | night | — | — | — | done |
 | R-087 | The job environment is an allow-list; git and gh in a job hold no credential (T1) | 3 | A-004, A-061, E-4, D-017 | R-015, R-021, R-026 | M | delegated | night | — | pi, bridge | 3.10 | ready |
 | R-098 | `limen stats` per landed ticket and per coordinator turn | 3 | §2, A-078, A-037, D-072, D-098 | R-024, R-031 | M | delegated | night | — | pi | B.3, B.4 | ready |
 | R-100 | One definition of the ISO time, the 429 rule, the error-code check and the jobs listing | 3 | T-25, D-080 | R-022, R-093, R-097 | S | delegated | night | — | — | — | done |
 | R-101 | Prune, retire and leftover Herdr tabs are steps of the sweep; nothing is deleted | 3 | A-024, A-002, T-18, T-28, D-092, D-094, D-096, D-097 | R-032 | M | delegated | night | yes | herdr | 3.9 | ready (D-097) |
 | R-102 | Seat rules are cut | 3 | A-010, T-42, D-094, D-097 | R-034 | M | delegated | night | yes | systemd | 3.5 | ready (D-097) |
-| R-103 | Land runs as recorded steps; its `cleaned` step closes the job's Herdr tabs | 3 | A-021, T-04, T-18, T-28, T-38, D-092, D-094, D-096 | R-037 | M | delegated | night | yes | herdr | 3.9 | ready (D-096) |
+| R-103 | Land runs as recorded steps; its `cleaned` step closes the job's Herdr tabs | 3 | A-021, T-04, T-18, T-28, T-38, D-092, D-094, D-096 | R-037 | M | delegated | night | yes | herdr | 3.9 | planned |
 | R-038 | The fake engine shows the model's view under the bridge | 4 | T-31, A-051 | R-017 | M | delegated | night | — | bridge | 4.1 | planned |
 | R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16 | R-021, R-038 | L | delegated | night | yes | pi, bridge | 4.2 | planned |
 | R-040 | Role texts come from the package, in three registers | 4 | A-038, A-039, A-042, D-005 | R-001, R-039 | M | delegated | night | yes | — | — | planned |
@@ -1855,6 +1856,14 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   read command; those places serve the closing of the job's tabs, which R-103's `cleaned` step rewrites, so R-103
   makes `diff` and `open` change commands (D-096 (2)). Once read commands write nothing, `limen <command> --help`
   shows the kind of T-19 (D-041 (6)).
+- R-103 (R-037 `review.md` → Round 3, note 1, D-092): two pointers of R-037 in `test/cli/land.test.ts`, "Review
+  round 1, F1" and "Review round 2, G5", name no ticket beside older pointers of other tickets with the same names
+  (T-30); R-103, which rewrites land and its tests, writes them as "R-037, review round 1, F1" and "R-037, review
+  round 2, G5".
+- R-103 (R-037 `review.md` → Round 1, note 6, D-092): when releasing the ticket-lanes lock fails after a close
+  whose commit is on the branch, land wraps that error in its failure and says that nothing of the close was written,
+  with `next` `limen ticket done <codes>`, which would then refuse; the recorded `closed` step reads the closing commit
+  from Git, so a land that fails after its commit reports the commit and continues from it.
 - R-103 (D-075, D-094 (3); R-037 `ticket.md` → Decisions 9 and Risk, 2026-11-23): land's `irreversible` mark, with
   T-28 (3)'s test that a rerun of land continues and a test that nothing is lost; and a kill between the closing
   commit's branch move and the checkout's `git read-tree -m -u` leaves the checkout behind the branch on the close's
@@ -4067,9 +4076,9 @@ Next (by day):
 1. Done on 2026-11-23: Adrian added the `hooks` block of D-083 to `.claude/settings.local.json`, and the live test
    blocked a push naming `Q-00` ("Evening of 2026-11-23" above); the guard is active, by day and at night.
 2. By day, with Adrian (2026-11-24: "robimy teraz"): the stage-3 tickets in protocol order (`## Agents`, step 1).
-   R-029 (`b0c033b`), R-032, R-034 (`04d4f34`) and R-036 (`limen-rebuild-30`) are `done`, and D-099 (2)'s `## Change`
+   R-029 (`b0c033b`), R-032, R-034 (`04d4f34`), R-036 (`bb0ae2b`) and R-037 (`limen-rebuild-30`) are `done`, and D-099 (2)'s `## Change`
    form check is in `tools/ticket-rules.mjs` (commit `Tools: …`, test in `tools/test-ticket-rules.mjs`). Next, by
-   protocol step 1, R-037, R-087 and R-098, each `ready` with its `ticket.md`, R-101 `ready (D-097)` with its `ticket.md`
+   protocol step 1, R-087 and R-098, each `ready` with its `ticket.md`, R-101 `ready (D-097)` with its `ticket.md`
    (`R-101-sweep-daily-steps/`, its Decisions 2 and 4 for gate 5.3) and R-102 `ready (D-097)` with its `ticket.md`
    (`R-102-seat-rules-cut/`, written by `limen-rebuild-29` at R-034's tree before R-034's commit, as `check.mjs`
    requires once R-034 is `done` (D-054 (1)), from a read-only agent's inventory and D-097 (6); its Decisions 1–3 for
@@ -4316,3 +4325,28 @@ R-032 and R-034 moved are `ticket.md` → `## Decisions` 15–23 (above all the 
   (D-092), and R-087's knob count to its note. Gate 1090/1090. For Adrian at gate 5.3: `outcome.md` → Open points 1–4
   (3: a pending tool with no child process can now stall, accepted in Risk 2; seat step 3.8 shows it). Unmeasured:
   M-09, seat step 3.8.
+- R-037 `active` (from `bb0ae2b`): its `ticket.md` (written at `ca67568`) was checked again at `HEAD` (protocol step 2,
+  D-025): five cited places moved by a line or two, the rest unchanged, and AC-6 and AC-7 match only lines the change
+  removes (`ticket.md` → `## Decisions` 14–16). Next: the implementer (protocol step 3).
+- R-037 `done` (delegated): the closing commit of `limen land` and `limen ticket done` is one operation,
+  `closeOperation` (`src/project/lanes.ts`): built in a temporary index from the `HEAD` that validate held, through the
+  project's `pre-commit`, `prepare-commit-msg` and `commit-msg` hooks (`git hook run`), the branch moved by one
+  compare-and-swap, and only then the checkout (`git update-index --refresh`, `git read-tree -m -u`), under the
+  ticket-lanes lock; `HOOK_REJECTED`, `STATE_CHANGED`, `CHECKOUT_BEHIND` (`next` null, Decision 17) and `GIT_FAILED`;
+  land refuses `TICKETS_UNCOMMITTED` before its merge with `next` `limen land <id>` and never exits 0 after a failed
+  close; `commitPaths` is gone; `close` has `movedBy: "R-101"`. The implementer's one `BLOCKED` (`next` as a git command)
+  was settled by T-37 and D-046 (Decisions 17–19). The main session's first gate failed once on
+  `test/group-extensions.test.ts:92` under a load average of 17; Adrian chose the diagnosis (D-029): the file alone 4 of
+  4, the gate again 1106 of 1106 (`outcome.md` → `## Proof`). Review FAIL in round 1 (land's refusal before the merge
+  named `limen ticket done`), PASS in rounds 2 and 3, with two rounds of fixes (F1–F4, G1–G5); round 3's note went to
+  R-103's notes, and round 1's note 6 too. Gate 1109/1109 (278 s; the earlier 512–568 s came with a loaded machine).
+  For Adrian at gate 5.3: `outcome.md` → Open points 1–6 (5: `git commit-tree` ignores `commit.gpgSign`, so a project
+  that signs gets unsigned closing commits; read `git config --get commit.gpgSign` in both projects before `a0.3.0`;
+  6: a project hook's output in `HOOK_REJECTED`, not a regression) and the new wordings (`CHECKOUT_BEHIND`, the
+  `HOOK_REJECTED` message, the `kept <folder>` line, land's failure prefix). Next: the handover to `limen-rebuild-31`,
+  which writes D-102 and A, builds C, and starts the night until 08:00 (Adrian: "wszystko dziś, rozpoczęcie przebiegu
+  nocnego po zakończeniu otwartej pracy, przebieg nocny do 8:00").
+- R-103 `planned` (was `ready (D-096)`): with R-037 `done`, `check.mjs` requires its `ticket.md` (D-054 (1)), which D-096
+  left to the night; a night could then commit nothing before R-103, the last of its queue. `limen-rebuild-31` writes
+  R-103's `ticket.md` before the night, at `HEAD` after R-037, from D-096 (3) (a)–(l), R-103's notes in `## Tickets` and
+  a read-only inventory, and sets it `ready` again.
