@@ -3913,6 +3913,14 @@ the seat's project registry (only the wake hook and `limen init` do). It gave Ad
 - Step 0.1's "seat state directory" is the seat folder: `.limen/` in the home folder of the account that runs Limen
   (`seatDir`, `src/project/seat.ts:12` at `56f8168`; `LIMEN_HOME` is a test knob), which holds the project registry.
 - One command was refused by the permissions (an empty inline `python3`, a stray call) and was not worked around.
+- The snapshot taken before `a0.1.1` (B.3's "before" data) is not a folder but the archive that the 2026-11-20 session's
+  step 0.1 made with `tar -C <agents' home> -czf … .limen synchronizer/.limen ledger/.limen` in root's snapshot folder
+  (found in that session's transcript on the laptop); B.3's copy extracts one project's `.limen` from it into a clone
+  of the project with its branches and no `origin`, and compares the entry counts.
+- Deployment of `a0.2.0` (2026-11-23/24, Adrian as root): 0.1 (no job running in either project; the snapshot of both
+  projects' `.limen/` and the seat folder in a new root-only folder, each pair of entry counts equal) and 0.2
+  (`seat/deploy.ts` with the full SHA exited 0, `git -C /opt/limen rev-parse HEAD` is the SHA), per Adrian: "wszystko
+  przeszło prawidłowo" (no numbers given).
 
 Next (by day):
 1. Done on 2026-11-23: Adrian added the `hooks` block of D-083 to `.claude/settings.local.json`, and the live test
