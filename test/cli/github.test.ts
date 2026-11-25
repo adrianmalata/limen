@@ -3,13 +3,14 @@
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
-import { chmod, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { type TestContext, test } from "node:test";
 import { worktreeLock } from "../../src/job/publication.ts";
 import { withLock } from "../../src/lock.ts";
 import { outputText, readOutcome } from "../final-line.ts";
 import {
+	editRecord,
 	git,
 	limen,
 	type Plant,
@@ -375,8 +376,8 @@ test("GITHUB_HANDOFF_GATE: github work on a claim that github resolve answered w
 	);
 });
 
-// The poller writes the job into the claim's copy once it sees the job's record, and `limen prune --retire` removes the
-// folder of a finished job and leaves its gate, so a gate whose copy names a job is no stale gate, record or not: a
+// The poller writes the job into the claim's copy once it sees the job's record, and the seat sweep's daily retire moves
+// the folder of a finished job and leaves its gate, so a gate whose copy names a job is no stale gate, record or not: a
 // rerun that took it over would start a second job for the claim.
 test("GITHUB_HANDOFF_GATE: github work on a claim whose copy names a job with no record exits 1 and leaves the snapshot identical", async (t) => {
 	const p = await plant();
@@ -458,16 +459,17 @@ function publishing(p: Plant): boolean {
 	);
 }
 
-// A crash, which no cleanup follows, between the claim's handoff gate and its job record must leave nothing a rerun
-// refuses on. Before R-099 the review's branch was made before the record, so it stayed, and the rerun refused
-// BRANCH_EXISTS. The crash is a SIGKILL while the start waits for the worktree lock, which the test holds: publication
-// takes it for its last step, after the gate and before the record exists.
-test("limen github review: run again after a crash between the claim's handoff gate and its job record, it starts the job", async (t) => {
-	const p = await plant();
-	t.after(() => p.cleanup());
-	const env = { ...(await coordinatorWithClaim(p)), PATH: await pullRequestClaim(p) };
-	const review = ["github", "review", p.root, "104", ...MODEL];
-	const crashed = await worktreeLock(join(p.root, ".limen/jobs"), async () => {
+/**
+ * Runs `review` and kills it with SIGKILL while its start waits for the worktree lock, which the test holds: publication
+ * takes that lock for its last step, after the claim's handoff gate and before the job record exists, so this is a
+ * crash there, which no cleanup follows. Returns whether the start was waiting there, and its run.
+ */
+async function crashedReview(
+	p: Plant,
+	review: readonly string[],
+	env: Readonly<Record<string, string>>,
+): Promise<{ readonly waiting: boolean; readonly run: Run }> {
+	return worktreeLock(join(p.root, ".limen/jobs"), async () => {
 		const first = start(p, review, { env });
 		let exited = false;
 		void first.done.then(() => {
@@ -478,6 +480,17 @@ test("limen github review: run again after a crash between the claim's handoff g
 		first.child.kill("SIGKILL");
 		return { waiting, run: await first.done };
 	});
+}
+
+// A crash, which no cleanup follows, between the claim's handoff gate and its job record must leave nothing a rerun
+// refuses on. Before R-099 the review's branch was made before the record, so it stayed, and the rerun refused
+// BRANCH_EXISTS.
+test("limen github review: run again after a crash between the claim's handoff gate and its job record, it starts the job", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const env = { ...(await coordinatorWithClaim(p)), PATH: await pullRequestClaim(p) };
+	const review = ["github", "review", p.root, "104", ...MODEL];
+	const crashed = await crashedReview(p, review, env);
 	assert.deepEqual(
 		[crashed.waiting, existsSync(join(p.root, GATE)), await jobsOfClaim(p)],
 		[true, true, []],
@@ -486,4 +499,44 @@ test("limen github review: run again after a crash between the claim's handoff g
 	const rerun = limen(p, review, { env });
 	assert.equal(rerun.status, 0, rerun.stderr);
 	assert.deepEqual(await jobsOfClaim(p), [readOutcome(rerun).ids?.job]);
+});
+
+/**
+ * Moves the start of the record in the folder `.limen/.publishing-<id>` that a crashed start left 11 minutes back, past
+ * the startup grace after which the daily prune takes such a folder; the record is edited under its job's name, which
+ * its id must match, and put back. Returns the folder of the job archive that the prune moves it to.
+ */
+async function pastGrace(p: Plant, publishing: string): Promise<string> {
+	const id = basename(publishing).slice(".publishing-".length);
+	const named = join(p.parent, id);
+	const startedAt = new Date(Date.now() - 11 * 60_000).toISOString();
+	await rename(publishing, named);
+	await editRecord(named, () => ({ startedAt }));
+	await rename(named, publishing);
+	return join(p.root, ".limen/archive", startedAt.slice(0, 7), id);
+}
+
+// R-101 review round 1, F1: the daily prune moves what that crash left, `.limen/.publishing-<id>` with its `starting`
+// record and a task that starts with the claim's marker, into the job archive. Before the fix the claim's lookup took
+// that folder for the claim's job, and every rerun refused GITHUB_HANDOFF_GATE, where before R-101 prune deleted it.
+test("limen github review: run again after the daily prune archived what a crashed handoff left, it removes the gate, says so and starts the job", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const env = { ...(await coordinatorWithClaim(p)), PATH: await pullRequestClaim(p) };
+	const review = ["github", "review", p.root, "104", ...MODEL];
+	const crashed = await crashedReview(p, review, env);
+	const [left = ""] = readdirSync(join(p.root, ".limen")).filter((name) => name.startsWith(".publishing-"));
+	assert.ok(crashed.waiting && left !== "", crashed.run.stderr);
+	const archived = await pastGrace(p, join(p.root, ".limen", left));
+	const swept = limen(p, ["seat", "sweep"]);
+	assert.deepEqual([swept.status, existsSync(join(archived, "task.md"))], [0, true], swept.stderr);
+	const rerun = limen(p, review, { env });
+	assert.equal(rerun.status, 0, rerun.stderr);
+	assert.deepEqual(
+		[outputText(rerun).split("\n")[0], await jobsOfClaim(p)],
+		[
+			"removed the handoff gate of claim 104, which a start that ended before its job record left",
+			[readOutcome(rerun).ids?.job],
+		],
+	);
 });

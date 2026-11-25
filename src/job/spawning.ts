@@ -269,8 +269,8 @@ type SpawnedJob = {
 	readonly preamble: string;
 	readonly role: string;
 	readonly memberDeadline: number | undefined;
-	/** What the wrapper runs after its handshake: prune keeping the spawner's checkout, then --prepare. */
-	readonly setup: { readonly LIMEN_SETUP_KEEP: string; readonly LIMEN_SETUP_PREPARE: string };
+	/** The mark that the wrapper sets up after its handshake, which only a spawn gives, and its --prepare (R-101). */
+	readonly setup: { readonly LIMEN_SETUP: "1"; readonly LIMEN_SETUP_PREPARE: string };
 };
 /** The operation of one spawn (T-38): validate decides, and apply names and publishes the job under the jobs lock. */
 function spawnOperation(
@@ -477,10 +477,7 @@ async function launchChecked(checked: Checked<SpawnPlan, SpawnedRecord>): Promis
 			createBranch(place.repository, branch, plan.branchAt);
 		}
 		const worktree = executeWorktree(place.repository, planned);
-		const setup = {
-			LIMEN_SETUP_KEEP: place.currentRoot,
-			LIMEN_SETUP_PREPARE: options.prepare ?? "",
-		};
+		const setup = { LIMEN_SETUP: "1", LIMEN_SETUP_PREPARE: options.prepare ?? "" } as const;
 		const memberDeadline = member?.deadline;
 		await launchSpawnedJob(plan, {
 			jobDir,

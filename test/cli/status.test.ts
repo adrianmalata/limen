@@ -290,13 +290,15 @@ test("limen status in a workspace lists the abandon branch of a workspace reposi
 	assert.equal(limen(p, ["workspace", "init"], { cwd: workspace }).status, 0);
 	const id = spawnJob(p, "commit", ["--repo", "api"], { cwd: workspace });
 	assert.equal(waitJob(p, id, { cwd: workspace }), "done");
-	for (const args of [
-		["abandon", id],
-		["prune", "--retire"],
-	]) {
-		const run = limen(p, args, { cwd: workspace });
-		assert.equal(run.status, 0, run.stderr);
-	}
+	const abandoned = limen(p, ["abandon", id], { cwd: workspace });
+	assert.equal(abandoned.status, 0, abandoned.stderr);
+	// The daily retire of the seat sweep takes a job whose marker is at least 24 hours old (R-101).
+	const old = new Date(Date.now() - 25 * 60 * 60_000).toISOString();
+	await editRecord(join(workspace, ".limen", "jobs", id), (record) =>
+		record.abandoned ? { abandoned: { ...record.abandoned, at: old } } : {},
+	);
+	const swept = limen(p, ["seat", "sweep"], { cwd: workspace });
+	assert.equal(swept.status, 0, swept.stderr);
 	assert.equal(existsSync(join(workspace, ".limen", "jobs", id)), false);
 	const branch = `limen/abandon/${id}`;
 	const run = limen(p, ["status"], { cwd: workspace });

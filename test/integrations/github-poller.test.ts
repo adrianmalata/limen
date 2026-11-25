@@ -1,7 +1,8 @@
 // The poller's reconcile of one claim (src/integrations/github-poller.ts), with GitHub answered in the test's process:
-// the replies for a claim whose job retire moved to the job archive.
+// the replies for a claim whose job retire moved to the job archive, before or during the reconcile.
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
@@ -59,6 +60,38 @@ test("the terminal reply of a claim whose job retire moved to the job archive ca
 			terminal?.body.includes("limen show"),
 		],
 		[[`https://api.github.com/repos/${REPO}/issues/7/comments`], true, true, false],
+		terminal?.body,
+	);
+});
+
+// D-097 (4) (h), R-031 open point 7: the poller found the job in .limen/jobs/, a retire moved it before the reads of its
+// `result` and `log`, and the one terminal reply said "No result or check evidence recorded." and named `limen show`.
+test("the terminal reply of a claim whose job retire moved between the poller's lookup and its reads carries its result and names its folder", async (t) => {
+	const { root, state, posts } = await archivedClaimJob(t, {
+		job: ID,
+		branch: "limen/github-pr-7-104",
+		receipt: "done",
+	});
+	const jobs = join(root, ".limen/jobs", ID);
+	await mkdir(join(root, ".limen/jobs"), { recursive: true });
+	await rename(join(root, FOLDER), jobs);
+	// The start reply goes out after the lookup and before the reads; its post stands for a retire in between.
+	const fetch = globalThis.fetch;
+	t.mock.method(globalThis, "fetch", async (url: string, init: RequestInit = {}) => {
+		if ((init.method ?? "GET") !== "GET" && existsSync(jobs)) {
+			await rename(jobs, join(root, FOLDER));
+		}
+		return fetch(url, init);
+	});
+	await reconcileGithubClaim(root, state, 104, "token");
+	const terminal = posts.find((post) => post.body.includes("ended with state"));
+	assert.deepEqual(
+		[
+			terminal?.body.includes("Fixed the crash in widget.ts."),
+			terminal?.body.includes(`its folder in the job archive, \`${FOLDER}\``),
+			terminal?.body.includes("limen show"),
+		],
+		[true, true, false],
 		terminal?.body,
 	);
 });

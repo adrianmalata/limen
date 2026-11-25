@@ -102,7 +102,8 @@ test("the configuration scan finds each read form and an unregistered name, but 
  * the one grace of stop, exhaustion and the reaper (R-027), LIMEN_END_GATE, the tests' hold of a wrapper's end
  * (R-028), LIMEN_LINGER_DIR, the folder of the linger files the sweep's install reads (R-032),
  * LIMEN_STALL_TICK_MS, the tick of a wrapper's samples of its scope's CPU time (R-036), and LIMEN_TEST_MODE, the
- * marker of test mode, in which alone the knobs are read (R-087).
+ * marker of test mode, in which alone the knobs are read (R-087). LIMEN_SETUP, the mark of a spawn's start that owes its
+ * setup, replaced LIMEN_SETUP_KEEP when the setup prune went (R-101, Decision 7).
  */
 const INVENTORY = {
 	"transport wrapper": [
@@ -116,7 +117,7 @@ const INVENTORY = {
 		"LIMEN_PROVIDER",
 		"LIMEN_THINKING",
 		"LIMEN_LABEL",
-		"LIMEN_SETUP_KEEP",
+		"LIMEN_SETUP",
 		"LIMEN_SETUP_PREPARE",
 		"LIMEN_CONTINUE",
 	],

@@ -1255,7 +1255,8 @@ function answersFor(
 /** Finished jobs this coordinator still answers for: terminal, spawned from its tab or watched by its session, not landed, and not closed. */
 function finishedJobs(jobs: string, tab: string | undefined, session: string): FinishedJob[] {
 	const root = dirname(dirname(jobs));
-	// `limen close` and this line share one rule: a job leaves once every feature it names is done, dropped or archived.
+	// The seat sweep's daily close of leftover Herdr tabs and this line share one rule: a job leaves once every feature it
+	// names is done, dropped or archived (`closedJobFeatures`).
 	const closed = closedFeatures(root);
 	const candidates: Array<
 		FinishedJob & { readonly branch: string; readonly repo: string; readonly landable: boolean }
@@ -1280,8 +1281,8 @@ function finishedJobs(jobs: string, tab: string | undefined, session: string): F
 			landable: (record.commits?.length ?? 0) > 0,
 		});
 	}
-	// Only a job with commits can land. Without commits it stays until its feature closes, or until `limen prune --retire`
-	// moves its record, which only an `abandoned` marker lets it do for such a job (A-002).
+	// Only a job with commits can land. Without commits it stays until its feature closes, or until the seat sweep's daily
+	// retire moves its record, which only an `abandoned` marker lets it do for such a job (A-002).
 	const landed = new Set<string>();
 	for (const [repo, group] of Map.groupBy(
 		candidates.filter(({ landable, branch }) => landable && branch),

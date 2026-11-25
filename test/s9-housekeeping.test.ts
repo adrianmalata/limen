@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, writeSync } from "node:fs";
-import { mkdir, utimes, writeFile } from "node:fs/promises";
+import { mkdir, rm, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
@@ -17,6 +17,7 @@ import {
 	limen,
 	type Plant,
 	plant,
+	type Run,
 	release,
 	spawnJob,
 	start,
@@ -51,7 +52,19 @@ async function survivors(pids: readonly number[], boundMs: number): Promise<numb
 	return left;
 }
 
-test("spawn returns before --prepare; prune keeps live, nested, starting and unlanded work, drops and explains the rest", async () => {
+/**
+ * `limen seat sweep` with the daily steps of the plant's project due, as on its first run of a day: the project's stamp
+ * of its last daily steps is removed first (R-101). The reap's confirmation is shortened to 1 ms.
+ */
+async function dailySweep(plant: Plant): Promise<Run> {
+	await rm(join(plant.root, ".limen", "daily-sweep"), { force: true });
+	return limen(plant, ["seat", "sweep"], { env: { LIMEN_REAP_CONFIRM_MS: "1" } });
+}
+/** The lines of a sweep's daily prune and retire: each removal, move to the archive, kept worktree and retire. */
+const dailyLines = (run: Run) =>
+	run.stdout.split("\n").filter((line) => /^(?:kept|pruned|archived|retired) /.test(line));
+
+test("spawn returns before --prepare; the daily prune keeps live, nested, starting and unlanded work, drops and explains the rest", async () => {
 	// Spawn returns while its job's --prepare still waits on a FIFO.
 	const gate = join(p.parent, "prepare-gate"),
 		prepared = join(p.parent, "prepared");
@@ -63,14 +76,14 @@ test("spawn returns before --prepare; prune keeps live, nested, starting and unl
 	assert.equal(waitJob(p, lost), "failed");
 	assert.ok(jobFile(p, lost, "log").includes(`failed: worktree ${jobRecord(p, lost)?.worktree} `));
 	const live = spawnJob(p, "block");
-	await until(jobDir(p, live), () => jobFile(p, live, "log").includes("prune: removed"));
+	await until(jobDir(p, live), () => existsSync(join(jobDir(p, live), "fake-blocked-1")));
 	const liveTree = jobRecord(p, live)?.worktree ?? "";
 	// Another checkout (the live job's worktree) runs its own job; its worktree nests inside this plant's worktree root.
 	assert.equal(limen(p, ["init"], { cwd: liveTree }).status, 0);
 	const nested = spawnJob(p, "block", [], { cwd: liveTree });
 	const nestedDir = join(liveTree, ".limen/jobs", nested);
 	const nestedTree = jobRecord(p, nested, { cwd: liveTree })?.worktree ?? "";
-	await until(nestedDir, () => readFileSync(join(nestedDir, "log"), "utf8").includes("prune: removed"));
+	await until(nestedDir, () => existsSync(join(nestedDir, "fake-blocked-1")));
 	// Two done jobs with a commit each, spawned last: a worker spawn refuses while a finished job holds unlanded work.
 	const landed = spawnJob(p, "commit");
 	assert.equal(waitJob(p, landed), "done");
@@ -78,12 +91,13 @@ test("spawn returns before --prepare; prune keeps live, nested, starting and unl
 	git(p.root, "merge", "-q", "--no-edit", landedBranch);
 	const unmerged = spawnJob(p, "commit");
 	assert.equal(waitJob(p, unmerged), "done");
-	// Records with a worktree that never started, their spawner alive (this test) or long gone; one running, its process
-	// unknown long past the startup grace.
-	const [stale, starting, gone] = ["2000-01-stale-aaaaaaaa", "2000-01-starting-aaaaaaaa", "2000-01-gone-aaaaaaaa"];
-	for (const id of [stale, starting, gone]) {
+	// Records with a worktree that never started, their spawner alive (this test) or long gone. A running job whose
+	// wrapper is gone is the sweep's reap's, which runs before the daily prune: that order has its own test in
+	// test/cli/sweep.test.ts (R-101 review round 1, F2).
+	const [stale, starting] = ["2000-01-stale-aaaaaaaa", "2000-01-starting-aaaaaaaa"];
+	for (const id of [stale, starting]) {
 		await writeRecord(jobDir(p, id), {
-			state: id === gone ? "running" : "starting",
+			state: "starting",
 			startedAt: "2000-01-01T00:00:00.000Z",
 			spawnerPid: id === starting ? process.pid : null,
 			worktree: join(halfTree, "..", id),
@@ -92,30 +106,35 @@ test("spawn returns before --prepare; prune keeps live, nested, starting and unl
 	}
 	git(p.root, "worktree", "add", "-q", "--detach", join(liveTree, "tmp/scratch"), "HEAD"); // the live job's own
 
-	const pruned = limen(p, ["prune"]);
+	const pruned = await dailySweep(p);
+	assert.equal(pruned.status, 0, pruned.stderr);
+	// D-097 (4) (d): the record that never started moves to the job archive, and its clean worktree goes.
+	const archived = join(p.root, ".limen", "archive", "2000-01", stale);
+	assert.ok(
+		dailyLines(pruned).includes(
+			`archived ${jobDir(p, stale)} to ${archived} (job ${stale}): its record never started and its spawner is gone`,
+		),
+		pruned.stdout,
+	);
 	assert.match(pruned.stdout, new RegExp(`pruned .*/${stale} \\(job ${stale}\\): its record never started`));
 	for (const dropped of [jobRecord(p, landed)?.worktree ?? "", jobDir(p, stale)]) {
 		assert.ok(!existsSync(dropped), `prune kept ${dropped}`);
 	}
+	assert.ok(existsSync(join(archived, "record.json")), "the record that never started is in the job archive");
 	// A-001: the done job whose branch holds a commit outside HEAD keeps its worktree, and prune says why.
 	const unmergedTree = jobRecord(p, unmerged)?.worktree ?? "";
 	assert.ok(pruned.stdout.includes(`kept ${unmergedTree} (job ${unmerged}): unlanded work\n`), pruned.stdout);
-	const others = [...[starting, gone].map((id) => join(halfTree, "..", id)), join(liveTree, "tmp/scratch")];
+	const others = [join(halfTree, "..", starting), join(liveTree, "tmp/scratch")];
 	for (const kept of [liveTree, nestedTree, halfTree, jobDir(p, half), nestedDir, unmergedTree, ...others]) {
 		assert.ok(existsSync(kept), `prune removed ${kept}`);
 	}
+	// The daily retire of the same run keeps the hand-merged job, which holds no `landed` marker: that is the A-002 test
+	// of the daily retire in test/cli/sweep.test.ts (R-101 review round 1, F2).
 
 	await writeFile(gate, "go\n");
 	assert.equal(waitJob(p, half), "done");
 	await release(nestedDir);
 	assert.equal(waitJob(p, nested, { cwd: liveTree }), "done");
-
-	// A-002: a hand `git merge` writes no `landed` marker, so retire keeps that job's record and branch, as it keeps
-	// every finished job without a marker (before R-031 it took the git graph for the land and deleted both).
-	assert.equal(limen(p, ["prune", "--retire"]).status, 0);
-	const kept = git(p.root, "for-each-ref", "--format=%(refname:short)", `refs/heads/${landedBranch}`);
-	assert.deepEqual([existsSync(jobDir(p, landed)), kept], [true, landedBranch]);
-	assert.deepEqual([existsSync(jobDir(p, unmerged)), existsSync(jobDir(p, live))], [true, true]); // both stay
 	await release(jobDir(p, live));
 	assert.equal(waitJob(p, live), "done");
 	// The next tests of this plant spawn workers, which a finished job with unlanded work refuses. The unmerged job's
@@ -134,16 +153,16 @@ test("prune keeps the worktree of a failed job that holds an untracked file and 
 	assert.equal(waitJob(own, failed), "failed");
 	const tree = jobRecord(own, failed)?.worktree ?? "";
 	await writeFile(join(tree, "wip.txt"), "half-done edit\n");
-	const pruned = limen(own, ["prune"]);
+	const pruned = await dailySweep(own);
 	assert.equal(pruned.status, 0, pruned.stderr);
 	assert.deepEqual(
-		[pruned.stdout.split("\n").slice(0, 2), readFileSync(join(tree, "wip.txt"), "utf8")],
-		[[`kept ${tree} (job ${failed}): unlanded work`, "no finished worktrees"], "half-done edit\n"],
+		[dailyLines(pruned), readFileSync(join(tree, "wip.txt"), "utf8")],
+		[[`kept ${tree} (job ${failed}): unlanded work`], "half-done edit\n"],
 	);
 });
 
 // Before R-030 the retire deleted this landed branch, the worktree that held it and the job's record.
-test("prune --retire keeps the record, branch and worktree of a landed job whose worktree holds an untracked file", async (t) => {
+test("the daily retire keeps the record, branch and worktree of a landed job whose worktree holds an untracked file", async (t) => {
 	const own = await plant();
 	t.after(() => own.cleanup());
 	const done = spawnJob(own, "commit");
@@ -151,7 +170,7 @@ test("prune --retire keeps the record, branch and worktree of a landed job whose
 	const [branch, worktree] = [jobRecord(own, done)?.branch ?? "", jobRecord(own, done)?.worktree ?? ""];
 	git(own.root, "merge", "-q", "--no-edit", branch);
 	await writeFile(join(worktree, "notes.txt"), "a note the job left\n");
-	const retired = limen(own, ["prune", "--retire"]);
+	const retired = await dailySweep(own);
 	assert.equal(retired.status, 0, retired.stderr);
 	const branches = git(own.root, "for-each-ref", "--format=%(refname:short)", `refs/heads/${branch}`);
 	assert.deepEqual(
@@ -172,15 +191,14 @@ test("prune keeps a clean finished worktree that holds a registered worktree wit
 	const inner = join(worktree, ".limen/inner");
 	git(own.root, "worktree", "add", "-q", "--detach", inner, "HEAD");
 	await writeFile(join(inner, "wip.txt"), "half-done edit\n");
-	const pruned = limen(own, ["prune"]);
+	const pruned = await dailySweep(own);
 	assert.equal(pruned.status, 0, pruned.stderr);
 	assert.deepEqual(
-		[pruned.stdout.split("\n").slice(0, 3), readFileSync(join(inner, "wip.txt"), "utf8")],
+		[dailyLines(pruned), readFileSync(join(inner, "wip.txt"), "utf8")],
 		[
 			[
 				`kept ${worktree} (job ${done}): it holds the registered worktree ${inner}`,
 				`kept ${inner} (job none): unlanded work`,
-				"no finished worktrees",
 			],
 			"half-done edit\n",
 		],
@@ -198,12 +216,9 @@ test("prune names the registered worktree below as the cause when it keeps a cle
 	const inner = join(worktree, ".limen/inner");
 	git(own.root, "worktree", "add", "-q", "--detach", inner, "HEAD");
 	git(own.root, "worktree", "lock", inner);
-	const pruned = limen(own, ["prune"]);
+	const pruned = await dailySweep(own);
 	assert.equal(pruned.status, 0, pruned.stderr);
-	assert.deepEqual(pruned.stdout.split("\n").slice(0, 2), [
-		`kept ${worktree} (job ${done}): it holds the registered worktree ${inner}`,
-		"no finished worktrees",
-	]);
+	assert.deepEqual(dailyLines(pruned), [`kept ${worktree} (job ${done}): it holds the registered worktree ${inner}`]);
 });
 
 // Review round 2, G2: before the fix a held worktree inside another held one stayed without a line of its own.
@@ -217,12 +232,11 @@ test("prune names a dirty worktree inside another dirty one with a kept line of 
 	const inner = join(worktree, "inner");
 	git(own.root, "worktree", "add", "-q", "--detach", inner, "HEAD");
 	await writeFile(join(inner, "wip.txt"), "half-done edit\n");
-	const pruned = limen(own, ["prune"]);
+	const pruned = await dailySweep(own);
 	assert.equal(pruned.status, 0, pruned.stderr);
-	assert.deepEqual(pruned.stdout.split("\n").slice(0, 3), [
+	assert.deepEqual(dailyLines(pruned), [
 		`kept ${worktree} (job ${done}): unlanded work`,
 		`kept ${inner} (job none): unlanded work`,
-		"no finished worktrees",
 	]);
 });
 

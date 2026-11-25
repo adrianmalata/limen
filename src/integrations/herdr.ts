@@ -4,9 +4,10 @@ import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { atomicWrite } from "../atomic-write.ts";
+import { shownField } from "../boundary.ts";
 import { testKnob } from "../config.ts";
-import { closedFeatures, closedJobFeatures } from "../job/job.ts";
-import { jobFolders, readRecord } from "../job/record.ts";
+import { closedFeatures, closedJobFeatures, isTerminal } from "../job/job.ts";
+import { type JobRecord, jobFolders, readRecord } from "../job/record.ts";
 import { type JobReference, resolveJob } from "../job/reference.ts";
 import { limenRoot } from "../project/git.ts";
 import { startOutsideJob } from "../runtime/launcher.ts";
@@ -57,8 +58,14 @@ export async function settleJobTab(jobDir: string): Promise<void> {
 	);
 }
 
-/** The detached closer: close the tab, retry a refusal once, and record the result in the job log. */
-export async function closeJobTab(herdr: string, jobDir: string, tab: string): Promise<void> {
+/** The bound of one Herdr call that closes or reads a job's tab; a constant, as no setting chooses it (R-015). */
+const TAB_CALL_MS = 10_000;
+
+/**
+ * The closer of a job's tab: close the tab, retry a refusal once, and record the result in the job log. Returns whether
+ * the tab is closed, also when Herdr had closed it already; false when it stays open after the retry.
+ */
+export async function closeJobTab(herdr: string, jobDir: string, tab: string): Promise<boolean> {
 	const note = (message: string) =>
 		appendFile(`${jobDir}/log`, `[limen ${new Date().toISOString()}] herdr tab close ${tab}: ${message}\n`).catch(
 			() => {},
@@ -66,11 +73,13 @@ export async function closeJobTab(herdr: string, jobDir: string, tab: string): P
 	let refusal = "";
 	for (const attempt of [1, 2]) {
 		try {
-			call(herdr, ["tab", "close", tab], 10_000);
-			return note(attempt === 1 ? "closed" : "closed on retry");
+			call(herdr, ["tab", "close", tab], TAB_CALL_MS);
+			await note(attempt === 1 ? "closed" : "closed on retry");
+			return true;
 		} catch (error) {
 			if (hasCode(error, "tab_not_found")) {
-				return note("already closed");
+				await note("already closed");
+				return true;
 			}
 			refusal = error instanceof Error ? error.message : String(error);
 			if (attempt === 1) {
@@ -82,7 +91,13 @@ export async function closeJobTab(herdr: string, jobDir: string, tab: string): P
 	await note(`failed after one retry (${refusal})`);
 	// The tab stays open; its label must stop saying running.
 	const record = await readRecord(jobDir);
-	advisoryCall(herdr, ["tab", "rename", tab, `${record?.label || basename(jobDir)} · ${record?.state ?? "finished"}`]);
+	advisoryCall(herdr, ["tab", "rename", tab, `${jobLabel(jobDir, record)} · ${record?.state ?? "finished"}`]);
+	return false;
+}
+
+/** The label of a job's tabs before the part after ` · `: the record's label, else the job's id. */
+function jobLabel(jobDir: string, record: JobRecord | undefined): string {
+	return record?.label || basename(jobDir);
 }
 
 /** The seat's notice as a Herdr notification; false when Herdr is missing or cannot show it. */
@@ -177,40 +192,81 @@ export async function openJobPlace(input: {
 	return `opened ${label}`;
 }
 
-export async function closeFeatureTabs(input: { readonly root: string; readonly feature: string }): Promise<string> {
-	const feature = /(?:^|\/)(F\d+)/i.exec(input.feature.trim())?.[1]?.toUpperCase();
-	if (!feature) {
-		throw new Error("close requires a feature like F012");
-	}
-	const closedSet = closedFeatures(input.root);
-	if (!closedSet.has(feature)) {
-		throw new Error(`${feature} is not in done/, dropped/ or spec/features/archive.tsv; leftover tabs stay`);
+/**
+ * The seat sweep's daily close of leftover Herdr tabs (D-096 (1), D-097 (4) (k), T-18 (1)): for every finished job of
+ * the project at `root` whose features are all closed (`closedJobFeatures`), each tab it recorded (`herdr/`,
+ * `herdr/diff/`) that Herdr lists with the job's label closes as `closeJobTab` closes one, with its bound and one retry.
+ * Every recorded place is a tab Limen made for the job, and a tab id Herdr gave again carries another label, so the
+ * label check leaves every tab that is not the job's, the coordinator's among them; a run from a Herdr pane also leaves
+ * its own `HERDR_TAB_ID`. Returns one line for each tab it closed or that stays open: a tab that does not close is a
+ * line, and the step is done (T-01). The job's account can write a recorded tab id, Herdr's error text is another
+ * program's, and the sweep's lines reach the coordinator's model, so each line shows the tab id, the job's name and
+ * that text escaped (`shownField`), as prune's lines do (z. 15, R-101 review round 2, G1). With no Herdr it is one line,
+ * which counts the tabs that stay open.
+ */
+export async function closeLeftoverTabs(root: string): Promise<string[]> {
+	const leftover = await leftoverTabs(root);
+	if (leftover.length === 0) {
+		return [];
 	}
 	const herdr = herdrBinary();
 	if (!herdr) {
-		throw new Error("herdr is not available");
+		const [count, one] = [leftover.length, leftover.length === 1];
+		return [
+			`herdr is not available, so the ${count} leftover ${one ? "tab" : "tabs"} of finished jobs of closed features ${one ? "stays" : "stay"} open`,
+		];
 	}
-	const coordinator = process.env.HERDR_TAB_ID?.trim();
-	let closed = 0;
-	for (const id of await jobFolders(`${input.root}/.limen/jobs`)) {
-		const jobDir = `${input.root}/.limen/jobs/${id}`;
-		if (!closedJobFeatures((await readRecord(jobDir))?.label ?? "", id, closedSet).includes(feature)) {
+	const own = process.env.HERDR_TAB_ID?.trim();
+	const lines: string[] = [];
+	for (const { jobDir, label, tab } of leftover) {
+		const named = `the leftover Herdr tab ${shownField(tab)} of job ${shownField(basename(jobDir))}`;
+		const listed = tab === own ? undefined : listedTab(herdr, tab);
+		if (listed !== undefined && "unread" in listed) {
+			lines.push(`${named} stays open: herdr tab get failed (${shownField(listed.unread)})`);
+		} else if (listed !== undefined && (listed.label === label || listed.label.startsWith(`${label} · `))) {
+			const closed = await closeJobTab(herdr, jobDir, tab);
+			lines.push(closed ? `closed ${named}` : `${named} did not close; its log says why`);
+		}
+	}
+	return lines;
+}
+
+/** A tab a finished job recorded: the job's folder, the label its tabs start with, and the tab's id. */
+type LeftoverTab = { readonly jobDir: string; readonly label: string; readonly tab: string };
+
+/** The recorded tabs of each finished job of the project at `root` whose features are all closed, the log tab first. */
+async function leftoverTabs(root: string): Promise<LeftoverTab[]> {
+	const jobsRoot = `${root}/.limen/jobs`;
+	const closed = closedFeatures(root);
+	const tabs: LeftoverTab[] = [];
+	for (const id of await jobFolders(jobsRoot)) {
+		const jobDir = `${jobsRoot}/${id}`;
+		const record = await readRecord(jobDir);
+		if (!(record && isTerminal(record.state)) || closedJobFeatures(record.label ?? "", id, closed).length === 0) {
 			continue;
 		}
-		const places = await Promise.all([readPlace(jobDir), readPlace(jobDir, "diff")]);
-		for (const place of places) {
-			if (!place || place.tab === coordinator) {
-				continue;
-			}
-			try {
-				call(herdr, ["tab", "close", place.tab]);
-				closed += 1;
-			} catch (error) {
-				await skip(jobDir, error instanceof Error ? error.message : String(error));
+		for (const place of await Promise.all([readPlace(jobDir), readPlace(jobDir, "diff")])) {
+			if (place) {
+				tabs.push({ jobDir, label: jobLabel(jobDir, record), tab: place.tab });
 			}
 		}
 	}
-	return `closed ${closed} leftover tab${closed === 1 ? "" : "s"} for ${feature}`;
+	return tabs;
+}
+
+/**
+ * The label Herdr lists the tab `tab` with, read within `TAB_CALL_MS`; undefined when Herdr lists no such tab, and the
+ * failure's words when the read fails another way, so the caller names it (T-01).
+ */
+function listedTab(herdr: string, tab: string): { readonly label: string } | { readonly unread: string } | undefined {
+	try {
+		const label = asRecord(asRecord(call(herdr, ["tab", "get", tab], TAB_CALL_MS)).tab).label;
+		return { label: typeof label === "string" ? label : "" };
+	} catch (error) {
+		return hasCode(error, "tab_not_found")
+			? undefined
+			: { unread: error instanceof Error ? error.message : String(error) };
+	}
 }
 
 async function createTab(input: {

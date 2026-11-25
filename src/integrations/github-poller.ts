@@ -401,15 +401,10 @@ async function reconcile(root: string, state: string, claim: GithubClaim, token:
 	if (!found.state || found.state === "running") {
 		return;
 	}
-	// Retire may have moved the job to the job archive since it ended, so its files are read where it was found.
-	const dir = join(root, found.archived ?? join(".limen/jobs", found.id));
-	const [result, log] = await Promise.all([
-		readJobFile(join(dir, "result")),
-		readJobFile(join(dir, "log"), 65_536, true),
-	]);
+	const { job, result, log } = await finishedEvidence(root, claim, found);
 	const evidence =
-		(result ?? "").trim().slice(0, 1600) ||
-		(log ?? "").trim().split("\n").slice(-10).join("\n").slice(0, 1600) ||
+		result.trim().slice(0, 1600) ||
+		log.trim().split("\n").slice(-10).join("\n").slice(0, 1600) ||
 		"No result or check evidence recorded.";
 	await reply(
 		root,
@@ -417,8 +412,38 @@ async function reconcile(root: string, state: string, claim: GithubClaim, token:
 		claim,
 		token,
 		"terminal",
-		`Limen ${found.review ? "review" : "task"} job \`${found.id}\` ended with state **${found.state}**. This is job termination, not review approval or a merge.\n\nRecorded evidence/result:\n\n\`\`\`text\n${evidence.replaceAll("```", "''' ")}\n\`\`\`\n\nInspect on the owning seat: ${inspection(found)}.`,
+		`Limen ${job.review ? "review" : "task"} job \`${job.id}\` ended with state **${job.state}**. This is job termination, not review approval or a merge.\n\nRecorded evidence/result:\n\n\`\`\`text\n${evidence.replaceAll("```", "''' ")}\n\`\`\`\n\nInspect on the owning seat: ${inspection(job)}.`,
 	);
+}
+
+/** The claim's job as `matchedGithubJob` finds it. */
+type FoundJob = NonNullable<Awaited<ReturnType<typeof matchedGithubJob>>>;
+
+/**
+ * The `result` and the end of the `log` of the claim's finished job, read in its folder where `found` places it, since
+ * retire may have moved the job to the job archive since it ended. When either read misses, the job is looked up once
+ * more, in the job archive too, and read where that finds it, since a retire between the lookup and the reads moved
+ * its folder (D-097 (4) (h)). Returns the reads with the job as last found, whose folder the reply names.
+ */
+async function finishedEvidence(
+	root: string,
+	claim: GithubClaim,
+	found: FoundJob,
+): Promise<{ readonly job: FoundJob; readonly result: string; readonly log: string }> {
+	const read = async (job: FoundJob) => {
+		const dir = join(root, job.archived ?? join(".limen/jobs", job.id));
+		const [result, log] = await Promise.all([
+			readJobFile(join(dir, "result")),
+			readJobFile(join(dir, "log"), 65_536, true),
+		]);
+		return { job, result, log };
+	};
+	const first = await read(found);
+	if (first.result !== "" && first.log !== "") {
+		return first;
+	}
+	const again = await matchedGithubJob(root, claim);
+	return again !== undefined && again.archived !== found.archived ? read(again) : first;
 }
 
 /**

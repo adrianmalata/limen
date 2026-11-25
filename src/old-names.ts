@@ -162,6 +162,24 @@ export const OLD_NAMES: readonly OldName[] = [
 		happened: "was renamed to limen seat sweep",
 		next: "limen seat sweep",
 	},
+	// D-097 (4) (b), (k), T-18: prune, retire and the close of leftover Herdr tabs are daily steps of the seat sweep, with
+	// no command of their own, so any words after either name, `--retire` and `--dry-run` among them, name the sweep.
+	{
+		name: "prune",
+		feature: "the seat sweep's daily steps",
+		ticket: "R-101",
+		instead: "limen seat sweep",
+		happened: "became the daily prune and retire of limen seat sweep",
+		next: "limen seat sweep",
+	},
+	{
+		name: "close",
+		feature: "the seat sweep's daily steps",
+		ticket: "R-101",
+		instead: "limen seat sweep",
+		happened: "became the daily close of leftover Herdr tabs in limen seat sweep",
+		next: "limen seat sweep",
+	},
 ];
 
 /** Every cut ticket that removes a value of `--engine` adds its entry here. */

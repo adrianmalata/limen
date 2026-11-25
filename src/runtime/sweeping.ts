@@ -4,17 +4,19 @@
 // (T-38), does for each project in parallel: the reap of every dead running job (src/runtime/reap.ts), the end of each
 // finished job's scope that the user manager still lists, the resume of each job the subscription limit stopped and
 // the release of the wakes the limit kept from a coordinator (src/runtime/resuming.ts), the removal of dead coordinator
-// registrations, and one Herdr ring for an end nobody heard of; then, once, the removal of the start queue's dead
-// entries. A job record that does not read and a step that fails are named with their reasons once every other job,
-// step and project is done (z. 10), and the run ends with the worst class among them (T-02). It refuses to run inside
-// a job's scope, since it would signal the scope it runs in.
+// registrations, and one Herdr ring for an end nobody heard of; after these, once a day per project, the daily steps:
+// prune (src/runtime/pruning.ts), retire (src/runtime/retiring.ts) and the close of leftover Herdr tabs, so the sweep is
+// the one caller of prune and retire besides land and abandon (D-097 (4), T-26 (2)); then, once, the removal of the
+// start queue's dead entries. A job record that does not read and a step that fails are named with their reasons once
+// every other job, step and project is done (z. 10), and the run ends with the worst class among them (T-02). It
+// refuses to run inside a job's scope, since it would signal the scope it runs in.
 import * as fs from "node:fs";
 import { userInfo } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { atomicWriteSync, TEMPORARY_NAME } from "../atomic-write.ts";
+import { atomicWrite, atomicWriteSync, TEMPORARY_NAME } from "../atomic-write.ts";
 import { removeDeadCoordinators } from "../integrations/coordinator-registration.ts";
-import { showSeatNotification } from "../integrations/herdr.ts";
+import { closeLeftoverTabs, showSeatNotification } from "../integrations/herdr.ts";
 import { isTerminal } from "../job/job.ts";
 import { advisorySource, type JobRecord, jobFolderNames, readRecord, unmigratedFolder } from "../job/record.ts";
 import { advisoryFamily, receiptFamily } from "../job/wake-delivery.ts";
@@ -34,8 +36,10 @@ import { updateRegisteredProjects } from "../project/seat.ts";
 import { sweepLines } from "../project/summary.ts";
 import { hasCode } from "../system-error.ts";
 import { jobOfScope } from "./launcher.ts";
+import { keptLine, type PruneKept, pruneFinishedWorktrees, pruneLine } from "./pruning.ts";
 import { confirmDeadJobs, endLeftoverScopes, type JobFailure } from "./reap.ts";
 import { resumeAfterQuota } from "./resuming.ts";
+import { heldLine, retiredLine, retireMarkedJobs } from "./retiring.ts";
 import { removeDeadEntries } from "./start-queue.ts";
 
 /** The package root of the running CLI, whose `bin/limen` the sweep's service runs (`/opt/limen` on the seat). */
@@ -44,6 +48,13 @@ const PACKAGE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const SEAT_RING_MS = 5 * 60_000;
 /** The command that runs the sweep again, the `next` of a run that failed. */
 const AGAIN = "limen seat sweep";
+/**
+ * The file of a project's `.limen/` that holds the time, ISO, of its last daily steps that all succeeded (D-097 (4)
+ * (a)); `.limen/last-sweep` is the wake hook's tick, another stamp (Decision 1).
+ */
+const DAILY_STAMP = "daily-sweep";
+/** How old a project's daily stamp is before its daily steps are due again; a constant, as no setting chooses it. */
+const DAILY_MS = 24 * 60 * 60_000;
 
 /** The flags of `limen seat sweep`, of which a call gives at most one. */
 export type SweepFlags = { readonly install: boolean; readonly uninstall: boolean; readonly status: boolean };
@@ -142,8 +153,8 @@ function printed(out: CommandText, lines: readonly string[]): void {
 	}
 }
 
-/** A step of the run that failed: where, and the failure. */
-type Failed = { readonly where: string; readonly error: unknown };
+/** A step of the run that failed: where, the failure, and the root of the project it failed for, when one. */
+type Failed = { readonly where: string; readonly error: unknown; readonly project?: string };
 
 /**
  * One run over every registered project: each project's steps in parallel, then the start queue's dead entries once.
@@ -180,17 +191,31 @@ async function sweepSeat(out: CommandText): Promise<void> {
 }
 
 /**
- * The run's failure (T-02): each step that failed on its line, by where it failed, its message and its code, with the
- * class and the code of the worst of them, which a timer reads. A step's failure has the class `stepFailure` gives it,
- * so none is a refusal.
+ * The run's failure (T-02): each step that failed on its line, by where it failed, its message and its code, once per
+ * project, with the class and the code of the worst of them, which a timer reads. A step's failure has the class
+ * `stepFailure` gives it, so none is a refusal.
  */
 function runFailure(failed: readonly Failed[]): LimenError {
-	const failures = failed.map(({ where, error }) => ({ where, failure: failureOf(stepFailure(error)) }));
+	const failures = failed.map(({ where, error, project }) => ({
+		where,
+		project,
+		failure: failureOf(stepFailure(error)),
+	}));
 	const worst = failures.reduce((most, each) =>
 		EXIT_CODES[each.failure.class] > EXIT_CODES[most.failure.class] ? each : most,
 	).failure;
-	// A job that fails to read in several steps of its project is named once.
-	const lines = [...new Set(failures.map(({ where, failure }) => `${where}: ${failure.message} (${failure.code})`))];
+	// A job that fails to read in several steps of its project, the daily ones among them, is named once, where it
+	// failed first: one failure of one project, with its message and its code, is one line, and the same failure of
+	// another project is a line of its own (T-01, R-101 review round 1, F6).
+	const named = new Map<string, string>();
+	for (const { where, project, failure } of failures) {
+		const said = `${failure.message} (${failure.code})`;
+		const key = `${project ?? ""}\n${said}`;
+		if (!named.has(key)) {
+			named.set(key, `${where}: ${said}`);
+		}
+	}
+	const lines = [...named.values()];
 	return new LimenError({
 		class: worst.class,
 		code: worst.code,
@@ -205,9 +230,10 @@ const counted = (steps: number) => (steps === 1 ? "one step" : `${steps} steps`)
 /**
  * The steps of one project: its dead running jobs reaped, the scopes its finished jobs left in `live` ended (none when
  * the units could not be listed), its jobs due after the subscription limit resumed and its owed wakes released, its
- * dead coordinator registrations removed, and its unheard ends rung for. A job that fails to read, to end or to resume,
- * and a step that fails, are returned with where they failed, and stop neither the project's other jobs nor its other
- * steps (z. 10, R-032 review round 1, note 8).
+ * dead coordinator registrations removed, its unheard ends rung for, and then its daily steps when they are due
+ * (`dailySteps`). A job that fails to read, to end or to resume, and a step that fails, are returned with where they
+ * failed and the project's root, and stop neither the project's other jobs nor its other steps (z. 10, R-032 review
+ * round 1, note 8).
  */
 async function sweepProject(
 	root: string,
@@ -234,7 +260,89 @@ async function sweepProject(
 		return undefined;
 	});
 	await step(() => ringUnheard(root, jobs, out));
-	return failed;
+	// After the minute steps, so that a job the reap finalized is pruned and retired as a finished one (D-097 (4) (a)).
+	failed.push(...(await dailySteps(root, out)));
+	return failed.map((each) => ({ ...each, project: root }));
+}
+
+/**
+ * The daily steps of the project at `root`, when its stamp is absent or at least 24 hours old (`dailyDue`): prune,
+ * retire, and the close of leftover Herdr tabs, in that order, each one whether or not one before it failed, as the
+ * minute steps run. Each line of a removal, a move or a retire goes out, and of a job that retire keeps since another
+ * process holds its lock, which keeps the step a success, and a `kept` line once, though prune and retire both keep a
+ * worktree. Only when every step succeeded is the stamp written, atomically, and named; a step that fails is returned,
+ * named `<root> (daily <step>)`, with no stamp, so the next minute's run does the daily steps again (T-02). A manual
+ * run does what the timer does (D-097 (4) (a)).
+ */
+async function dailySteps(root: string, out: CommandText): Promise<readonly Failed[]> {
+	const where = (step: string) => `${root} (daily ${step})`;
+	let due: boolean;
+	try {
+		due = dailyDue(root);
+	} catch (error) {
+		return [{ where: where("stamp"), error }];
+	}
+	if (!due) {
+		return [];
+	}
+	const kept = new Set<string>();
+	const keptLines = (list: readonly PruneKept[]) => {
+		const lines = list.map(keptLine).filter((line) => !kept.has(line));
+		for (const line of lines) {
+			kept.add(line);
+		}
+		return [...new Set(lines)];
+	};
+	const steps: ReadonlyArray<readonly [string, () => Promise<readonly string[]>]> = [
+		[
+			"prune",
+			async () => {
+				const pruned = await pruneFinishedWorktrees(root);
+				return [...pruned.removed.map(pruneLine), ...keptLines(pruned.kept)];
+			},
+		],
+		[
+			"retire",
+			async () => {
+				const { retired, held, branches, kept: stays } = await retireMarkedJobs(root);
+				const deleted = branches === 0 ? [] : [`deleted ${branches} landed branch${branches === 1 ? "" : "es"}`];
+				return [...keptLines(stays), ...retired.map(retiredLine), ...held.map(heldLine), ...deleted];
+			},
+		],
+		["close of leftover tabs", () => closeLeftoverTabs(root)],
+	];
+	const failed: Failed[] = [];
+	for (const [name, work] of steps) {
+		try {
+			printed(out, await work());
+		} catch (error) {
+			failed.push({ where: where(name), error });
+		}
+	}
+	if (failed.length > 0) {
+		return failed;
+	}
+	try {
+		// The bare time, which `Date.parse` reads as it is.
+		await atomicWrite(join(root, ".limen", DAILY_STAMP), new Date().toISOString());
+	} catch (error) {
+		return [{ where: where("stamp"), error }];
+	}
+	out.line(`ran the daily steps of ${root}`);
+	return [];
+}
+
+/**
+ * Whether the daily steps of the project at `root` are due: its stamp is absent, holds no time, or holds a time at
+ * least `DAILY_MS` before now, or one after now, as a clock set back leaves it, which would hold them off for as long.
+ */
+function dailyDue(root: string): boolean {
+	const stamp = join(root, ".limen", DAILY_STAMP);
+	if (!fs.existsSync(stamp)) {
+		return true;
+	}
+	const age = Date.now() - Date.parse(fs.readFileSync(stamp, "utf8").trim());
+	return !(age >= 0 && age < DAILY_MS);
 }
 
 /**

@@ -175,8 +175,8 @@ function finishedSource(
 	}
 	throw refused(
 		"NO_UNLANDED_WORK",
-		`job ${id} holds no unlanded work: no changed file in its worktree and no commit outside HEAD on its branch; prune removes what is left`,
-		"limen prune",
+		`job ${id} holds no unlanded work: no changed file in its worktree and no commit outside HEAD on its branch; the daily prune of limen seat sweep removes what is left`,
+		"limen seat sweep",
 	);
 }
 

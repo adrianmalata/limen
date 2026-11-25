@@ -4,7 +4,7 @@ Operator checklist and the current setup steps. Limen does not run these. Copy t
 
 The seat owns the project copy (the Git checkout), the worktrees, and the job files in `.limen/jobs/`. The laptop is only a window.
 
-Units next to this file: `limen-prune.{service,timer}`, and the Pi extensions `coordinator-handoff.ts` and `statusline.ts`. The alerts' units are written by `seat/alerts.ts`, and the sweep's by `limen seat sweep --install` (both below).
+Files next to this file: the Pi extensions `coordinator-handoff.ts` and `statusline.ts`. The alerts' units are written by `seat/alerts.ts`, and the sweep's by `limen seat sweep --install` (both below); the sweep prunes and retires once a day, so no prune unit is left.
 
 ## Box
 
@@ -42,7 +42,7 @@ Moshi rings the phone when an agent needs you, through Herdr's agent hooks: pair
 
 ## Sweep
 
-`limen seat sweep` is the seat's one reaper: every minute its user timer ends each running job whose wrapper is dead, in every registered project, ends the scope a finished job left with processes in it, resumes each job the subscription limit stopped 5 minutes after the reset (at most 3 times) and releases the coordinator wakes the limit held, removes dead coordinator registrations and dead start-queue entries, and rings Herdr for an end nobody heard of ([Seat sweep](../commands.md#seat-sweep), [Subscription limit](../jobs.md#subscription-limit)). `limen status` and `limen show` only show a dead job (`wrapper dead; limen-sweep will finalize`), so without the timer no dead job is finalized, and `limen status` warns under `Sweep not working` while the timer is not active or the service's last run failed. A job whose processes it cannot end three runs in a row is listed under `Jobs the sweep cannot end` and sends the alert `<project folder's base name> stuck <job id>`.
+`limen seat sweep` is the seat's one reaper: every minute its user timer ends each running job whose wrapper is dead, in every registered project, ends the scope a finished job left with processes in it, resumes each job the subscription limit stopped 5 minutes after the reset (at most 3 times) and releases the coordinator wakes the limit held, removes dead coordinator registrations and dead start-queue entries, and rings Herdr for an end nobody heard of; once a day per project it prunes the worktrees of finished jobs, retires landed and abandoned jobs to the job archive and closes the leftover Herdr tabs of closed features, deleting nothing that Git does not hold elsewhere ([Seat sweep](../commands.md#seat-sweep), [Subscription limit](../jobs.md#subscription-limit)). `limen status` and `limen show` only show a dead job (`wrapper dead; limen-sweep will finalize`), so without the timer no dead job is finalized, and `limen status` warns under `Sweep not working` while the timer is not active or the service's last run failed. A job whose processes it cannot end three runs in a row is listed under `Jobs the sweep cannot end` and sends the alert `<project folder's base name> stuck <job id>`.
 
 It runs as `limen-sweep.service`, a user service of the agents' account (no root), with `/usr/bin/node /opt/limen/bin/limen seat sweep` and the PATH of the shell that installed it, stopped after 300 s; a job it resumes finds `pi`, `node` and `herdr` on that PATH. Install, on the agents' account, from its login shell, once lingering is on:
 
@@ -66,7 +66,7 @@ The extension `quota-resume.ts`, which typed a message into the coordinator afte
 
 ## Prune
 
-Drop-in: `User`, `WorkingDirectory` = the project, `PATH` that includes `limen`. `systemctl enable --now limen-prune.timer`.
+The old `limen-prune.{service,timer}` units are cut: `limen prune` exits 2 and names `limen seat sweep`, whose timer prunes and retires once a day. A seat that still has them disables them as root: `systemctl disable --now limen-prune.timer`, then removes both units from `/etc/systemd/system/` with the drop-in folder `limen-prune.service.d/`.
 
 ## From the Mac (window)
 

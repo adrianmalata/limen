@@ -11,7 +11,8 @@ import { type Facts, publishRecord, writeProgress } from "./record.ts";
 
 /**
  * Prune and land remove a worktree only while they hold this lock, deciding from job records they read inside it.
- * Publication holds it too, so no job claims a worktree between that read and the removal.
+ * Publication holds it too, so no job claims a worktree between that read and the removal, and prune moves a folder
+ * a publication left only under it.
  */
 export function worktreeLock<T>(jobsRoot: string, operation: () => Promise<T>): Promise<T> {
 	return groupLock(worktreeGuard(jobsRoot).folder, operation, "wait");
@@ -83,13 +84,19 @@ type NewJob = {
 };
 
 /**
+ * The prefix of the hidden folder of `.limen/`, `.publishing-<id>`, that a job is published in; a crash before the
+ * rename leaves it, and the seat sweep's daily prune moves it into the job archive once its spawner is gone (R-101).
+ */
+export const PUBLISHING = ".publishing-";
+
+/**
  * Publish a complete starting record before creating or restoring its protected worktree: the record (state
  * `starting`, src/job/record.ts), the progress file and the content files, all in a hidden folder that one rename
  * makes the job's.
  */
 export async function publishJob(jobDir: string, job: NewJob): Promise<void> {
 	const jobsRoot = dirname(jobDir);
-	const publishing = `${dirname(jobsRoot)}/.publishing-${basename(jobDir)}`;
+	const publishing = `${dirname(jobsRoot)}/${PUBLISHING}${basename(jobDir)}`;
 	await mkdir(jobsRoot, { recursive: true });
 	await mkdir(publishing);
 	try {

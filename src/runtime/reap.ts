@@ -129,10 +129,16 @@ export async function holdsProcesses(record: JobRecord | undefined, now = Date.n
 	if (await liveJob(record, now)) {
 		return true;
 	}
-	if (record?.state !== "running" || record.scope === undefined) {
-		return false;
-	}
-	return platform.cgroupPopulated(record.scope.cgroup).kind !== "empty";
+	return record?.state === "running" && scopeHolds(record);
+}
+
+/**
+ * Whether the scope `record` names holds a process: its cgroup's own `cgroup.events`, read as `holdsProcesses` reads
+ * it, so a cgroup that does not read holds processes (z. 14); none when the record names no scope. Prune asks it of a
+ * finished job, whose scope end may have failed (D-097 (4) (e)), so it keeps that job's worktree (T-25).
+ */
+export function scopeHolds(record: JobRecord): boolean {
+	return record.scope !== undefined && platform.cgroupPopulated(record.scope.cgroup).kind !== "empty";
 }
 
 /** A job folder the reaper could not read or end, and why; the sweep names each one and goes on (z. 10, T-01). */

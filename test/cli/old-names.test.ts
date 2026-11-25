@@ -437,6 +437,8 @@ const NEXTS: Readonly<Record<string, readonly [string, string]>> = {
 	jobs: ["limen status --all", "limen show a1b2c3d4"],
 	queue: ["limen seat queue", "limen seat queue"],
 	sweep: ["limen seat sweep", "limen seat sweep"],
+	prune: ["limen seat sweep", "limen seat sweep"],
+	close: ["limen seat sweep", "limen seat sweep"],
 	"group status --json": ["limen group status", "limen group status a1b2c3d4"],
 };
 
@@ -600,6 +602,28 @@ test("REMOVED: a form of limen jobs with a flag names limen status --all, a ref 
 	for (const next of nexts) {
 		checkNext(next);
 	}
+});
+
+// D-097 (4) (b), (k), T-18: prune, retire and the close of leftover Herdr tabs are daily steps of the seat sweep, with
+// no command of their own; `--dry-run` goes with prune, since an archive move can be undone (z. 29).
+test("REMOVED: limen prune, with or without its flags, and limen close exit 2, say what they became and name limen seat sweep", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const forms = [["prune"], ["prune", "--retire", "--dry-run"], ["close", "F012"]] as const;
+	const before = snapshot(p.root);
+	const refused = forms.map((args) => {
+		const run = limen(p, args);
+		return [run.status, readOutcome(run), outputText(run).split("\n")[0]];
+	});
+	const prune = "limen prune became the daily prune and retire of limen seat sweep (R-101)";
+	const close = "limen close became the daily close of leftover Herdr tabs in limen seat sweep (R-101)";
+	const outcome = { class: "usage", code: "REMOVED", next: "limen seat sweep" };
+	assert.deepEqual(refused, [
+		[2, outcome, prune],
+		[2, outcome, prune],
+		[2, outcome, close],
+	]);
+	assert.deepEqual(snapshot(p.root), before);
 });
 
 test("REMOVED: limen queue exits 2, says it was renamed and names limen seat queue", async (t) => {

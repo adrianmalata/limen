@@ -4,8 +4,9 @@
 // pid, or the start time under that pid is gone; an owner the system cannot describe is kept. A gone owner's lock is
 // taken over under a claim on the record found dead, which is itself a lock of this module, and is moved aside only
 // while it still holds that record, so a lock taken after "found dead" is never moved (D-029). A wait is bounded at
-// 60 s and ends in LOCK_TIMEOUT, class transient (T-02). Only this file names a lock file: a scan in
-// test/structure.test.ts bans the name elsewhere.
+// 60 s and ends in LOCK_TIMEOUT, class transient (T-02); a caller that holds another lock can ask for one attempt
+// instead. A folder moved under its own lock takes the lock with it, and the lock is released at its new place (R-101).
+// Only this file names a lock file: a scan in test/structure.test.ts bans the name elsewhere.
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { type FileHandle, mkdir, open, readFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -121,6 +122,55 @@ export function withLock<T>(
 	options: LockOptions = {},
 ): Promise<T | undefined> {
 	return lockedAt(lockPath(guarded), operation, options);
+}
+
+/**
+ * Moves the folder `folder` to `to` in one rename while this process holds the folder's own lock (`{ folder }`), as
+ * retire and prune move a job's folder into the job archive under the job's lock, which every write of its record takes
+ * (D-097 (4) (h)). `decide` runs under the lock, after the caller read what it needs, and says whether the move goes.
+ * The lock goes with the folder and is released at its new place, so a writer that waited for it finds no folder.
+ * Taking the lock makes the folder when it is missing, so the caller finds it there under a lock that every mover of
+ * such folders holds, the jobs lock. Returns whether the folder moved; with `mode` `skip`, which makes one attempt as
+ * `withLock` does, undefined while a live owner holds the folder's lock, so a caller that holds another lock does not
+ * wait for it (R-101 review round 1, F5).
+ */
+export function moveLockedFolder(
+	folder: string,
+	to: string,
+	decide: () => Promise<boolean>,
+	options: { readonly mode: "skip" },
+): Promise<boolean | undefined>;
+export function moveLockedFolder(
+	folder: string,
+	to: string,
+	decide: () => Promise<boolean>,
+	options?: { readonly mode?: "wait" },
+): Promise<boolean>;
+export async function moveLockedFolder(
+	folder: string,
+	to: string,
+	decide: () => Promise<boolean>,
+	options: Pick<LockOptions, "mode"> = {},
+): Promise<boolean | undefined> {
+	const held = await acquire(lockPath({ folder }), options);
+	if (held === undefined) {
+		return undefined;
+	}
+	const moved: Held = { path: lockPath({ folder: to }), token: held.token };
+	let goes: boolean;
+	try {
+		goes = await decide();
+		if (goes) {
+			await atomicRename(folder, to);
+		}
+	} catch (error) {
+		// The rename may have run before a sync failed, so the lock is at one place or the other.
+		await releaseAfterFailure(held);
+		await releaseAfterFailure(moved);
+		throw error;
+	}
+	await release(goes ? moved : held);
+	return goes;
 }
 
 /**

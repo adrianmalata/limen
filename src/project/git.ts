@@ -337,35 +337,44 @@ export function hasObject(cwd: string, oid: string): boolean {
 	return git(cwd, ["cat-file", "-e", oid]).status === 0;
 }
 /**
- * The first nested repository of the checkout at `cwd` whose commit the object store of `repository` lacks: a gitlink
- * (mode 160000) of its HEAD tree or its index, or the commit a nested `.git` at such a path has checked out. That
- * commit lives only in the nested `.git`, so whatever removes the worktree loses it, however clean `git status` shows
- * it and whether or not its job is resolved (A-001, R-030). Undefined when the store holds every such commit. A commit
- * it cannot check, or a nested `.git` whose HEAD it cannot read, counts as lacking (`hasObject`), so the rule fails safe.
+ * The first nested repository of the checkout at `cwd` whose commit the object store of `repository` lacks: at a path
+ * where a gitlink (mode 160000) of its HEAD tree or its index has a nested `.git`, the commit the gitlink records or
+ * the one that `.git` has checked out. That commit lives only in the nested `.git`, so whatever removes the worktree
+ * loses it, however clean `git status` shows it and whether or not its job is resolved (A-001, R-030). A gitlink with
+ * no nested `.git`, as a registered submodule that is not checked out, holds nothing of its commit in this checkout,
+ * so it counts for nothing (D-088, R-101). Undefined when the store holds every such commit. A commit it cannot check,
+ * or a nested `.git` whose HEAD it cannot read, counts as lacking (`hasObject`), so the rule fails safe; a checkout
+ * whose own HEAD tree it cannot read, as one whose HEAD has no commit, fails with a message that names it.
  */
 export function unsavedGitlink(cwd: string, repository: string): string | undefined {
-	const links = [...gitlinks(cwd, "HEAD"), ...indexGitlinks(cwd)];
-	const missing = links.find(([, oid]) => !hasObject(repository, oid));
-	if (missing) {
-		return missing[0];
-	}
+	const links = [...headGitlinks(cwd), ...indexGitlinks(cwd)];
 	for (const path of new Set(links.map(([path]) => path))) {
 		const nested = resolve(cwd, path);
 		if (!existsSync(`${nested}/.git`)) {
 			continue;
 		}
+		const recorded = links.filter(([link]) => link === path).map(([, oid]) => oid);
 		const head = git(nested, ["rev-parse", "--verify", "HEAD"]);
-		if (head.status !== 0 || !hasObject(repository, head.stdout.trim())) {
+		const commits = head.status === 0 ? [...recorded, head.stdout.trim()] : undefined;
+		if (commits === undefined || commits.some((oid) => !hasObject(repository, oid))) {
 			return path;
 		}
 	}
 	return undefined;
 }
+/** The gitlinks of the HEAD tree of the worktree at `cwd`; a HEAD Git cannot read fails, the worktree named. */
+function headGitlinks(cwd: string): ReadonlyMap<string, string> {
+	const listed = git(cwd, ["ls-tree", "-r", "-z", "HEAD"]);
+	if (listed.status !== 0) {
+		const words = listed.stderr.trim() || listed.stdout.trim() || "git ls-tree failed";
+		throw environmentError("GIT_FAILED", `the HEAD of the worktree ${cwd} cannot be read: ${words}`);
+	}
+	return treeGitlinks(listed.stdout);
+}
 /** The gitlinks of the index of the checkout at `cwd` (`ls-files -s`), each path with the commit it records. */
 function indexGitlinks(cwd: string): ReadonlyMap<string, string> {
 	const links = new Map<string, string>();
-	for (const entry of requireGit(cwd, ["ls-files", "-s", "-z"]).stdout.split("\0")) {
-		const [meta = "", path = ""] = entry.split("\t");
+	for (const [meta, path] of zEntries(requireGit(cwd, ["ls-files", "-s", "-z"]).stdout)) {
 		const [mode, oid] = meta.split(" ");
 		if (mode === "160000" && oid && path) {
 			links.set(path, oid);
@@ -378,15 +387,31 @@ function indexGitlinks(cwd: string): ReadonlyMap<string, string> {
  * commit it records: a registered submodule, or a folder with its own `.git` that `add -A` took as one.
  */
 export function gitlinks(cwd: string, treeish: string): ReadonlyMap<string, string> {
+	return treeGitlinks(requireGit(cwd, ["ls-tree", "-r", "-z", treeish]).stdout);
+}
+/** The gitlinks of the output of `ls-tree -r -z`, each path with the commit it records. */
+function treeGitlinks(stdout: string): ReadonlyMap<string, string> {
 	const links = new Map<string, string>();
-	for (const entry of requireGit(cwd, ["ls-tree", "-r", "-z", treeish]).stdout.split("\0")) {
-		const [meta = "", path = ""] = entry.split("\t");
+	for (const [meta, path] of zEntries(stdout)) {
 		const [mode, , oid] = meta.split(" ");
 		if (mode === "160000" && oid && path) {
 			links.set(path, oid);
 		}
 	}
 	return links;
+}
+/**
+ * The entries of a `-z` listing of `ls-tree` or `ls-files -s`, each as its fields and its path: the path is whole
+ * after the first tab, since a path can hold a tab itself (D-088, R-101).
+ */
+function zEntries(stdout: string): ReadonlyArray<readonly [string, string]> {
+	return stdout
+		.split("\0")
+		.filter(Boolean)
+		.map((entry) => {
+			const tab = entry.indexOf("\t");
+			return tab < 0 ? [entry, ""] : [entry.slice(0, tab), entry.slice(tab + 1)];
+		});
 }
 /** The paths of the output of `STATUS`, and those whose change is already in the index. */
 function statusPaths(stdout: string): { readonly paths: readonly string[]; readonly staged: readonly string[] } {

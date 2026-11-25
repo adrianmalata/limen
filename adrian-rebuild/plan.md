@@ -127,7 +127,10 @@ ticket.md. limen-rebuild-30: D-101: reguła jednej linii na kryterium w definicj
 (atomowy commit zamknięcia ticketów, wspólny dla land i ticket done); noc do 08:00 po D-102 i strażniku blokady nocy.
 limen-rebuild-31: R-103 gotowy (ticket.md z inwentarza, 18 pytań rozstrzygniętych dokumentami); D-102: przy żywej
 blokadzie nocy sesja dzienna tylko czyta, biegacz nocny startuje jako śledzone zadanie w tle, reguła wznowienia
-przerwanego przebiegu w `## Agents`. -->
+przerwanego przebiegu w `## Agents`. Noc 24/25.11: R-087 i R-098 zamknięte w przebiegu 1 (urwanym limitem 5 h o
+03:37); przebieg 2 wznowił R-101 po regule D-102 (4) i go zamknął (dzienne kroki `seat sweep`: prune, retire i
+zamykanie kart Herdr; nic, czego Git nie trzyma gdzie indziej, nie jest kasowane). -->
+
 
 
 
@@ -1721,7 +1724,7 @@ Columns:
 | R-087 | The job environment is an allow-list; git and gh in a job hold no credential (T1) | 3 | A-004, A-061, E-4, D-017 | R-015, R-021, R-026 | M | delegated | night | — | pi, bridge | 3.10 | done |
 | R-098 | `limen stats` per landed ticket and per coordinator turn | 3 | §2, A-078, A-037, D-072, D-098 | R-024, R-031 | M | delegated | night | — | pi | B.3, B.4 | done |
 | R-100 | One definition of the ISO time, the 429 rule, the error-code check and the jobs listing | 3 | T-25, D-080 | R-022, R-093, R-097 | S | delegated | night | — | — | — | done |
-| R-101 | Prune, retire and leftover Herdr tabs are steps of the sweep; nothing is deleted | 3 | A-024, A-002, T-18, T-28, D-092, D-094, D-096, D-097 | R-032 | M | delegated | night | yes | herdr | 3.9 | ready (D-097) |
+| R-101 | Prune, retire and leftover Herdr tabs are steps of the sweep; nothing is deleted | 3 | A-024, A-002, T-18, T-28, D-092, D-094, D-096, D-097 | R-032 | M | delegated | night | yes | herdr | 3.9 | done |
 | R-102 | Seat rules are cut | 3 | A-010, T-42, D-094, D-097 | R-034 | M | delegated | night | yes | systemd | 3.5 | ready (D-097) |
 | R-103 | Land runs as recorded steps; its `cleaned` step closes the job's Herdr tabs | 3 | A-021, T-04, T-18, T-28, T-38, D-092, D-094, D-096 | R-037 | L | delegated | night | yes | herdr | 3.9 | ready |
 | R-038 | The fake engine shows the model's view under the bridge | 4 | T-31, A-051 | R-017 | M | delegated | night | — | bridge | 4.1 | planned |
@@ -2045,6 +2048,12 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   `T00:00:00.000Z`, is written in `src/job/landing.ts` and matched by its own regex `DAY_ONLY` in
   `src/job/statistics.ts`; R-103, which rewrites the marker steps of land and `ticket done`, gives the form one
   definition in the module that writes it, which `stats` reads (T-25 (2)).
+- R-103 (R-101 `review.md` → Round 3, note 1, guessed, D-092; R-101 `outcome.md` → Open point 7): R-101's daily close
+  of leftover tabs (`closeLeftoverTabs`, `src/integrations/herdr.ts`) asks Herdr on every daily run about each
+  recorded tab of every finished job of closed features still in `.limen/jobs/`, through a blocking `spawnSync` with
+  the 10 s bound, so a Herdr that hangs costs 10 s per tab and about 30 tabs pass the sweep unit's 300 s (the run is
+  cut, writes no stamp and repeats each minute); R-103, which rewrites the tab close for its `cleaned` step, records a
+  tab once it closed or Herdr no longer lists it, so it is not asked again, and bounds the step's total time.
 
 ## Deployment
 
@@ -4494,3 +4503,29 @@ criteria against the allow-list); `HEAD` equal to `origin/adrian-rebuild`, clean
   as `—`, M-06's "before" being the total alone (`outcome.md` → Open point 1 gives the other option). For gate 5.3:
   `outcome.md` → Open points 2–7; round 3's note 2 went to R-103's notes (D-092). Unmeasured: M-03, M-04, M-06, M-07
   (B.3, B.4, 9.1). Next: R-101 (protocol step 2).
+- R-101 `active` (03:20, from `45605c1`): its `ticket.md` (written at R-032's tree) was checked again at `HEAD`
+  (protocol step 2, D-025): AC-4–AC-6 match only lines the change removes (`prune` and `close` both carry `movedBy:
+  "R-101"` since R-037); `LIMEN_SETUP_KEEP` also marks a spawn's start that owes setup, so a night default gives that
+  mark its own transport name `LIMEN_SETUP` (`ticket.md` → `## Decisions` 7, for Adrian to confirm); moved places in
+  Decisions 8–10. Next: the implementer (protocol step 3).
+- Run 1 ended at 03:37:08 with exit 1 at the five-hour limit (its log's last result: `api_error_status` 429, "You've hit
+  your 5-hour limit"), with R-101's implementer cut before its reply; `night.mjs` started run 2 at 04:07:08. By D-102
+  (4): `review-guard.mjs compare --git node_modules/.rebuild-review/R-101.git <ticket.md>` → exit 0, then a fresh
+  `rebuild-implementer` with "the previous run was cut; finish from the working tree", which replied `DONE` (seven
+  deviations in `outcome.md`); `compare --git` → exit 0 again; the main session's `gate.mjs` → exit 0 (1170/1170) and
+  `fails-before.mjs` → exit 0 (`outcome.md` → `## Fails before`). Next: the review (protocol step 5).
+- R-101 `done` (delegated): `limen seat sweep` runs, per project, its daily steps (prune, retire, the close of leftover
+  Herdr tabs) when `.limen/daily-sweep` is absent or at least 24 h old, and writes the stamp only when all three
+  succeed; `limen prune` and `limen close` exit 2 naming `limen seat sweep`; the setup prune at a job's start is gone
+  (`LIMEN_SETUP` marks a spawn's setup, night default Decision 7); nothing Git does not hold elsewhere is deleted within
+  D-097 (4) (d)'s list (moves into `.limen/archive/`, tested byte for byte); retire waits 24 h after a marker and takes
+  the job's own lock without waiting; the poller looks a job up again in the archive. Review FAIL in round 1 (an
+  archived folder of a job that never ran blocked the rerun of a crashed GitHub handoff for ever), PASS in rounds 2
+  and 3, with two rounds of fixes (F1–F6, G1–G3) and the main session's text fixes of round 3. Gate 1178/1178. Night
+  default for Adrian to confirm: Decision 7 (`LIMEN_SETUP`). For gate 5.3: `outcome.md` → Open points 3 (an
+  unregistered worktree-root folder that holds a `.git` is still deleted, as at `HEAD`; recommended: move it too), 4,
+  5 (the `seat sweep` help summary is the implementer's wording), 6 (prune's moves still wait 60 s for a job's lock;
+  recommended: one attempt, as retire), and Decisions 2 and 4; round 3's note 1 went to R-103's notes (D-092).
+  Unmeasured: M-01, M-05 (the coordinator's manual), step 3.9. Two commands of this session were refused by the
+  permissions (a `cat` and a `Read` of this session's context file outside the repository) and were not worked
+  around. Next: R-102 (protocol step 2).

@@ -342,10 +342,10 @@ async function validateClaimJob(
 /**
  * Refuses a handoff gate, which exists, that a handoff or a no-job answer got through: a job record that carries the
  * claim, in any state (a live handoff's record is `starting` until its wrapper runs, so no job answers the claim yet),
- * in `.limen/jobs/` or in the job archive, where `limen prune --retire` moves a finished one (`markedJob`); a job that
- * the claim's copy names, which the poller writes there once it sees the job's record, so a job whose record is gone
- * still holds its gate; or the answer of `github resolve`. A gate with none of
- * them is stale, and validate goes on; the spawn's apply reads all three again under the jobs lock (`HandoffGate`).
+ * in `.limen/jobs/` or in the job archive, where the seat sweep's daily retire moves a finished one (`markedJob`); a
+ * job that the claim's copy names, which the poller writes there once it sees the job's record, so a job whose record
+ * is gone still holds its gate; or the answer of `github resolve`. A gate with none of them is stale, and validate goes
+ * on; the spawn's apply reads all three again under the jobs lock (`HandoffGate`).
  * The message names the copy's job only in the form of a job id: a job runs as the coordinator's account, so it can
  * write the copy, and the message reaches the coordinator's model.
  */
@@ -497,9 +497,9 @@ async function removeEmptyFolder(path: string): Promise<void> {
 }
 
 /**
- * Whether a job record of the project, in `.limen/jobs/` or the job archive, carries the claim's marker (`markedJob`),
- * in any state and of any shape: the record a handoff writes right after the gate, also while it is `starting` and
- * `matchedGithubJob` names no job yet, and one that conflicts with the claim, which a person reads.
+ * Whether a job record of the project, in `.limen/jobs/` in any state or in the job archive once it ran, carries the
+ * claim's marker (`markedJob`), of any shape: the record a handoff writes right after the gate, also while it is
+ * `starting` and `matchedGithubJob` names no job yet, and one that conflicts with the claim, which a person reads.
  */
 async function claimHasJob(root: string, claim: GithubClaim): Promise<boolean> {
 	return (await markedJob(root, claim)) !== undefined;

@@ -170,7 +170,7 @@ export async function runInternalJob(): Promise<void> {
 	// The engine's environment, which --prepare gets too: it is the project's code, as the engine's tools are (R-087 (c)).
 	const childEnvironment = engineEnvironment(process.env, { LIMEN_JOB: "1", LIMEN_JOB_ID: jobId });
 	// The forwarded TERM reaches --prepare, which runs in this process group; the check before the spawn ends the job.
-	if (transport("LIMEN_SETUP_KEEP")) {
+	if (transport("LIMEN_SETUP") === "1") {
 		await setUpJob(jobDir, worktree, childEnvironment);
 	}
 	const missing = worktreeMissing(worktree);

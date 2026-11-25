@@ -46,10 +46,10 @@ export const ENVIRONMENT = {
 	LIMEN_PROVIDER: { kind: "transport", reader: "wrapper", carries: "the provider of the job's route" },
 	LIMEN_THINKING: { kind: "transport", reader: "wrapper", carries: "the reasoning level of the job's route" },
 	LIMEN_LABEL: { kind: "transport", reader: "wrapper", carries: "the job's label, the name of the engine's session" },
-	LIMEN_SETUP_KEEP: {
+	LIMEN_SETUP: {
 		kind: "transport",
 		reader: "wrapper",
-		carries: "the spawner's checkout, which the job's prune keeps; only spawn sets it, so only a spawn sets up",
+		carries: "1 when a spawn starts the job, which owes its setup: the log of ignored limits, then --prepare",
 	},
 	LIMEN_SETUP_PREPARE: { kind: "transport", reader: "wrapper", carries: "the --prepare command of a spawn" },
 	LIMEN_CONTINUE: {

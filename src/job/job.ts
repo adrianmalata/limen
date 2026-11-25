@@ -26,6 +26,12 @@ export type TerminalState = "done" | "failed" | "stopped";
 export const TERMINAL_STATES: readonly TerminalState[] = ["done", "failed", "stopped"];
 export const isTerminal = (state: string): state is TerminalState =>
 	(TERMINAL_STATES as readonly string[]).includes(state);
+/**
+ * Whether a job whose record holds `state` ever ran: a record past `starting`; a folder with no record never did. The
+ * daily prune moves only folders that never ran into the job archive, so a claim's lookup and `limen stats` skip them
+ * there (R-101).
+ */
+export const everRan = (state: string | undefined): boolean => state !== undefined && state !== "starting";
 /** A session ID that is safe as one path segment, for example under `notify/delivered/`. */
 export const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 /**

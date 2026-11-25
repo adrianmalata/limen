@@ -1,20 +1,20 @@
 // `limen stats` (D-072, D-073, D-098): every job record of this project, those of the job archive included (gate 2 §2,
-// A-002), and each job's own transcripts, counted by route and role (jobs, done, failed, run time and the four token
-// classes); then the lands, each a job with a `landed` marker with the jobs its `parent` chain reaches and the
-// reviewers of its branch, with their tokens and lead time per land (M-06, M-07); with `--sessions`, the coordinator's
-// sessions in that folder, their tokens and turns, the cache read per turn and per land (M-03) and the cache write of
-// the turn after each land (M-04); then the failed jobs by kind, then what it did not read. It reads the records
-// through src/job/record.ts and every transcript through src/job/usage.ts, never Git or the prose of `log` or `result`
-// (T-37 (1), D-057 (4)), and it writes nothing and waits for nothing (T-04). A part the records do not hold is named
-// `unknown`, or `—` where it would be a number, never guessed, so a null role and a null failure kind get their own
-// row and count, and each folder, record, transcript line, run time, lead time and part of one it could not read is
-// counted on the last line (z. 10). A migrated record is history that it reads like any other (D-057 (4)), and so is
-// the record of a scout that ran (T-33).
+// A-002) but its folders that never ran, and each job's own transcripts, counted by route and role (jobs, done, failed,
+// run time and the four token classes); then the lands, each a job with a `landed` marker with the jobs its `parent`
+// chain reaches and the reviewers of its branch, with their tokens and lead time per land (M-06, M-07); with
+// `--sessions`, the coordinator's sessions in that folder, their tokens and turns, the cache read per turn and per land
+// (M-03) and the cache write of the turn after each land (M-04); then the failed jobs by kind, then what it did not
+// read. It reads the records through src/job/record.ts and every transcript through src/job/usage.ts, never Git or the
+// prose of `log` or `result` (T-37 (1), D-057 (4)), and it writes nothing and waits for nothing (T-04). A part the
+// records do not hold is named `unknown`, or `—` where it would be a number, never guessed, so a null role and a null
+// failure kind get their own row and count, and each folder, record, transcript line, run time, lead time and part of
+// one it could not read is counted on the last line (z. 10). A migrated record is history that it reads like any other
+// (D-057 (4)), and so is the record of a scout that ran (T-33).
 import { join } from "node:path";
 import { LimenError, usageError } from "../outcome.ts";
 import { limenRoot } from "../project/git.ts";
 import { localDay } from "../project/lanes.ts";
-import { isTerminal } from "./job.ts";
+import { everRan, isTerminal } from "./job.ts";
 import {
 	archivedJobs,
 	FAILURE_KINDS,
@@ -161,12 +161,18 @@ export async function projectStatistics(cwd: string, sessions?: string): Promise
 	].join("\n");
 }
 
-/** Every job folder of the project at `root`, those of the job archive included, and what the read left out. */
+/**
+ * Every job folder of the project at `root`, those of the job archive included, and what the read left out. A folder
+ * of the archive that never ran (`everRan`: no record, or a `starting` one) is no job: the daily prune moved it there
+ * from a start that never ran, where before R-101 it deleted it, so the counts skip it, as the claim lookup does
+ * (src/integrations/github-review.ts), and stay what they were before that start (R-101 review round 2, G2). A folder
+ * of `.limen/jobs/` counts as it is, since a start may still be there.
+ */
 async function readProjectJobs(root: string): Promise<{ readonly jobs: readonly Job[]; readonly skipped: Skipped }> {
 	const jobsRoot = join(root, ".limen", "jobs");
 	const folders = [
-		...(await jobFolders(jobsRoot)).map((id) => ({ id, jobDir: join(jobsRoot, id) })),
-		...(await archivedJobs(root)),
+		...(await jobFolders(jobsRoot)).map((id) => ({ id, jobDir: join(jobsRoot, id), archived: false })),
+		...(await archivedJobs(root)).map((job) => ({ ...job, archived: true })),
 	];
 	const skipped: Skipped = {
 		unmigrated: (await jobFolderNames(join(root, ".limen", "unmigrated"))).length,
@@ -180,8 +186,11 @@ async function readProjectJobs(root: string): Promise<{ readonly jobs: readonly 
 		sessionLines: 0,
 	};
 	const jobs: Job[] = [];
-	for (const { id, jobDir } of folders) {
+	for (const { id, jobDir, archived } of folders) {
 		const job = await readJob(jobDir);
+		if (archived && job !== "damaged" && !everRan(job?.record.state)) {
+			continue;
+		}
 		if (job === undefined) {
 			skipped.noRecord += 1;
 		} else if (job === "damaged") {

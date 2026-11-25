@@ -5,6 +5,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, test } from "node:test";
+import { closedFeatures } from "../src/job/job.ts";
 import { outputText, readOutcome } from "./final-line.ts";
 import {
 	git,
@@ -94,7 +95,8 @@ test("cancelled and archived numbers stay taken, and readers follow", async () =
 	git(p.root, "checkout", "-q", "main");
 	await writeFile(join(p.root, "spec/features/archive.tsv"), ARCHIVE);
 	assert.match(limen(p, ["ticket", "new", "a"]).stdout, /F013-a/);
-	assert.match(limen(p, ["close", "F012"]).stderr, /herdr is not available/);
+	// The daily close of leftover Herdr tabs reads an archived ticket as closed (R-101 cut `limen close`, which did).
+	assert.ok(closedFeatures(p.root).has("F012"));
 	assert.match(limen(p, ["board"]).stdout, /`F012-c` \(🟢 PROVEN\): c\n- 2026-09: 1 landed\. \S+archive\.tsv\n/);
 	const check = limen(p, ["ticket", "check", "dup"]);
 	assert.match(`${check.status} ${check.stderr}`, /^1 .*F012-c.*archive\.tsv:2/s);

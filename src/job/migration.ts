@@ -215,7 +215,7 @@ async function markerSteps(root: string, records: readonly JobRecord[], dryRun: 
 	const closes = unmarked.length > 0 ? closingCommits(root) : new Map<string, Landed>();
 	const steps: MarkerStep[] = [];
 	for (const record of unmarked) {
-		const step = { id: record.id, landed: closes.get(record.id), ...abandonedOf(root, record) };
+		const step = { id: record.id, landed: closes.get(record.id), ...abandonEvidence(root, record) };
 		const jobDir = join(root, ".limen", "jobs", record.id);
 		for (const marker of dryRun ? [] : markersOf(step)) {
 			await writeMarker(jobDir, marker);
@@ -254,8 +254,9 @@ function closingCommits(root: string): Map<string, Landed> {
  * the branch, its commit, and that commit's committer time, the time of the save when abandon made the commit; none
  * when either does not hold. A branch that lacks the tip of the job's own branch is no save of the job, which a marker
  * would hide, so it gives none and is named, as abandon refuses it (R-031, Decisions 3 and 10; review round 2, G2).
+ * The evidence is Git's; the record's own marker is read by `abandonedMarker` of src/job/record.ts (T-18).
  */
-function abandonedOf(root: string, record: JobRecord): Pick<MarkerStep, "abandoned" | "unsaved"> {
+function abandonEvidence(root: string, record: JobRecord): Pick<MarkerStep, "abandoned" | "unsaved"> {
 	const none = { abandoned: undefined, unsaved: undefined };
 	const repository = record.repo ? resolve(root, record.repo) : root;
 	if ((record.worktree && existsSync(record.worktree)) || !existsSync(join(repository, ".git"))) {

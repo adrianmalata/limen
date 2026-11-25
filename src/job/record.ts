@@ -414,6 +414,15 @@ export function archiveMonth(root: string, at: string): string {
 }
 
 /**
+ * The folder of the archive of the project at `root` that prune moves a folder of the worktree root to when Git does
+ * not register it and it holds no `.git` (D-097 (4) (d)): `.limen/archive/unregistered/`, whose name is no month, so no
+ * reader of the job archive takes what it holds for a job.
+ */
+export function unregisteredArchive(root: string): string {
+	return join(root, ".limen", ARCHIVE, "unregistered");
+}
+
+/**
  * Every job folder of the job archive of the project at `root`, by month and then by id; none when the project has no
  * archive. A folder of the archive whose name is no month holds no job. Only a person deletes a month's folder.
  */
@@ -440,7 +449,14 @@ export async function readRecord(jobDir: string): Promise<JobRecord | undefined>
 export function readRecordSync(jobDir: string): JobRecord | undefined {
 	return recordFrom(jobDir, guardedTextSync(join(jobDir, RECORD), RECORD_BYTES));
 }
-function recordFrom(jobDir: string, text: string | undefined): JobRecord | undefined {
+/**
+ * The record in `folder`, whose name is not the job's id, as `readRecord` reads one, with its id checked against `id`:
+ * the hidden folder a publication writes its record in before one rename makes it the job's (src/job/publication.ts).
+ */
+export async function readRecordOf(folder: string, id: string): Promise<JobRecord | undefined> {
+	return recordFrom(folder, await guardedText(join(folder, RECORD), RECORD_BYTES), id);
+}
+function recordFrom(jobDir: string, text: string | undefined, id = basename(jobDir)): JobRecord | undefined {
 	if (text === undefined) {
 		if (existsSync(join(jobDir, OLD_STATE))) {
 			throw notMigrated(dirname(jobDir), basename(jobDir));
@@ -452,8 +468,9 @@ function recordFrom(jobDir: string, text: string | undefined): JobRecord | undef
 	if (record instanceof LimenError) {
 		throw record;
 	}
-	if (record.id !== basename(jobDir)) {
-		throw refusedValue(file, { field: "id", expected: `the folder's name ${basename(jobDir)}`, got: record.id });
+	if (record.id !== id) {
+		const expected = id === basename(jobDir) ? `the folder's name ${id}` : `the id ${id} of the folder's job`;
+		throw refusedValue(file, { field: "id", expected, got: record.id });
 	}
 	return record;
 }
@@ -1170,7 +1187,8 @@ function landedOf(value: unknown, field: string): Landed {
 	const fields = object(["sha", "at"])(value, field);
 	return { sha: commitOf(fields.get("sha"), at(field, "sha")), at: isoTime(fields.get("at"), at(field, "at")) };
 }
-function abandonedOf(value: unknown, field: string): Abandoned {
+/** The validator of the record's `abandoned` marker (`abandonEvidence` of src/job/migration.ts reads Git's, T-18). */
+function abandonedMarker(value: unknown, field: string): Abandoned {
 	const fields = object(["branch", "commit", "at"])(value, field);
 	return {
 		branch: matching(BRANCH, "a branch name")(fields.get("branch"), at(field, "branch")),
@@ -1241,7 +1259,7 @@ function recordOf(value: unknown, field: string): JobRecord {
 	const queueWait = fields.has("queueWait") ? { queueWait: read("queueWait", queueWaitOf) } : {};
 	const migrated = fields.has("migrated") ? { migrated: read("migrated", migratedOf) } : {};
 	const landed = fields.has("landed") ? { landed: read("landed", landedOf) } : {};
-	const abandoned = fields.has("abandoned") ? { abandoned: read("abandoned", abandonedOf) } : {};
+	const abandoned = fields.has("abandoned") ? { abandoned: read("abandoned", abandonedMarker) } : {};
 	const rateLimit = fields.has("rateLimit") ? { rateLimit: read("rateLimit", rateLimitOf) } : {};
 	const refusal = fields.has("refusal") ? { refusal: read("refusal", refusalOf) } : {};
 	const stuck = fields.has("stuck") ? { stuck: read("stuck", stuckOf) } : {};

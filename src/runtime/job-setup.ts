@@ -3,7 +3,6 @@ import { existsSync } from "node:fs";
 import { transport } from "../config.ts";
 import { appendLimenLog } from "../job/record.ts";
 import { limitMs, plantLimits } from "../project/limits.ts";
-import { pruneForJob } from "./pruning.ts";
 
 const DEFAULT_PREPARE_MS = 5 * 60_000;
 
@@ -15,24 +14,18 @@ export function worktreeMissing(worktree: string): string | undefined {
 }
 
 /**
- * The setup spawn hands to the job's owner after publication, so spawn returns before it: prune finished worktrees,
- * then run `--prepare` in the worktree with `environment`, the one the wrapper gives its engine: the command is the
- * project's code, as the engine's tools are, so it gets no Herdr name and no transport name only the wrapper reads
- * (R-087 (c)). `LIMEN_SETUP_KEEP` names the spawner's checkout and marks a start that owes setup; a continue or a
- * recovery does not set it. Each step logs its result and time; neither failure ends the job. The log also names each
- * entry of the plant's limits file that Limen ignores.
+ * The setup spawn hands to the job's owner after publication, so spawn returns before it: run `--prepare` in the
+ * worktree with `environment`, the one the wrapper gives its engine: the command is the project's code, as the
+ * engine's tools are, so it gets no Herdr name and no transport name only the wrapper reads (R-087 (c)). `LIMEN_SETUP`
+ * marks a start that owes setup; a continue or a recovery does not set it. A setup prunes nothing: the seat sweep's
+ * daily prune is prune's one caller (D-097 (4) (c)). The step logs its result and time, and its failure does not end
+ * the job. The log also names each entry of the plant's limits file that Limen ignores.
  */
 export async function setUpJob(jobDir: string, worktree: string, environment: NodeJS.ProcessEnv): Promise<void> {
-	const keep = transport("LIMEN_SETUP_KEEP");
 	const root = transport("LIMEN_CONTEXT_ROOT");
-	if (!(keep && root)) {
+	if (!(transport("LIMEN_SETUP") === "1" && root)) {
 		return;
 	}
-	const pruneStart = Date.now();
-	await pruneForJob(jobDir, root, [worktree, keep]).then(
-		(removed) => appendLimenLog(jobDir, `prune: removed ${removed} in ${seconds(pruneStart)}`),
-		(error: unknown) => appendLimenLog(jobDir, `prune failed after ${seconds(pruneStart)}: ${String(error)}`),
-	);
 	// Each message names the file, the entry and what Limen expected there.
 	const { ignored } = plantLimits(root);
 	if (ignored.length > 0) {

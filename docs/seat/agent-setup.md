@@ -14,7 +14,7 @@
 | 5 | Project and `limen init` | agent | worker |
 | 6 | Phone: Moshi and the alerts | agent, then HUMAN pairs and subscribes | root, worker |
 | 7 | Herdr coordinator | HUMAN | coordinator pane |
-| 8 | Prune timer | agent | root |
+| 8 | Sweep timer | agent | worker |
 | 9 | Preview | agent, HUMAN gate | worker, root |
 | 10 | Lid-closed proof, lock-down | HUMAN, agent | pane, laptop |
 | 11–14 | GitHub doorbell (opt-in) | HUMAN, agent | GitHub, root, pane |
@@ -188,16 +188,10 @@ The alerts, on every seat. An alert is one line with no title, `<project folder'
 - **Check:** the human reports `1 1` and a pane id. The human detaches and attaches again: the same tab is there. **STOP** if not.
 - Live coordinator rule (used by the doorbell in phases 12–14): Herdr reports the pane with `agent_status` idle, working, blocked, or done. Herdr can leave out `interactive_ready`. Limen counts the field as live when it is `true` or absent; only `interactive_ready: false` is not live.
 
-## 8 · Prune timer
+## 8 · Sweep timer
 
-- root$ (`limen prune` drops finished job worktrees; the unit runs it daily as `WORKER`)
-```sh
-install -m 0644 /opt/limen/docs/seat/limen-prune.service /opt/limen/docs/seat/limen-prune.timer /etc/systemd/system/
-install -d /etc/systemd/system/limen-prune.service.d
-printf '[Service]\nUser=%s\nWorkingDirectory=%s\nEnvironment=PATH=/usr/local/bin:/usr/bin:/bin\n' $WORKER $PROJECT_DIR > /etc/systemd/system/limen-prune.service.d/override.conf
-systemctl daemon-reload && systemctl enable --now limen-prune.timer && systemctl start limen-prune.service
-```
-- **Check:** root$ `systemctl show -p Result limen-prune.service` is `Result=success`; `systemctl is-active limen-prune.timer` is `active`. **STOP** if not.
+- worker$ `limen seat sweep --install`, from the worker's login shell (`limen seat sweep` ends dead jobs every minute and, once a day, prunes finished job worktrees and retires landed and abandoned jobs to the job archive; the user timer runs it as `WORKER`, with no root). Without lingering it exits 4 and names root's `loginctl enable-linger $WORKER`; run that as root, then the install again.
+- **Check:** worker$ `limen seat sweep --status` prints `limen-sweep.timer is active`. **STOP** if not.
 
 ## 9 · Preview
 

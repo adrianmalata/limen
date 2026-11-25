@@ -1,6 +1,7 @@
 // `limen stats` on records and sessions written by hand: the jobs by route and role, the lands with their tokens and
 // lead time, the coordinator sessions of `--sessions`, the failures by kind and what it did not read (D-073, D-098).
 import assert from "node:assert/strict";
+import { existsSync, readdirSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
@@ -210,6 +211,29 @@ test("limen stats counts a job of the job archive as a record of its route and r
 		"Failed by kind: none",
 		"",
 	]);
+});
+
+// R-101 review round 2, G2: before R-101 the daily prune deleted a record that never started and a folder with no
+// record, and now it moves them into the job archive; neither ran, so the counts skip them there (`everRan`), as the
+// claim lookup does (F1), and a project's counts stay what they were before the crash left them.
+test("limen stats counts after a daily prune archived a record that never started and a folder with no record as before they were left", async (t) => {
+	const p = await project(t);
+	const times = ["2026-10-02T08:00:00.000Z", "2026-10-02T08:01:00.000Z", "2026-10-02T08:30:00.000Z"];
+	await writeRecord(jobs(p, "2026-10-02-worker-1a2b3c4d"), { role: "worker", route: HIGH, ...ran("done", times) });
+	const before = limen(p, ["stats"]);
+	const [stale, empty] = ["2026-10-01-stale-5e6f7a8b", "2026-11-24-norecord-9c0d1e2f"];
+	const started = { startedAt: "2026-10-01T00:00:00.000Z", spawnerPid: null };
+	await writeRecord(jobs(p, stale), { role: "worker", route: HIGH, state: "starting", ...started });
+	await mkdir(jobs(p, empty));
+	await writeFile(join(jobs(p, empty), "task.md"), "a task with no record\n");
+	const swept = limen(p, ["seat", "sweep"]);
+	const archive = join(p.root, ".limen", "archive");
+	const archived = existsSync(archive)
+		? readdirSync(archive).flatMap((month) => readdirSync(join(archive, month)))
+		: [];
+	assert.deepEqual([swept.status, archived.sort()], [0, [stale, empty].sort()], swept.stderr);
+	const after = limen(p, ["stats"]);
+	assert.deepEqual([before.status, after.status, outputText(after)], [0, 0, outputText(before)], after.stderr);
 });
 
 test("limen stats on a project with no records prints a heading of 0 records, no rows, no land and no failure", async (t) => {

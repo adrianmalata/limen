@@ -4,8 +4,9 @@ ze znacznikiem czasu po udanym przebiegu); `limen prune` i `limen close` odmawia
 prune przy starcie joba znika, a nic, czego Git nie trzyma gdzie indziej, nie jest kasowane: rekordy, które nie
 wystartowały, foldery bez rekordu, `.publishing-<id>` i obce foldery w katalogu worktree idą do archiwum. Do tego
 gitlinki, `jobKeeps`, wyścigi retire i dwie nazwy `abandonedOf`. Stan: napisany 24.11 przy drzewie R-032 (przed jego
-commitem), z inwentarza `evidence/inventories/R-032.md` odświeżonego przez agenta tylko do odczytu; decyzje w
-`## Decisions`. -->
+commitem), z inwentarza `evidence/inventories/R-032.md` odświeżonego przez agenta tylko do odczytu; sprawdzony ponownie
+przy `45605c1` w nocy 24/25.11 (Decyzje 7–10, w tym domyślna decyzja nocy: znacznik `LIMEN_SETUP`), z poprawkami
+recenzji F1–F6 i G1–G3 oraz wyjątkiem w `## Rollback`; zrealizowany. -->
 
 # R-101 Prune, retire and leftover Herdr tabs are steps of the sweep; nothing is deleted
 
@@ -207,7 +208,10 @@ the generated sections of `docs/commands.md` follow.
 
 `git revert $(git log --format=%H --grep='^R-101:' adrian-rebuild --)`. Folders moved into the archive stay there and
 are read as before (`archivedJobs`); the `unregistered/` folder is ignored by the old code; `.limen/daily-sweep` is
-ignored by the old code.
+ignored by the old code. One exception (review round 3, note 2): the old code reads an archived folder that never ran
+(no record, or a `starting` one) as a job, so after a revert the rerun of a crashed GitHub handoff whose folder the
+daily prune archived refuses with `GITHUB_HANDOFF_GATE` again (F1), and `limen stats` counts such folders again (G2);
+the owner then removes that claim's archived folder by hand (no Limen command deletes the archive, A-002).
 
 ## Decisions
 
@@ -225,3 +229,67 @@ mechanism; items 2 and 4 are named for Adrian's attention at gate 5.3):
    tab close after both, and R-101 needs no `PATH` of its own.
 6. `close`'s `movedBy` is `R-037` at this tree; R-037 (earlier in the protocol order) or this ticket removes it with the
    entry, and AC-4 checks only `R-101`.
+
+Checked again at `HEAD` `45605c1` (2026-11-25, the night of D-102, protocol step 2, D-025):
+7. A night default, for Adrian to confirm in the morning (D-054 (2) (b): a technical choice inside `## Change`, an
+   internal name): `LIMEN_SETUP_KEEP` carries two things, the checkout the setup prune keeps and the mark of a spawn's
+   start that owes setup ("only spawn sets it, so only a spawn sets up", `src/config.ts:49-53`; read at
+   `src/runtime/wrapper.ts:173` and `src/runtime/job-setup.ts:26`). With the setup prune gone, the setup's other steps
+   (the ignored-limits log, `--prepare`, the start notice) still run only at a spawn, so a transport name of its own
+   marks it: `LIMEN_SETUP`, value `1`, kind `transport`, reader `wrapper`, set where spawn set `LIMEN_SETUP_KEEP`
+   (`src/job/spawning.ts:273`, `:481`), never by a continue or a recovery; its registry line says what it carries.
+   AC-6 holds with it.
+8. The places that moved since R-032's tree: `src/registry.ts`: `prune` at `:599` and `close` at `:693`, both with
+   `movedBy: "R-101"` (R-037 moved `close` to this ticket), so Decision 6 is overtaken: both entries go here and AC-4
+   checks both. `src/config.ts:49` (`LIMEN_SETUP_KEEP`); `src/runtime/job-setup.ts:17-29` (`setUpJob`, which R-087
+   changed to take the engine's environment); `src/job/record.ts`: `jobFolderNames` `:364`, `archiveMonth` `:412`,
+   `archivedJobs` `:420`, the record field's `abandonedOf` `:1173`; `src/job/publication.ts:92-103`
+   (`.publishing-<id>`); `src/project/git.ts`: `unsavedGitlink` `:346`, `indexGitlinks` `:365`, `gitlinks` `:380`;
+   `src/runtime/sweeping.ts`: `sweepProject` `:212`, the projects in parallel `:165`; `src/platform/systemd-units.ts:74`
+   (`TimeoutStartSec`, `SWEEP_TIMEOUT_SEC`); `hook/wake.ts:757` (`.limen/last-sweep`); `src/job/landing.ts:35` imports
+   `deleteLandedBranches`. `src/runtime/pruning.ts`, `src/runtime/retiring.ts`, `src/integrations/herdr.ts`,
+   `src/integrations/github-poller.ts`, `src/job/migration.ts`, `src/job/abandoning.ts` and `src/job/job.ts` are
+   unchanged since R-032's commit.
+9. Text of fact 11 at `HEAD`, plus what moved or came since: `docs/commands.md:11` (its list of commands later tickets
+   move names `prune` and `close`), `:64`, `:212` (the wrapper prunes before `--prepare`), `:233-244`; `docs/jobs.md:137`,
+   `:143-145`, `:164`; `templates/agents.md:105`; `docs/seat/agent-setup.md:17` and section 8 (`:191-200`) and
+   `docs/seat/README.md:7`, `:67-69`, which name the unit files that go; `docs/remote.md:60`, `:71`;
+   `docs/herdr-status.md:15`, `:72`; `docs/groups.md:95`.
+10. AC-4–AC-6 at `HEAD`: AC-4's grep matches `src/registry.ts:599` and `:693`, both removed; AC-5's two files are
+    tracked; AC-6's grep matches `src/config.ts:49`, `src/job/spawning.ts:273`, `:481`, `src/runtime/job-setup.ts:21`,
+    `:26` and `src/runtime/wrapper.ts:173`, each one the change removes (Decision 7). R-087 made test knobs read only in
+    test mode (`LIMEN_TEST_MODE=1`), so a new test that sets a knob by hand sets the marker too.
+
+Review round 1 (2026-11-25, the night of D-102, run 2; `review.md` → Round 1), the findings to fix:
+- F1 (finding 1, blocking): an archived folder whose record is absent or `starting` never answered a claim, so
+  `markedJob` (`src/integrations/github-review.ts`) skips it, while a `starting` record in `.limen/jobs/` still counts
+  (a live handoff). Every other reader of `archivedJobs` (`src/job/statistics.ts`, `src/job/reference.ts`) is checked
+  for a folder with no record or a `starting` record, and handles it without a failure. A test in
+  `test/cli/github.test.ts`: the crashed handoff of `:465-489`, then a daily prune that archives its record and its
+  `.publishing-<id>`, then the rerun removes the gate, says so and starts the job (`docs/remote.md:163` holds).
+- F2 (finding 4, T-29 (3)): the first test of `test/s9-housekeeping.test.ts` checks the prune it names; the reap and the
+  daily retire it now also asserts get a test each, or go where a test of that mechanism already checks them.
+- F3 (finding 5, z. 15): every line prune and retire print escapes its paths and names as `keptLine` does
+  (`shownField`), the new `archived <path> to <folder>` line and the older `pruned` line alike; a test with a folder
+  name holding a control character.
+- F4 (finding 7): `leftPublications` skips a `.publishing-*` folder that is gone by its stat (ENOENT), as the
+  worktree-root move skips a folder gone since the listing.
+- F5 (finding 8): retire takes a job's own lock without waiting while it holds the jobs lock; a job whose lock is held
+  elsewhere is kept this run with a line, and the step still succeeds (the next daily run takes it). A test: a held job
+  lock keeps that job, retires the others and the step writes the stamp.
+- F6 (finding 9, T-01): `runFailure`'s "named once" is per project: the key holds the project's root besides the
+  message and the code. A test: two projects failing with the same message are both named.
+Rejected with reasons (`review.md` → Round 1): finding 2 (Adrian's, `outcome.md` → Open points 3), finding 3, finding
+6 (`outcome.md` → Open points 4).
+
+Review round 2 (2026-11-25, the night of D-102, run 2; `review.md` → Round 2; PASS with three notes), the findings to
+fix, the ticket's second and last round of fixes:
+- G1 (note 1, z. 15): every line `closeLeftoverTabs` prints escapes the recorded tab id, the job's name and Herdr's
+  error text as F3's lines do (`shownField`); a test with a recorded tab id holding a control character whose close
+  fails with a line.
+- G2 (note 3): `limen stats` skips an archived folder that never ran (`everRan`: no record, or a `starting` one), as
+  F1's claim lookup does, so neither the jobs table nor the `Not read` count takes it; a folder in `.limen/jobs/` is
+  read as at `HEAD`. A test: the counts of `limen stats` are the same before and after a daily prune that archives a
+  never-started record and a folder with no record.
+- G3 (note 2): `CONTRIBUTING.md:19` drops `prune` and `close` from the commands whose registry entry names a later
+  ticket in `movedBy`, as `docs/commands.md` did.

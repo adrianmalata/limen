@@ -47,7 +47,7 @@ function done(task: string, flags: readonly string[] = []): string {
 }
 
 // A finished job whose branch holds a commit outside main keeps its worktree (A-001), so the branch gets its extra
-// commit there; the next spawn pruned the worktree of a job with none, so its branch gets it in a worktree of its own.
+// commit there; a prune may have removed the worktree of a job with none, so its branch gets it in a worktree of its own.
 async function amend(id: string, files: Readonly<Record<string, string>>): Promise<void> {
 	const own = jobRecord(p, id)?.worktree ?? "";
 	const worktree = existsSync(own) ? own : join(p.parent, `amend-${id}`);

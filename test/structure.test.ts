@@ -980,6 +980,8 @@ const MATCHER_EXCEPTIONS: ReadonlyArray<{ readonly path: string; readonly text: 
 	{ path: "src/job/spawning.ts", text: "record?.label === label" },
 	// Herdr tabs' labels, not jobs'.
 	{ path: "src/integrations/herdr.ts", text: "row.label !== name" },
+	// Whether a recorded tab still carries the label Limen gave the job's tab, so a tab id Herdr gave again stays (R-101).
+	{ path: "src/integrations/herdr.ts", text: "listed.label === label || listed.label.startsWith(" },
 	{ path: "src/project/summary.ts", text: "label !== String(tab.number)" },
 ];
 
@@ -1675,6 +1677,27 @@ test("the word scan finds a flag or help comparison and a name matched word by w
 		'src/a.ts:3: .split(" ").every(',
 	]);
 	assert.deepEqual(wordReads(PARSER, fixture), []);
+});
+
+// D-097 (4) (c), T-26 (2): before R-101 a job's setup pruned at its start, gated by LIMEN_SETUP_KEEP, and `limen prune`
+// ran prune and retire; land and abandon remove only their own job's branch and worktree, through prune's functions.
+test("R-101: the seat sweep is the one file of src/, hook/ and seat/ that imports prune's and retire's operations", async () => {
+	const operations = ["pruneFinishedWorktrees", "retireMarkedJobs"];
+	const callers = (await knownSources(["src", "hook", "seat"]))
+		.filter(({ path }) => /\.ts$/.test(path))
+		.filter(({ path, text }) =>
+			importsOf(path, text).some((entry) => entry.names.some((name) => operations.includes(name))),
+		)
+		.map(({ path }) => path);
+	assert.deepEqual(callers, ["src/runtime/sweeping.ts"]);
+});
+
+test("R-101: no file of src/ names LIMEN_SETUP_KEEP, the setup prune's knob", async () => {
+	const named = (await knownSources(["src"])).filter(({ text }) => text.includes("LIMEN_SETUP_KEEP"));
+	assert.deepEqual(
+		named.map(({ path }) => path),
+		[],
+	);
 });
 
 // Each shipped templates/.history/<name> starts with the hash of the current templates/<name>.

@@ -39,8 +39,6 @@ const OBJECTS = ["job", "owner", "project", "ticket", "seat", "github", "group",
 const TYPES = ["job", "ticket", "text", "path", "branch", "word"];
 // D-039, D-042 and D-096 (1): the commands a subsequent ticket moves or cuts, each with that ticket.
 const MOVED = {
-	prune: "R-101",
-	close: "R-101",
 	keeper: "R-066",
 	rule: "R-102",
 	"rule set": "R-102",
@@ -275,6 +273,14 @@ test("D-045: status and show, which no longer reap, and rule, which only lists, 
 test("D-039: no registry entry is moved by R-032, which made sweep the seat's seat sweep and moved prune to R-101", () => {
 	assert.deepEqual(
 		REGISTRY.filter((entry) => entry.movedBy === "R-032").map((entry) => entry.name),
+		[],
+	);
+});
+
+// D-097 (4) (b), (k): prune, retire and the close of leftover Herdr tabs became daily steps of the seat sweep.
+test("D-039: no registry entry is moved by R-101, which made prune and close daily steps of the seat sweep", () => {
+	assert.deepEqual(
+		REGISTRY.filter((entry) => entry.movedBy === "R-101").map((entry) => entry.name),
 		[],
 	);
 });
@@ -668,7 +674,6 @@ test("T-38: every CODE test of a change command's own or a shared code compares 
  */
 const WITHOUT_SUCCESS_TEST: readonly string[] = [
 	"board",
-	"close",
 	"diff",
 	"github connect",
 	"github deliver",

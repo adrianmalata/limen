@@ -101,18 +101,16 @@ async function ended(identity: Identity, boundMs: number): Promise<boolean> {
 }
 
 // D-063 (3): a wrapper whose plant was removed polled the start queue until it was killed. Its own "gone" branch keeps
-// the steps after the queue from running: setup, whose first step prunes finished worktrees (src/runtime/job-setup.ts),
-// and the engine, which runs in the wrapper's process group and writes its records into the job folder.
+// the steps after the queue from running: setup, which runs the spawn's --prepare (src/runtime/job-setup.ts), and the
+// engine, which runs in the wrapper's process group and writes its records into the job folder. Before R-101 the setup
+// also pruned finished worktrees, which this test read instead of the --prepare's mark.
 test("a queued wrapper whose job folder is removed exits without running its setup or its engine and recreates no folder", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
-	const finished = spawnJob(p, "say done");
-	assert.equal(waitJob(p, finished), "done");
-	const worktree = jobRecord(p, finished)?.worktree ?? "";
-	assert.ok(existsSync(worktree), "the finished job keeps its worktree until a setup prunes it");
-	// Below the start gate's 25% CPU idle, so the next job waits in the queue and starts no engine.
+	const prepared = join(p.parent, "prepared");
+	// Below the start gate's 25% CPU idle, so the job waits in the queue and starts no engine.
 	writeFileSync(join(p.parent, "start-reading.json"), '{"cpuIdle":10,"memoryFree":80}');
-	const queued = spawnJob(p, "say queued");
+	const queued = spawnJob(p, "say queued", ["--prepare", `touch ${prepared}`]);
 	const dir = jobDir(p, queued);
 	// The log line follows the record's change, so the job's lock is released and the wrapper sleeps to its next poll.
 	await until(dir, () => jobFile(p, queued, "log").includes("] queued: CPU 10% idle"));
@@ -121,8 +119,8 @@ test("a queued wrapper whose job folder is removed exits without running its set
 	await rm(dir, { recursive: true });
 	const exited = await ended(identity, EXIT_BOUND_MS);
 	assert.deepEqual(
-		{ exited, folder: existsSync(dir), prunedWorktree: !existsSync(worktree) },
-		{ exited: true, folder: false, prunedWorktree: false },
+		{ exited, folder: existsSync(dir), prepared: existsSync(prepared) },
+		{ exited: true, folder: false, prepared: false },
 	);
 });
 

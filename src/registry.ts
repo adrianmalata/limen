@@ -4,7 +4,6 @@
 // reads its words by it, and `src/help.ts` generates the help and the command sections of docs/commands.md from it.
 import { abandonCommand } from "./commands/abandon.ts";
 import { boardCommand } from "./commands/board-view.ts";
-import { closeCommand } from "./commands/close.ts";
 import { continueCommand } from "./commands/continue.ts";
 import { diffCommand } from "./commands/diff.ts";
 import {
@@ -34,7 +33,6 @@ import { landCommand } from "./commands/land.ts";
 import { migrateCommand } from "./commands/migrate.ts";
 import { openCommand } from "./commands/open.ts";
 import { pictureBuildCommand, pictureServeCommand } from "./commands/picture.ts";
-import { pruneCommand } from "./commands/prune.ts";
 import { ruleCommand, ruleEndCommand, ruleSetCommand, ruleTimerCommand } from "./commands/rule.ts";
 import { seatQueueCommand } from "./commands/seat-queue.ts";
 import { showCommand } from "./commands/show.ts";
@@ -583,23 +581,6 @@ const PROJECT: readonly Entry[] = [
 		handler: boardCommand,
 	},
 	{
-		name: "prune",
-		object: "project",
-		kind: "change",
-		visibility: "public",
-		summary: "remove finished worktrees; --retire moves landed and abandoned jobs to the job archive",
-		schema: [
-			{ flag: "retire", about: "retire each job marked landed or abandoned, unless it holds unlanded work" },
-			{ flag: "dry-run", about: "with --retire: list the jobs it would retire, and move none" },
-		],
-		ids: [],
-		// A job of an open group keeps its worktree and record, so prune reads the group a record names.
-		refuses: refusals(IN_PROJECT, RECORDED_GROUP, ["BAD_REPO"]),
-		example: "limen prune --retire --dry-run",
-		movedBy: "R-101",
-		handler: pruneCommand,
-	},
-	{
 		name: "migrate",
 		object: "project",
 		kind: "change",
@@ -673,27 +654,6 @@ const TICKETS: readonly Entry[] = [
 		handler: ticketDoneCommand,
 	},
 	{
-		name: "close",
-		object: "ticket",
-		kind: "change",
-		visibility: "public",
-		summary: "close the ticket's Herdr tabs",
-		// A word, not a checked ticket number: the command also takes a ticket's path and reads the number from it.
-		schema: [
-			{
-				positional: "ticket",
-				type: "word",
-				shown: "FNNN",
-				about: "a ticket in done/ or dropped/, whose job tabs close",
-			},
-		],
-		ids: [],
-		refuses: refusals(IN_PROJECT),
-		example: "limen close F012",
-		movedBy: "R-101",
-		handler: closeCommand,
-	},
-	{
 		name: "keeper",
 		object: "ticket",
 		kind: "change",
@@ -745,7 +705,7 @@ const SEAT: readonly Entry[] = [
 		object: "seat",
 		kind: "change",
 		visibility: "public",
-		summary: "end dead jobs and resume quota jobs after the reset; --install runs it every minute",
+		summary: "end dead jobs, resume quota jobs, prune and retire daily; --install runs it every minute",
 		schema: [
 			{ flag: "install", about: "install the user timer that runs the sweep every minute; needs lingering" },
 			{ flag: "uninstall", about: "stop that timer and remove its units" },

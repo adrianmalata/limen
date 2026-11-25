@@ -3,7 +3,7 @@ Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, com
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
 R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025, R-097, R-099, R-026, R-030, R-033,
-R-027, R-028, R-031, R-035, R-100, R-029, R-032, R-034, R-036, R-037. -->
+R-027, R-028, R-031, R-035, R-100, R-029, R-032, R-034, R-036, R-037, R-087, R-098, R-101. -->
 
 # Changes
 
@@ -431,3 +431,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-03, M-04, M-06, M-07; `## Deployment` B.3, B.4 and 9.1)
 - Commit: R-098
 - Rollback: git revert $(git log --format=%H --grep='^R-098:' adrian-rebuild --) (nothing on disk to undo)
+
+## 2026-11-25 R-101 Prune, retire and leftover Herdr tabs are steps of the sweep; nothing is deleted
+- What: `src/runtime/sweeping.ts` (the daily steps after the minute steps, the stamp `.limen/daily-sweep`, a failure named once per project), `src/runtime/pruning.ts` (archive moves of a record that never started, a folder with no record, a left `.publishing-<id>` and an unregistered worktree-root folder with no `.git`; `jobKeeps` with a live scope; the setup prune gone), `src/runtime/retiring.ts` (markers at least 24 h old, the job's own lock without waiting), `src/integrations/herdr.ts` (`closeLeftoverTabs`; `closeJobTab` returns whether the tab closed; `closeFeatureTabs` gone), `src/integrations/github-review.ts` and `src/job/statistics.ts` (an archived folder that never ran is no job), `src/integrations/github-poller.ts` (a second lookup, in the archive too), `src/lock.ts` (`moveLockedFolder`), `src/job/record.ts`, `src/job/job.ts` (`everRan`), `src/job/migration.ts`, `src/job/publication.ts`, `src/project/git.ts` (`unsavedGitlink`), `src/runtime/reap.ts` (`scopeHolds`), `src/config.ts`, `src/job/spawning.ts`, `src/runtime/job-setup.ts`, `src/runtime/wrapper.ts` (`LIMEN_SETUP`), `src/old-names.ts`, `src/registry.ts`, `src/job/abandoning.ts`, `src/integrations/github-claims.ts`, `hook/wake.ts`; `git rm` of `src/commands/prune.ts`, `src/commands/close.ts`, `test/cli/prune.test.ts`, `docs/seat/limen-prune.service`, `docs/seat/limen-prune.timer`; tests in the new `test/runtime/pruning.test.ts`, `test/runtime/retiring.test.ts`, `test/integrations/herdr.test.ts` and the sweep, old-names, abandon, github, stats, status, registry, structure, help, config, poller, job-setup, wrapper, s5, s6 and s9 files; `templates/agents.md` and `templates/.history/agents.md`; `docs/commands.md`, `docs/jobs.md`, `docs/remote.md`, `docs/groups.md`, `docs/herdr-status.md`, `docs/seat/README.md`, `docs/seat/agent-setup.md`, `CONTRIBUTING.md`
+- Why: A-024, A-002, T-18, T-25, T-26, T-28, T-29, T-01, T-02, D-092, D-094, D-096, D-097
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (1178/1178, the sweep, pruning, retiring and herdr test files among them); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (19 test files); `node adrian-rebuild/tools/check.mjs` → exit 0
+- Measurement: unmeasured (plan.md → Measurement: M-01, M-05; the coordinator's manual; `## Deployment` 3.9 for the tab close)
+- Commit: R-101
+- Rollback: git revert $(git log --format=%H --grep='^R-101:' adrian-rebuild --) (archived folders stay and are read as before, except that the old code takes an archived folder that never ran for a job: `ticket.md` → Rollback)

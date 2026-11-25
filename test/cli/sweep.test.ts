@@ -1,15 +1,26 @@
 // `limen seat sweep` (src/runtime/sweeping.ts): a run over every registered project reaps dead jobs, ends the scopes
 // finished jobs left, counts and escalates a job it cannot end, removes dead start-queue entries, rings for unheard
-// ends and advisories, per advisory source, and names a project that fails; its refusals; the install, removal and
-// status of its user timer against the tests' systemd; and the old name `limen sweep`.
+// ends and advisories, per advisory source, names each project that fails, and once a day per project, after its minute
+// steps, runs the daily steps, the retire among them; its refusals; the install, removal and status of its user timer
+// against the tests' systemd; and the old name `limen sweep`.
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	realpathSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { userInfo } from "node:os";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { type Identity, type JobRecord, readRecordSync, type Scope } from "../../src/job/record.ts";
+import { withLock } from "../../src/lock.ts";
 import { platform } from "../../src/platform/platform.ts";
 import { renderUnit, sweepUnits } from "../../src/platform/systemd-units.ts";
 import { jobScope } from "../../src/runtime/launcher.ts";
@@ -17,9 +28,11 @@ import { processIdentity } from "../../src/runtime/reap.ts";
 import { withEnvironment } from "../environment.ts";
 import { outputText, readOutcome } from "../final-line.ts";
 import {
+	editRecord,
 	failingSystemctl,
 	fakeCgroup,
 	fakeManager,
+	git,
 	jobDir,
 	jobRecord,
 	limen,
@@ -40,6 +53,7 @@ const PACKAGE_ROOT = fileURLToPath(new URL("../..", import.meta.url)).replace(/\
 const DEAD: Identity = { pid: 2_147_483_646, born: "1", bootId: platform.bootId() ?? null };
 /** The seat's folder of a plant, beside its root (LIMEN_HOME), which the snapshot of a refusal digests too. */
 const SEAT = ["../.limen"] as const;
+const HOUR = 60 * 60_000;
 
 /** A fresh plant, removed after the test. */
 async function fresh(t: TestContext): Promise<Plant> {
@@ -219,7 +233,6 @@ test("SWEEP_FLAGS: limen seat sweep with --install and --status exits 2 and chan
 // run is the test with no registered project below.
 test("the sweep removes a dead entry of the start queue and says how many it removed", async (t) => {
 	const p = await fresh(t);
-	await secondProject(p);
 	const entries = join(p.parent, ".limen", "start-queue", "entries");
 	await mkdir(entries, { recursive: true });
 	const entry = { id: "2026-11-24-gone-1a2b3c4d", jobDir: join(p.root, ".limen", "jobs", "gone") };
@@ -410,7 +423,8 @@ test("the sweep removes a dead start-queue entry once per run, also when no proj
 });
 
 // T-01, review round 2, note 13: the sweep read an unreadable start-queue folder as an empty queue and said nothing.
-test("a start-queue folder the sweep cannot list fails the run with its reason, and the dead job is still reaped", async (t) => {
+// The reap that goes on beside it is the test of the project that fails, above (R-032 review round 3, note 7).
+test("a start-queue folder the sweep cannot list fails the run with its reason", async (t) => {
 	if (process.getuid?.() === 0) {
 		t.skip("root lists a folder whatever its mode");
 		return;
@@ -418,7 +432,6 @@ test("a start-queue folder the sweep cannot list fails the run with its reason, 
 	const p = await fresh(t);
 	const entries = join(p.parent, ".limen", "start-queue", "entries");
 	await mkdir(entries, { recursive: true });
-	await deadJob(join(p.root, ".limen", "jobs"), "2026-11-24-own-1a2b3c4d");
 	// The mode goes back before the plant's cleanup, which an after hook of the test would follow.
 	chmodSync(entries, 0o000);
 	let run: ReturnType<typeof sweep>;
@@ -428,8 +441,8 @@ test("a start-queue folder the sweep cannot list fails the run with its reason, 
 		chmodSync(entries, 0o755);
 	}
 	assert.deepEqual(
-		[run.status, readOutcome(run), jobRecord(p, "2026-11-24-own-1a2b3c4d")?.state],
-		[4, { class: "environment", code: "STEP_FAILED", next: "limen seat sweep" }, "failed"],
+		[run.status, readOutcome(run)],
+		[4, { class: "environment", code: "STEP_FAILED", next: "limen seat sweep" }],
 		run.stderr,
 	);
 	assert.match(outputText(run), /^the start queue: EACCES: permission denied, scandir .+entries.+\(STEP_FAILED\)$/m);
@@ -471,6 +484,347 @@ test("the sweep rings for a running job's stall advisory when a coordinator hear
 	const seat = join(job, "notify", "seat");
 	const markers = existsSync(seat) ? readdirSync(seat) : [];
 	assert.deepEqual(markers, [`_advisory.stall.${Date.parse(at)}`]);
+});
+
+/** The project's stamp of its last successful daily steps. */
+const stampOf = (p: Plant) => join(p.root, ".limen", "daily-sweep");
+
+/** Writes the project's stamp of its last successful daily steps `hoursAgo` hours ago. */
+async function stampAgo(p: Plant, hoursAgo: number): Promise<string> {
+	const at = new Date(Date.now() - hoursAgo * HOUR).toISOString();
+	await writeFile(stampOf(p), `${at}\n`);
+	return at;
+}
+
+/**
+ * A folder of `.limen/jobs/` with no record and one file in it, which the daily prune moves into the job archive: the
+ * mark that the daily steps ran.
+ */
+async function leftover(p: Plant): Promise<string> {
+	const dir = jobDir(p, "2026-11-24-leftover-1a2b3c4d");
+	await mkdir(dir, { recursive: true });
+	await writeFile(join(dir, "log"), "a log with no record\n");
+	return dir;
+}
+
+// D-097 (4) (a): the daily steps (prune, retire, the leftover Herdr tabs) run inside the minute run, once a day per
+// project, from the project's stamp; before R-101 the sweep ran neither prune nor retire.
+test("limen seat sweep: runs the daily steps of a project with no stamp, says so, and writes the stamp", async (t) => {
+	const p = await fresh(t);
+	const folder = await leftover(p);
+	const run = sweep(p);
+	assert.equal(run.status, 0, run.stderr);
+	const age = Date.now() - Date.parse(existsSync(stampOf(p)) ? readFileSync(stampOf(p), "utf8") : "");
+	assert.deepEqual(
+		[existsSync(folder), outputText(run).includes(`ran the daily steps of ${p.root}\n`), age >= 0 && age < HOUR],
+		[false, true, true],
+	);
+});
+
+test("the daily steps run again once the project's stamp is more than 24 hours old", async (t) => {
+	const p = await fresh(t);
+	const folder = await leftover(p);
+	const old = await stampAgo(p, 25);
+	const run = sweep(p);
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual([existsSync(folder), readFileSync(stampOf(p), "utf8") > old], [false, true]);
+});
+
+test("the daily steps do not run while the project's stamp is less than 24 hours old", async (t) => {
+	const p = await fresh(t);
+	const folder = await leftover(p);
+	const at = await stampAgo(p, 23);
+	const run = sweep(p);
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(
+		[existsSync(folder), readFileSync(stampOf(p), "utf8"), outputText(run).includes("ran the daily steps")],
+		[true, `${at}\n`, false],
+	);
+});
+
+test("a second run within 24 hours does no daily step", async (t) => {
+	const p = await fresh(t);
+	assert.equal(sweep(p).status, 0);
+	const folder = await leftover(p);
+	const second = sweep(p);
+	assert.equal(second.status, 0, second.stderr);
+	assert.deepEqual([existsSync(folder), outputText(second).includes("ran the daily steps")], [true, false]);
+});
+
+/** A done job of the plant with no branch and no worktree, whose `abandoned` marker is 25 hours old. */
+async function retirable(p: Plant, id: string): Promise<string> {
+	const at = new Date(Date.now() - 25 * HOUR).toISOString();
+	const abandoned = { branch: `limen/abandon/${id}`, commit: "2".repeat(40), at };
+	await writeRecord(jobDir(p, id), { state: "done", label: id, startedAt: at, finishedAt: at, abandoned });
+	return at;
+}
+
+/**
+ * The project's job archive, with write and search but no read, while `work` runs: retire then makes the month's
+ * folder and cannot sync the archive's own (R-031, review round 2, G5). The mode goes back after it.
+ */
+async function unreadableArchive<T>(p: Plant, work: () => T): Promise<T> {
+	const archive = join(p.root, ".limen", "archive");
+	await mkdir(archive, { recursive: true });
+	chmodSync(archive, 0o300);
+	try {
+		return work();
+	} finally {
+		chmodSync(archive, 0o700);
+	}
+}
+
+// T-02: a step that fails leaves the stamp as it was, so the timer's next minute runs the daily steps again.
+test("a daily step that fails is named, writes no stamp, and the next run does the daily steps again", async (t) => {
+	if (process.getuid?.() === 0) {
+		t.skip("root opens every folder");
+		return;
+	}
+	const p = await fresh(t);
+	const id = "2026-11-23-abandoned-1a2b3c4d";
+	await retirable(p, id);
+	const failed = await unreadableArchive(p, () => sweep(p));
+	const stampAfterFailure = existsSync(stampOf(p));
+	const again = sweep(p);
+	assert.deepEqual(
+		{
+			failed: [failed.status, readOutcome(failed).code],
+			named: new RegExp(`^${p.root} \\(daily retire\\): EACCES`, "m").test(outputText(failed)),
+			stampAfterFailure,
+			again: [again.status, existsSync(stampOf(p)), existsSync(jobDir(p, id))],
+		},
+		{ failed: [4, "STEP_FAILED"], named: true, stampAfterFailure: false, again: [0, true, false] },
+		`${failed.stderr}${again.stderr}`,
+	);
+});
+
+/** Every file below `dir` with its text, by its path below `dir`. */
+function tree(dir: string): Record<string, string> {
+	const files: Record<string, string> = {};
+	for (const entry of readdirSync(dir, { recursive: true, withFileTypes: true })) {
+		if (entry.isFile()) {
+			const path = join(entry.parentPath, entry.name);
+			files[path.slice(dir.length + 1)] = readFileSync(path, "utf8");
+		}
+	}
+	return files;
+}
+
+/** A done job of the plant with one commit on its branch, and a transcript and a result in its folder. */
+async function finishedJob(p: Plant): Promise<string> {
+	const id = spawnJob(p, "commit");
+	assert.equal(waitJob(p, id), "done");
+	await mkdir(join(jobDir(p, id), "session"), { recursive: true });
+	await writeFile(join(jobDir(p, id), "session", "2026-11-23T00-00-00-000Z_a.jsonl"), '{"type":"session"}\n');
+	await writeFile(join(jobDir(p, id), "result"), "the job's result\n");
+	return id;
+}
+
+/** Moves the time of the job's `landed` or `abandoned` marker 25 hours back, past retire's wait; returns its new time. */
+async function markedLongAgo(p: Plant, id: string, marker: "landed" | "abandoned"): Promise<string> {
+	const at = new Date(Date.now() - 25 * HOUR).toISOString();
+	await editRecord(jobDir(p, id), (record) => {
+		const set = record[marker];
+		assert.ok(set, `job ${id} holds no ${marker} marker`);
+		return { [marker]: { ...set, at } };
+	});
+	return at;
+}
+
+/** The folder of the job archive that a job marked at the ISO time `at` moves to. */
+function archived(p: Plant, id: string, at: string): string {
+	return join(p.root, ".limen", "archive", at.slice(0, 7), id);
+}
+
+// A-002: before R-031 retire took a branch still at its base, gone, or merged by hand for landed, and deleted the
+// records and the merged branch; a hand `git merge` writes no `landed` marker.
+test("A-002: the daily retire keeps the record of a failed job with no commit, of a job whose branch a human deleted, and of one whose branch a human merged, with that branch", async (t) => {
+	const p = await fresh(t);
+	// Spawned first: a worker spawn refuses while a finished job holds unlanded work, and the merge leaves it none.
+	const merged = spawnJob(p, "commit");
+	assert.equal(waitJob(p, merged), "done");
+	const branch = jobRecord(p, merged)?.branch ?? "";
+	git(p.root, "merge", "-q", "--no-edit", branch);
+	const failed = spawnJob(p, "fail 3");
+	assert.equal(waitJob(p, failed), "failed");
+	const gone = spawnJob(p, "commit");
+	assert.equal(waitJob(p, gone), "done");
+	const record = jobRecord(p, gone);
+	git(p.root, "worktree", "remove", "--force", record?.worktree ?? "");
+	git(p.root, "branch", "-D", record?.branch ?? "");
+	const jobs = [failed, gone, merged];
+	const before = jobs.map((id) => tree(jobDir(p, id)));
+	const run = sweep(p);
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(
+		[
+			outputText(run).includes("retired "),
+			jobs.map((id) => tree(jobDir(p, id))),
+			existsSync(join(p.root, ".limen", "archive")),
+			git(p.root, "for-each-ref", "--format=%(refname:short)", `refs/heads/${branch}`),
+		],
+		[false, before, false, branch],
+	);
+});
+
+// D-097 (4) (a): the daily steps run after the minute steps, so the reap finalizes a running job whose wrapper is gone
+// and the daily prune of the same run removes its clean worktree as a finished job's; before R-101 the sweep pruned
+// nothing.
+test("the daily prune removes the clean worktree of a dead running job that the same run's reap finalized", async (t) => {
+	const p = await fresh(t);
+	const id = "2026-11-24-dead-1a2b3c4d";
+	const worktree = join(p.parent, ".repo-limen-worktrees", id);
+	git(p.root, "worktree", "add", "-q", "--detach", worktree, "HEAD");
+	await deadJob(join(p.root, ".limen", "jobs"), id, { worktree });
+	const line = `pruned ${realpathSync(worktree)} (job ${id}): job failed`;
+	const run = sweep(p);
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual([existsSync(worktree), outputText(run).split("\n").includes(line)], [false, true], run.stdout);
+});
+
+// T-28 (3): retire moves data, so nothing of the folder is lost: the archive holds every file byte for byte.
+test("the daily retire moves a landed job's folder to the job archive of its marker's month, every file byte for byte", async (t) => {
+	const p = await fresh(t);
+	const id = await finishedJob(p);
+	const landed = limen(p, ["land", id]);
+	assert.equal(landed.status, 0, landed.stderr);
+	const target = archived(p, id, await markedLongAgo(p, id, "landed"));
+	const before = tree(jobDir(p, id));
+	const run = sweep(p);
+	assert.equal(run.status, 0, run.stderr);
+	const line = `retired ${id} to .limen/archive/${target.split("/").slice(-2).join("/")}`;
+	assert.deepEqual(
+		[existsSync(jobDir(p, id)), existsSync(target) && tree(target), outputText(run).split("\n").includes(line)],
+		[false, before, true],
+	);
+	assert.ok(before["record.json"] && before.log && before.result && before["session/2026-11-23T00-00-00-000Z_a.jsonl"]);
+});
+
+// Review round 1, F5: retire keeps a landed branch whose worktree stays, and the job's record with it.
+test("the daily retire keeps a landed job whose branch stays with its worktree, and names that worktree", async (t) => {
+	const p = await fresh(t);
+	const id = await finishedJob(p);
+	const worktree = jobRecord(p, id)?.worktree ?? "";
+	const inner = join(worktree, ".limen/inner");
+	git(p.root, "worktree", "add", "-q", "--detach", inner, "HEAD");
+	await writeFile(join(inner, "wip.txt"), "half-done edit\n");
+	assert.equal(limen(p, ["land", id]).status, 0);
+	await markedLongAgo(p, id, "landed");
+	const run = sweep(p);
+	assert.equal(run.status, 0, run.stderr);
+	const kept = outputText(run)
+		.split("\n")
+		.filter((line) => line.startsWith("kept "));
+	assert.deepEqual(
+		[kept, existsSync(jobDir(p, id))],
+		[
+			[
+				`kept ${worktree} (job ${id}): it holds the registered worktree ${inner}`,
+				`kept ${inner} (job none): unlanded work`,
+			],
+			true,
+		],
+	);
+});
+
+// R-031, review round 2, G5: the move is the one place a record leaves .limen/jobs/, so the month's folder must survive
+// a crash before the job goes in; before the fix retire made it with mkdir and never synced .limen/archive/.
+test("the daily retire syncs the job archive's folder before the move, so an archive folder it cannot open moves no job", async (t) => {
+	if (process.getuid?.() === 0) {
+		t.skip("root opens every folder");
+		return;
+	}
+	const p = await fresh(t);
+	const id = "2026-11-23-abandoned-1a2b3c4d";
+	const target = archived(p, id, await retirable(p, id));
+	const run = await unreadableArchive(p, () => sweep(p));
+	assert.deepEqual(
+		[run.status === 0, existsSync(join(jobDir(p, id), "record.json")), existsSync(target)],
+		[false, true, false],
+		run.stderr,
+	);
+});
+
+test("a second daily retire after a retire changes nothing and leaves the job in the job archive", async (t) => {
+	const p = await fresh(t);
+	const id = await finishedJob(p);
+	assert.equal(limen(p, ["land", id]).status, 0);
+	const target = archived(p, id, await markedLongAgo(p, id, "landed"));
+	assert.equal(sweep(p).status, 0);
+	await stampAgo(p, 25);
+	const { ".limen/daily-sweep": _first, ...after } = snapshot(p.root).files;
+	const again = sweep(p);
+	assert.equal(again.status, 0, again.stderr);
+	const { ".limen/daily-sweep": _second, ...files } = snapshot(p.root).files;
+	assert.deepEqual(
+		[outputText(again).includes("retired "), files, existsSync(join(target, "record.json"))],
+		[false, after, true],
+	);
+});
+
+// Before R-031 retire left an abandoned job whose own branch held commits outside HEAD in `.limen/jobs/` for ever.
+test("the daily retire moves an abandoned job to the job archive and keeps its limen/abandon/<id> branch and its own branch", async (t) => {
+	const p = await fresh(t);
+	const id = spawnJob(p, "commit");
+	assert.equal(waitJob(p, id), "done");
+	const branch = jobRecord(p, id)?.branch ?? "";
+	const abandoned = limen(p, ["abandon", id]);
+	assert.equal(abandoned.status, 0, abandoned.stderr);
+	const target = archived(p, id, await markedLongAgo(p, id, "abandoned"));
+	const run = sweep(p);
+	assert.equal(run.status, 0, run.stderr);
+	const refs = git(
+		p.root,
+		"for-each-ref",
+		"--format=%(refname:short)",
+		`refs/heads/${branch}`,
+		"refs/heads/limen/abandon",
+	);
+	assert.deepEqual(
+		[existsSync(jobDir(p, id)), existsSync(join(target, "record.json")), refs.split("\n").sort()],
+		[false, true, [`limen/abandon/${id}`, branch].sort()],
+	);
+});
+
+// R-101 review round 1, F5: retire waited up to 60 s for a job's own lock while it held the jobs lock, so a spawn in
+// that window could end in LOCK_TIMEOUT, and one job lock held elsewhere failed the whole daily retire, stamp and all.
+// The wait is cut to 200 ms, so a run that still waits fails at once.
+test("the daily retire keeps a job whose lock another process holds, with a line, retires the others and writes the stamp", async (t) => {
+	const p = await fresh(t);
+	const [held, free] = ["2026-11-23-held-1a2b3c4d", "2026-11-23-free-5e6f7a8b"];
+	await retirable(p, held);
+	const target = archived(p, free, await retirable(p, free));
+	const run = await withLock({ folder: jobDir(p, held) }, async () =>
+		sweep(p, [], { env: { LIMEN_LOCK_WAIT_MS: "200" } }),
+	);
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(
+		{
+			held: existsSync(join(jobDir(p, held), "record.json")),
+			retired: existsSync(join(target, "record.json")),
+			stamp: existsSync(stampOf(p)),
+			line: outputText(run)
+				.split("\n")
+				.includes(`kept job ${held} for the next daily retire: another process holds its lock`),
+		},
+		{ held: true, retired: true, stamp: true, line: true },
+	);
+});
+
+// R-101 review round 1, F6 (T-01): the run named a failure once by its message and code alone, so a second project that
+// failed with the same message went unnamed. A stamp that is a folder fails to read with a message that names no path.
+test("two projects whose daily steps fail with the same message are both named", async (t) => {
+	const p = await fresh(t);
+	const other = await secondProject(p);
+	for (const root of [p.root, other]) {
+		await mkdir(join(root, ".limen", "daily-sweep"));
+	}
+	const run = sweep(p);
+	const named = (root: string) =>
+		outputText(run)
+			.split("\n")
+			.some((line) => line.startsWith(`${root} (daily stamp): EISDIR: `));
+	assert.deepEqual([run.status, named(p.root), named(other)], [4, true, true], run.stderr);
 });
 
 /** The user unit folder of the plant's account: `~/.config/systemd/user` under the plant's HOME. */

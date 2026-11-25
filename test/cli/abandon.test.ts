@@ -368,13 +368,14 @@ test("abandon keeps a worktree whose nested repository has a reflog entry at a c
 // Review round 4, I1: before that fix the written branch resolved the job and its worktree looked clean, so the next
 // prune removed the worktree H1 kept, and the nested commit with it. Since R-031 an abandon that keeps the worktree
 // writes no `abandoned` marker, so the job's work stays unresolved and prune keeps the worktree for it, as for any
-// unlanded work; before R-031 the line named the nested commit instead.
+// unlanded work; before R-031 the line named the nested commit instead. Since R-101 prune is a daily step of the seat
+// sweep.
 test("a worktree abandon kept for a nested commit the project lacks survives the next prune, which names it", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const { id, worktree, nested, head } = await nestedJob(p, "vendor/lib", { committed: true, untracked: false });
 	assert.equal(limen(p, ["abandon", id]).status, 0);
-	const pruned = limen(p, ["prune"]);
+	const pruned = limen(p, ["seat", "sweep"]);
 	assert.equal(pruned.status, 0, pruned.stderr);
 	assert.ok(pruned.stdout.includes(`kept ${worktree} (job ${id}): unlanded work\n`), pruned.stdout);
 	assert.equal(git(nested, "cat-file", "-t", head), "commit");
@@ -534,7 +535,8 @@ test("ABANDON_BRANCH_LACKS_WORK: abandon of a job with no worktree whose limen/a
 	);
 });
 
-test("NO_UNLANDED_WORK: abandon of a done job with a clean worktree and no commit exits 1, names limen prune and leaves the snapshot identical", async (t) => {
+// D-097 (4) (b): `limen prune` became a daily step of the seat sweep, which removes what is left.
+test("NO_UNLANDED_WORK: abandon of a done job with a clean worktree and no commit exits 1, names limen seat sweep and leaves the snapshot identical", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const id = spawnJob(p, "say nothing to keep");
@@ -542,7 +544,7 @@ test("NO_UNLANDED_WORK: abandon of a done job with a clean worktree and no commi
 	const { run, before, after } = refusedAbandon(p, id);
 	assert.deepEqual(
 		[run.status, readOutcome(run), after],
-		[1, { class: "refused", code: "NO_UNLANDED_WORK", next: "limen prune" }, before],
+		[1, { class: "refused", code: "NO_UNLANDED_WORK", next: "limen seat sweep" }, before],
 		run.stderr,
 	);
 });

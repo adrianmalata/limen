@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { everRan } from "../job/job.ts";
 import { type ArchivedJob, archivedJobs, jobFolders, readJobFile, readRecord } from "../job/record.ts";
 import { type Refusal, refused } from "../outcome.ts";
 
@@ -99,7 +100,10 @@ export type MarkedJob = ArchivedJob & { readonly archived: boolean };
  * The first job folder of the project, in `jobFolders` order and then in the job archive's, whose task starts with the
  * claim's marker: the one scan for the claim's job, in any state and of any shape, which `matchedGithubJob` and the
  * handoff gate both read. The archive holds the job retire moved, also one the poller never saw past `starting`, whose
- * gate would otherwise read as a crash's (R-099's open point 2).
+ * gate would otherwise read as a crash's (R-099's open point 2). A folder of the archive whose record is absent or
+ * `starting` never ran, so it never answered the claim: only the seat sweep's daily prune moves such a folder there,
+ * the record or `.publishing-<id>` of a start that ended before its wrapper ran, as a crashed handoff leaves it, so it
+ * holds no gate (R-101 review round 1, F1). A `starting` record in `.limen/jobs/` is a live handoff, and it counts.
  */
 export async function markedJob(root: string, claim: GithubClaim): Promise<MarkedJob | undefined> {
 	const jobsRoot = join(root, ".limen/jobs");
@@ -108,7 +112,10 @@ export async function markedJob(root: string, claim: GithubClaim): Promise<Marke
 		...(await archivedJobs(root)).map((job) => ({ ...job, archived: true })),
 	];
 	for (const folder of folders) {
-		if ((await readJobFile(join(folder.jobDir, "task.md"), 4096)).startsWith(`${githubMarker(claim)}\n`)) {
+		if (!(await readJobFile(join(folder.jobDir, "task.md"), 4096)).startsWith(`${githubMarker(claim)}\n`)) {
+			continue;
+		}
+		if (!folder.archived || everRan((await readRecord(folder.jobDir))?.state)) {
 			return folder;
 		}
 	}
