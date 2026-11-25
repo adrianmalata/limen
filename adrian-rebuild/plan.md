@@ -136,7 +136,11 @@ zmiany), więc wszystkie 18 ticketów etapu 3 są zamknięte; etap 3 zamknięty 
 (D-103–D-106: noc potwierdzona, pozycje (A) zostają, dwa commity Tools:, etap 4 czeka na zamknięcie etapu 3 na
 seacie); potem D-107: przydział punktów otwartych
 (notatki dla 10 ticketów, nowe R-104 i R-105 w etapie 4), „refusal” bez zmian, odczyt z limitem w T-04, archiwum
-każdego niezarejestrowanego folderu i żywy wpis kolejki tylko dla joba projektu; przekazanie do limen-rebuild-33. -->
+każdego niezarejestrowanego folderu i żywy wpis kolejki tylko dla joba projektu; przekazanie do limen-rebuild-33,
+która z Adrianem wdrożyła a0.3.0 na seacie i przeszła kroki 0.1–0.3, 3.1–3.3, 3.5–3.8 i 3.10 (D-108: alerty przez
+IPv4); limen-rebuild-34: D-109 (artefakty prób dozwolone tylko w trakcie przebudowy), D-110 (ruleset nie działa na
+prywatnych repo projektów, więc zamiast kroku 3.11 obserwator `main` R-106 w etapie 4), D-111 (projekt zawodowy
+korzysta z Limena najwcześniej od a1.0.0). -->
 
 
 
@@ -1369,6 +1373,33 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   `limen-alerts.service` only, and a fix ticket puts that setting into the alerts' unit (`seat/units.ts`); once a tag
   with it is deployed, Adrian removes the drop-in. The ticket's place is decided with the other engine facts this
   close refuted. Check: `## Tickets`, the fix ticket's row; `## Deployment`, the step that removes the drop-in.
+- 2026-11-25 D-109 (Adrian, on finding (4) of the close of stage 3, the fallback wakes of the seat's trial jobs:
+  "Jestem w stanie pogodzić się z testowymi artefaktami tego pokroju wynikającymi z przebudowy, ale nie powinno się
+  to dziać na produkcyjnej wersji"): artefacts of this kind that the rebuild's own seat trials leave are accepted
+  while the rebuild runs; the version the rebuild ends with (the session's reading of "produkcyjna wersja": a1.0.0)
+  must not produce them, so a wake the coordinator answered is not delivered again, and the end of a job that no
+  coordinator spawned does not reach a coordinator as a wake that names a subscriber. Finding (4) is `fix` before
+  a1.0.0; its ticket and stage are decided with the other findings of this close (`## State`, "`limen-rebuild-34`").
+  Check: `## Tickets`, the ticket's row.
+- 2026-11-25 D-110 (Adrian: "Q-60 zgodnie z rekomendacją"; Q-60 asked at step 3.11, `## State`,
+  "`limen-rebuild-34`"): GitHub enforces no ruleset on the private repositories of `synchronizer` and `ledger` on
+  their account's plan, and Adrian keeps that plan (no GitHub Pro for two personal projects). §7 D1 becomes a rule per
+  project: (1) in every project a watcher outside the agents' account keeps its own clone, fetches `main` with no
+  forced update every minute, and alerts the phone on a forced update or a deletion of `main` on GitHub, keeping the
+  history it held (R-106, stage 4, deployed with a0.4.0, with a read-only deploy key per repository as seat step 4.10);
+  (2) a ruleset on `main` (no force push, no deletion, and from a0.5.0 push only from the owner channel's identity)
+  where the plan of the repository's owner account enforces one, set by that account's owner; `synchronizer` and
+  `ledger` have none. Steps 3.11 and 5.2 change accordingly, `### Resuming the projects on the seat` condition 6 goes
+  (the resumption waits for neither), and among what narrows D-012's accepted risk the ruleset of 3.11 is replaced by
+  T1 (R-087, verified at step 3.10: no job holds a credential) and, from a0.4.0, the watcher; until a0.5.0 the
+  coordinator session still holds the write token, which B1″ (step 5.1, R-055) removes. Check: `## Tickets`, R-106's
+  row; `## Deployment`, 3.11, 4.10 and 5.2.
+- 2026-11-25 D-111 (Adrian, Q-61: "projekt zawodowy to nie jest cel przebudowy, cel przebudowy to budowa
+  `limen-adrian`, projekt zawodowy to beneficjent przebudowy, projekt zawodowy skorzysta z `limen-adrian` najwcześniej
+  w wersji a1.0.0"): the rebuild's goal is Adrian's Limen; a professional project of his, on a dedicated GitHub
+  account of which his own account is a collaborator, with private repositories, is a beneficiary that uses it at the
+  earliest from a1.0.0. Its onboarding is not part of the rebuild, and no ticket is added for it. Its name stays out of
+  this public repository. Check: none (a statement of scope).
 
 ### Gate 2 §2, copied
 
@@ -1597,7 +1628,7 @@ questions; their number cannot be known in advance.
 | 1 | a0.1.0 | 17: 6 / 4 / 7 | 2: R-014, R-088 (day-after) | 4: gate 5.1; the golden help of R-014 (the wording is set by T-19, Adrian confirms the output); the same-task ticket before B.2 (R-011); the leftover list before `--drop-leftovers` (1.1) | 4 (1.0 bootstrap), plus B.1 and B.2 before it |
 | 2 | a0.2.0 | 12: 0 / 10 / 2 | 0 | 3: gate 5.2; id collisions in the record migration report (2.1); the `LIMEN_*` variables to remove (2.4) | 5, plus B.3 |
 | 3 | a0.3.0 | 13: 0 / 9 / 4 | 0 | 3, plus one per unlanded job: gate 5.3; the account names (3.3); `continue` or `abandon` for each finished job with unlanded work (3.6) | 12 |
-| 4 | a0.4.0 | 12: 2 / 8 / 2 | 2: R-041, R-046 (day-after) | 4: gate 5.4; the cue wording (R-041); the role prompt texts and their glossary of terms (T-14, R-046); the modules to switch on (4.9) | 10 |
+| 4 | a0.4.0 | 13: 3 / 8 / 2 | 2: R-041, R-046 (day-after) | 4: gate 5.4; the cue wording (R-041); the role prompt texts and their glossary of terms (T-14, R-046); the modules to switch on (4.9) | 11 |
 | 5 | a0.5.0 | 13: 0 / 9 / 4 | 0 | 3: gate 5.5; the owner channel's key, forced command and tokens (5.1); the domains added to the egress list (5.16) | 21 |
 | 6 | a0.6.0 | 7: 0 / 1 / 6 | 3: R-065, R-066, R-068 (day-after) | 5: gate 5.6; the refusal and message texts of the ticket commands (R-065); the board, and which old prose sections go to `docs/` (R-066, 6.4); the question blocks (R-068); the `limen init` values (6.1) | 5 |
 | 7 | a0.7.0 | 9: 3 / 4 / 2 | 1: R-073 (day-after) | 2: gate 5.7; the footer wording (R-073) | 6 |
@@ -1651,7 +1682,8 @@ moved here from stage 5 by D-012). Tickets R-026–R-037, R-087, R-098 and R-100
 Closes A-086: one Limen context message per session, frozen, saved and sent again after compaction, tested on a fake
 engine that shows the model's view under the bridge; the turn cue keeps only variable parts; role texts come from the
 package and are literal, sourced and budgeted per role. Tickets R-038–R-047, and from gate 5.3 (D-107) the fixes
-R-104 (the daily prune and the start queue) and R-105 (the T-04 and T-26 scans).
+R-104 (the daily prune and the start queue) and R-105 (the T-04 and T-26 scans), and from D-110 R-106 (the `main`
+watcher, §7 D1 per project).
 
 ### Stage 5 — The trust boundary (a0.5.0)
 
@@ -1780,6 +1812,7 @@ Columns:
 | R-047 | The coordinator never waits | 4 | T-34 | R-039 | S | delegated | night | — | pi | 4.6 | planned |
 | R-104 | The sweep's daily prune archives every unregistered folder and waits on no job's lock; a queue entry is live only for a project's job | 4 | A-002, A-024, T-25, D-107 | R-101 | M | delegated | night | — | — | — | planned |
 | R-105 | The T-04 and T-26 scans follow what their rules name | 4 | T-04, T-26, D-107 | R-032 | M | delegated | night | — | — | — | planned |
+| R-106 | A watcher outside the agents' account keeps a copy of `main` and alerts on its forced update or deletion | 4 | A-006, §7, D-110 | R-033 | S | delegated | night | — | systemd | 4.10 | planned |
 | R-048 | Jobs run the bridge isolated: no `--approve`, `--offline`, a private `TMPDIR`, an explicit Claude Code path | 5 | A-025, E-3, E-4, E-15, D-005, D-017 | R-040, R-087 | M | delegated | night | — | pi, bridge | 5.8, 5.9 | planned |
 | R-049 | Agents run only root-owned code; Pi, bridge and Claude Code versions are declared | 5 | A-025, T-32, T-36, D-017 | R-017, R-020, R-048 | L | delegated | night | yes | pi | 5.3, 5.5, 5.6, 5.10, 5.20 | planned |
 | R-050 | The registered coordinator and its start script | 5 | A-033, A-061, A-029, §2, D-017 | R-026, R-033, R-034, R-049 | L | delegated | night | yes | pi, herdr, systemd | 5.4, 5.11, 5.20 | planned |
@@ -2146,7 +2179,7 @@ Where the owner actions of gate 2 §9 (the 16 items recorded at gate 2) are plac
 | Item | Subject | Steps |
 |---|---|---|
 | 1 | Accounts: names, owner channel, research account, alerts account, egress allow-list, tokens | 3.3, 5.1, 5.16, 8.2 |
-| 2 | GitHub ruleset on `main` of both projects (§7 D1) | 3.11, 5.2 |
+| 2 | §7 D1 per project (D-110): the `main` watcher's deploy keys; a ruleset only where the plan enforces one | 3.11, 4.10, 5.2 |
 | 3 | Root-owned installs of Pi 1.5.1, the bridge, Claude Code (D-017) and the coordinator start script | 5.3, 5.20 |
 | 4 | Coordinators start only through the start script | 5.4 |
 | 5 | `limen seat sweep --install`, old prune units off (done on 2026-11-17), route variables out of the environment | 3.1, 6.1 |
@@ -2175,8 +2208,9 @@ parallel, is after a0.3.0 is deployed:
 - Until a0.5.0 the risks that stage 5 closes stay open: the agents' account holds the GitHub token and has an open
   network, harness code loads from worker-writable places, and GitHub text and worker-writable files reach the
   coordinator. Adrian accepts them with a deadline (D-012). Jobs already run with T1 from a0.3.0 (R-087); the seat's
-  token is fine-grained, with Contents read and write on the two projects only; the ruleset of 3.11 forbids force
-  pushes and deletion on `main`.
+  token is fine-grained, with Contents read and write on the two projects only; no ruleset is enforced on their
+  private repositories, so from a0.4.0 the `main` watcher (R-106) alerts on a forced update or a deletion of `main`
+  and keeps its history (D-110).
 - Land in stages 3–6: today's rule stays until a0.7.0: the coordinator lands a job only after Adrian's "land". From
   a0.7.0 land happens only when the conditions in code hold (R-071), with no "land" from Adrian (D-004).
 - From then on, every tag deploys onto live data the same way (0.1–0.7). Stage 4 changes how the models behave in the
@@ -2197,7 +2231,8 @@ Conditions:
    stops spawning, lets the running jobs end (one per project with `maxJobs` 1, the seat's practice, A-014; each within
    its timeout), and deploys. A job that waits for its quota resume is not running (state `failed`, kind `quota`); its
    resume after the deployment runs on the new version, like a `continue`.
-6. Step 3.11 (the ruleset on `main`) is done before the projects resume.
+6. Formerly: step 3.11 (the ruleset on `main`) before the projects resume; gone by D-110, so the resumption waits for
+   neither 3.11 nor the watcher of 4.10.
 7. The "after" measurements of 9.1 count only jobs whose id date follows the a1.0.0 deployment (a job id starts with
    its date), so jobs of intermediate versions enter neither "before" nor "after".
 
@@ -2381,8 +2416,10 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
   names what the list dropped, and the job's end wakes its coordinator (the wrapper's Herdr names). A name that a
   project's check needs and the list dropped is reported to the main session before the projects resume (R-087,
   D-017).
-- **3.11** Before the projects resume: a GitHub ruleset on `main` of both projects that forbids force pushes and
-  deletion (part of §7 D1; D-012). Step 5.2 adds the rest of D1.
+- **3.11** Not done (D-110): the plan of the account that owns `synchronizer` and `ledger` enforces no ruleset on a
+  private repository (GitHub's banner on 2026-11-25), and Adrian keeps that plan. D1's watcher is R-106 (step 4.10);
+  a project whose owner account's plan enforces rulesets gets one on `main` that forbids force pushes and deletion,
+  set by that account's owner.
 
 ### After stage 4 (a0.4.0)
 
@@ -2403,6 +2440,9 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
   the production checkout, each leaving B.2's result unchanged (D-050).
 - **4.9** Switch on, in each project's `.agents/limen/limits.json`, the modules its migration report lists as in use;
   until a0.5.0 Adrian edits the file directly, from then on only through the owner channel (R-044).
+- **4.10** The `main` watcher (R-106, D-110): in each project's GitHub settings a read-only deploy key whose private
+  half only the watcher's account can read; then the install that R-106 names. Its first runs fetch `main` of both
+  projects and record no event, and the check of an alert that R-106's ticket names reaches the phone.
 
 ### After stage 5 (a0.5.0)
 
@@ -2410,8 +2450,9 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
 - **5.1** Accounts (item 1), with the names chosen in 3.3: create the owner channel account, which accepts only a
   separate key of Adrian's, kept on his own machines with no agent forwarding, and only with a forced command; move
   the GitHub write token to it; give the agents' account a read-only token (R-055).
-- **5.2** Extend the ruleset of 3.11 on `main` of both projects: push only from the owner channel's identity (item 2;
-  §7 D1; R-055).
+- **5.2** Where a project has the ruleset of 3.11 (none of `synchronizer` and `ledger`, D-110), extend it: push only
+  from the owner channel's identity (item 2; §7 D1; R-055). Elsewhere the owner channel's token is the only write
+  credential (5.1), and the watcher of 4.10 alerts on any forced update or deletion of `main`.
 - **5.3** Root-owned installs by the seat script: Pi 1.5.1, bridge 5.0.3 and Claude Code in a pinned version in a root
   directory (D-017; note the version in `## System requirements`), with Pi's install path confirmed, and the
   coordinator start script (item 3; R-049, R-050).
@@ -2693,8 +2734,9 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-25 by day (`limen-rebuild-33`: the close of stage 3 on the seat with Adrian, D-106, step by step in
-"`limen-rebuild-33`" at the end of this section; before it `limen-rebuild-32`: gate 5.3 decided, D-107; R-103 `done`,
+Updated 2026-11-25 by day (`limen-rebuild-34`: the close of stage 3 on the seat goes on, D-109–D-111, in
+"`limen-rebuild-34`" at the end of this section; before it `limen-rebuild-33`: the close of stage 3 on the seat with
+Adrian, D-106, step by step in "`limen-rebuild-33`"; before it `limen-rebuild-32`: gate 5.3 decided, D-107; R-103 `done`,
 stage 3 closed at `a0.3.0`, gate 5.3 open with Q-51–Q-55 in
 "Gate 5.3 summary" at the end of this section, after "`limen-rebuild-32`" and "Close of stage 3".
 Before it `limen-rebuild-31`, before the night: R-103 `ready` in "`limen-rebuild-31`" at the end of
@@ -5061,3 +5103,60 @@ and ends its turn. By day, Adrian at the terminal. The next session's acts, in t
 3. D-105's two `Tools:` commits, each test first, with a review by `rebuild-reviewer` as for D-026.
 4. Then stage 4 starts in a new session (D-106, D-081's pattern), which writes stage 4's `ticket.md` files.
 The handover after it is `limen-rebuild-35`.
+
+`limen-rebuild-34` (2026-11-25, by day, Adrian at the terminal): `close-previous` printed `handover: closed tmux session
+limen-rebuild-33` and one `handover: stopped claude …` line and exited 0; the takeover push was skipped as redundant,
+the terminal being active; context 10 % at the start; `HEAD` = `origin/adrian-rebuild` = `c7f491b`, the tree clean.
+- 3.10's `degraded`: `systemctl --user --failed` on the agents' account lists one unit, `quota-watch.service`, `LOAD
+  not-found`, `failed (Result: exit-code)` since 2026-11-10 19:26 UTC, `status=2`. No version of this repository names
+  `quota-watch` (`git grep` at `rebuild-base` and `HEAD`, `git log --all -S`), and Limen reads neither
+  `is-system-running` nor a failed state (`git grep` in `src`, `seat`, `bin`, `hook`, `docs`): a pre-rebuild seat
+  unit of the same day as 3.5's old rule folders, whose definition is gone while the user manager keeps its failed
+  state. Not a Limen finding. Proposed: `systemctl --user reset-failed quota-watch.service` after a check that no
+  `quota-*` unit file or timer is left, so that the user manager answers `running` and a failure from now on shows.
+- Done (Adrian): no `quota-*` unit file or timer is listed; after `reset-failed quota-watch.service`,
+  `systemctl --user is-system-running` answers `running`. 3.10 is complete.
+- The order from here (the session's): 3.11 before 3.9 with 0.6, since the ruleset is quick and independent of the
+  trial (condition 6 asks it only before the resumption). Land pushes nothing (`src/job/landing.ts` at `a0.3.0` has no
+  push), so the trial touches no `main` on GitHub and need not wait for 3.11.
+- 3.9's procedure, read from the code at `a0.3.0`: a job's watch tab closes at its end (`settleJobTab`,
+  `src/integrations/herdr.ts` line 50), so land's `cleaned` (`closeJobTabs`, line 133) closes the tabs `limen open`
+  (recorded in `herdr/`) and `limen diff` (recorded in `herdr/diff/`) opened after the job ended, and finds the watch
+  tab gone (a log note, no output line); land closes only the landed job's tabs (`closeOperation` with no
+  `closeTicketTabs`), so a tab `limen open` opened for the feature's review job is left over once land's `closed` step
+  moves the ticket to `done`, and the daily step closes it (`closeLeftoverTabs`, line 374; `closedJobFeatures`,
+  `src/job/job.ts` line 179). The daily steps run when the project's `.limen/daily-sweep` stamp is absent or at least
+  24 hours old (`dailyDue`, `src/runtime/sweeping.ts` line 340); today's ran at 12:34 UTC.
+- 3.11 (Adrian, in GitHub's ruleset form of both projects): `Your rulesets won't be enforced on this private
+  repository until you move to GitHub Team organization account.` Both projects are private repositories whose
+  plan does not enforce rulesets, so 3.11 cannot be done as written. GitHub's documentation names rulesets for
+  private repositories with GitHub Pro, Team and Enterprise Cloud, while community threads report the same banner on
+  Pro accounts, so whether Pro suffices is settled by no source. None of gate 2 §7 D1 and §9 item 2, D-012,
+  `taste.md` or the rubric foresees the case: asked of Adrian as Q-60. Since land pushes nothing, 3.9 with 0.6 can go
+  on meanwhile.
+- 0.6 with 3.9 started (Adrian, ledger, F012, worker `2026-11-25-f012-sqlite-adapter-d9c3c39c`; the coordinator was
+  told to run `limen open` and `limen diff` before land and to land only on Adrian's "land"). Seen while the worker
+  ran: the coordinator got the completion wakes of ledger's five trial jobs of this close (`trial-kill`,
+  `trial-kill-2`, `trial-queue`, `trial-queue-2`, `trial-env`), spawned from shells with no coordinator, as fallback
+  wakes (`sendCompletion` with `fallback`, `hook/wake.ts` line 457 at `a0.3.0`; `oldEnoughForFallback` has no upper
+  age, `src/job/wake-delivery.ts` line 301), each answered by a turn and still recorded unconfirmed, so each came twice
+  until `wake was unconfirmed twice; automatic delivery stopped` (`completionStopped`, line 38: the count is on disk,
+  so no session gets them again). The text said `The subscribed coordinator is busy` for jobs that have no
+  subscriber (`src/job/wake-text.ts` line 119). The coordinator acted on none of them and F012 went on. Finding (4)
+  for Adrian's decision with the three above: a fallback wake answered by a turn is not confirmed (why, not yet read:
+  the confirmation needs `accepted`, `entered`, `answered` and `settled`, `hook/wake.ts` line 727), and its text names
+  a subscriber that does not exist; cost, not loss (two coordinator turns per job; synchronizer's seven trial jobs
+  wait for its coordinator's first start the same way). Whether the worker's own wake comes once is read at its end.
+- D-109 (Adrian, on finding (4)): such artefacts of the rebuild's trials are accepted during the rebuild, not in the
+  version it ends with; (4) is `fix` before a1.0.0, its ticket decided with the other findings. Adrian asked for the
+  context and history of the ruleset before answering Q-60 (A-006 and its Q3 in `audit.md`, gate 2's A-006 decision,
+  §7 D1 and B1″, D-012, `## Deployment` 3.11 and 5.2, R-055); the session gave them in the conversation.
+- Adrian on the background of Q-60: `synchronizer` and `ledger` are personal projects kept private, not worth a paid
+  plan; Limen is to serve, from a1.0.0 at the earliest, a professional project of his on a dedicated GitHub account
+  (his account a collaborator, every repository private), where protecting the repositories matters. The session
+  noted for it that fine-grained tokens do not reach a repository owned by another personal account through a
+  collaborator (GitHub's documentation lists that gap), which B1″ assumes; Adrian answered Q-61 that the project is a
+  beneficiary, not a goal of the rebuild (D-111), so nothing is added for it.
+- Q-60 → D-110 (Adrian: "zgodnie z rekomendacją", the session's "2 + B"): §7 D1 per project; R-106 (S, delegated,
+  night) in stage 4 with seat step 4.10; 3.11 not done; 5.2 only where a ruleset exists; condition 6 gone; stage 4 has
+  13 tickets and 11 seat steps. Q-61 → D-111.
