@@ -1,16 +1,19 @@
 // S1 · Spawn, detached. A job gets its own worktree and branch from the base commit, the exact task bytes and an
-// engine environment without the caller's Herdr pane or Pi session; reading a running job leaves its index alone;
-// a workspace job works in one child repository; each refusal leaves the shared snapshot identical (T-38 (4)).
+// engine environment built from the allow-list, which its --prepare command gets too, without the caller's Herdr pane,
+// Pi session, token or git credential helper; reading a running job leaves its index alone; a workspace job works in
+// one child repository; each refusal leaves the shared snapshot identical (T-38 (4)).
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdir, rm, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
+import { ENVIRONMENT } from "../src/config.ts";
 import { readOutcome } from "./final-line.ts";
 import {
 	editRecord,
 	git,
 	jobDir,
+	jobFile,
 	jobRecord,
 	limen,
 	type Plant,
@@ -112,6 +115,114 @@ test("limen spawn: a detached job runs in its own worktree from the base with th
 	// The next tests of this plant spawn workers, which a finished job with unlanded work refuses (A-001).
 	const abandoned = limen(p, ["abandon", id]);
 	assert.equal(abandoned.status, 0, abandoned.stderr);
+});
+
+/** The names of the plant's environment, which the list passes in the plant's test mode (R-087 (b)). */
+const PLANT_NAMES = [
+	"PATH",
+	"HOME",
+	"TMPDIR",
+	"GIT_CONFIG_GLOBAL",
+	"GIT_CONFIG_NOSYSTEM",
+	"NODE_NO_WARNINGS",
+	"NODE_OPTIONS",
+	"LIMEN_TEST_MODE",
+	"LIMEN_HOME",
+	"LIMEN_HERDR",
+	"LIMEN_HUNK",
+	"LIMEN_START_READING",
+	"LIMEN_START_POLL_MS",
+	"LIMEN_STALL_TICK_MS",
+	"LIMEN_CGROUP_ROOT",
+	"LIMEN_CGROUP",
+];
+/** What Limen sets in every job's environment, and the transport names a job's engine gets (R-087 (a)). */
+const LIMEN_NAMES = [
+	"DISABLE_UPDATES",
+	"GIT_CONFIG_COUNT",
+	"GIT_CONFIG_KEY_0",
+	"GIT_CONFIG_VALUE_0",
+	"GIT_TERMINAL_PROMPT",
+	"GIT_ASKPASS",
+	"GH_CONFIG_DIR",
+	"LIMEN_JOB",
+	"LIMEN_JOB_ID",
+	"LIMEN_CONTEXT_ROOT",
+];
+
+// A-004 (T1): a coordinator's pane may hold a token for its own use; a job never sees it, nor LIMEN_COORDINATOR
+// (A-061).
+test("A-004: a spawn from an environment with a token and LIMEN_COORDINATOR starts an engine with only the list's names and Limen's, and its log names the dropped ones", () => {
+	const caller = { DEMO_API_TOKEN: "dummy-not-a-secret", LIMEN_COORDINATOR: "1" };
+	const id = spawnJob(p, "say listed", [], { env: caller });
+	assert.equal(waitJob(p, id), "done");
+	const names: string[] = json(join(jobDir(p, id), "fake-env.json"));
+	const dropped = jobFile(p, id, "log")
+		.split("\n")
+		.filter((line) => line.includes("] environment: "));
+	// The tests' systemd-run is a shell script, and the shell exports PWD to the wrapper; systemd's own adds no name.
+	assert.deepEqual(
+		[names, dropped.map((line) => line.slice(line.indexOf("] ") + 2))],
+		[
+			[...PLANT_NAMES, ...LIMEN_NAMES, "PWD"].sort(),
+			["environment: dropped 2 names of the spawner: DEMO_API_TOKEN, LIMEN_COORDINATOR"],
+		],
+	);
+});
+
+/** The transport names only a job's wrapper reads, which its engine never gets (src/config.ts). */
+const WRAPPER_READS = Object.entries(ENVIRONMENT).flatMap(([name, entry]) =>
+	entry.kind === "transport" && entry.reader === "wrapper" ? [name] : [],
+);
+
+// R-087 (c), review round 2 (G1): the prepare command is the project's code, as the engine's tools are, so the wrapper
+// hands it the engine's environment; before, it ran with the wrapper's own, the spawner's Herdr pane included.
+test("a spawn's --prepare command runs with its engine's environment: no Herdr name, no transport name only the wrapper reads, and the engine's LIMEN_JOB", () => {
+	const recorded = join(p.parent, "prepare-names.json");
+	const names = `require("node:fs").writeFileSync(${JSON.stringify(recorded)}, JSON.stringify(Object.keys(process.env)))`;
+	const prepare = `${JSON.stringify(process.execPath)} -e ${JSON.stringify(names)}`;
+	const id = spawnJob(p, "say prepared", ["--prepare", prepare], { env: { HERDR_ENV: "1", HERDR_PANE_ID: "p1" } });
+	assert.equal(waitJob(p, id), "done");
+	const got: string[] = json(recorded);
+	assert.deepEqual(
+		[got.filter((name) => name.startsWith("HERDR_") || WRAPPER_READS.includes(name)), got.includes("LIMEN_JOB")],
+		[[], true],
+		got.join(", "),
+	);
+});
+
+// A-004 (T1): git reads Limen's empty credential.helper after every configuration file, the repository's own too.
+test("A-004: a job's git credential fill gets no password from a URL-scoped helper in the repository's own .git/config, and fails without asking", (context) => {
+	const key = "credential.https://github.com.helper";
+	git(p.root, "config", key, "!f() { echo username=agents; echo password=dummy-not-a-secret; }; f");
+	context.after(() => git(p.root, "config", "--unset", key));
+	const id = spawnJob(p, "credential");
+	assert.equal(waitJob(p, id), "done");
+	const fill = json(join(jobDir(p, id), "fake-credential.json"));
+	assert.deepEqual(
+		[
+			fill.status === 0,
+			fill.signal,
+			fill.stdout.includes("password="),
+			fill.stderr.includes("terminal prompts disabled"),
+		],
+		[false, null, false, true],
+		fill.stderr,
+	);
+});
+
+// A-004 (T1): git asks an askpass program before it reads GIT_TERMINAL_PROMPT, and a configuration file can name one;
+// Limen's empty GIT_ASKPASS is set, so git skips core.askPass and SSH_ASKPASS.
+test("A-004: a job's git credential fill gets no password from a core.askPass program in the repository's own .git/config, which never runs", async (context) => {
+	const ran = join(p.parent, "askpass-ran");
+	const program = join(p.parent, "askpass");
+	await writeFile(program, `#!/bin/sh\n: > ${JSON.stringify(ran)}\necho dummy-not-a-secret\n`, { mode: 0o755 });
+	git(p.root, "config", "core.askPass", program);
+	context.after(() => git(p.root, "config", "--unset", "core.askPass"));
+	const id = spawnJob(p, "credential");
+	assert.equal(waitJob(p, id), "done");
+	const fill = json(join(jobDir(p, id), "fake-credential.json"));
+	assert.deepEqual([fill.stdout.includes("password="), existsSync(ran)], [false, false], fill.stderr);
 });
 
 test("a detached spawn says to end the turn, then ends with the golden final line, whose ids.job names its job folder", () => {

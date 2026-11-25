@@ -7,8 +7,9 @@
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { type TransportName, wrapperEnvironment } from "../config.ts";
+import { type WrapperValues, wrapperEnvironment } from "../config.ts";
 import { JOB_ID } from "../job/id.ts";
+import { appendLimenLog } from "../job/record.ts";
 import { LimenError, type Outcome, type Output, readOutcome } from "../outcome.ts";
 import { platform, type ScopedProcess } from "../platform/platform.ts";
 
@@ -116,15 +117,21 @@ export async function startLimen(
 
 /**
  * Starts a job's wrapper, the CLI's internal run, with what the spawner passes, in the job's own user scope
- * (`jobScope`); it inherits no transport or removed name (R-015), and it prints no final line, so nobody reads its
- * output. A scope that cannot start is SCOPE_FAILED, an environment failure with what the system said: the job never
- * runs outside its scope (A-029), and the host's user instance is the likely cause, which `limen init` checks.
+ * (`jobScope`), in the environment the allow-list builds (T1 of A-004, `wrapperEnvironment`), and it prints no final
+ * line, so nobody reads its output. Before the start the job's log names the spawner's names the list dropped, never a
+ * value, so a project tool that fails for a dropped name shows its cause (R-087 (d)). A scope that cannot start is
+ * SCOPE_FAILED, an environment failure with what the system said: the job never runs outside its scope (A-029), and the
+ * host's user instance is the likely cause, which `limen init` checks.
  */
-export async function launchWrapper(
-	id: string,
-	environment: Readonly<Partial<Record<TransportName, string>>>,
-): Promise<ScopedProcess> {
-	const env = wrapperEnvironment({ ...environment, LIMEN_INTERNAL_RUN: "1" });
+export async function launchWrapper(id: string, environment: Readonly<WrapperValues>): Promise<ScopedProcess> {
+	const { environment: env, dropped } = wrapperEnvironment({ ...environment, LIMEN_INTERNAL_RUN: "1" });
+	if (dropped.length > 0) {
+		const names = `${dropped.length} ${dropped.length === 1 ? "name" : "names"}`;
+		await appendLimenLog(
+			environment.LIMEN_JOB_DIR,
+			`environment: dropped ${names} of the spawner: ${dropped.join(", ")}`,
+		);
+	}
 	return platform
 		.startInScope({ unit: jobScope(id), command: process.execPath, args: [CLI], env })
 		.catch((error: unknown) => {

@@ -10,14 +10,17 @@
 //   · rate-limit <type> <resetAtMs> (emits the bridge's `kendex:rate-limit` on `pi.events`, E-9)
 //   · malformed <event> (sends the hooks <event> with an empty payload, as a Pi of another shape would)
 //   · linger (starts a child that holds this engine's stdout and stderr, so the engine exits before its pipes close)
+//   · credential (runs `git credential fill` for https://github.com in its worktree, as a tool of the engine would,
+//     and writes its exit code, stdout and stderr to fake-credential.json)
 //   · /<command> <args> (runs a command a hook registered, as a user typing it)
 // A SIGTERM ends it as Pi's print mode does (E-17): one `sigterm` event, then exit 143; a second one exits 143 at once.
 // A hook's handler that throws is reported on stderr as Pi reports an extension error, and the run goes on.
 // `block` writes fake-blocked-<n> and waits for one write to the FIFO fake-gate. Records: fake-argv.json, fake-env.json
-// (variable names), fake-task.txt, fake-system.txt (system prompt after before_agent_start), fake-context.txt (the hidden
-// context messages before_agent_start returned), fake-events.jsonl (its first event the `pid` of this engine process,
-// so a test can tell whether the engine still runs), and one transcript line per engine process in --session-dir.
-import { execFileSync, spawn } from "node:child_process";
+// (the name of every variable of its environment, never a value), fake-task.txt, fake-system.txt (system prompt after
+// before_agent_start), fake-context.txt (the hidden context messages before_agent_start returned), fake-events.jsonl
+// (its first event the `pid` of this engine process, so a test can tell whether the engine still runs), and one
+// transcript line per engine process in --session-dir.
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { appendFileSync, constants, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { Socket } from "node:net";
 import { dirname, join } from "node:path";
@@ -33,8 +36,8 @@ const task = prompt ? readFileSync(prompt.slice(1), "utf8") : (flag("--continue"
 const preamble = flag("--append-system-prompt") ?? "";
 mkdirSync(dir, { recursive: true });
 writeFileSync(join(dir, "fake-argv.json"), JSON.stringify(args));
-const names = Object.keys(process.env).filter((name) => /^(LIMEN|HERDR|PI)_/.test(name));
-writeFileSync(join(dir, "fake-env.json"), JSON.stringify(names.sort()));
+// Every name, so a test sees what the job's environment drops (R-087); a value never leaves the process.
+writeFileSync(join(dir, "fake-env.json"), JSON.stringify(Object.keys(process.env).sort()));
 writeFileSync(join(dir, "fake-task.txt"), task);
 if (flag("--session-dir")) {
 	mkdirSync(flag("--session-dir"), { recursive: true });
@@ -269,6 +272,15 @@ for (const line of task.split("\n")) {
 		const child = spawn("sleep", ["600"], { stdio: ["ignore", "inherit", "inherit"] });
 		child.unref();
 		writeFileSync(join(dir, "fake-linger"), String(child.pid));
+	} else if (word === "credential") {
+		// The bound only ends a git that asks on a terminal, which a job's environment rules out (R-087).
+		const fill = spawnSync("git", ["credential", "fill"], {
+			input: "protocol=https\nhost=github.com\n\n",
+			encoding: "utf8",
+			timeout: 10_000,
+		});
+		const { status, signal, stdout, stderr } = fill;
+		writeFileSync(join(dir, "fake-credential.json"), JSON.stringify({ status, signal, stdout, stderr }));
 	} else if (word === "orphan") {
 		const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1e9)"], { detached: true, stdio: "ignore" });
 		child.unref();

@@ -2,11 +2,11 @@
 // a queued job whose wait passes the gate file's failAfter ends failed, a wrapper outside its job's systemd user scope
 // ends the job before it runs anything, each end has the kind its detector sets (A-016 (1)), the stall rule over the
 // scope's CPU time and its uncertainty note, the peak CPU share of the scope, an exhaustion whose scope cannot be ended
-// still kills its process group, a TERM or a signal without a stop request ends a job failed, and a TERM after the
-// engine ended changes nothing.
+// still kills its process group, a TERM or a signal without a stop request ends a job failed, a TERM after the engine
+// ended changes nothing, and the tests' end gate holds a wrapper only in test mode.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,7 +16,7 @@ import { isTerminal } from "../../src/job/job.ts";
 import { type Identity, readRecordSync, transition } from "../../src/job/record.ts";
 import { platform } from "../../src/platform/platform.ts";
 import { ownerState } from "../../src/runtime/reap.ts";
-import { failInternalJob } from "../../src/runtime/wrapper.ts";
+import { endGate, failInternalJob } from "../../src/runtime/wrapper.ts";
 import { withEnvironment } from "../environment.ts";
 import {
 	engineEvents,
@@ -370,6 +370,24 @@ test("a TERM to the job's wrapper after its engine exited 0 changes nothing: the
 	assert.equal(await logged("SIGTERM received"), true, "the wrapper handled the TERM at the gate");
 	writeFileSync(gate, "");
 	assert.deepEqual([waitJob(p, id), jobRecord(p, id)?.failure, jobFile(p, id, "result")], ["done", null, "all done"]);
+});
+
+// T-03, R-087 (b): the test gate has no bound of its own, so a spawner's environment on the seat that held the knob
+// would hold every job's end until `limen stop` (the R-087 note of `plan.md`). The gate file exists, so a gate that is
+// read logs its wait and opens at once; outside test mode the knob is not read and nothing is logged.
+test("the end gate of LIMEN_END_GATE holds a wrapper's end only in test mode", async (t) => {
+	const folder = mkdtempSync(join(tmpdir(), "limen-end-gate-"));
+	t.after(() => rmSync(folder, { recursive: true, force: true }));
+	const [gate, outside, inside] = [join(folder, "gate"), join(folder, "outside"), join(folder, "inside")] as const;
+	writeFileSync(gate, "");
+	mkdirSync(outside);
+	mkdirSync(inside);
+	withEnvironment(t, { LIMEN_END_GATE: gate, LIMEN_TEST_MODE: "0" });
+	await endGate(outside);
+	process.env.LIMEN_TEST_MODE = "1";
+	await endGate(inside);
+	const log = (dir: string) => (existsSync(join(dir, "log")) ? readFileSync(join(dir, "log"), "utf8") : "");
+	assert.deepEqual([log(outside), log(inside).includes(`engine ended; waiting for the test gate ${gate}`)], ["", true]);
 });
 
 // A-020, R-026 Deviation 1: the KILL after the grace goes to the engine's pid, not to the group the wrapper leads, so the

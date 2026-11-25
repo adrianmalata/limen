@@ -60,6 +60,8 @@ async function startWithAndWithoutJg(t: TestContext, job: boolean) {
 		LIMEN_JOB: job ? "1" : undefined,
 		LIMEN_JOB_ID: job ? JOB_ID : undefined,
 		LIMEN_CONTEXT_ROOT: job ? project : undefined,
+		// Test mode, in which alone the seat folder is read from LIMEN_HOME (src/config.ts).
+		LIMEN_TEST_MODE: "1",
 		LIMEN_HOME: home,
 		PATH: process.env.PATH,
 	};

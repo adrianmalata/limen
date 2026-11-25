@@ -5,7 +5,7 @@
 // follow. Its text goes to `out`, which the shared wrapper prints at the end.
 import { existsSync } from "node:fs";
 import { readdir, rm } from "node:fs/promises";
-import type { TransportName } from "../config.ts";
+import type { WrapperValues } from "../config.ts";
 import { openWatchTab } from "../integrations/herdr.ts";
 import { type Checked, cleanedUp, type StateView, stepFailure, validated } from "../operation.ts";
 import { type CommandText, JOB_STARTED, refused, type Success, usageError } from "../outcome.ts";
@@ -601,7 +601,7 @@ async function startDetachedContinuation(
 ): Promise<void> {
 	const { jobDir, id, label, root, parentId, versions, group } = continuation;
 	await openWatchTab({ jobDir, label, cwd: root, logPath: `${jobDir}/log`, role: continuation.role });
-	const environment: Partial<Record<TransportName, string>> = {
+	const environment: WrapperValues = {
 		LIMEN_JOB_DIR: jobDir,
 		LIMEN_WORKTREE: continuation.worktree,
 		LIMEN_TASK_FILE: `${jobDir}/task.md`,

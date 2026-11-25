@@ -167,9 +167,11 @@ export async function runInternalJob(): Promise<void> {
 	if (notice) {
 		void promptStartNotice(jobDir, notice).catch(() => {});
 	}
+	// The engine's environment, which --prepare gets too: it is the project's code, as the engine's tools are (R-087 (c)).
+	const childEnvironment = engineEnvironment(process.env, { LIMEN_JOB: "1", LIMEN_JOB_ID: jobId });
 	// The forwarded TERM reaches --prepare, which runs in this process group; the check before the spawn ends the job.
 	if (transport("LIMEN_SETUP_KEEP")) {
-		await setUpJob(jobDir, worktree);
+		await setUpJob(jobDir, worktree, childEnvironment);
 	}
 	const missing = worktreeMissing(worktree);
 	if (missing) {
@@ -242,7 +244,6 @@ export async function runInternalJob(): Promise<void> {
 			? { continueValue: (await readFile(taskFile, "utf8")).trim() }
 			: { taskFile }),
 	});
-	const childEnvironment = engineEnvironment(process.env, { LIMEN_JOB: "1", LIMEN_JOB_ID: jobId });
 	const parser = createStreamParser();
 	const seen: Seen = {
 		activity: "",
@@ -462,9 +463,10 @@ function signalLine(why: string, signal: "TERM" | "KILL", target: string, result
 /**
  * The tests' injection point (D-029): with the test knob LIMEN_END_GATE, the wrapper logs that it waits and waits for
  * that file to be created, once its engine ended and before it reads the record and takes its last sample of the scope,
- * so a test can send it a signal or change the scope between the two. Limen's own callers never set the knob (T-03).
+ * so a test can send it a signal or change the scope between the two. The wait has no bound of its own, so the knob is
+ * read only in test mode (T-03, R-087): on the seat a spawner's environment that held it holds no job's end.
  */
-async function endGate(jobDir: string): Promise<void> {
+export async function endGate(jobDir: string): Promise<void> {
 	const gate = testKnob("LIMEN_END_GATE");
 	if (!gate) {
 		return;

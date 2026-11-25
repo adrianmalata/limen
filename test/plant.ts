@@ -1,8 +1,9 @@
 // The shared throwaway plant every scenario runs on: a temp Git repo after a real `limen init`, an environment built
-// from an allowlist, the scripted fake engine (test/fake-engine.mjs) as `pi`, the tests' systemd-run, systemctl and
-// systemd-analyze (`SYSTEMD_RUN`, `SYSTEMCTL`, `SYSTEMD_ANALYZE`), and a fetch sink that records every request a Limen
-// process makes. Scenarios wait on file events and FIFOs; nothing here sleeps, and only a process's exit, which raises
-// no file event, is read again on a short interval (`waitJob`, and cleanup's listing of the plant's processes).
+// from an allow-list in test mode, the scripted fake engine (test/fake-engine.mjs) as `pi`, the tests' systemd-run,
+// systemctl and systemd-analyze (`SYSTEMD_RUN`, `SYSTEMCTL`, `SYSTEMD_ANALYZE`), and a fetch sink that records every
+// request a Limen process makes. Scenarios wait on file events and FIFOs; nothing here sleeps, and only a process's
+// exit, which raises no file event, is read again on a short interval (`waitJob`, and cleanup's listing of the plant's
+// processes).
 import { type ChildProcess, execFileSync, spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { existsSync, readFileSync, watch } from "node:fs";
@@ -239,16 +240,16 @@ async function writeSystemd(bin: string): Promise<void> {
 
 /**
  * The tests' systemd in new folders below `folder`, for a test that runs Limen in its own process: the values of PATH
- * and LIMEN_CGROUP_ROOT that put it first, for `withEnvironment` (test/environment.ts), so that no test reaches the
- * machine's own systemd (`## Commands`, stage 3).
+ * and LIMEN_CGROUP_ROOT that put it first, in test mode, where Limen reads that knob (src/config.ts), for
+ * `withEnvironment` (test/environment.ts), so that no test reaches the machine's own systemd (`## Commands`, stage 3).
  */
 export async function fakeSystemd(
 	folder: string,
-): Promise<{ readonly PATH: string; readonly LIMEN_CGROUP_ROOT: string }> {
+): Promise<{ readonly PATH: string; readonly LIMEN_CGROUP_ROOT: string; readonly LIMEN_TEST_MODE: string }> {
 	const [bin, cgroups] = [join(folder, "systemd-bin"), join(folder, "cgroup")];
 	await Promise.all([mkdir(bin, { recursive: true }), mkdir(join(cgroups, fakeManager()), { recursive: true })]);
 	await writeSystemd(bin);
-	return { PATH: `${bin}:${process.env.PATH ?? ""}`, LIMEN_CGROUP_ROOT: cgroups };
+	return { PATH: `${bin}:${process.env.PATH ?? ""}`, LIMEN_CGROUP_ROOT: cgroups, LIMEN_TEST_MODE: "1" };
 }
 
 /** Each call of the tests' `program` that used the cgroup folder `cgroups`, as its words. */
@@ -390,6 +391,8 @@ export async function plant(): Promise<Plant> {
 		),
 		HOME: join(parent, "home"),
 		TMPDIR: tmpdir(),
+		// Test mode: every Limen process of the plant reads the knobs below, and a job's environment carries them (R-087).
+		LIMEN_TEST_MODE: "1",
 		LIMEN_HOME: parent,
 		LIMEN_HERDR: "0",
 		LIMEN_HUNK: "0",
@@ -437,14 +440,14 @@ export async function plant(): Promise<Plant> {
 
 /**
  * Stops every process of the plant `parent` and returns once none is left. Each process the plant starts inherits the
- * plant's `LIMEN_HOME` (a test knob, src/config.ts), so the environment names them all, a queued wrapper included,
- * which has no engine yet and no path of the plant in its command line (D-063 (3)). The processes are listed again
- * after each round of signals until the list is empty: a process can start another one between the listing and its
- * signal, and that one inherits the plant's environment too. The signal is SIGKILL: a stopped process (a test's
- * SIGSTOP) holds a SIGTERM until it continues, and a wrapper that ends normally writes into the folder that cleanup
- * removes next. The platform adapter sends it (src/platform/): a process that exited after the listing is `missing`
- * and needs none. A process the system does not let the test signal, or one of the plant still running after
- * `STOP_MS`, fails the cleanup, and the folder stays.
+ * plant's `LIMEN_HOME` (a test knob, src/config.ts, which a job's environment carries in the plant's test mode), so the
+ * environment names them all, a queued wrapper included, which has no engine yet and no path of the plant in its
+ * command line (D-063 (3)). The processes are listed again after each round of signals until the list is empty: a
+ * process can start another one between the listing and its signal, and that one inherits the plant's environment
+ * too. The signal is SIGKILL: a stopped process (a test's SIGSTOP) holds a SIGTERM until it continues, and a wrapper
+ * that ends normally writes into the folder that cleanup removes next. The platform adapter sends it (src/platform/):
+ * a process that exited after the listing is `missing` and needs none. A process the system does not let the test
+ * signal, or one of the plant still running after `STOP_MS`, fails the cleanup, and the folder stays.
  */
 async function stopProcesses(parent: string): Promise<void> {
 	const deadline = Date.now() + STOP_MS;
@@ -505,7 +508,7 @@ export async function repository(root: string): Promise<void> {
 	git(root, "commit", "-q", "-m", "initial");
 }
 
-/** Runs the real CLI in the plant with the allowlisted environment plus `options.env`. */
+/** Runs the real CLI in the plant with the allow-listed environment plus `options.env`. */
 export function limen(plant: Plant, args: readonly string[], options: RunOptions = {}): Run {
 	const result = spawnSync(process.execPath, [LIMEN, ...args], {
 		cwd: options.cwd ?? plant.root,

@@ -415,3 +415,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: measured
 - Commit: R-037
 - Rollback: git revert $(git log --format=%H --grep='^R-037:' adrian-rebuild --) (no format change: the closing commit's subject and the `landed` marker are as before)
+
+## 2026-11-25 R-087 The job environment is an allow-list; git and gh in a job hold no credential (T1)
+- What: `src/config.ts` (`JOB_PASSES`, `JOB_SETS`, `crosses` on every exception, `LIMEN_TEST_MODE`; `testKnob` reads a knob only in test mode, `setTestKnob` turns it on; `wrapperEnvironment` builds a new environment from the list and returns what it dropped; `engineEnvironment` drops the wrapper's transport and `HERDR_*` names), `src/runtime/launcher.ts` (the dropped-names log line), `src/runtime/wrapper.ts` (one engine environment for `--prepare` and the engine; `endGate` exported), `src/runtime/job-setup.ts`, `src/job/spawning.ts`, `src/job/continuation.ts`, `src/platform/linux.ts`, `bin/limen-group-fixture.mjs` (the lead's `LIMEN_TEST_MODE=1`), `adrian-rebuild/tools/role-context.mjs`; tests in the new `test/runtime/job-setup.test.ts` and `test/bin/limen-group-fixture.test.ts` and the config, s1 spawn, fake-engine, linux, wrapper, registry, communication and seat files, `test/plant.ts`, `test/environment.ts`, `test/fake-engine.mjs`; `SECURITY.md`, `docs/jobs.md`, `docs/seat/agent-setup.md`; `## Deployment` 3.10
+- Why: A-004, A-061, E-4, D-017, D-012, D-052, T-03, T-25, T-28, T-01
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (1124/1124); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (ten test files); `node --test test/config.test.ts` → exit 0; `node --test test/s1-spawn.test.ts` → exit 0
+- Measurement: unmeasured (plan.md → Measurement: M-10; `## Deployment` 3.10)
+- Commit: R-087
+- Rollback: git revert $(git log --format=%H --grep='^R-087:' adrian-rebuild --) (no data to restore)

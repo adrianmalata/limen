@@ -25,7 +25,8 @@ function git(...args) {
 git("init", "-b", "main");
 git("config", "user.name", "Limen Group Proof");
 git("config", "user.email", "group-proof@example.test");
-// Keep this disposable fixture's seat registration local; never alter the owner's registry.
+// Keep this disposable fixture's seat registration local, here and in the lead it prints the exports for; never alter
+// the owner's registry. Limen reads LIMEN_HOME only in test mode (src/config.ts), so the lead's exports set the marker.
 setTestKnob("LIMEN_HOME", root);
 // The fixture prints init's lines as they come; it is a setup script, not a command with a final line.
 await initProject(root, false, { line: (text) => console.log(text), diagnostic: (text) => console.error(text) });
@@ -72,5 +73,5 @@ for (const [name, content] of Object.entries(files)) {
 git("add", ".");
 git("commit", "-m", "Prepare the group proof ticket");
 console.log(
-	`Fixture: ${root}\nPacket commit: ${git("rev-parse", "HEAD")}\nNo agents launched. No remote configured.\n\nOpen an INTERACTIVE lead (Herdr coordinator pane, LIMEN_COORDINATOR=1 — not a limen spawn job) in this fixture with:\n  export LIMEN_COORDINATOR=1\n  export LIMEN_PACKAGE=${JSON.stringify(candidate)}\n  export PATH=${JSON.stringify(`${candidate}/bin`)}:$PATH\n  export LIMEN_HOME=${JSON.stringify(root)}\n  cd ${JSON.stringify(root)}\n  pi --no-extensions --extension ${JSON.stringify(`${candidate}/templates/limen-extension.ts`)} --provider openai-codex --model gpt-6.1-sol --thinking xhigh\n\nIn that lead's bash tool (not a separate shell):\n  limen group start ${feature} --detached --timeout 30m \\\n    --team pi:openai-codex/gpt-6.1-sol:high \\\n    --team pi:pi-claude/claude-opus-5-5:high \\\n    --team pi:pi-claude/claude-opus-5-5:high \\\n    --rounds draft,critique,final\n\nRetain the group ID. Then wait: the lead hears the result once, after the final round. Check the round folders, the final branch with npm test, and limen group status ID; then limen group close ID. File evidence against docs/groups.md; transport acceptance is not proof.`,
+	`Fixture: ${root}\nPacket commit: ${git("rev-parse", "HEAD")}\nNo agents launched. No remote configured.\n\nOpen an INTERACTIVE lead (Herdr coordinator pane, LIMEN_COORDINATOR=1 — not a limen spawn job) in this fixture with:\n  export LIMEN_COORDINATOR=1\n  export LIMEN_PACKAGE=${JSON.stringify(candidate)}\n  export PATH=${JSON.stringify(`${candidate}/bin`)}:$PATH\n  export LIMEN_TEST_MODE=1\n  export LIMEN_HOME=${JSON.stringify(root)}\n  cd ${JSON.stringify(root)}\n  pi --no-extensions --extension ${JSON.stringify(`${candidate}/templates/limen-extension.ts`)} --provider openai-codex --model gpt-6.1-sol --thinking xhigh\n\nIn that lead's bash tool (not a separate shell):\n  limen group start ${feature} --detached --timeout 30m \\\n    --team pi:openai-codex/gpt-6.1-sol:high \\\n    --team pi:pi-claude/claude-opus-5-5:high \\\n    --team pi:pi-claude/claude-opus-5-5:high \\\n    --rounds draft,critique,final\n\nRetain the group ID. Then wait: the lead hears the result once, after the final round. Check the round folders, the final branch with npm test, and limen group status ID; then limen group close ID. File evidence against docs/groups.md; transport acceptance is not proof.`,
 );

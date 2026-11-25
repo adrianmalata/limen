@@ -221,7 +221,10 @@ async function commandRuns(pid: number, ended: Promise<ProcessEnd>): Promise<str
 	}
 }
 
-/** The folder of the cgroup `cgroup` in the cgroup v2 hierarchy, or in the tests' folder of LIMEN_CGROUP_ROOT. */
+/**
+ * The folder of the cgroup `cgroup` in the cgroup v2 hierarchy, or in test mode in the tests' folder of the test knob
+ * LIMEN_CGROUP_ROOT, which only test mode reads (T-03, R-087).
+ */
 function cgroupFolder(cgroup: string): string {
 	return `${testKnob("LIMEN_CGROUP_ROOT") ?? CGROUP_ROOT}${cgroup}`;
 }
@@ -334,7 +337,8 @@ function callFailure(result: SpawnSyncReturns<string>): string | undefined {
 
 /**
  * This process's cgroup. A test's scope cannot move a process into a cgroup, so the tests' systemd-run gives the
- * cgroup in the test knob LIMEN_CGROUP, which every process of its scope inherits.
+ * cgroup in the test knob LIMEN_CGROUP, which every process of its scope inherits. Only test mode reads it (T-03,
+ * R-087), so on the seat a spawner's environment that held it passes no wrapper outside its scope as in it.
  */
 function ownCgroup(): string | undefined {
 	return testKnob("LIMEN_CGROUP") ?? parseCgroup(readOptional("/proc/self/cgroup") ?? "");

@@ -1,15 +1,36 @@
-// test/fake-engine.mjs: a run takes the messages queued during its turns, then settles once, as Pi does (E-16).
+// test/fake-engine.mjs: a run takes the messages queued during its turns, then settles once, as Pi does (E-16), and
+// the engine records the name of every variable of its environment.
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { engineEvents, plant, until, writeRecord } from "./plant.ts";
 
+const FAKE_ENGINE = fileURLToPath(new URL("./fake-engine.mjs", import.meta.url));
 const WAKE_HOOK = fileURLToPath(new URL("../hook/wake.ts", import.meta.url));
 const SESSION = "coord";
+
+// R-087 (e): a test of a job's environment shows a dropped name of any kind, not only a Limen, Herdr or Pi one.
+test("the fake engine records the name of every variable of its environment in fake-env.json, and no value", async (t) => {
+	const dir = await mkdtemp(join(tmpdir(), "limen-fake-env-"));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+	await writeFile(join(dir, "task.md"), "say recorded\n");
+	const env = { PATH: process.env.PATH ?? "", DEMO_API_TOKEN: "dummy-not-a-secret", LIMEN_JOB: "1" };
+	execFileSync(process.execPath, [FAKE_ENGINE, "--session-dir", join(dir, "session"), `@${join(dir, "task.md")}`], {
+		cwd: dir,
+		env,
+		stdio: "ignore",
+	});
+	const recorded = readFileSync(join(dir, "fake-env.json"), "utf8");
+	assert.deepEqual(
+		[JSON.parse(recorded), recorded.includes("dummy-not-a-secret")],
+		[["DEMO_API_TOKEN", "LIMEN_JOB", "PATH"], false],
+	);
+});
 
 /**
  * The source of an extension that holds the session's first turn at its start until one write to the FIFO

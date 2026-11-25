@@ -56,7 +56,8 @@ test("A-087: 41 processes that register at once past a registry lock whose owner
 	t.after(() => closeSync(hold));
 	const children = projects.map((project) => {
 		const child = spawn(process.execPath, ["--input-type=module", "--eval", script, project], {
-			env: { ...process.env, LIMEN_HOME: home },
+			// Test mode, in which alone the seat folder is read from LIMEN_HOME (src/config.ts).
+			env: { ...process.env, LIMEN_TEST_MODE: "1", LIMEN_HOME: home },
 			stdio: ["ignore", "ignore", "pipe"],
 		});
 		let stderr = "";

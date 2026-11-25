@@ -2,8 +2,9 @@
 zamiast listy odrzucanych nazw; git w jobie nie ma helpera poświadczeń z żadnego pliku konfiguracji i nie pyta o
 hasło, gh czyta pusty folder konfiguracji, `DISABLE_UPDATES=1`; przełączniki testowe działają tylko w trybie testowym
 (`LIMEN_TEST_MODE=1`); spawner zapisuje w logu joba nazwy, które odrzucił. Stan: napisany 23.11 przy `ab36464` z
-inwentarza `evidence/inventories/R-087.md`; pytania inwentarza rozstrzygnięte dokumentami w `## Decisions`; gotowy na
-noc. -->
+inwentarza `evidence/inventories/R-087.md`; pytania inwentarza rozstrzygnięte dokumentami w `## Decisions`;
+sprawdzony ponownie przy `b21bd45` w nocy 24/25.11 (Decyzje 16–18) i zrealizowany tej nocy; poprawki recenzji F1–F4 i
+G1–G2 oraz tekstowe poprawki rund 2 i 3 są na końcu `## Decisions`. -->
 
 # R-087 The job environment is an allow-list; git and gh in a job hold no credential (T1)
 
@@ -248,3 +249,55 @@ Adrian's attention at gate 5.3.
 14. The neighbours (question 14) are `## Out of scope`; the docs of question 14 are (f).
 15. Seat facts (question 16) are step 3.10: the trial job in each project reaches Claude and runs the project's
     checks, its end wakes its coordinator, `systemctl --user` answers inside it, and its log names what was dropped.
+
+Checked again at `HEAD` `b21bd45` (2026-11-24, the night of D-102, protocol step 2, D-025; the main session's reading,
+not a night default). No criterion is a grep or scan. R-029, R-032, R-034, R-036 and R-037 moved cited places, not
+the facts:
+16. `src/config.ts`: `testKnob` is at `:211`, `setTestKnob` at `:216`, `wrapperEnvironment` at `:249`,
+    `engineEnvironment` at `:261`, `groupAdvanceEnvironment` at `:279`. Two test knobs were added: `LIMEN_STALL_TICK_MS`
+    (R-036, read in the wrapper) and `LIMEN_LINGER_DIR` (R-032, read by `src/platform/linux.ts:306` in the sweep's
+    install); (b) covers both, as every knob, so the tests that set them turn test mode on through their helpers.
+    `testKnob` has 17 call sites in `src`, `hook` and `seat` (was 14).
+17. `src/platform/linux.ts`: `cgroupFolder` is at `:225`, `ownCgroup` at `:339`. `src/runtime/wrapper.ts`: the engine's
+    environment is built at `:245`, `endGate` is at `:467` (its comment at `:463`). `src/runtime/launcher.ts:123`
+    (`launchWrapper`) and `src/runtime/job-setup.ts:48` are unchanged.
+18. `test/plant.ts`: the fake `systemctl`'s `/proc/*/environ` search is at `:200`, the plant's `LIMEN_HOME` at `:393`,
+    `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_NOSYSTEM` at `:396-397`, `NODE_OPTIONS` at `:409`, the cleanup's mark at
+    `:472`. `test/fake-engine.mjs` records the names at `:36-37`. `test/config.test.ts`'s deny-list tests start at
+    `:303` and `:324`. `docs/commands.md`'s sentence on knobs is at `:202`. `SECURITY.md:5` and
+    `docs/seat/agent-setup.md:135` are unchanged.
+
+Review round 1 (2026-11-25, the night of D-102; `review.md` → Round 1), the findings to fix:
+- F1 (finding 1, blocking): `bin/limen-group-fixture.mjs` prints `export LIMEN_TEST_MODE=1` beside `export
+  LIMEN_HOME=…` in the lead's commands, so the interactive lead's `limen` and wake hook read the fixture's `LIMEN_HOME`
+  (its comment at `:28`; `docs/jobs.md`'s sentence on the fixtures of manual checks). With a test that fails before
+  the fix: the fixture's printed exports, run in a temporary folder, hold the marker whenever they hold a knob (where
+  the test lives is the implementer's choice, T-29 (1)). `outcome.md` (b)'s "needs no change" is corrected.
+- F2 (finding 2; a night default, for Adrian to confirm in the morning, D-054 (2) (b): a technical choice inside
+  `## Change` that serves AC-9's "never asks"): `JOB_SETS` holds `GIT_ASKPASS=` (empty), so git's prompt skips an
+  askpass program named by `core.askPass` in any configuration file and by `SSH_ASKPASS`, and goes to
+  `GIT_TERMINAL_PROMPT=0`. With a test that fails before: a repository whose own `.git/config` names a `core.askPass`
+  script that prints a password gives the engine's `git credential fill` no password, and the script never runs. The
+  docs that list what Limen sets (`docs/jobs.md`'s section) name it.
+- F3 (finding 3, text only): `docs/jobs.md`'s section and the `carries` line of `GH_CONFIG_DIR` (`src/config.ts`) say
+  that the folder hides gh's configuration files, so gh finds no login there, and that a login gh keeps in a system
+  keyring through the user bus (which passes, R-026) would still be found; step 3.10's `gh auth status` shows which.
+  `outcome.md` → `## Open points` names it for gate 5.3.
+- F4 (finding 6): the comment lines over 120 columns and the comment broken mid-sentence (`test/fake-engine.mjs:19`,
+  `test/plant.ts:2`, `test/plant.ts:443`).
+- Not fixed, with reasons in `review.md`: findings 4 (R-082's ratchet), 5 (Deviation 1) and 7 (one mechanism each).
+
+Review round 2 (2026-11-25, the night of D-102; `review.md` → Round 2; PASS), the second and last round of fixes:
+- G1 (finding 3): a test through the wrapper that `--prepare` runs with the engine's environment: a plant spawn whose
+  spawner holds a `HERDR_*` name and whose prepare command records its environment's names (never values) gives a
+  record with no `HERDR_*` name and no wrapper transport name, and with the engine's `LIMEN_JOB`; it fails at `HEAD`,
+  where the prepare command gets the wrapper's environment. Where the test lives is the implementer's choice (T-29
+  (1)); `outcome.md` (`## Done` (e), `## Proof`, `## Fails before`, Deviation 2) names it.
+- G2 (the taste answer on T-18): the comments at `test/plant.ts:2` and `:511` write "allow-list", as `src/` and the docs
+  do.
+- Fixed by the main session as text (D-053 (2)): findings 1 and 2 (step 3.10 names `GIT_ASKPASS`; `gh api user
+  --silent` in the job and `gh auth status` outside it; `docs/jobs.md`, `docs/seat/agent-setup.md:137`, `outcome.md`).
+
+Review round 3 (2026-11-25, the night of D-102; `review.md` → Round 3; PASS, the rounds of fixes spent): both notes
+are text, closed by the main session (D-053 (2)): `~/.netrc` in `docs/jobs.md`'s boundary item, step 3.10 and
+`outcome.md` → Open point 7; `review.md`'s Polish summary.

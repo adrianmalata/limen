@@ -1,7 +1,9 @@
 /* PL: Moduł pomiaru kontekstu ról Limena, używany przez context-size.mjs. Rozpakowuje drzewo danego refa do katalogu
    tymczasowego, tworzy fiksturę projektu prawdziwym `limen init` (opcjonalnie z plikami prawdziwego projektu,
    kopiowanymi tylko do odczytu) i wywołuje hooki `communication` oraz `finish` z atrapą API silnika, tak jak robi to
-   test/fake-engine.mjs. Zwraca bajty promptu systemowego, ukrytego cue na prompt i dodatków raz na sesję. Stan: działa. */
+   test/fake-engine.mjs. Zwraca bajty promptu systemowego, ukrytego cue na prompt i dodatków raz na sesję. Fikstura
+   działa w trybie testowym (`LIMEN_TEST_MODE=1` obok `LIMEN_HOME` i `LIMEN_HERDR`), bo od R-087 tylko w nim Limen
+   czyta pokrętła testowe. Stan: działa. */
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -41,7 +43,15 @@ function fixture(pkg, dir, project) {
 	mkdirSync(root);
 	mkdirSync(home);
 	run("git", ["init", "-q"], { cwd: root });
-	const env = { ...process.env, HOME: home, LIMEN_HOME: home, LIMEN_HERDR: "0", LIMEN_PACKAGE: pkg };
+	// Test mode, in which alone Limen reads LIMEN_HOME and LIMEN_HERDR (R-087); an older ref reads them without it.
+	const env = {
+		...process.env,
+		HOME: home,
+		LIMEN_TEST_MODE: "1",
+		LIMEN_HOME: home,
+		LIMEN_HERDR: "0",
+		LIMEN_PACKAGE: pkg,
+	};
 	run(process.execPath, [join(pkg, "bin/limen"), "init"], { cwd: root, env });
 	for (const path of project ? PROJECT_FILES : []) {
 		if (existsSync(join(project, path))) {
@@ -134,7 +144,7 @@ export async function measureRoles(ref, project) {
 	try {
 		const pkg = extract(ref, dir);
 		const { root, home, jobDir } = fixture(pkg, dir, project);
-		const base = { HOME: home, LIMEN_HOME: home, LIMEN_HERDR: "0", LIMEN_PACKAGE: pkg };
+		const base = { HOME: home, LIMEN_TEST_MODE: "1", LIMEN_HOME: home, LIMEN_HERDR: "0", LIMEN_PACKAGE: pkg };
 		setEnv({ ...base, ...Object.fromEntries(JOB_ENV.map((name) => [name, undefined])) });
 		const coordinator = await session(pkg, root, "Hello.");
 		const wake = await session(pkg, root, 'Limen job "probe" finished.');

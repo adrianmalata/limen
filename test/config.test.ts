@@ -100,8 +100,9 @@ test("the configuration scan finds each read form and an unregistered name, but 
  * since: LIMEN_LOCK_WAIT_MS, the lock module's wait bound (R-019), LIMEN_CGROUP_ROOT and LIMEN_CGROUP, the tests'
  * systemd user scopes (R-026), LIMEN_ALERTS_URL, the ntfy server of the alerts' tests (R-033), LIMEN_STOP_GRACE_MS,
  * the one grace of stop, exhaustion and the reaper (R-027), LIMEN_END_GATE, the tests' hold of a wrapper's end
- * (R-028), LIMEN_LINGER_DIR, the folder of the linger files the sweep's install reads (R-032), and
- * LIMEN_STALL_TICK_MS, the tick of a wrapper's samples of its scope's CPU time (R-036).
+ * (R-028), LIMEN_LINGER_DIR, the folder of the linger files the sweep's install reads (R-032),
+ * LIMEN_STALL_TICK_MS, the tick of a wrapper's samples of its scope's CPU time (R-036), and LIMEN_TEST_MODE, the
+ * marker of test mode, in which alone the knobs are read (R-087).
  */
 const INVENTORY = {
 	"transport wrapper": [
@@ -136,6 +137,7 @@ const INVENTORY = {
 		"LIMEN_CGROUP",
 		"LIMEN_ALERTS_URL",
 		"LIMEN_LINGER_DIR",
+		"LIMEN_TEST_MODE",
 	],
 	exception: [
 		"LIMEN_WORKER_MODEL",
@@ -177,12 +179,15 @@ test("the registry holds every name of R-015's inventory with the kind it gives,
 	assert.deepEqual(kinds, Object.fromEntries(listed));
 });
 
-test("each exception names the ticket that ends it, and each removed name the place that replaces it", () => {
+// R-087 (a): only the two exceptions whose readers run inside a job cross into one; never LIMEN_COORDINATOR (A-061).
+test("each exception names the ticket that ends it and whether it crosses into a job, and each removed name the place that replaces it", () => {
 	const ends = Object.fromEntries(
-		Object.entries(ENVIRONMENT).flatMap(([name, entry]) => (entry.kind === "exception" ? [[name, entry.until]] : [])),
+		Object.entries(ENVIRONMENT).flatMap(([name, entry]) =>
+			entry.kind === "exception" ? [[name, `${entry.until}${entry.crosses ? ", crosses" : ""}`]] : [],
+		),
 	);
 	assert.deepEqual(ends, {
-		LIMEN_WORKER_MODEL: "R-062",
+		LIMEN_WORKER_MODEL: "R-062, crosses",
 		LIMEN_COORDINATOR: "R-050",
 		LIMEN_GITHUB_APP_ID: "R-059",
 		LIMEN_GITHUB_KEY_FILE: "R-059",
@@ -190,7 +195,7 @@ test("each exception names the ticket that ends it, and each removed name the pl
 		LIMEN_GITHUB_PROJECTS_FILE: "R-059",
 		LIMEN_GITHUB_STATE_DIR: "R-059",
 		LIMEN_GITHUB_WORKER_UID: "R-059",
-		LIMEN_PACKAGE: "R-049",
+		LIMEN_PACKAGE: "R-049, crosses",
 	});
 	const places = new Map<string, RegExp>([
 		["LIMEN_PREPARE_MS", /^prepare in \.agents\/limen\/limits\.json$/],
@@ -232,7 +237,9 @@ function everyReading(): Record<string, string | undefined> {
 
 test("T-03: a removed name set in the environment changes nothing a reader returns, and every reader refuses it", (t) => {
 	const before = everyReading();
-	withEnvironment(t, Object.fromEntries(namesOf("removed").map((name) => [name, "1"])));
+	// In the test mode the test found, so only the removed names change.
+	const mode = process.env.LIMEN_TEST_MODE === "1" ? "1" : "0";
+	withEnvironment(t, { ...Object.fromEntries(namesOf("removed").map((name) => [name, "1"])), LIMEN_TEST_MODE: mode });
 	assert.deepEqual(everyReading(), before);
 	for (const name of namesOf("removed")) {
 		const refusal = new RegExp(`^${name} is not a`);
@@ -262,6 +269,25 @@ test("setTestKnob sets a test knob that testKnob reads, and refuses a name of an
 		assert.throws(() => setTestKnob(name, "set"), { message: new RegExp(`^${name} is not a test knob`) });
 	}
 	assert.deepEqual({ ...process.env }, before);
+});
+
+// T-03, R-087 (b): on the seat a spawner's environment that holds a knob changes nothing; LIMEN_CGROUP, say, would pass
+// an unscoped wrapper, and LIMEN_END_GATE hold every job's end.
+test("T-03: testKnob returns nothing for a set knob outside test mode, which only LIMEN_TEST_MODE=1 turns on", (t) => {
+	const knobs = namesOf("test").filter((name) => name !== "LIMEN_TEST_MODE");
+	withEnvironment(t, Object.fromEntries(knobs.map((name) => [name, `set ${name}`])));
+	const readings = ["", "0", "true", "1"].map((mode) => {
+		process.env.LIMEN_TEST_MODE = mode;
+		return knobs.filter((name) => testKnob(name) === `set ${name}`).length;
+	});
+	assert.deepEqual(readings, [0, 0, 0, knobs.length]);
+});
+
+test("setTestKnob turns test mode on for its process, so the knob it sets is read", (t) => {
+	withEnvironment(t, { LIMEN_TEST_MODE: "0", LIMEN_HOME: "/before" });
+	const before = testKnob("LIMEN_HOME");
+	setTestKnob("LIMEN_HOME", "/fixture");
+	assert.deepEqual([before, testKnob("LIMEN_HOME"), process.env.LIMEN_TEST_MODE], [undefined, "/fixture", "1"]);
 });
 
 test("each reader returns the value of a name of its kind and refuses a name of another kind or an unknown name", (t) => {
@@ -297,31 +323,161 @@ test("ignoredSettings lists a removed name, an unknown LIMEN_ name and an except
 		],
 		exceptions: [{ name: "LIMEN_WORKER_MODEL", until: "R-062" }],
 	});
-	assert.deepEqual(ignoredSettings({ LIMEN_JOB: "1", LIMEN_HOME: "/home" }), { ignored: [], exceptions: [] });
-});
-
-test("wrapperEnvironment drops the spawner's LIMEN_TIMEOUT_MS, LIMEN_CONTINUE and removed names, and keeps what the spawner passes", (t) => {
-	withEnvironment(t, {
-		LIMEN_TIMEOUT_MS: "1000",
-		LIMEN_CONTINUE: "1",
-		LIMEN_JOB: "1",
-		LIMEN_PREPARE: "pnpm install",
-		LIMEN_HOME: "/home",
-		LIMEN_PACKAGE: "/package",
+	assert.deepEqual(ignoredSettings({ LIMEN_JOB: "1", LIMEN_HOME: "/home", LIMEN_TEST_MODE: "1" }), {
+		ignored: [],
+		exceptions: [],
 	});
-	const built = wrapperEnvironment({ LIMEN_JOB_DIR: "/jobs/a", LIMEN_LABEL: "a" });
-	assert.deepEqual(
-		[built.LIMEN_TIMEOUT_MS, built.LIMEN_CONTINUE, built.LIMEN_JOB, built.LIMEN_PREPARE],
-		[undefined, undefined, undefined, undefined],
-	);
-	assert.deepEqual(
-		[built.LIMEN_JOB_DIR, built.LIMEN_LABEL, built.LIMEN_HOME, built.LIMEN_PACKAGE, built.PATH],
-		["/jobs/a", "a", "/home", "/package", process.env.PATH],
-	);
-	assert.equal(wrapperEnvironment({ LIMEN_TIMEOUT_MS: "2000" }).LIMEN_TIMEOUT_MS, "2000");
 });
 
-test("engineEnvironment drops every wrapper transport name and the wrapper's Pi and Herdr names, and keeps the engine's", () => {
+/**
+ * A spawner's environment, a coordinator's shell (R-087 (e)): the names the list passes (the account, the locale, the
+ * user bus, the Herdr pane), a token-shaped dummy, an agent socket, a git configuration and a Pi session of its own,
+ * the exceptions, a knob and the tests' names, and a transport and a removed name of its own. Every value is a dummy.
+ */
+const SPAWNER: Readonly<Record<string, string>> = {
+	HOME: "/home/agents",
+	PATH: "/usr/local/bin:/usr/bin:/bin",
+	USER: "agents",
+	LOGNAME: "agents",
+	LANG: "C.UTF-8",
+	LC_TIME: "en_GB.UTF-8",
+	TZ: "Europe/Warsaw",
+	TMPDIR: "/tmp",
+	XDG_RUNTIME_DIR: "/run/user/1001",
+	DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/1001/bus",
+	HERDR_ENV: "1",
+	HERDR_PANE_ID: "pane",
+	SHELL: "/bin/bash",
+	DEMO_API_TOKEN: "dummy-not-a-secret",
+	SSH_AUTH_SOCK: "/run/user/1001/ssh-agent.sock",
+	GIT_CONFIG_COUNT: "1",
+	GIT_CONFIG_KEY_0: "credential.helper",
+	GIT_CONFIG_VALUE_0: "!gh auth git-credential",
+	PI_SESSION_ID: "coordinator",
+	LIMEN_COORDINATOR: "1",
+	LIMEN_GITHUB_KEY_FILE: "/keys/app.pem",
+	LIMEN_PACKAGE: "/opt/limen",
+	LIMEN_WORKER_MODEL: "p/m",
+	LIMEN_END_GATE: "/gate",
+	NODE_OPTIONS: "--import=/sink.mjs",
+	GIT_CONFIG_GLOBAL: "/dev/null",
+	LIMEN_TIMEOUT_MS: "1000",
+	LIMEN_PREPARE: "pnpm install",
+};
+/** The spawner's names that the list passes in and out of test mode. */
+const ALWAYS = ["HOME", "PATH", "USER", "LOGNAME", "LANG", "LC_TIME", "TZ", "TMPDIR"] as const;
+const USER_BUS = ["XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"] as const;
+const CROSSING = ["LIMEN_PACKAGE", "LIMEN_WORKER_MODEL"] as const;
+/** The spawner's names that the list passes only in test mode: a knob, and the tests' Node and git names. */
+const TESTS_ONLY = ["LIMEN_END_GATE", "NODE_OPTIONS", "GIT_CONFIG_GLOBAL"] as const;
+/** What a spawn passes to its job's wrapper. */
+const PASSED = {
+	LIMEN_JOB_DIR: "/jobs/a",
+	LIMEN_LABEL: "a",
+	LIMEN_INTERNAL_RUN: "1",
+	LIMEN_JOB_ID: "job-a",
+	LIMEN_CONTEXT_ROOT: "/project",
+} as const;
+/** What Limen sets in every job's environment (R-087 (a)), for the job folder `jobDir`. */
+const limenSets = (jobDir: string) => ({
+	DISABLE_UPDATES: "1",
+	GIT_CONFIG_COUNT: "1",
+	GIT_CONFIG_KEY_0: "credential.helper",
+	GIT_CONFIG_VALUE_0: "",
+	GIT_TERMINAL_PROMPT: "0",
+	GIT_ASKPASS: "",
+	GH_CONFIG_DIR: `${jobDir}/gh-config`,
+});
+/** The spawner's values of `names`. */
+const spawners = (names: readonly string[]): Record<string, string> =>
+	Object.fromEntries(names.map((name) => [name, SPAWNER[name] ?? ""]));
+
+// A-004 (T1): a job's environment is built from the allow-list alone, never from a copy of the spawner's.
+test("A-004: outside test mode a job's wrapper gets only the list's names of its spawner, Limen's values and what the spawn passes, and the rest is named as dropped", () => {
+	assert.deepEqual(wrapperEnvironment(PASSED, SPAWNER), {
+		environment: {
+			...spawners([...ALWAYS, ...USER_BUS, "HERDR_ENV", "HERDR_PANE_ID", ...CROSSING]),
+			...limenSets("/jobs/a"),
+			...PASSED,
+		},
+		dropped: [
+			"DEMO_API_TOKEN",
+			"GIT_CONFIG_GLOBAL",
+			"LIMEN_COORDINATOR",
+			"LIMEN_END_GATE",
+			"LIMEN_GITHUB_KEY_FILE",
+			"LIMEN_PREPARE",
+			"LIMEN_TIMEOUT_MS",
+			"NODE_OPTIONS",
+			"PI_SESSION_ID",
+			"SHELL",
+			"SSH_AUTH_SOCK",
+		],
+	});
+});
+
+test("A-004: in its spawner's test mode a job's wrapper gets the knobs, the marker and the tests' Node and git names too", () => {
+	assert.deepEqual(wrapperEnvironment(PASSED, { ...SPAWNER, LIMEN_TEST_MODE: "1" }), {
+		environment: {
+			...spawners([...ALWAYS, ...USER_BUS, "HERDR_ENV", "HERDR_PANE_ID", ...CROSSING, ...TESTS_ONLY]),
+			LIMEN_TEST_MODE: "1",
+			...limenSets("/jobs/a"),
+			...PASSED,
+		},
+		dropped: [
+			"DEMO_API_TOKEN",
+			"LIMEN_COORDINATOR",
+			"LIMEN_GITHUB_KEY_FILE",
+			"LIMEN_PREPARE",
+			"LIMEN_TIMEOUT_MS",
+			"PI_SESSION_ID",
+			"SHELL",
+			"SSH_AUTH_SOCK",
+		],
+	});
+});
+
+test("A-004: a job's engine gets the wrapper's names without the wrapper's transport and Herdr names, in and out of test mode", () => {
+	const engine = (spawner: Readonly<Record<string, string>>) =>
+		Object.keys(
+			engineEnvironment(wrapperEnvironment(PASSED, spawner).environment, { LIMEN_JOB: "1", LIMEN_JOB_ID: "job-a" }),
+		).sort();
+	const names = [
+		...ALWAYS,
+		...USER_BUS,
+		...CROSSING,
+		...Object.keys(limenSets("")),
+		"LIMEN_JOB",
+		"LIMEN_JOB_ID",
+		"LIMEN_CONTEXT_ROOT",
+	];
+	assert.deepEqual(
+		[engine(SPAWNER), engine({ ...SPAWNER, LIMEN_TEST_MODE: "1" })],
+		[[...names].sort(), [...names, ...TESTS_ONLY, "LIMEN_TEST_MODE"].sort()],
+	);
+});
+
+// R-087 (a), Decision 11: a job's own spawn goes through the list again.
+test("A-004: the list applied to an engine's environment, a nested spawn, keeps the account, the user bus and the crossing exceptions and drops the parent's transport", () => {
+	const parent = engineEnvironment(wrapperEnvironment(PASSED, SPAWNER).environment, {
+		LIMEN_JOB: "1",
+		LIMEN_JOB_ID: "job-a",
+	});
+	const nested = { LIMEN_JOB_DIR: "/jobs/b", LIMEN_JOB_ID: "job-b", LIMEN_CONTEXT_ROOT: "/project" } as const;
+	assert.deepEqual(wrapperEnvironment(nested, parent), {
+		environment: { ...spawners([...ALWAYS, ...USER_BUS, ...CROSSING]), ...limenSets("/jobs/b"), ...nested },
+		dropped: ["LIMEN_JOB"],
+	});
+});
+
+test("A-004: a spawner with no name of its own gives a job Limen's values and what the spawn passes, and drops nothing", () => {
+	assert.deepEqual(wrapperEnvironment({ LIMEN_JOB_DIR: "/jobs/c" }, {}), {
+		environment: { ...limenSets("/jobs/c"), LIMEN_JOB_DIR: "/jobs/c" },
+		dropped: [],
+	});
+});
+
+test("engineEnvironment drops every wrapper transport name and every Herdr name of its base, and keeps the rest", () => {
 	const wrapperNames = namesOf("transport").filter((name) => ENVIRONMENT[name].reader === "wrapper");
 	const base = {
 		...Object.fromEntries(wrapperNames.map((name) => [name, "1"])),
@@ -329,22 +485,12 @@ test("engineEnvironment drops every wrapper transport name and the wrapper's Pi 
 		LIMEN_CONTEXT_ROOT: "/project",
 		LIMEN_GROUP_ID: "group",
 		LIMEN_HOME: "/home",
-		PI_SESSION_ID: "session",
-		PI_SESSION_FILE: "/session.jsonl",
-		PI_PROVIDER: "p",
-		PI_MODEL: "m",
-		PI_REASONING_LEVEL: "high",
 		HERDR_PANE_ID: "pane",
 		HERDR_ENV: "1",
 		PATH: "/bin",
 	};
-	const built = engineEnvironment(base, { LIMEN_JOB: "1" });
 	assert.ok(wrapperNames.includes("LIMEN_CONTINUE"));
-	assert.deepEqual(
-		Object.keys(built).filter((name) => wrapperNames.some((wrapper) => wrapper === name)),
-		[],
-	);
-	assert.deepEqual(built, {
+	assert.deepEqual(engineEnvironment(base, { LIMEN_JOB: "1" }), {
 		LIMEN_JOB: "1",
 		LIMEN_JOB_ID: "job",
 		LIMEN_CONTEXT_ROOT: "/project",

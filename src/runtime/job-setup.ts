@@ -16,11 +16,13 @@ export function worktreeMissing(worktree: string): string | undefined {
 
 /**
  * The setup spawn hands to the job's owner after publication, so spawn returns before it: prune finished worktrees,
- * then run `--prepare` in the worktree. `LIMEN_SETUP_KEEP` names the spawner's checkout and marks a start that owes
- * setup; a continue or a recovery does not set it. Each step logs its result and time; neither failure ends the job.
- * The log also names each entry of the plant's limits file that Limen ignores.
+ * then run `--prepare` in the worktree with `environment`, the one the wrapper gives its engine: the command is the
+ * project's code, as the engine's tools are, so it gets no Herdr name and no transport name only the wrapper reads
+ * (R-087 (c)). `LIMEN_SETUP_KEEP` names the spawner's checkout and marks a start that owes setup; a continue or a
+ * recovery does not set it. Each step logs its result and time; neither failure ends the job. The log also names each
+ * entry of the plant's limits file that Limen ignores.
  */
-export async function setUpJob(jobDir: string, worktree: string): Promise<void> {
+export async function setUpJob(jobDir: string, worktree: string, environment: NodeJS.ProcessEnv): Promise<void> {
 	const keep = transport("LIMEN_SETUP_KEEP");
 	const root = transport("LIMEN_CONTEXT_ROOT");
 	if (!(keep && root)) {
@@ -38,14 +40,20 @@ export async function setUpJob(jobDir: string, worktree: string): Promise<void> 
 	}
 	const command = transport("LIMEN_SETUP_PREPARE")?.trim();
 	if (command) {
-		await runPrepare(jobDir, worktree, command, limitMs("prepare", DEFAULT_PREPARE_MS, root));
+		const timeoutMs = limitMs("prepare", DEFAULT_PREPARE_MS, root);
+		await runPrepare(jobDir, { cwd: worktree, env: environment }, command, timeoutMs);
 	}
 }
-async function runPrepare(jobDir: string, worktree: string, command: string, timeoutMs: number): Promise<void> {
+async function runPrepare(
+	jobDir: string,
+	where: { readonly cwd: string; readonly env: NodeJS.ProcessEnv },
+	command: string,
+	timeoutMs: number,
+): Promise<void> {
 	const start = Date.now();
 	let output = "";
 	const failure = await new Promise<string | undefined>((resolve) => {
-		const child = spawn(command, { cwd: worktree, shell: true, stdio: ["ignore", "pipe", "pipe"], timeout: timeoutMs });
+		const child = spawn(command, { ...where, shell: true, stdio: ["ignore", "pipe", "pipe"], timeout: timeoutMs });
 		child.stdout.on("data", (chunk: Buffer) => {
 			output += chunk.toString();
 		});

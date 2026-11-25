@@ -28,6 +28,7 @@ import {
 	testCases,
 	thrownCodes,
 } from "./coverage.ts";
+import { withEnvironment } from "./environment.ts";
 import { readOutcome } from "./final-line.ts";
 import { knownFilesBelow } from "./known-files.ts";
 import { jobDir, jobRecord, limen, type Plant, plant, spawnJob, waitJob, writeRecord } from "./plant.ts";
@@ -213,16 +214,8 @@ test("UNDECLARED_IDS: a handler that returns an ids key its entry does not decla
 	const errors: string[] = [];
 	t.mock.method(console, "error", (line: unknown) => errors.push(String(line)));
 	t.mock.method(console, "log", () => {});
-	// No rule timer starts from this in-process run (src/commands/rule.ts, endDueRules).
-	const herdr = process.env.LIMEN_HERDR;
-	process.env.LIMEN_HERDR = "0";
-	t.after(() => {
-		if (herdr === undefined) {
-			delete process.env.LIMEN_HERDR;
-		} else {
-			process.env.LIMEN_HERDR = herdr;
-		}
-	});
+	// No rule timer starts from this in-process run (src/commands/rule.ts, endDueRules); the helper turns test mode on.
+	withEnvironment(t, { LIMEN_HERDR: "0" });
 	await main(["probe"], process.cwd(), [probe]);
 	const code = process.exitCode;
 	process.exitCode = 0;
@@ -257,15 +250,8 @@ test("T-26: the wrapper prints a command's text when the command ends, the text 
 			throw new LimenError({ class: "refused", code: "PROBE_REFUSED", message: "probe refused", next: null });
 		},
 	};
-	const herdr = process.env.LIMEN_HERDR;
-	process.env.LIMEN_HERDR = "0";
-	t.after(() => {
-		if (herdr === undefined) {
-			delete process.env.LIMEN_HERDR;
-		} else {
-			process.env.LIMEN_HERDR = herdr;
-		}
-	});
+	// No rule timer starts from this in-process run; the helper turns test mode on.
+	withEnvironment(t, { LIMEN_HERDR: "0" });
 	await main(["probe"], process.cwd(), [probe]);
 	const status = process.exitCode === undefined ? null : Number(process.exitCode);
 	process.exitCode = 0;

@@ -1718,7 +1718,7 @@ Columns:
 | R-035 | Start-queue thresholds: a diagnosis at 30 min, a failure at 2 h | 3 | A-036 | R-026, R-033 | L | delegated | night | — | systemd | 3.8 | done |
 | R-036 | Stall is measured over the whole job scope | 3 | A-059 | R-026 | M | delegated | night | — | systemd | 3.8 | done |
 | R-037 | The closing commit of land and `ticket done` is atomic | 3 | A-021, A-057, T-38, D-094 | R-023, R-031, R-092 | M | delegated | night | — | — | — | done |
-| R-087 | The job environment is an allow-list; git and gh in a job hold no credential (T1) | 3 | A-004, A-061, E-4, D-017 | R-015, R-021, R-026 | M | delegated | night | — | pi, bridge | 3.10 | ready |
+| R-087 | The job environment is an allow-list; git and gh in a job hold no credential (T1) | 3 | A-004, A-061, E-4, D-017 | R-015, R-021, R-026 | M | delegated | night | — | pi, bridge | 3.10 | done |
 | R-098 | `limen stats` per landed ticket and per coordinator turn | 3 | §2, A-078, A-037, D-072, D-098 | R-024, R-031 | M | delegated | night | — | pi | B.3, B.4 | ready |
 | R-100 | One definition of the ISO time, the 429 rule, the error-code check and the jobs listing | 3 | T-25, D-080 | R-022, R-093, R-097 | S | delegated | night | — | — | — | done |
 | R-101 | Prune, retire and leftover Herdr tabs are steps of the sweep; nothing is deleted | 3 | A-024, A-002, T-18, T-28, D-092, D-094, D-096, D-097 | R-032 | M | delegated | night | yes | herdr | 3.9 | ready (D-097) |
@@ -2270,10 +2270,14 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
 - **3.10** A trial job in each project reaches Claude with the allow-listed environment and runs the project's own
   checks, before the projects resume (D-012). Inside it: `env` names only the list's names (`docs/jobs.md`), Limen's
   own (`DISABLE_UPDATES` is `1`, `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_0`, `GIT_CONFIG_VALUE_0`, `GIT_TERMINAL_PROMPT`,
-  `GH_CONFIG_DIR`, the engine's `LIMEN_*` transport) and those Pi and the bridge set on Pi's own process
-  (`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`), with no `LIMEN_COORDINATOR`, `LIMEN_TEST_MODE` or other test knob;
-  `printf 'protocol=https\nhost=github.com\n\n' | git credential fill` fails and prints no password; `gh auth status`
-  reports no login; `systemctl --user is-system-running` answers (the user bus a nested spawn needs). The job's log
+  an empty `GIT_ASKPASS`, `GH_CONFIG_DIR`, the engine's `LIMEN_*` transport) and those Pi and the bridge set on Pi's
+  own process (`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`), with no `LIMEN_COORDINATOR`, `LIMEN_TEST_MODE` or other
+  test knob; `printf 'protocol=https\nhost=github.com\n\n' | git credential fill` fails and prints no password, and
+  the account has no `~/.netrc`, which git's HTTP transport reads with no helper (R-087 review round 3, note 1); `gh api
+  user --silent` fails (no login reaches gh, one in a system keyring included), and outside the job `gh auth status`
+  names where the account's token is stored, a file or a keyring (R-087 review round 2, note 2: a job's `gh auth
+  status` lists no host once `GH_CONFIG_DIR` hides `hosts.yml`, even when a keyring login would still authenticate);
+  `systemctl --user is-system-running` answers (the user bus a nested spawn needs). The job's log
   names what the list dropped, and the job's end wakes its coordinator (the wrapper's Herdr names). A name that a
   project's check needs and the list dropped is reported to the main session before the projects resume (R-087,
   D-017).
@@ -4451,3 +4455,22 @@ criteria against the allow-list); `HEAD` equal to `origin/adrian-rebuild`, clean
   paragraph). Each ticket's `ticket.md` is checked again at `HEAD` first (protocol step 2, D-025).
 - `limen-rebuild-31` starts the runner by D-102 (2) right after the commit of this entry, as a background task, and
   then changes nothing in the repository until the runner's end wakes it (D-102 (1), (3)).
+- Run 1 started at 23:03:38 (`.night/launcher.log`). R-087 `active` (23:10): its `ticket.md` (written at `ab36464`)
+  was checked again at `HEAD` `b21bd45` (protocol step 2, D-025): no criterion is a grep or scan; R-032 and R-036
+  added the test knobs `LIMEN_LINGER_DIR` and `LIMEN_STALL_TICK_MS`, which (b) covers, and moved cited places
+  (`ticket.md` → `## Decisions` 16–18). One command of this session was refused by the permissions (an `awk` in a
+  pipe, off the list) and was not worked around. Next: the implementer (protocol step 3).
+- R-087 `done` (delegated): a job's environment is built from the allow-list `JOB_PASSES` of `src/config.ts`, never
+  from a copy of the spawner's; Limen sets `DISABLE_UPDATES=1`, an empty `credential.helper` through
+  `GIT_CONFIG_COUNT`, `GIT_TERMINAL_PROMPT=0`, an empty `GIT_ASKPASS` and `GH_CONFIG_DIR` at a folder it never
+  creates; `LIMEN_COORDINATOR` and the poller's six names never cross, `LIMEN_PACKAGE` and `LIMEN_WORKER_MODEL` do
+  until their tickets; a test knob is read only with `LIMEN_TEST_MODE=1`; `--prepare` gets the engine's environment;
+  the job's log names the dropped names. Review FAIL in round 1 (the group fixture printed `LIMEN_HOME` without the
+  marker, so a manual group proof would have used the account's real registry), PASS in rounds 2 and 3, with two
+  rounds of fixes (F1–F4, G1–G2) and the main session's text fixes of rounds 2 and 3 (step 3.10: `GIT_ASKPASS`, `gh api
+  user --silent` in the job, `gh auth status` outside it, no `~/.netrc`). Gate 1124/1124. Night default for Adrian to
+  confirm: F2, the empty `GIT_ASKPASS` (`ticket.md` → `## Decisions`, D-054 (2) (b)). For gate 5.3: `outcome.md` →
+  Open points 4 (a gh login in a system keyring would still be found; step 3.10 shows which) and 7 (`~/.netrc`), and
+  Decisions 1, 2, 4 and 10. Unmeasured: step 3.10. Two commands of this session were refused by the permissions (an
+  `echo` after a guard call; a `gate.mjs --out`) and were not worked around; the reviewer's own Biome run was refused
+  too (not on its list), so AC-8 was judged from the records. Next: R-098 (protocol step 2).

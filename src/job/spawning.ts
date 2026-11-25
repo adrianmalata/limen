@@ -10,7 +10,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { TransportName } from "../config.ts";
+import type { WrapperValues } from "../config.ts";
 import { herdrBinary, openWatchTab } from "../integrations/herdr.ts";
 import { hunkBinary } from "../integrations/hunk.ts";
 import { type NameSource, refuseRemovedRole } from "../old-names.ts";
@@ -693,7 +693,7 @@ async function startDetachedJob(plan: SpawnPlan, job: SpawnedJob, versions: Prom
 	const { options, model, group, out } = plan;
 	const { jobDir, id, root } = job;
 	await openWatchTab({ jobDir, label: options.label, cwd: root, logPath: `${jobDir}/log`, role: job.role });
-	const environment: Partial<Record<TransportName, string>> = {
+	const environment: WrapperValues = {
 		LIMEN_JOB_DIR: jobDir,
 		LIMEN_WORKTREE: job.worktree,
 		LIMEN_TASK_FILE: `${jobDir}/task.md`,

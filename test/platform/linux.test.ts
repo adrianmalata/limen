@@ -1,9 +1,9 @@
 // src/platform/linux.ts: its parsers on fixture text (/proc/<pid>/stat, /proc/meminfo, the boot id, a process's cgroup,
-// a scope's readings), the CPU time of one cgroup and the units of the user manager on a fake cgroup hierarchy, the
-// state and the signals of a user scope on the tests' systemd (test/plant.ts), and the linger file, the user unit
-// folder and the user manager's answers of the seat sweep's units.
+// a scope's readings), the CPU time of one cgroup and the units of the user manager on a fake cgroup hierarchy, which
+// only test mode reads, the state and the signals of a user scope on the tests' systemd (test/plant.ts), and the linger
+// file, the user unit folder and the user manager's answers of the seat sweep's units.
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
@@ -103,6 +103,20 @@ async function cgroupTree(t: TestContext, own: string, files: Readonly<Record<st
 	withEnvironment(t, { LIMEN_CGROUP_ROOT: root, LIMEN_CGROUP: own });
 	return root;
 }
+
+// T-03, R-087 (b): on the seat a spawner's environment that held either knob would pass an unscoped wrapper as in its
+// scope, or read and end a scope in a folder of its own (the R-050, R-087 note of `plan.md`).
+test("ownCgroup and the cgroup folder ignore LIMEN_CGROUP and LIMEN_CGROUP_ROOT outside test mode", async (t) => {
+	const cgroup = `${MANAGER}/app.slice/limen-job-2026-11-25-mode-1a2b3c4d.scope`;
+	const root = await cgroupTree(t, cgroup, { [`${cgroup}/cpu.stat`]: "usage_usec 7\nuser_usec 0\nsystem_usec 0\n" });
+	process.env.LIMEN_TEST_MODE = "0";
+	const own = existsSync("/proc/self/cgroup") ? parseCgroup(readFileSync("/proc/self/cgroup", "utf8")) : undefined;
+	assert.deepEqual(
+		[linux.ownCgroup(), await linux.cpuTime(cgroup)],
+		[own, { kind: "unreadable", detail: `/sys/fs/cgroup${cgroup}/cpu.stat is missing` }],
+		root,
+	);
+});
 
 // A-036: the start queue's diagnosis ranks the units of the agents' user manager by memory and CPU.
 test("userUnits lists each unit of this process's user manager with its current memory and CPU time, by name", async (t) => {
