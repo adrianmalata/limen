@@ -2681,7 +2681,9 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-25 by day (`limen-rebuild-32`: R-103 `done`, stage 3 closed at `a0.3.0`, gate 5.3 open with Q-51–Q-55 in
+Updated 2026-11-25 by day (`limen-rebuild-33`: the close of stage 3 on the seat with Adrian, D-106, step by step in
+"`limen-rebuild-33`" at the end of this section; before it `limen-rebuild-32`: gate 5.3 decided, D-107; R-103 `done`,
+stage 3 closed at `a0.3.0`, gate 5.3 open with Q-51–Q-55 in
 "Gate 5.3 summary" at the end of this section, after "`limen-rebuild-32`" and "Close of stage 3".
 Before it `limen-rebuild-31`, before the night: R-103 `ready` in "`limen-rebuild-31`" at the end of
 this section; before it `limen-rebuild-30`, after R-036; R-029, R-032, R-034 and R-036 are `done`, by day, in
@@ -4779,3 +4781,143 @@ and ends its turn. By day, Adrian at the terminal. The next session's acts, in t
 4. Then stage 4 starts in a new session (D-106, D-081's pattern), which writes stage 4's `ticket.md` files, R-104 and
    R-105 among them.
 The handover after it is `limen-rebuild-34`.
+
+`limen-rebuild-33` (2026-11-25, by day, Adrian at the terminal): `close-previous` printed `handover: closed tmux session
+limen-rebuild-32` and one `handover: stopped claude …` line and exited 0; the takeover push was skipped as redundant,
+the terminal being active; context 8 % at the start. At `f749fae` (the tree clean, `HEAD` = `origin/adrian-rebuild`)
+`a0.3.0` is `6f8a872c237c5ffc8176f37d493b43dffb50c888`. The leftover files: the checkout's `.limen/` is gone; the
+gate's cache folder still holds 365 `limen-live-*`, 364 `limen-tree-*`, 8 `limen-plant-*` and 2 `r029-head-*` folders.
+- The order of the seat steps (D-106), as the session gives them: 0.1, the `quota-resume.ts` link of 3.4 (before
+  0.2), 0.2, 0.3, then 3.6 first (R-031's marker step of `limen migrate`, `--dry-run` first, and the unlanded work),
+  because `## Deployment` → Conditions 3 runs it before the first spawn and a worker spawn refuses `UNLANDED_WORK`
+  (R-030), then 3.1, 3.5, 3.2, 3.3, 3.10, 3.8, 3.9, 3.7, 0.6, 3.11 and the resumption (D-012); 3.4 waits for a real
+  limit.
+- Adrian removed the gate cache's leftover folders (only `node-compile-cache` is left).
+- 0.1 (2026-11-25, 12:04 UTC): `limen status` (a0.2.0) in both projects: `Running (0)`, `Candidates to inspect (0)`,
+  `Needs a decision (0)`, `LIMEN_COORDINATOR: until R-050` the only environment line, final lines `ok`; `Older: 79
+  records` (synchronizer) and `Older: 64 records` (ledger), which counts only jobs that ended more than 7 days ago
+  (`RECENT_MS`, `src/job/listing.ts` line 15 at `a0.2.0`), so ledger's 19 newer jobs (the trial of 2026-11-20 and F011) are
+  outside it and 64 + 19 = 83 as on 2026-11-24. The snapshot of both projects' `.limen/` and the seat folder is the
+  archive `20261125T120444Z.tgz` in root's snapshot folder: 16084 entries in the source and 16084 in the archive.
+- Adrian's note on the removal: zsh printed `no matches found: limen-live-*` (with zsh's `nomatch`, a glob without a
+  match stops the whole command); the folder held only `node-compile-cache` afterwards (modified at 12:47 local time),
+  so an earlier run of the command had removed the folders.
+- 3.4's part before the deployment (D-097 (5) (k)): in Pi's extensions folder of the agents' account,
+  `quota-resume.ts` was a symbolic link into a checkout in the agents' home (not `/opt/limen`), linked on 2026-11-16
+  with `coordinator-handoff.ts` and `statusline.ts`; Adrian removed it, and the other three entries are unchanged
+  (`herdr-agent-state.ts` a file). The two remaining seat extensions are unchanged from `rebuild-base` to `a0.3.0`, and
+  the `limen watch` that the handoff's first message names is still a command at `a0.3.0`, so a0.3.0 changes nothing
+  they rely on; they load from a worker-writable checkout until step 5.5 (D-012's accepted risk).
+- 0.2 (2026-11-25, 12:13 UTC, as root): `seat/deploy.ts 6f8a872c237c5ffc8176f37d493b43dffb50c888` printed the registry
+  check (2 projects, 0 running jobs each), `deployed 6f8a872… in /opt/limen (previous
+  56f816820786d77e7cd13485ea20bb7fc78dd9d3), tag deployed-2026-11-25-121320` and the `next` of step 0.3, and exited 0;
+  `git -C /opt/limen rev-parse HEAD` is the SHA, and the agents' `limen` resolves to `/opt/limen/bin/limen`.
+- A gap in 0.2's text: the script that runs is the one already in `/opt/limen`, the previous tag's, and its
+  verifications are its own constant (`VERIFICATIONS`, `seat/deploy.ts` line 63 at `a0.2.0`, empty), so a verification a tag
+  adds runs only from the next deployment: this deployment ran no `systemd-analyze verify` of the sweep units (R-032),
+  and the same holds for R-056's nftables check at a0.5.0 and for a0.3.0's step that refreshes the alerts' units
+  (nothing is installed yet, 3.3). At its own tag the new verification runs by hand from the new checkout, as root:
+  `node seat/sweep-units.ts` in `/opt/limen` (it renders both units into a new folder of the OS temporary folder,
+  verifies them, removes the folder and writes nothing in any home).
+- 0.2's verification by hand (as root, `node seat/sweep-units.ts` in `/opt/limen`): exit 4, `systemd-analyze verify
+  failed for limen-sweep.service and limen-sweep.timer (exit 1)`, with `limen-sweep.service: Command /usr/bin/node is
+  not executable: No such file or directory` and two `CPUAccounting=` warnings of the distribution's own xfs units.
+  The sweep's unit and the alerts' unit run root's Node as `/usr/bin/node` (`NODE`, `src/platform/systemd-units.ts` line 37
+  at `a0.3.0`; `seat/units.ts`; A-025: a program the agents' account cannot replace), which `docs/seat/agent-setup.md`
+  §4 installs (at `/usr/bin/node` and `/usr/local/bin/node`); the seat has no `/usr/bin/node`. So 3.1's install would
+  fail its own `systemd-analyze --user verify` and 3.3 would install a unit that cannot start. The steps after 0.2 wait;
+  the deployed `a0.3.0` itself runs (the CLI is a process of the agents' Node), and 0.3 is not yet done. Asked of
+  Adrian first: where root's Node lies on the seat.
+- Root's Node on the seat (as root): `node` is `/usr/local/bin/node`, a root-owned symbolic link (2026-11-07) to the
+  tarball's binary in a folder of its own under `/opt` (v24.21.0, `root:root 755`); `/usr/bin/node` does not exist. The
+  seat thus differs from `agent-setup.md` §4 (a copy at both paths). Recommended to Adrian: a root-owned symbolic link
+  `/usr/bin/node` to the same binary, after a check that its parent folders are root-owned and not group- or
+  other-writable, then 0.2's verification again; no code change and no new tag. The alternative, a code change of
+  `NODE`, is a ticket and a tag for a path the seat's own runbook already names.
+- The seat fix (Adrian, as root, 12:28 UTC): the three folders above the binary are `root:root 755`; the new
+  `/usr/bin/node` is a root-owned symbolic link to the same binary (`v24.21.0`); 0.2's verification by hand again:
+  `verified limen-sweep.service and limen-sweep.timer of /opt/limen`, exit 0. 0.2 is done.
+- 0.3: no coordinator session runs in either project (Adrian), so there is nothing to reload; a coordinator that starts
+  from now on loads a0.3.0's hooks and the two remaining seat extensions at its start.
+- 3.6, the dry run of `limen migrate` (R-031's marker step), both final lines `ok` with `next` `limen migrate`, no
+  folder moved to `.limen/unmigrated/`, every job already a record (79 and 83): synchronizer `markers: 17 landed and 0
+  abandoned would be written; 62 finished jobs left without one` (one land each of F001–F010, F013–F016, F018–F020);
+  ledger `11 landed and 0 abandoned …; 72 … left without one` (F001–F004, F007, F009–F011, F018–F020; F011's by
+  `2026-11-24-f011-repair-5-…`, as recorded on 2026-11-24, and F009 and F010 by the trial of 2026-11-20). Every job
+  left without a marker names the same reason: no closing commit of land names it and no abandon branch. Most are
+  reviews, continued parents and earlier rounds, which never carry one (`docs/jobs.md`, the job archive); the worker
+  jobs of synchronizer's F012 and F022, `seat-smoke`, `pomiar-b1` and a review of `windows-test-cleanup`, and of
+  ledger's F006, F008 and `f019-jqwik-skips`, have no closing commit `Close <codes>: landed by <id>` in `HEAD`'s
+  history, so they stay in `.limen/jobs/` unmarked: the daily retire never moves them, nothing is deleted, and
+  `limen stats` counts no land for them.
+- 3.6, the migration for real: synchronizer `markers: 17 landed and 0 abandoned written; 62 finished jobs left without
+  one`, ledger `11 landed … written; 72 …`, both `0 migrated, 0 moved to .limen/unmigrated`, final lines `ok` with
+  `next` `null`. `limen status` (a0.3.0) in both: no `Unlanded work` section, so no job needs `continue` or `abandon`
+  before the first spawn, and the tab close of the first `limen abandon` (T-28 (5), R-030) has no job to show it here
+  (left for a trial job, or unmeasured); `Alerts not working` and `Sweep not working` (expected before 3.1 and 3.3);
+  `Leftover files (1)`: `.limen/coordinators (seat rules (R-102))` in both, left for 3.5. On `main`, F012 and F022
+  (synchronizer) and F006 and F008 (ledger) were closed by `Close <code>: landed` with no `by <id>`, an older land's
+  form, so the migration rightly marks none of their jobs (it never reads the git graph).
+- 3.1 (12:33–12:36 UTC): `limen seat sweep --install` from an SSH login shell of the agents' account wrote and verified
+  both units, reloaded and enabled the timer, exit 0 (lingering was on); `--status` prints `limen-sweep.timer is
+  active`. The journal: the first run (12:34:14–16, 2.6 s CPU, 75.2 MB peak) pruned two worktrees of finished jobs
+  (`… (job …): job done`: synchronizer's `pomiar-b1`, ledger's `f011-review-5`), retired the 28 marked jobs (11 and 17)
+  to `.limen/archive/2026-11/`, ran the daily steps of both projects and ended `swept 2 projects` with a final line
+  `ok`; the runs of 12:35 and 12:36 end the same; no `herdr is not available`, no branch deleted (land had deleted
+  them), no tab closed. As root, `systemctl list-timers --all` shows no `limen-prune`, but the old template units
+  `limen-prune@.service` and `limen-prune@.timer` are still files in the system unit folder (the README of `a0.3.0`
+  removes them).
+- 3.1, finished: as root, no `*.wants` link of `limen-prune` was left, the two template units moved to a new folder
+  beside root's snapshots (nothing deleted), `systemctl daemon-reload`, and no `limen-prune` path is left in the system
+  unit folder; `limen seat sweep` run by hand from an SSH shell and from a Herdr pane of the agents' account ends
+  `swept 2 projects` and a final line `ok` each; `limen status` (synchronizer) has no `Sweep not working` section and
+  `Older: 62 records` (79 less the 17 retired). Left for the trial job of 3.2: the scope facts of 3.1 (`cgroup.events`,
+  `systemctl --user is-active` of the job's scope and of a name that never existed).
+- 3.5: `limen rule` prints `limen rule was removed with seat rules (R-102); Limen itself resumes a job the subscription
+  limit stopped, 5 minutes after the reset (limen seat sweep)` and a final line `usage` `REMOVED`, exit 2; `pgrep -af
+  'limen rule timer'` finds nothing (exit 1); `~/.limen/rules` held the two old rule folders
+  `claude-quota-reset` and `claude-quota-reset-backup` (2026-11-10), which Adrian removed by hand (the archive of 0.1
+  holds them); `.limen/coordinators` held three registration folders in each project (synchronizer to 2026-11-17,
+  ledger to 2026-11-24 06:46), and `limen init --drop-leftovers` printed `dropped .limen/coordinators (seat rules
+  (R-102))` and `ok` in each.
+- 3.2 with 3.8's first part and 3.1's scope facts, on one trial job (the session's proposal: one job that runs only
+  `sleep 300` serves all three): from a Herdr pane of the agents' account, `systemd-run --user --scope true` exits 0;
+  `limen spawn` (synchronizer, route `pi`/`pi-claude`/`claude-opus-5-5`/`low`, `--timeout 15m`) started
+  `2026-11-25-trial-stall-d40ee900` (12:43:56 UTC), final line `ok` with `ids.job`. While it ran: `systemctl --user
+  is-active` of its scope printed `active`, exit 0; `systemctl --user status` showed in the scope the wrapper (the
+  agents' Node 26 running `/opt/limen/bin/limen`), `pi`, the bridge's `claude` (its tools off but the bridge's MCP
+  tools, `--effort low`) and `sleep 300`, 38 tasks, 415.7 MB peak; as root, the scope's `cgroup.events` read
+  `populated 1`.
+- Refuted on the seat: `systemctl --user is-active` of a unit name that never existed prints `inactive` and exits 4, not
+  3, which `## Deployment` 3.1 and 3.2 and the code assume (`NOT_ACTIVE = 3`, `src/platform/linux.ts` line 52 at `a0.3.0`;
+  R-026 review round 2, note 8). Where it matters: `scopeState` (`src/platform/linux.ts` line 239) decides by the cgroup
+  folder first, so a job whose record names its cgroup is unaffected; for a record with no cgroup (a job that ended
+  before its scope ran, `endJobScope` in `src/job/finalize.ts` line 185), exit 4 is a call failure (`callFailure`), so the
+  end logs `scope … was not ended: exit code 4` and the job goes to `notEnded`, and the sweep's next reads of that
+  scope fail the same way; from the third run the job would be listed as one the sweep cannot end and alerted
+  `stuck` (guessed from the code, not seen). For the gate.
+- The trial job's end: it was not ended by the stall rule. `sleep 300` ran once with a 400 s tool timeout and returned
+  0; the job ended `done with open checks` after 5 minutes (`done: pi exited 0`, 12:49:24), its note checks
+  `replied` and `change-no-file` not proven. `limen show` holds the scope's readings: memory peak 415.8 MiB, CPU 7.0 s,
+  peak 21 %, OOM kills 0 (3.8's first sentence holds for a `done` job). The CPU criterion was met: 5.5 s at 42 s, 7.0 s
+  at the end, so under 2 % of the wall time during the sleep; the stall rule also needs a pending tool whose progress
+  key does not move (`pendingTool`, `src/runtime/wrapper.ts` line 314 at `a0.3.0`: `seen.activity` must stay `tool`, and
+  every `agent_start`, `turn_start`, `message_start` or `message_update` event sets it to `think`, `src/runtime/
+  stream.ts:57`; every stderr chunk and non-JSON stdout line moves the key), so something the real engine sends during
+  a running tool keeps it from applying; which one the job's log shows. After the end: `is-active` of the scope prints
+  `inactive`, exit 4 (a collected transient scope reads as a unit that never existed; the record's cgroup decides
+  first, so the job is unaffected); no `sleep 300` is left; as root, the scope's `cgroup.events` is gone; systemd is
+  259 (259.9-0ubuntu0.1). The coordinator wake went to the Herdr pane of the shell that spawned (no Pi agent there:
+  `agent_not_found`, two attempts, as designed), and the job's log tab was closed at the end (`herdr tab close …:
+  closed`).
+- The trial job's log explains it: `write …/note.md` and `bash sleep 300` started with no `wait` between them, and the
+  one `wait` after `bash sleep 300` came with the note's write (`note changed`, 12:44:11); nothing else was logged
+  until the next `think` (12:49:1x), so no stderr chunk, no non-JSON line and no activity change came during the sleep.
+  Pi 1.5.1 runs the tool calls of one message in parallel by default (`toolExecution ?? "parallel"`,
+  `pi-agent-core` `dist/agent.js` line 147; `executeToolCallsParallel` in `dist/agent-loop.js` emits every
+  `tool_execution_start` first, then each `tool_execution_end` as its tool finishes), and the model put both calls in
+  one message. The wrapper keeps one activity (`recordEvents`, `src/runtime/wrapper.ts` line 501 at `a0.3.0`), so the
+  write's `tool_execution_end` set it to `wait` while `sleep` still ran, and `pendingTool` was undefined for the rest of
+  the sleep: the stall rule (A-059, R-036) never applies to a tool that outlives another of its message. Fix
+  direction: pending tools by `toolCallId` (each start adds, each end removes), pending while one is left, the key over
+  that set. The job's time limit (default 90 minutes) still bounds such a tool. For the gate, with the exit-4 finding.
