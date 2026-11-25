@@ -4559,3 +4559,15 @@ działaj"): context 28 % at the takeover.
   `.limen/`, six test refusals written by the first tree's gate runs), 6 (a gate check for new ignored files, a
   `Tools:` commit, recommended), 7 and 9 for gate 5.3, and `## Words for gate 5.3`. Unmeasured: seat step 3.5.
 - Next: R-103 (`ready`, the last ticket of stage 3), then the close of stage 3 and gate 5.3.
+
+Handover of 2026-11-25 (D-047, at 31 % context, after the commit `R-102:` (`a26d5f4`), with the tree clean and pushed
+and no night running): `limen-rebuild-31` starts `limen-rebuild-32` with `node adrian-rebuild/tools/handover.mjs start
+32` and ends its turn. By day, Adrian at the terminal. The next session's first acts are a push notification to Adrian
+(one line in Polish) that it takes over at R-103, then `node adrian-rebuild/tools/handover.mjs close-previous`, whose
+lines go into this section, then R-103 by `## Agents`, protocol steps 2–7: its `ticket.md` was written at `9601408`,
+before R-087, R-098, R-101 and R-102, so step 2 first runs AC-7–AC-9 at `HEAD` and notes in `ticket.md` →
+`## Decisions` the places those commits moved (above all R-101's closing function in `src/integrations/herdr.ts`,
+`closeLeftoverTabs` and `closeJobTab`'s result, which R-103's `## Change` builds on, and R-101's retire in
+`src/runtime/retiring.ts`). Open for Adrian: R-102 `outcome.md` → Open points 5 (he removes the checkout's ignored
+`.limen/` by hand) and 6 (a gate check for new ignored files, recommended); for gate 5.3 the open points of R-036,
+R-037, R-087, R-098, R-101 and R-102 and R-103's items marked (A). The handover after it is `limen-rebuild-33`.
