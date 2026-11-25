@@ -493,6 +493,23 @@ function progressFrom(jobDir: string, text: string | undefined): Progress | unde
 	}
 	return progress;
 }
+/** The largest refusal file of a coordinator's process a read takes; a larger one is damaged data. */
+const REFUSAL_BYTES = 64 * 1024;
+/**
+ * A hook's refusal in the file `path` of a coordinator's process (T-32 (4), R-102), under the record's read rule:
+ * undefined when the file is absent; BAD_DATA for a symlink, a file of another kind or size, or a damaged one.
+ */
+export async function readRefusalFile(path: string): Promise<Refusal | undefined> {
+	const text = await guardedText(path, REFUSAL_BYTES);
+	if (text === undefined) {
+		return undefined;
+	}
+	const refusal = parseJson(path, text, refusalOf);
+	if (refusal instanceof LimenError) {
+		throw refusal;
+	}
+	return refusal;
+}
 /** Rewrites the job's progress; the wrapper calls it per stream event, outside the transition function. */
 export async function writeProgress(jobDir: string, progress: Progress): Promise<void> {
 	await atomicWrite(join(jobDir, PROGRESS), `${JSON.stringify(progress)}\n`);
@@ -1204,7 +1221,7 @@ function rateLimitOf(value: unknown, field: string): RateLimit {
 		at: isoTime(fields.get("at"), at(field, "at")),
 	};
 }
-/** The validator of a hook's refusal, which the record and a coordinator session's folder hold (T-32 (4)). */
+/** The validator of a hook's refusal, which the record and a coordinator process's refusal file hold (T-32 (4)). */
 export function refusalOf(value: unknown, field: string): Refusal {
 	const fields = object(["event", "field", "message", "at"])(value, field);
 	return {

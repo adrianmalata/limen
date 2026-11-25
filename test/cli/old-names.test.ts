@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { type TestContext, test } from "node:test";
@@ -634,4 +634,32 @@ test("REMOVED: limen queue exits 2, says it was renamed and names limen seat que
 		[run.status, readOutcome(run), outputText(run).split("\n")[0]],
 		[2, { class: "usage", code: "REMOVED", next: "limen seat queue" }, QUEUE_LINE],
 	);
+});
+
+/** The refusal of the cut seat rules, written out so that a change of wording fails here. */
+const RULE_LINE =
+	"limen rule was removed with seat rules (R-102); Limen itself resumes a job the subscription limit stopped, 5 minutes after the reset (limen seat sweep)";
+
+// A-010, D-097 (6) (c): no process sets a text that Limen hands to every coordinator or a priority that holds other
+// jobs; the line names the automatic resume, which took over the rules' one use, and no command replaces them yet
+// (D-046 (1)), so `next` is null.
+test("REMOVED: limen rule and each of its old subcommands exit 2 with the removal line and leave the seat folder without rules/", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const forms = [
+		["rule"],
+		["rule", "set", "x", "--until", "1h", "text"],
+		["rule", "end", "x", "done"],
+		["rule", "timer", ".limen/rules/x", "1-1"],
+	];
+	const before = snapshot(p.root, ["../.limen"]);
+	const refused = forms.map((args) => {
+		const run = limen(p, args);
+		return [run.status, readOutcome(run), outputText(run)];
+	});
+	assert.deepEqual(
+		refused,
+		forms.map(() => [2, { class: "usage", code: "REMOVED", next: null }, `${RULE_LINE}\n`]),
+	);
+	assert.deepEqual([snapshot(p.root, ["../.limen"]), existsSync(join(p.parent, ".limen", "rules"))], [before, false]);
 });

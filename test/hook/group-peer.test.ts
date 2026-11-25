@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import groupPeer from "../../hook/group-peer.ts";
 import { LimenError } from "../../src/outcome.ts";
-import { withEnvironment } from "../environment.ts";
+import { inTemporaryProject, withEnvironment } from "../environment.ts";
 
 /** The `tool_call` handler that the hook registers on a fake `pi`. */
 function toolCallHandler(): (event: unknown, context: unknown) => unknown {
@@ -22,9 +22,11 @@ test("the tool_call handler reads no payload outside a group, so a payload of th
 });
 
 // A handler goes through the adapter's `recorded` (src/runtime/pi-api.ts), which gives Pi a refusal once it is written,
-// so the refusal arrives as a rejection.
+// so the refusal arrives as a rejection. Outside a job it writes into the project of the working directory, so the
+// test runs in a project of its own, never in the checkout (R-102 review round 1, finding 1).
 test("the tool_call handler inside a group refuses a payload of the wrong shape with BAD_DATA", async (t) => {
-	withEnvironment(t, { LIMEN_GROUP_ID: "group-1" });
+	withEnvironment(t, { LIMEN_GROUP_ID: "group-1", LIMEN_JOB: "" });
+	await inTemporaryProject(t, "limen-group-peer-");
 	await assert.rejects(
 		async () => toolCallHandler()({ toolCallId: "1" }, {}),
 		(error) => error instanceof LimenError && error.code === "BAD_DATA" && error.message.includes("toolName"),

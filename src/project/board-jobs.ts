@@ -1,5 +1,5 @@
-// `limen board`: the board with each active ticket's running or last job and the seat's rules; with `--write` it
-// rewrites NOW and PROVEN in spec/build.md from the ticket folders.
+// `limen board`: the board with each active ticket's running or last job; with `--write` it rewrites NOW and PROVEN in
+// spec/build.md from the ticket folders.
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { jobFeatures } from "../job/job.ts";
@@ -10,7 +10,6 @@ import { readTickets } from "../picture/tickets.ts";
 import { commitList, limenRoot, unlandedBranches, workspaceRepository } from "./git.ts";
 import { readOptional } from "./inherit.ts";
 import { renderBoard, writeBoard } from "./lanes.ts";
-import { activeRules, ruleLine } from "./seat-rules.ts";
 import { archiveRows } from "./series.ts";
 
 interface BoardJob {
@@ -41,10 +40,7 @@ export async function projectBoard(cwd: string, write: boolean): Promise<string>
 		return `spec/build.md: NOW and PROVEN ${changed ? "rewritten from the lanes" : "already match the lanes"}`;
 	}
 	const board = renderBoard(text ?? "# Build\n", (await readTickets(root)).tickets, archiveRows(root));
-	// Seat-wide rules head the printed board only; they never enter spec/build.md.
-	const rules = activeRules().map((rule) => ruleLine(rule));
 	return [
-		...(rules.length ? [["## RULES (seat-wide, from limen rule; not in spec/build.md)", ...rules, ""].join("\n")] : []),
 		withJobs(board, await readJobs(root)).trimEnd(),
 		...(text !== undefined && board !== text
 			? ["\nspec/build.md is behind the lanes; limen board --write rewrites NOW and PROVEN."]

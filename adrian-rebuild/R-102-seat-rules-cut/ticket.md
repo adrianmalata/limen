@@ -3,7 +3,8 @@ podpolecenia, timer reguły, `endDueRules` przed każdym poleceniem, wstrzymanie
 koordynatora i nagłówek tablicy; odmowa to wpis `OLD_NAMES`, który wskazuje automatyczne wznowienie. Rejestracja
 koordynatora znika razem z nimi, a odmowa hooka w sesji koordynatora (R-029) trafia do pliku na proces
 `.limen/refusals/<pid>-<born>.json`, który sweep usuwa po śmierci procesu. Stan: napisany 24.11 przy drzewie R-034 (przed
-jego commitem) z inwentarza agenta tylko do odczytu; decyzje w `## Decisions`. -->
+jego commitem) z inwentarza agenta tylko do odczytu; decyzje w `## Decisions`; sprawdzony ponownie przy `b489760` w
+nocy 24/25.11 (Decyzje 6–8: kryteria bez zmian, przesunięte miejsca). Zamknięty 25.11 w dzień po rundzie 3 recenzji. -->
 
 # R-102 Seat rules are cut
 
@@ -230,3 +231,48 @@ D-097 (6) settles the cut; items 1–3 are named for Adrian's attention at gate 
    priority order in `test/s3-finish-wake.test.ts:234`) keeps that part (T-29).
 5. Fact 9 corrects D-097 (6) (d)'s parenthesis: a live rule timer also writes ping receipts and types an end prompt;
    step 3.5's check that none runs is unchanged.
+
+Checked again at `HEAD` `b489760` (2026-11-25, the night of D-102, run 2, protocol step 2, D-025; R-036, R-037, R-087,
+R-098 and R-101 came after R-034's tree):
+6. AC-7–AC-9 at `HEAD`: AC-7's two files are tracked; AC-8's grep matches `src/registry.ts:730`, `:758`, `:775`, `:792`,
+   the four `rule` entries the change removes; AC-9's grep matches only lines the change removes: `hook/communication.ts:7`,
+   `:225` (the cue's block), `src/commands/rule.ts` (removed), `src/integrations/coordinator-registration.ts:128`
+   (`liveCoordinators`), `src/main.ts:1`, `:120` (`endDueRules`), `src/project/board-jobs.ts:13`, `:45` (the header),
+   `src/project/seat-rules.ts` (removed), `src/runtime/queue-report.ts:10`, `:41` (the rule lines) and
+   `src/runtime/start-queue.ts:35`, `:215-216`, `:240`, `:513`, `:544` (the hold). No criterion needs narrowing.
+7. Places that moved since R-034's tree (the facts above keep their old lines): `src/registry.ts` imports the handlers at
+   `:36`, `RULE` at `:685`, the entries at `:721`, `:734`, `:762`, `:779`; `hook/wake.ts` imports the registration at
+   `:6`, makes it at `:137` and calls its `start` at `:903` and its `shutdown` at `:1041`; `src/runtime/sweeping.ts` imports
+   `removeDeadCoordinators` at `:18` and calls it at `:259` (R-101 added the daily steps after the minute steps and keys
+   a failure by project, `runFailure`); `src/integrations/coordinator-registration.ts`: `coordinatorRegistration` `:41`,
+   `removeDeadCoordinators` `:112`, `registeredProcess` `:146`, `writeCoordinatorRefusal` `:176`,
+   `coordinatorRefusals` `:201`; `src/project/summary.ts:12`, `:257`; `src/runtime/pi-api.ts:14`, `:470`;
+   `test/structure.test.ts`: `SWALLOWED` `:150`, `UNTYPED_THROWS = 106` `:162`, `READS_WITH_TRANSITIONS` `:1102`,
+   `ISO_TIME_EXCEPTIONS` `:1204`, the `ERRNO_TYPED` entry of `seat-rules.ts` `:1297`; `CONTRIBUTING.md:19` now lists
+   `rule`, `keeper` and `group wait` (R-101 removed `prune` and `close`). `localTime` (`seat-rules.ts`) is used outside
+   `rule.ts` only by the hold's text (`src/runtime/start-queue.ts:221`), so it goes with the hold. The test places of fact
+   11 are unchanged (`test/s3-finish-wake.test.ts:234`, `test/s4-steering.test.ts:33`, `:55`, `test/s2-herdr.test.ts:136`).
+8. R-101's archive moves read only `.limen/jobs/`, `.limen/.publishing-*` and the worktree root, so the new
+   `.limen/refusals/` meets none of them.
+
+Review round 1 (2026-11-25, the night of D-102, run 2; `review.md` → Round 1), the findings to fix:
+- F1 (finding 1, blocking): no test writes into the checkout. `test/hook/wake.test.ts`, `test/hook/group-peer.test.ts`
+  and every other test whose hook call reaches `keepRefusal` outside a job run with a working directory in a
+  temporary folder of their own (outside any project, or a temporary project), and one of them asserts that its
+  refusal lands there; after the gate, the checkout's `.limen/refusals/` holds no file newer than 07:21 of 2026-11-25
+  (the six earlier ones stay until Adrian removes them, `outcome.md` → Open points 5; the main session checks it with
+  `ls`).
+- F2 (finding 2): `removeDeadRefusals` takes only regular files of `.limen/refusals/`; a directory or a link there is
+  left to `limen status`'s `BAD_DATA` line. A test: a directory named `<dead pid>-<n>.json` leaves the step successful.
+- F3 (finding 3): a `.limen/refusals` that is not a directory or cannot be read is one `BAD_DATA` line of `limen status`,
+  and the rest prints; a test with `.limen/refusals` as a regular file.
+- F4 (finding 4, T-29 (3)): `test/s3-finish-wake.test.ts:234` checks the gate's priority order; the start notice, the
+  timeout counted from the engine's start and the queued stop finalized once get a test each, or go where a test of
+  that mechanism already checks them (named in `outcome.md`).
+- F5 (finding 5): the header comment of `src/runtime/sweeping.ts` is wrapped at the file's width.
+
+Review round 2 (2026-11-25, the night of D-102, run 2; `review.md` → Round 2; PASS with five notes), the findings to
+fix, the ticket's second and last round of fixes:
+- G1 (note 1, T-30): the comment of `test/hook/wake.test.ts:56` names no coordinator registration, which is gone.
+- G2 (note 3, T-29 (3)): the first wake-hook test checks the guard's `BAD_DATA` refusal of the command's arguments, and
+  F1's check that the refusal's file lands in the test's temporary project is a test of its own.

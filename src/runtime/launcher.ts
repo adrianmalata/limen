@@ -102,11 +102,10 @@ export async function startOutsideJob(
 }
 
 /**
- * Starts the CLI with `args` in the background, detached, its output ignored: the group's next round and a rule's
- * timer, each in a scope of its own (`startOutsideJob`); resolves once it runs there, and rejects with what the system
- * said when it could not start. Each caller writes that failure where its work is read (T-01), and the next caller
- * starts it again: the next finished team job or `limen group status`, and the next command that finds a rule past its
- * end.
+ * Starts the CLI with `args` in the background, detached, its output ignored: the group's next round, in a scope of its
+ * own (`startOutsideJob`); resolves once it runs there, and rejects with what the system said when it could not start.
+ * Its caller writes that failure where its work is read (T-01), and the next caller starts it again: the next finished
+ * team job or `limen group status`.
  */
 export async function startLimen(
 	args: readonly string[],

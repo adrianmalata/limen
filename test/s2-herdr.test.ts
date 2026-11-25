@@ -1,15 +1,13 @@
 // S2 · Herdr. A fake Herdr (written below to the plant) records every call and keeps its role spaces and tabs in a
-// state file; a coordinator pane hears a job's start notice, its wake and the rule pings through `agent prompt` and
-// Herdr's socket API, and a job's end closes its tab.
+// state file; a coordinator pane hears a job's start notice and its wake through `agent prompt` and Herdr's socket API,
+// and a job's end closes its tab.
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { after, before, test } from "node:test";
-import { outputText } from "./final-line.ts";
 import {
 	FINAL,
 	jobDir,
@@ -20,7 +18,6 @@ import {
 	plant,
 	routed,
 	scopeCalls,
-	start,
 	startedJob,
 	until,
 } from "./plant.ts";
@@ -73,9 +70,6 @@ const socket = createServer((conn) =>
 		conn.end('{"id":"","error":{"code":"agent_prompt_stalled","message":"no turn"}}\n');
 	}),
 );
-/** Runs the CLI without blocking the event loop, so two sweeps can race. */
-const limenAsync = async (args: readonly string[]) => (await start(p, args, { env }).done).status;
-
 before(async () => {
 	p = await plant();
 	herdr = join(p.parent, "herdr");
@@ -131,44 +125,4 @@ test("a job's end closes its Herdr tab from a systemd user scope of its own", as
 	const closer =
 		/^--user --scope --quiet --collect --unit=limen-run-[0-9a-f]{8}\.scope -- \S+ --no-warnings --input-type=module --eval import \{ closeJobTab \}/;
 	assert.ok(scopeCalls(p, "systemd-run").some((words) => closer.test(words) && words.includes(jobDir(p, id))));
-});
-
-test("a rule set, change, end and end time ping each live coordinator pane once (F951); a dead timer's rule still ends", async () => {
-	// Two sessions on w1:p1; w1:p3 shut down; w1:p4's pid belongs to another process now; coord:p0 runs the commands.
-	for (const [index, pane] of ["w1:p1", "w1:p1", "w1:p2", "w1:p3", "w1:p4", COORDINATOR].entries()) {
-		const dir = join(p.root, ".limen/coordinators", `s${index}`);
-		await mkdir(dir, { recursive: true });
-		const files = { pid: process.pid, pane, "started-at": new Date(index * 60_000).toISOString() };
-		for (const [name, value] of Object.entries({ ...files, ...[{}, {}, {}, { shutdown: 1 }, { born: 0 }][index] })) {
-			await writeFile(join(dir, name), `${value}\n`);
-		}
-	}
-	const said = (rule: string) => named("agent", "prompt").filter((args) => args[3]?.startsWith(`Limen rule ${rule} `));
-	const panes = (rule: string, word: string) =>
-		said(rule).flatMap((args) => (args[3]?.includes(word) ? [args[2]] : []));
-	const heard = (rule: string, ...words: string[]) => words.map((word) => panes(rule, word).sort());
-	const rule = (...args: string[]) => outputText(limen(p, ["rule", ...args], { env }));
-	assert.match(rule("set", "week", "--until", "1h", "Hold reviews"), /^rule week set/);
-	assert.match(rule("set", "week", "--until", "1h", "--start-priority", "1", "Priority 1 only"), /^rule week changed/);
-	const board = limen(p, ["board"], { env }).stdout + rule("end", "week", "done"); // an hour before its end time
-	assert.match(board, /^## RULES .*\n- week until .*, start priority 1: Priority 1 only\n[\s\S]*\nrule week ended\n/);
-	const [set = "", , , change = ""] = said("week").map((args) => args[3] ?? ""); // three set pings, then the change
-	assert.match(set, /^Limen rule week for every coordinator, until \w+ \d+ \w+, \d\d:\d\d .*Hold reviews\. .*build/);
-	assert.match(change, /changed; it now holds until .*Priority 1 only\. Start priority: 1\./);
-	// The pane that runs a command is a live coordinator pane too, so it hears each set, change and end.
-	const live = [COORDINATOR, "w1:p1", "w1:p2"];
-	assert.deepEqual(heard("week", "coordinator, until", "changed", "(by limen rule end: done)"), [live, live, live]);
-	rule("set", "now", "--until", "1h", "Now");
-	assert.match(rule("set", "now", "--until", "2s", "Soon"), /^rule now changed/); // then only its timer can end it
-	await until(herdr, () => panes("now", " ended ").length >= 3);
-	assert.deepEqual(heard("now", "coordinator, until", "changed", "(its end time passed)"), [live, live, live]);
-	assert.deepEqual([rule(), limen(p, ["board"], { env }).stdout.includes("RULES")], ["no active rules\n", false]);
-	// A rule whose timer died ends on the next command, once, though two commands race to end it.
-	rule("set", "late", "--until", "1h", "Late");
-	spawnSync("pkill", ["-f", join(p.parent, ".limen/rules/late")]);
-	const record = join(p.parent, ".limen/rules/late/rule.json");
-	await writeFile(record, readFileSync(record, "utf8").replace(/"until": "[^"]+"/, '"until": "2000-01-01T00:00:00Z"'));
-	assert.deepEqual(await Promise.all([limenAsync(["status"]), limenAsync(["rule"])]), [0, 0]);
-	await until(herdr, () => panes("late", " ended ").length >= 3);
-	assert.deepEqual(heard("late", " ended "), [live]);
 });

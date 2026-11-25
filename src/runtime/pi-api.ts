@@ -5,13 +5,13 @@
 // rethrows the error and blocks the tool call, and in a tool, whose error becomes an error tool result; both reach only
 // the model. So every hook registers each handler, tool and command through `recorded`, which writes a guard's refusal
 // where Limen reads it before the error reaches Pi (T-32 (4)): in a job, its record, whose end it makes `failed`, kind
-// `engine-error`; in a coordinator's session, the session's folder, which `limen status` names. The contract of
-// test/runtime/pi-contract.test.ts compiles these declarations against Pi 1.5.1's own types (D-055 (1)), so that
-// they cannot drift from Pi unseen.
+// `engine-error`; in a coordinator's session, the refusal file of its process, which `limen status` names. The
+// contract of test/runtime/pi-contract.test.ts compiles these declarations against Pi 1.5.1's own types (D-055 (1)), so
+// that they cannot drift from Pi unseen.
 import { join } from "node:path";
 import { at, refusedValue } from "../boundary.ts";
 import { transport } from "../config.ts";
-import { writeCoordinatorRefusal } from "../integrations/coordinator-registration.ts";
+import { writeCoordinatorRefusal } from "../integrations/coordinator-refusals.ts";
 import { type Refusal as RecordedRefusal, recordRefusal } from "../job/record.ts";
 import { LimenError } from "../outcome.ts";
 
@@ -462,8 +462,7 @@ function thrownRefusal(error: unknown): RecordedRefusal | undefined {
 
 /**
  * Writes `refusal` where Limen reads it: in a job, the job's record, whose end it decides (src/runtime/wrapper.ts); in
- * a coordinator's session, the folder of the session this process registered
- * (src/integrations/coordinator-registration.ts).
+ * a coordinator's session, the refusal file of this process (src/integrations/coordinator-refusals.ts).
  */
 async function keepRefusal(refusal: RecordedRefusal): Promise<void> {
 	if (transport("LIMEN_JOB") !== "1") {

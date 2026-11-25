@@ -99,7 +99,7 @@ test("a member's group wait past the CLI cap exits 0, says so and names the same
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const run = await runningGroup(p);
-	// LIMEN_HERDR 0: no rule timer starts from this in-process run (src/commands/rule.ts, endDueRules).
+	// LIMEN_HERDR 0: this in-process run reaches no Herdr of the machine.
 	const member = { LIMEN_GROUP_ID: run.id, LIMEN_CONTEXT_ROOT: p.root, LIMEN_JOB_ID: MEMBER, LIMEN_TEAM_ID: "team-1" };
 	withEnvironment(t, { ...member, LIMEN_HERDR: "0" });
 	const capped = REGISTRY.map((entry) =>

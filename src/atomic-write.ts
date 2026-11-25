@@ -18,9 +18,9 @@ export type WriteOptions = {
 
 /**
  * The temps of this module, `<target>.<pid>.<hex>.tmp`, and those the writers it replaced left with the same shape:
- * the old `atomicWrite` (the time in hex) and the seat registry and seat rules writers (the time in decimal, whose
- * digits are hex digits too). The old temps of `saveJson`, Picture and the GitHub poller have other names, so this
- * does not match them and nothing sweeps them. A folder reader skips the names it matches.
+ * the old `atomicWrite` (the time in hex) and the seat registry writer (the time in decimal, whose digits are hex
+ * digits too). The old temps of `saveJson`, Picture and the GitHub poller have other names, so this does not match
+ * them and nothing sweeps them. A folder reader skips the names it matches.
  */
 export const TEMPORARY_NAME = /\.(\d+)\.[0-9a-f]+\.tmp$/;
 

@@ -13,7 +13,7 @@ import { emptyRecord, type JobRecord, readRecordSync, serialized } from "../../s
 import { LimenError } from "../../src/outcome.ts";
 import { platform } from "../../src/platform/platform.ts";
 import { processIdentity } from "../../src/runtime/reap.ts";
-import { withEnvironment } from "../environment.ts";
+import { inTemporaryProject, withEnvironment } from "../environment.ts";
 import { editRecord, fakeSystemd, writeRecord } from "../plant.ts";
 
 /** The handler of the `limen` command that the hook registers on a fake `pi`. */
@@ -32,8 +32,12 @@ function commandHandler(): (args: unknown, context: unknown) => Promise<void> {
 	};
 }
 
+// Outside a job the hook keeps its refusal in the project of the working directory (src/runtime/pi-api.ts), so each
+// test that makes the command refuse runs in a project of its own: from the checkout they wrote into the checkout's
+// `.limen/refusals/` (R-102 review round 1, finding 1).
 test("the limen command refuses arguments that are not a string with BAD_DATA naming them", async (t) => {
 	withEnvironment(t, { LIMEN_JOB: "" });
+	await inTemporaryProject(t, "limen-wake-guard-");
 	const context = { ui: { notify() {}, setStatus() {} } };
 	await assert.rejects(
 		commandHandler()(["on"], context),
@@ -42,7 +46,20 @@ test("the limen command refuses arguments that are not a string with BAD_DATA na
 	);
 });
 
-// D-057 (6): until `limen migrate` ran, the hook neither registers the coordinator nor reads a job; it says why once.
+test("outside a job the limen command keeps its refusal in this process's refusal file in its project", async (t) => {
+	withEnvironment(t, { LIMEN_JOB: "" });
+	const root = await inTemporaryProject(t, "limen-wake-refusal-");
+	await assert.rejects(commandHandler()(["on"], { ui: { notify() {}, setStatus() {} } }));
+	const folder = join(root, ".limen", "refusals");
+	const names = existsSync(folder) ? await readdir(folder) : [];
+	const kept = names.length === 1 ? JSON.parse(readFileSync(join(folder, names[0] ?? ""), "utf8")) : {};
+	assert.deepEqual(
+		[names.map((name) => new RegExp(`^${process.pid}-\\d+\\.json$`).test(name)), [kept.event, kept.field]],
+		[[true], ["command limen", "args"]],
+	);
+});
+
+// D-057 (6): until `limen migrate` ran, the hook reads no job and writes nothing at session start; it says why once.
 test("in a project whose job folder holds an older state file, session start does nothing and names the migration once", async (t) => {
 	const root = await mkdtemp(join(tmpdir(), "limen-wake-old-"));
 	t.after(() => rm(root, { recursive: true, force: true }));

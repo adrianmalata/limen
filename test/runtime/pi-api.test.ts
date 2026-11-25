@@ -1,8 +1,9 @@
 // src/runtime/pi-api.ts: each guard returns a Pi value of the right shape as it is and refuses a wrong one with BAD_DATA,
-// and every hook's handler records a guard's refusal, in a job's record or in a coordinator's session folder.
+// and every hook's handler records a guard's refusal, in a job's record or in a coordinator process's refusal file.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -334,25 +335,34 @@ test("T-32: every handler, tool, command and event-bus listener a hook registers
 const SESSION = "coord-refusal";
 
 // T-32 (4), D-055 (2): in a coordinator's session Pi shows a hook's error in the chat and writes nothing, so the hook
-// writes the newest refusal into the session's folder, which `limen status` reads.
-test("a hook's refusal of a malformed Pi event in a coordinator's session writes the refusal into the session's folder", async (t) => {
+// writes the newest refusal into the file of its own process, which `limen status` reads. R-102: the session needs no
+// registration, which went with the seat rules, so a session with neither LIMEN_COORDINATOR nor a Herdr pane gets it too.
+test("a hook's refusal of a malformed Pi event in a coordinator's session lands in .limen/refusals/, with no registration folder", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const dir = join(p.parent, SESSION);
 	await mkdir(dir);
 	await writeFile(join(dir, "task.md"), "malformed message_end\n");
 	const args = ["--session-dir", join(dir, "session"), "--extension", join(HOOK_FOLDER, "wake.ts")];
-	const env = { ...p.env, PI_SESSION_ID: SESSION, LIMEN_COORDINATOR: "1" };
+	const env = { ...p.env, PI_SESSION_ID: SESSION };
 	const run = spawnSync(join(p.bin, "pi"), [...args, `@${join(dir, "task.md")}`], {
 		cwd: p.root,
 		env,
 		encoding: "utf8",
 	});
 	assert.equal(run.status, 0, run.stderr);
-	const file = join(p.root, ".limen", "coordinators", SESSION, "refusal.json");
-	const written = JSON.parse(await readFile(file, "utf8"));
+	const folder = join(p.root, ".limen", "refusals");
+	const names = existsSync(folder) ? await readdir(folder) : [];
+	// The fake engine runs the hook in its own process, whose pid names the file with the process's start time.
+	const ownFile = new RegExp(`^${run.pid}-\\d+\\.json$`);
+	const written = names.length === 1 ? JSON.parse(await readFile(join(folder, names[0] ?? ""), "utf8")) : {};
 	assert.deepEqual(
-		[written.event, written.field, written.message, run.stderr.includes("Pi event message_end: message:")],
-		["message_end", "message", "Pi event message_end: message: expected an object, got nothing", true],
+		[
+			names.map((name) => ownFile.test(name)),
+			[written.event, written.field, written.message],
+			existsSync(join(p.root, ".limen", "coordinators")),
+			run.stderr.includes("Pi event message_end: message:"),
+		],
+		[[true], ["message_end", "message", "Pi event message_end: message: expected an object, got nothing"], false, true],
 	);
 });

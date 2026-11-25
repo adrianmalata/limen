@@ -97,7 +97,10 @@ function exampleLines(example: string): string[] {
 	return [...out, line];
 }
 
-/** The usage line, the summary, one line per positional and flag with its description, and the example (D-041 (6)). */
+/**
+ * `limen <name> --help`: the usage line, the summary, one line per positional and flag with its description, and the
+ * example (D-041 (6)).
+ */
 export function entryHelp(entry: Entry): string {
 	const parts = entry.schema.flatMap((part): Array<readonly [string, string]> => {
 		if ("positional" in part) {
@@ -116,19 +119,6 @@ export function entryHelp(entry: Entry): string {
 		...(described.length ? [...described, ""] : []),
 		...exampleLines(entry.example),
 	].join("\n");
-}
-
-/**
- * `limen <name> --help`: the entry's help and, when its name also starts other entries' names (`rule` and `rule
- * set`), the lines of those that are public.
- */
-export function commandHelp(entry: Entry, registry: readonly Entry[] = REGISTRY): string {
-	const subcommands = groupEntries(entry.name, registry);
-	if (!subcommands.length) {
-		return entryHelp(entry);
-	}
-	const lines = rows(subcommands.map((sub) => [usage(sub), sub.summary] as const));
-	return [entryHelp(entry), "", ...lines].join("\n");
 }
 
 /** The public entries whose name starts with `word` and a space, the subcommands of a group. */

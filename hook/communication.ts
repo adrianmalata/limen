@@ -4,7 +4,6 @@ import { transport } from "../src/config.ts";
 import { noteStart, recordNote } from "../src/job/task-note.ts";
 import { formatDrift, inheritFile, listDrift, packageRoot, readOptional } from "../src/project/inherit.ts";
 import { ticketPointers } from "../src/project/planning.ts";
-import { activeRules, ruleLine } from "../src/project/seat-rules.ts";
 import {
 	type PiApi,
 	type PiPart,
@@ -19,7 +18,6 @@ const CONTEXT_TYPE = "limen-project-context";
 const CAPABILITY_FILE = "templates/capability.md";
 const MAX_CONTEXT_LINES = 1000;
 const BOARD_ADVISORY_LINES = 120;
-const RULE_TEXT_CHARS = 400;
 const STYLE_FILE = ".agents/limen/styleguide.md";
 const VISION_FILE = "spec/vision.md";
 const REGISTER_FILE = ".agents/limen/communication.md";
@@ -221,15 +219,6 @@ function turnCue(
 		const board = boardAdvisory(cwd);
 		if (board) {
 			lines.push(board);
-		}
-		const rules = activeRules().map((rule) => ruleLine(rule, RULE_TEXT_CHARS));
-		if (rules.length) {
-			lines.push(
-				[
-					"Seat-wide rules from `limen rule`. Follow each until it ends; do not copy them into spec/build.md.",
-					...rules,
-				].join("\n"),
-			);
 		}
 	}
 	return ["<limen-project-context>", ...lines, "</limen-project-context>"].join("\n\n");

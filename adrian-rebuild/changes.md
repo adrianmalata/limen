@@ -439,3 +439,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-01, M-05; the coordinator's manual; `## Deployment` 3.9 for the tab close)
 - Commit: R-101
 - Rollback: git revert $(git log --format=%H --grep='^R-101:' adrian-rebuild --) (archived folders stay and are read as before, except that the old code takes an archived folder that never ran for a job: `ticket.md` → Rollback)
+
+## 2026-11-25 R-102 Seat rules are cut
+- What: `git rm` of `src/commands/rule.ts` and `src/project/seat-rules.ts`; `git mv` of `src/integrations/coordinator-registration.ts` to `src/integrations/coordinator-refusals.ts` and of its test to `test/integrations/coordinator-refusals.test.ts` (a coordinator hook's refusal in `.limen/refusals/<pid>-<born>.json`, the registration gone); `src/registry.ts`, `src/main.ts`, `src/help.ts`, `src/old-names.ts` (`limen rule` exits 2, `REMOVED`), `src/runtime/start-queue.ts` (no rule hold), `src/runtime/sweeping.ts` (`removeDeadRefusals`), `src/runtime/pi-api.ts`, `src/runtime/launcher.ts`, `src/runtime/queue-report.ts`, `src/runtime/wrapper.ts`, `src/project/summary.ts`, `src/project/board-jobs.ts`, `src/project/leftovers.ts` (`.limen/coordinators`), `src/job/record.ts`, `src/atomic-write.ts`, `hook/communication.ts` (no rule block in the cue), `hook/wake.ts`; tests in the old-names, status, registry, help, structure, start-queue, pi-api, wrapper, leftovers, hook, group, stop, s2, s3 and s4 files, `test/plant.ts`, `test/environment.ts`; `templates/agents.md` and `templates/.history/agents.md`; `docs/commands.md`, `docs/jobs.md`, `docs/seat/README.md`, `CONTRIBUTING.md`
+- Why: A-010, T-42, T-18, T-02, T-01, T-04, T-29, D-094, D-097
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (1189/1189); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (19 test files); `node adrian-rebuild/tools/check.mjs` → exit 0
+- Measurement: unmeasured (plan.md → Measurement: M-01, M-05; `## Deployment` 3.5: no `limen rule timer` process, the old rules folder by hand)
+- Commit: R-102
+- Rollback: git revert $(git log --format=%H --grep='^R-102:' adrian-rebuild --) (the refusal files of `.limen/refusals/` stay and the old code ignores them; `.limen/coordinators` comes back empty)

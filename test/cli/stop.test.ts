@@ -1,9 +1,10 @@
 // `limen stop` (src/job/stopping.ts) on a job named approximately, on a running job with no pid, on a job whose
-// wrapper moves it from starting to running while the stop runs, and the stop request it records in a running job.
+// wrapper moves it from starting to running while the stop runs, on a job that waits in the start queue, and the stop
+// request it records in a running job.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,7 +14,7 @@ import { readRecord } from "../../src/job/record.ts";
 import { stopJob } from "../../src/job/stopping.ts";
 import { platform } from "../../src/platform/platform.ts";
 import { withEnvironment } from "../environment.ts";
-import { readOutcome } from "../final-line.ts";
+import { outputText, readOutcome } from "../final-line.ts";
 import {
 	fakeSystemd,
 	jobDir,
@@ -106,6 +107,20 @@ test("limen stop of a running job records its reason as the job's stop request a
 		[jobRecord(p, id)?.stopRequested, jobRecord(p, id)?.failure, terminalLines(p, id)],
 		["the ticket changed", null, ["] stopped: the ticket changed"]],
 	);
+});
+
+// A-019: a stop of a job that waits in the start queue and the job's waiting wrapper may both finish the job, and the
+// first finisher wins, so the job's log holds one terminal line.
+test("limen stop of a job that waits in the start queue ends it stopped with its reason, in one terminal line", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	// Below the start gate's 25% CPU idle, so the job waits in the queue and starts no engine.
+	writeFileSync(join(p.parent, "start-reading.json"), '{"cpuIdle":10,"memoryFree":80}');
+	const id = spawnJob(p, "say never");
+	const run = limen(p, ["stop", id, "not needed"]);
+	assert.equal(run.status, 0, run.stderr);
+	assert.equal(waitJob(p, id), "stopped");
+	assert.deepEqual([outputText(run), terminalLines(p, id)], [`stopped ${id}: not needed\n`, ["] stopped: not needed"]]);
 });
 
 // A-019: the first finisher wins, so the wrapper that ends the job first must end it as the stop asked; before, its own

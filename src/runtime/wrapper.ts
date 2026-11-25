@@ -129,7 +129,7 @@ export async function runInternalJob(): Promise<void> {
 	const record = await readRecord(jobDir);
 	const profile = jobProfile(record);
 	// A group member runs on its group's deadline, so it starts at once.
-	const queued = membership ? undefined : await enterStartQueue(jobDir, record);
+	const queued = membership ? undefined : await enterStartQueue(jobDir);
 	// The handshake is the one transition to running, with this process's identity (A-056), its scope (A-029) and, for a
 	// queued job, its place in the queue. Spawn waits for it, not for the queue or setup, so it returns before prune and
 	// --prepare run.

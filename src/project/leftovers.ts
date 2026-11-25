@@ -46,6 +46,8 @@ export const LEFTOVERS: readonly Leftover[] = [
 		feature: "the map watch (R-007)",
 		marker: "# limen picture watch ",
 	},
+	// The coordinators' registrations, which only `limen rule` read, and the refusal each one held (D-097 (6) (b)).
+	{ path: ".limen/coordinators", feature: "seat rules (R-102)" },
 ];
 
 /**

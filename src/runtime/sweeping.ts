@@ -3,19 +3,20 @@
 // a job: the read commands and the coordinator's hook never reap. A run, through the runner of src/operation.ts
 // (T-38), does for each project in parallel: the reap of every dead running job (src/runtime/reap.ts), the end of each
 // finished job's scope that the user manager still lists, the resume of each job the subscription limit stopped and
-// the release of the wakes the limit kept from a coordinator (src/runtime/resuming.ts), the removal of dead coordinator
-// registrations, and one Herdr ring for an end nobody heard of; after these, once a day per project, the daily steps:
-// prune (src/runtime/pruning.ts), retire (src/runtime/retiring.ts) and the close of leftover Herdr tabs, so the sweep is
-// the one caller of prune and retire besides land and abandon (D-097 (4), T-26 (2)); then, once, the removal of the
-// start queue's dead entries. A job record that does not read and a step that fails are named with their reasons once
-// every other job, step and project is done (z. 10), and the run ends with the worst class among them (T-02). It
-// refuses to run inside a job's scope, since it would signal the scope it runs in.
+// the release of the wakes the limit kept from a coordinator (src/runtime/resuming.ts), the removal of the refusal
+// files of coordinator processes that are gone, and one Herdr ring for an end nobody heard of; after these, once a day
+// per project, the daily steps: prune (src/runtime/pruning.ts), retire (src/runtime/retiring.ts) and the close of
+// leftover Herdr tabs, so the sweep is the one caller of prune and retire besides land and abandon (D-097 (4),
+// T-26 (2)); then, once, the removal of the start queue's dead entries. A job record that does not read and a step
+// that fails are named with their reasons once every other job, step and project is done (z. 10), and the run ends
+// with the worst class among them (T-02). It refuses to run inside a job's scope, since it would signal the scope it
+// runs in.
 import * as fs from "node:fs";
 import { userInfo } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { atomicWrite, atomicWriteSync, TEMPORARY_NAME } from "../atomic-write.ts";
-import { removeDeadCoordinators } from "../integrations/coordinator-registration.ts";
+import { removeDeadRefusals } from "../integrations/coordinator-refusals.ts";
 import { closeLeftoverTabs, showSeatNotification } from "../integrations/herdr.ts";
 import { isTerminal } from "../job/job.ts";
 import { advisorySource, type JobRecord, jobFolderNames, readRecord, unmigratedFolder } from "../job/record.ts";
@@ -229,11 +230,11 @@ const counted = (steps: number) => (steps === 1 ? "one step" : `${steps} steps`)
 
 /**
  * The steps of one project: its dead running jobs reaped, the scopes its finished jobs left in `live` ended (none when
- * the units could not be listed), its jobs due after the subscription limit resumed and its owed wakes released, its
- * dead coordinator registrations removed, its unheard ends rung for, and then its daily steps when they are due
- * (`dailySteps`). A job that fails to read, to end or to resume, and a step that fails, are returned with where they
- * failed and the project's root, and stop neither the project's other jobs nor its other steps (z. 10, R-032 review
- * round 1, note 8).
+ * the units could not be listed), its jobs due after the subscription limit resumed and its owed wakes released, the
+ * refusal files of its coordinator processes that are gone removed, its unheard ends rung for, and then its daily steps
+ * when they are due (`dailySteps`). A job that fails to read, to end or to resume, and a step that fails, are returned
+ * with where they failed and the project's root, and stop neither the project's other jobs nor its other steps (z. 10,
+ * R-032 review round 1, note 8).
  */
 async function sweepProject(
 	root: string,
@@ -256,7 +257,7 @@ async function sweepProject(
 	// After the reap, so that a dead job is finalized before it can be a candidate (R-034 Decision 1).
 	await step(() => resumeAfterQuota(root, out));
 	await step(async () => {
-		await removeDeadCoordinators(root);
+		await removeDeadRefusals(root);
 		return undefined;
 	});
 	await step(() => ringUnheard(root, jobs, out));

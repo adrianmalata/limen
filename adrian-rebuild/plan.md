@@ -1725,7 +1725,7 @@ Columns:
 | R-098 | `limen stats` per landed ticket and per coordinator turn | 3 | §2, A-078, A-037, D-072, D-098 | R-024, R-031 | M | delegated | night | — | pi | B.3, B.4 | done |
 | R-100 | One definition of the ISO time, the 429 rule, the error-code check and the jobs listing | 3 | T-25, D-080 | R-022, R-093, R-097 | S | delegated | night | — | — | — | done |
 | R-101 | Prune, retire and leftover Herdr tabs are steps of the sweep; nothing is deleted | 3 | A-024, A-002, T-18, T-28, D-092, D-094, D-096, D-097 | R-032 | M | delegated | night | yes | herdr | 3.9 | done |
-| R-102 | Seat rules are cut | 3 | A-010, T-42, D-094, D-097 | R-034 | M | delegated | night | yes | systemd | 3.5 | ready (D-097) |
+| R-102 | Seat rules are cut | 3 | A-010, T-42, D-094, D-097 | R-034 | M | delegated | night | yes | systemd | 3.5 | done |
 | R-103 | Land runs as recorded steps; its `cleaned` step closes the job's Herdr tabs | 3 | A-021, T-04, T-18, T-28, T-38, D-092, D-094, D-096 | R-037 | L | delegated | night | yes | herdr | 3.9 | ready |
 | R-038 | The fake engine shows the model's view under the bridge | 4 | T-31, A-051 | R-017 | M | delegated | night | — | bridge | 4.1 | planned |
 | R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16 | R-021, R-038 | L | delegated | night | yes | pi, bridge | 4.2 | planned |
@@ -4529,3 +4529,33 @@ criteria against the allow-list); `HEAD` equal to `origin/adrian-rebuild`, clean
   Unmeasured: M-01, M-05 (the coordinator's manual), step 3.9. Two commands of this session were refused by the
   permissions (a `cat` and a `Read` of this session's context file outside the repository) and were not worked
   around. Next: R-102 (protocol step 2).
+- R-102 `active` (06:38, from `b489760`): its `ticket.md` (written at R-034's tree) was checked again at `HEAD`
+  (protocol step 2, D-025): AC-7–AC-9 match only lines the change removes; the places R-036–R-101 moved are in
+  `ticket.md` → `## Decisions` 6–8. Next: the implementer (protocol step 3).
+- R-102: the implementer replied `DONE` (nine deviations and the proposed words in `outcome.md`); `compare --git` →
+  exit 0; the main session's `gate.mjs` → exit 0 (1182/1182) and `fails-before.mjs` → exit 0 (15 files, `outcome.md`
+  → `## Fails before`). Next: the review (protocol step 5).
+- R-102 review round 1: FAIL (the hook tests wrote six refusal files into the checkout's ignored `.limen/refusals/`,
+  for Adrian to remove: `outcome.md` → Open points 5), F1–F5 in `ticket.md` → `## Decisions`; a fresh implementer made
+  them (`compare --git` → exit 0); the main session's gate → exit 0 (1188/1188), no new file in `.limen/refusals/`,
+  `fails-before.mjs` → exit 0 (19 files). It is past 08:00, so no ticket starts after R-102. Next: review round 2.
+- (Written by day, from the night's records.) R-102 review round 2: PASS with five notes, G1–G2 in `ticket.md` →
+  `## Decisions` (the last round of fixes), made by a fresh implementer; the gate → exit 0 (1189/1189) and
+  `fails-before.mjs` → exit 0 (19 files) at 08:50; review round 3 started and was cut before its reply was saved.
+- The night's end: run 1 (23:03–03:37) ended on the 5-hour limit (`429`, "You've hit your 5-hour limit") after R-087
+  and R-098; the runner waited 30 min; run 2 (04:07–08:46) made R-101 and R-102 up to its round-3 review and ended on
+  the limit again; neither run wrote `status.json`, so `night.mjs` exited 3 at 08:46:56 ("a retry … would start at or
+  after the end"). `.night/lock` was removed by the runner. Committed in the night: R-087 (`02492cb`), R-098
+  (`45605c1`), R-101 (`b489760`); no night question.
+
+Day of 2026-11-25 (`limen-rebuild-31`, by D-102 (3), after the runner's end woke it; Adrian at the terminal, "no to
+działaj"): context 28 % at the takeover.
+- R-102 `done` (delegated), resumed by D-102 (4): `review-guard.mjs compare --git` → exit 0, so the night's fix runs
+  count; the main session's gate → exit 0 (1189/1189), no new file in the checkout's `.limen/refusals/`;
+  `fails-before.mjs` → exit 0 (19 files); review round 3 again: PASS with two notes (one to `outcome.md` → Open points
+  9: a start-queue entry is live on its pid and job folder alone, already at `HEAD`; one text fix). Seat rules are cut:
+  `limen rule …` exits 2 (`REMOVED`); a coordinator hook's refusal goes to `.limen/refusals/<pid>-<born>.json`, which
+  the sweep removes once its process is gone. For Adrian: `outcome.md` → Open points 5 (remove the checkout's ignored
+  `.limen/`, six test refusals written by the first tree's gate runs), 6 (a gate check for new ignored files, a
+  `Tools:` commit, recommended), 7 and 9 for gate 5.3, and `## Words for gate 5.3`. Unmeasured: seat step 3.5.
+- Next: R-103 (`ready`, the last ticket of stage 3), then the close of stage 3 and gate 5.3.

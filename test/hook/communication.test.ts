@@ -23,8 +23,8 @@ function assign(values: Env): void {
 }
 
 /**
- * A temporary project with one job folder, a home with no seat rules, and a folder that holds a `jg` which names
- * itself Jevgrep, exits 0 and writes a marker file each time it runs.
+ * A temporary project with one job folder, an empty home, and a folder that holds a `jg` which names itself Jevgrep,
+ * exits 0 and writes a marker file each time it runs.
  */
 async function fixture(t: TestContext) {
 	const dir = await mkdtemp(join(tmpdir(), "limen-context-tools-"));
@@ -82,4 +82,36 @@ test("T-36: a coordinator session starts with the same context with and without 
 test("T-36: a job session starts with the same context with and without a jg on PATH, and the hook never runs it", async (t) => {
 	const { plain, withJg, ran } = await startWithAndWithoutJg(t, true);
 	assert.deepEqual([withJg, ran], [plain, false]);
+});
+
+// A-010, R-102: a text that any process could set reached every coordinator's turn as an instruction, so the cue reads
+// nothing of the seat folder's old `rules/`, which no code writes any more.
+test("a coordinator's turn cue holds no seat-rules block when the seat folder holds a rules/ folder", async (t) => {
+	const { project, home } = await fixture(t);
+	const rule = {
+		name: "week",
+		text: "seat-rule-marker",
+		until: "2999-01-01T00:00:00.000Z",
+		setBy: "a job",
+		setAt: "2026-11-24T14:10:00.000Z",
+		version: "1",
+	};
+	await mkdir(join(home, ".limen", "rules", rule.name), { recursive: true });
+	await writeFile(join(home, ".limen", "rules", rule.name, "rule.json"), JSON.stringify(rule));
+	const values: Env = {
+		LIMEN_JOB: undefined,
+		LIMEN_JOB_ID: undefined,
+		LIMEN_CONTEXT_ROOT: undefined,
+		LIMEN_TEST_MODE: "1",
+		LIMEN_HOME: home,
+	};
+	const old: Env = Object.fromEntries(Object.keys(values).map((name) => [name, process.env[name]]));
+	t.after(() => assign(old));
+	assign(values);
+	const start = sessionStart(project);
+	const cue = typeof start === "object" && start !== null ? JSON.stringify(Reflect.get(start, "message")) : "";
+	assert.deepEqual(
+		[cue.includes("<limen-project-context>"), cue.includes("Seat-wide rules"), cue.includes(rule.text)],
+		[true, false, false],
+	);
 });

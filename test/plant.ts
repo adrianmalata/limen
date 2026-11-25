@@ -594,6 +594,17 @@ export function jobFile(plant: Plant, id: string, name: string): string {
 	return existsSync(path) ? readFileSync(path, "utf8").trim() : "";
 }
 
+/** The time of the first Limen line of job `id`'s log whose message starts with `text`; NaN without one. */
+export function loggedAt(plant: Plant, id: string, text: string): number {
+	for (const entry of jobFile(plant, id, "log").split("\n")) {
+		const [, at = "", message = ""] = /^\[limen (\S+)\] (.*)$/.exec(entry) ?? [];
+		if (message.startsWith(text)) {
+			return Date.parse(at);
+		}
+	}
+	return Number.NaN;
+}
+
 /** The job's record, read through the record module; undefined when the folder holds none. */
 export function jobRecord(plant: Plant, id: string, options: RunOptions = {}): JobRecord | undefined {
 	return readRecordSync(join(options.cwd ?? plant.root, ".limen", "jobs", id));

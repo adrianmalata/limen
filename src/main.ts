@@ -1,6 +1,5 @@
-import { endDueRules } from "./commands/rule.ts";
 import { transport } from "./config.ts";
-import { commandHelp, generalHelp, groupEntries, groupHelp } from "./help.ts";
+import { entryHelp, generalHelp, groupEntries, groupHelp } from "./help.ts";
 import { type CommandText, EXIT_CODES, failureOf, finalLine, LimenError, type Success } from "./outcome.ts";
 import { type Parsed, parse, readCommandLine } from "./parser.ts";
 import { type Entry, REGISTRY } from "./registry.ts";
@@ -97,7 +96,7 @@ export function commandOf(args: readonly string[], registry: readonly Entry[] = 
 		return { help: groupOrUnknown(read, registry) };
 	}
 	const { command: entry, rest } = read;
-	return read.help ? { help: commandHelp(entry, registry) } : { entry, values: parse(entry, rest) };
+	return read.help ? { help: entryHelp(entry) } : { entry, values: parse(entry, rest) };
 }
 
 /**
@@ -115,12 +114,6 @@ async function runCommand(
 		return { next: null, text: command.help };
 	}
 	const { entry, values } = command;
-	// A rule whose timer died still ends once; this only starts a detached timer.
-	try {
-		endDueRules(entry.name);
-	} catch {
-		// A rule record is a side channel too.
-	}
 	const success = await entry.handler(values, cwd, out);
 	const undeclared = Object.keys(success?.ids ?? {}).filter((key) => !entry.ids.some((declared) => declared === key));
 	if (undeclared.length) {

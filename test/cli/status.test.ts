@@ -1,7 +1,7 @@
 // `limen status` lists the leftover files of cut features in the project it reports on, the Limen variables of its
 // environment that it no longer reads or reads only until a ticket, names a running job's note, lists the finished
 // jobs whose unlanded work makes a worker spawn refuse (A-001) and the branches of abandoned work (A-002), warns when
-// the alerts do not run (A-066), names a hook's refusal in a coordinator's session (T-32 (4)), shows a dead job without
+// the alerts do not run (A-066), names a hook's refusal in a coordinator's process (T-32 (4)), shows a dead job without
 // ending it (T-04), and names the jobs the seat sweep cannot end and a sweep that does not run (R-032).
 import assert from "node:assert/strict";
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
@@ -395,57 +395,104 @@ test("limen status prints no alerts warning when the timer is active and the ser
 	assert.ok(run.stdout.includes("Older: 0 records"), run.stdout);
 });
 
-/** A coordinator session's folder `session` in the plant's project, holding a hook's refusal with `message`. */
-function plantRefusal(p: Plant, session: string, message: string): void {
-	const folder = join(p.root, ".limen", "coordinators", session);
-	mkdirSync(folder, { recursive: true });
+/** The folder of the plant's project that holds the refusal file of each coordinator process (R-102). */
+const refusalsOf = (p: Plant) => join(p.root, ".limen", "refusals");
+
+/** A refusal file `name` of a coordinator's process in the plant's project, holding a hook's refusal with `message`. */
+function plantRefusal(p: Plant, name: string, message: string): void {
+	mkdirSync(refusalsOf(p), { recursive: true });
 	const refusal = { event: "message_end", field: "message", message, at: "2026-11-24T14:10:00.000Z" };
-	writeFileSync(join(folder, "refusal.json"), `${JSON.stringify(refusal)}\n`);
+	writeFileSync(join(refusalsOf(p), name), `${JSON.stringify(refusal)}\n`);
 }
 
-/** The lines of `limen status` that name a coordinator session's refusal. */
-const refusalLines = (stdout: string) => stdout.split("\n").filter((line) => line.startsWith("Coordinator session "));
+/** The lines of `limen status` that name a coordinator process's refusal. */
+const refusalLines = (stdout: string) => stdout.split("\n").filter((line) => line.startsWith("Coordinator process "));
 
 const REFUSED = "Pi event message_end: message: expected an object, got nothing";
 
-// T-32 (4), D-055 (2): Pi shows a hook's refusal only in the coordinator's chat, so status names it while the session's
-// folder holds it.
-test("limen status shows a hook's refusal in a coordinator's session on one line, with the session, the time and the detail", async (t) => {
+// T-32 (4), D-055 (2): Pi shows a hook's refusal only in the coordinator's chat, so status names it while the file of
+// the process that refused holds it; R-102 keyed the file by the process, since the registration went with the seat rules.
+test("limen status shows a hook's refusal in a coordinator's process on one line, with the process, the time and the detail", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
-	plantRefusal(p, "coord-1", REFUSED);
+	plantRefusal(p, "4242-1.json", REFUSED);
 	const run = limen(p, ["status"]);
 	assert.equal(run.status, 0, run.stderr);
 	assert.deepEqual(refusalLines(run.stdout), [
-		`Coordinator session coord-1, 2026-11-24T14:10:00.000Z: a Limen hook refused ${REFUSED}`,
+		`Coordinator process 4242, 2026-11-24T14:10:00.000Z: a Limen hook refused ${REFUSED}`,
 	]);
 });
 
-test("T-04: limen status reads a coordinator session's refusal and writes nothing: the project's state snapshot stays identical", async (t) => {
+test("T-04: limen status reads a coordinator process's refusal and writes nothing: the project's state snapshot stays identical", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
-	plantRefusal(p, "coord-1", REFUSED);
+	plantRefusal(p, "4242-1.json", REFUSED);
 	const before = snapshot(p.root);
 	const run = limen(p, ["status"]);
 	assert.equal(run.status, 0, run.stderr);
 	assert.deepEqual(snapshot(p.root), before);
 });
 
-// R-029 review round 1, note 6: a planted refusal file and its folder are text from outside Limen that reaches the
+// R-029 review round 1, note 6: a planted refusal file and its name are text from outside Limen that reaches the
 // coordinator, so a newline in either is escaped and adds no line (R-030's lines do the same through shownField).
-test("limen status escapes a newline in a coordinator session's name and in its refusal's message, so the refusal stays one line", async (t) => {
+test("limen status escapes a newline in a refusal file's name and in its refusal's message, so each refusal stays one line", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
-	plantRefusal(p, "coord\nInjected session", "Pi event message_end: message\nInjected line");
+	plantRefusal(p, "4242-1.json", "Pi event message_end: message\nInjected line");
+	plantRefusal(p, "4243-1\nInjected.json", REFUSED);
+	const run = limen(p, ["status"]);
+	assert.equal(run.status, 0, run.stderr);
+	const lines = refusalLines(run.stdout);
+	assert.deepEqual(
+		[lines[0], lines.length, run.stdout.includes("\nInjected")],
+		[
+			"Coordinator process 4242, 2026-11-24T14:10:00.000Z: a Limen hook refused Pi event message_end: message\\nInjected line",
+			2,
+			false,
+		],
+	);
+});
+
+// R-029 review round 3, note (2): a file of the folder that does not read is its own line, and the rest of the status
+// prints, since one damaged file must not hide the project's state.
+test("limen status shows a directory and a malformed file in .limen/refusals/ each as a BAD_DATA line and prints the rest", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	plantRefusal(p, "4242-1.json", REFUSED);
+	mkdirSync(join(refusalsOf(p), "4243-1.json"));
+	writeFileSync(join(refusalsOf(p), "4244-1.json"), "not json");
+	const run = limen(p, ["status"]);
+	assert.equal(run.status, 0, run.stderr);
+	// The line escapes the message as a JSON string does, its quotes too.
+	assert.deepEqual(
+		[refusalLines(run.stdout), run.stdout.includes("\nOlder: 0 records (limen status --all)\n")],
+		[
+			[
+				`Coordinator process 4242, 2026-11-24T14:10:00.000Z: a Limen hook refused ${REFUSED}`,
+				`Coordinator process 4243, time unknown: ${join(refusalsOf(p), "4243-1.json")}: expected a regular file with one name, got \\"another kind of file\\"`,
+				`Coordinator process 4244, time unknown: ${join(refusalsOf(p), "4244-1.json")}: expected JSON, got \\"not json\\"`,
+			],
+			true,
+		],
+	);
+});
+
+// R-102 review round 1, finding 3: a .limen/refusals that is no folder is one more entry that does not read, so it is
+// one line and the rest of the status prints; its listing failed the whole status before.
+test("limen status shows a .limen/refusals that is a regular file as one BAD_DATA line and prints the rest", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	mkdirSync(join(p.root, ".limen"), { recursive: true });
+	writeFileSync(refusalsOf(p), "not a folder\n");
 	const run = limen(p, ["status"]);
 	assert.equal(run.status, 0, run.stderr);
 	assert.deepEqual(
-		[refusalLines(run.stdout), run.stdout.includes("\nInjected")],
+		[refusalLines(run.stdout), run.stdout.includes("\nOlder: 0 records (limen status --all)\n")],
 		[
 			[
-				"Coordinator session coord\\nInjected session, 2026-11-24T14:10:00.000Z: a Limen hook refused Pi event message_end: message\\nInjected line",
+				`Coordinator process unknown, time unknown: ${refusalsOf(p)}: expected a folder, got \\"another kind of file\\"`,
 			],
-			false,
+			true,
 		],
 	);
 });

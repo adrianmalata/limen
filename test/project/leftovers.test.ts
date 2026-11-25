@@ -164,6 +164,14 @@ test("listLeftovers finds no marked entry under a .git file, as in a job worktre
 	assert.deepEqual(listLeftovers(root, [HOOK]), []);
 });
 
+// R-102, D-097 (6) (b): the coordinator registration went with the seat rules, its one reader, so nothing reads its
+// folder any more.
+test("listLeftovers names a .limen/coordinators folder as a leftover of the cut seat rules", () => {
+	const root = project();
+	write(root, ".limen/coordinators/s1/pid", "4242\n");
+	assert.deepEqual(listLeftovers(root), [{ path: ".limen/coordinators", feature: "seat rules (R-102)" }]);
+});
+
 test("a second dropLeftovers call removes nothing", () => {
 	const root = project();
 	write(root, FILE.path, "{}\n");

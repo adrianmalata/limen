@@ -40,10 +40,6 @@ const TYPES = ["job", "ticket", "text", "path", "branch", "word"];
 // D-039, D-042 and D-096 (1): the commands a subsequent ticket moves or cuts, each with that ticket.
 const MOVED = {
 	keeper: "R-066",
-	rule: "R-102",
-	"rule set": "R-102",
-	"rule end": "R-102",
-	"rule timer": "R-102",
 	"group wait": "R-077",
 };
 // Change 1: the entries that return identifiers, with their keys; every other entry returns none (D-022).
@@ -212,7 +208,7 @@ test("UNDECLARED_IDS: a handler that returns an ids key its entry does not decla
 	const errors: string[] = [];
 	t.mock.method(console, "error", (line: unknown) => errors.push(String(line)));
 	t.mock.method(console, "log", () => {});
-	// No rule timer starts from this in-process run (src/commands/rule.ts, endDueRules); the helper turns test mode on.
+	// LIMEN_HERDR 0: this in-process run reaches no Herdr of the machine; the helper turns test mode on.
 	withEnvironment(t, { LIMEN_HERDR: "0" });
 	await main(["probe"], process.cwd(), [probe]);
 	const code = process.exitCode;
@@ -248,7 +244,7 @@ test("T-26: the wrapper prints a command's text when the command ends, the text 
 			throw new LimenError({ class: "refused", code: "PROBE_REFUSED", message: "probe refused", next: null });
 		},
 	};
-	// No rule timer starts from this in-process run; the helper turns test mode on.
+	// LIMEN_HERDR 0: this in-process run reaches no Herdr of the machine; the helper turns test mode on.
 	withEnvironment(t, { LIMEN_HERDR: "0" });
 	await main(["probe"], process.cwd(), [probe]);
 	const status = process.exitCode === undefined ? null : Number(process.exitCode);
@@ -261,12 +257,13 @@ test("T-26: the wrapper prints a command's text when the command ends, the text 
 });
 
 // D-045 (6), D-075: status and show were change commands while they reaped dead jobs; R-032 made the reap the seat
-// sweep's alone, so they are reads; `rule` only lists, since `rule set` and `rule end` are entries of their own.
-test("D-045: status and show, which no longer reap, and rule, which only lists, are read commands; seat sweep is a change", () => {
-	assert.deepEqual(
-		Object.fromEntries(["status", "show", "rule", "seat sweep"].map((name) => [name, byName(name)?.kind])),
-		{ status: "read", show: "read", rule: "read", "seat sweep": "change" },
-	);
+// sweep's alone, so they are reads.
+test("D-045: status and show, which no longer reap, are read commands; seat sweep is a change", () => {
+	assert.deepEqual(Object.fromEntries(["status", "show", "seat sweep"].map((name) => [name, byName(name)?.kind])), {
+		status: "read",
+		show: "read",
+		"seat sweep": "change",
+	});
 });
 
 // D-039, R-032: the ticket that moves a command leaves no entry moved by it.
@@ -688,10 +685,6 @@ const WITHOUT_SUCCESS_TEST: readonly string[] = [
 	"group stop",
 	"open",
 	"picture serve",
-	"rule",
-	"rule end",
-	"rule set",
-	"rule timer",
 	"seat queue",
 	"show",
 	"steer",

@@ -146,8 +146,9 @@ test("T-26 (4): only src/outcome.ts builds the final line in src/, hook/ and bin
 // T-01 → Why: the author's side channels swallow their errors. A ratchet until R-082 brings both counts to zero: the
 // counts at R-013's parent commit, which a change may only lower; R-026 lowered `.catch(() => {})` to its own count, 19,
 // when the starts of the group's next round and of a rule's timer stopped swallowing a failure, and R-029 to 18, when
-// an exhaustion's TERM stopped swallowing the failure of its log line (the D-092 note).
-const SWALLOWED = { "catch {": 81, ".catch(() => {})": 18 } as const;
+// an exhaustion's TERM stopped swallowing the failure of its log line (the D-092 note). R-102 removed six `catch {` and
+// one `.catch(() => {})` with the seat rules and the coordinator registration.
+const SWALLOWED = { "catch {": 81 - 6, ".catch(() => {})": 18 - 1 } as const;
 test("T-01: the catch-all sites in src/ and hook/ stay at most their baseline count, and src/outcome.ts has none", async () => {
 	for (const [literal, most] of Object.entries(SWALLOWED)) {
 		const [all, inOutcome] = await occurrences(["src", "hook"], literal, "src/outcome.ts");
@@ -158,8 +159,8 @@ test("T-01: the catch-all sites in src/ and hook/ stay at most their baseline co
 
 // The author's untyped refusals, which `failureOf` maps to UNTYPED (exit code 1) until R-082 types them. The count
 // measured at R-092, which typed the refusals on the paths of the nine change commands it moved onto the runner of
-// src/operation.ts and git's failures; a change may only lower it.
-const UNTYPED_THROWS = 106;
+// src/operation.ts and git's failures; a change may only lower it. R-102 removed the four of `limen rule`.
+const UNTYPED_THROWS = 106 - 4;
 test("T-01: the untyped throw new Error( sites in src/ and hook/ stay at most their baseline count, less the typed ones", async () => {
 	const [all] = await occurrences(["src", "hook"], "throw new Error(", "src/outcome.ts");
 	assert.ok(all <= UNTYPED_THROWS, `${all} sites of throw new Error(, at most ${UNTYPED_THROWS}`);
@@ -207,8 +208,8 @@ const RUNTIME = ["src", "hook", "bin", "seat"] as const;
 // zero: the 41 sites at R-015's commit, the parent of R-016, less the 3 that R-016 moved into src/boundary.ts (the
 // readers of src/outcome.ts, src/project/limits.ts and `startGate` in src/runtime/start-queue.ts), less the 4 sites of
 // job files that R-021 moved into the record's validators (src/job/record.ts), less the transcript reader that R-024
-// moved onto the validators (src/job/usage.ts).
-const JSON_PARSE = 41 - 3 - 4 - 1;
+// moved onto the validators (src/job/usage.ts), less the reader of a seat rule that R-102 removed.
+const JSON_PARSE = 41 - 3 - 4 - 1 - 1;
 test("T-27: JSON.parse appears in src/, hook/, bin/ and seat/ outside src/boundary.ts at most its baseline count", async () => {
 	let all = 0;
 	for (const { path, text } of await knownSources(RUNTIME)) {
@@ -287,9 +288,10 @@ test("the cast scan finds as T, an angle-bracket assertion and as unknown as, an
 // T-27 (2): only `as const` is free. A ratchet until R-082 brings both counts to zero: the casts this scan finds at
 // R-015's commit, the parent of R-016, less the casts R-016 removed: 75 - 0 in src/, hook/, bin/ and seat/ and 7 - 0
 // in test/ (R-016 moved no reader that held a cast), then 15 fewer in src/, hook/, bin/ and seat/ once R-021 read the
-// job records through the record module's validators, and 4 fewer once R-024 read the job transcripts through
-// validators (src/job/usage.ts). Test fixtures use `satisfies`.
-const CASTS = { runtime: 75 - 15 - 4, test: 7 } as const;
+// job records through the record module's validators, 4 fewer once R-024 read the job transcripts through validators
+// (src/job/usage.ts), and 6 fewer once R-102 cut the seat rules and the coordinator registration. Test fixtures use
+// `satisfies`.
+const CASTS = { runtime: 75 - 15 - 4 - 6, test: 7 } as const;
 test("T-27: the casts in src/, hook/, bin/ and seat/ other than as const stay at most their baseline count", async () => {
 	const casts = counted(await castsBelow(RUNTIME));
 	assert.ok(casts.length <= CASTS.runtime, `${casts.length} casts, at most ${CASTS.runtime}`);
@@ -708,13 +710,6 @@ const JOB_FILE_NAMES: ReadonlySet<string> = new Set([
  * no job's file.
  */
 const JOB_NAME_EXCEPTIONS: ReadonlyArray<{ readonly path: string; readonly name: string; readonly reason: string }> = [
-	{ path: "src/integrations/coordinator-registration.ts", name: "pid", reason: "a coordinator's registration folder" },
-	{ path: "src/integrations/coordinator-registration.ts", name: "born", reason: "a coordinator's registration folder" },
-	{
-		path: "src/integrations/coordinator-registration.ts",
-		name: "started-at",
-		reason: "a coordinator's registration folder",
-	},
 	{ path: "src/integrations/github-doctor.ts", name: "state", reason: "the GitHub poller's state folder" },
 	{ path: "docs/seat/github-setup.sh", name: "state", reason: "the GitHub poller's state folder" },
 ];
@@ -808,7 +803,7 @@ test("the job-file scan finds a path literal, a template and a join that end in 
 		].join("\n"),
 		"hook/progress.ts": 'const progress = resolve(job, "progress.json");\n',
 		"docs/seat/reader.sh": '#!/bin/sh\nstate=$(cat "$job/state")\nexec node "$here/reader.ts"\n',
-		"src/integrations/coordinator-registration.ts": 'const pid = join(dir, "pid");\n',
+		"src/integrations/github-doctor.ts": 'const state = join(dir, "state");\n',
 		"test/outside.ts": `const state = ${below("state")};\n`,
 	};
 	for (const [path, text] of Object.entries(files)) {
@@ -1098,12 +1093,6 @@ const STATE_TRANSITIONS: ReadonlySet<string> = new Set([
 	"writeStuck",
 	"writeOwedWake",
 ]);
-/** The read commands whose modules still import one, each with the ticket that ends it. */
-const READS_WITH_TRANSITIONS: Readonly<Record<string, string>> = {
-	// `rule`'s file holds `rule set` and `rule timer` too, which R-102 cuts with it (D-097 (6)).
-	rule: "R-102",
-};
-
 /**
  * Each state-transition function that the module of a read command's handler, or a `src/` module it imports directly,
  * imports, as `<command>: <file> imports <function>`.
@@ -1136,17 +1125,10 @@ async function readTransitions(): Promise<string[]> {
 }
 
 // T-04 → Check, R-032 Decision 16: a read command that does not import what writes a job's state cannot write it from
-// its own code or from the domain module it calls; the T-04 read test of test/registry.test.ts holds the rest.
-test("T-04: the module of every read command's handler and the src/ modules it imports import no state-transition function, except the listed ones", async () => {
-	const found = await readTransitions();
-	const listed = found.filter((line) => Object.hasOwn(READS_WITH_TRANSITIONS, line.split(":")[0] ?? ""));
-	assert.deepEqual(
-		{
-			unlisted: found.filter((line) => !listed.includes(line)),
-			stale: Object.keys(READS_WITH_TRANSITIONS).filter((name) => !listed.some((line) => line.startsWith(`${name}: `))),
-		},
-		{ unlisted: [], stale: [] },
-	);
+// its own code or from the domain module it calls; the T-04 read test of test/registry.test.ts holds the rest. Its one
+// exception, `rule`, whose file held `rule set` and `rule timer` too, went with the seat rules (R-102).
+test("T-04: the module of every read command's handler and the src/ modules it imports import no state-transition function", async () => {
+	assert.deepEqual(await readTransitions(), []);
 });
 
 /** The one module of the job id's form (T-25 (2), T-20 (1), (6)): its date and slug, its token, its older 4-hex end. */
@@ -1197,30 +1179,25 @@ const heldText = ({ path, line, text }: HeldLine) => `${path}:${line}: ${text}`;
 const ISO_TIME_MODULE = "src/boundary.ts";
 /** The start of the ISO time's pattern as source text: a date and the T before its time of day. */
 const ISO_TIME_TEXT = String.raw`\d{4}-\d{2}-\d{2}T`;
-/**
- * The files outside the module that keep a pattern of a time: `limen rule --until` takes a looser form of user input,
- * with an offset, and R-102 cuts the command.
- */
-const ISO_TIME_EXCEPTIONS: ReadonlySet<string> = new Set(["src/commands/rule.ts"]);
 
-/** Each line of `files` outside the ISO time's module and its exceptions that holds the ISO time's pattern. */
+/**
+ * Each line of `files` outside the ISO time's module that holds the ISO time's pattern. Its one exception, the looser
+ * `--until` of `limen rule`, went with the seat rules (R-102).
+ */
 function isoTimeCopies(files: readonly Code[]): string[] {
-	return linesHolding(files, [ISO_TIME_TEXT], ISO_TIME_MODULE)
-		.filter(({ path }) => !ISO_TIME_EXCEPTIONS.has(path))
-		.map(heldText);
+	return linesHolding(files, [ISO_TIME_TEXT], ISO_TIME_MODULE).map(heldText);
 }
 
 // T-25 (1): four copies of the form checked no range, so a day such as 2026-02-30 passed as a time; one module holds
 // the form with its range check.
-test("T-25: outside src/boundary.ts no file of src/, hook/, bin/ or seat/ holds the ISO time's pattern, except src/commands/rule.ts", async () => {
+test("T-25: outside src/boundary.ts no file of src/, hook/, bin/ or seat/ holds the ISO time's pattern", async () => {
 	assert.deepEqual(isoTimeCopies(await knownSources(RUNTIME)), []);
 });
 
-test("the ISO time scan finds a copy of the pattern outside its module and skips the module, src/commands/rule.ts and a month", () => {
+test("the ISO time scan finds a copy of the pattern outside its module and skips the module and a month", () => {
 	const copy = `const ISO_TIME = /^${ISO_TIME_TEXT}\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/;`;
 	const files = [
 		{ path: "src/boundary.ts", text: copy },
-		{ path: "src/commands/rule.ts", text: `const until = /^${ISO_TIME_TEXT}\\d{2}:\\d{2}/;` },
 		{ path: "src/job/record.ts", text: `const MONTH = /^\\d{4}-\\d{2}$/;\n${copy}` },
 		{ path: "seat/tool.ts", text: `\t${copy}` },
 	];
@@ -1294,7 +1271,6 @@ const ERRNO_TYPED: readonly ListedLine[] = [
 		path: "src/project/board-jobs.ts",
 		text: 'const text = await readFile(join(root, "spec/build.md"), "utf8").catch((error: NodeJS.ErrnoException) => {',
 	},
-	{ path: "src/project/seat-rules.ts", text: 'if ((error as NodeJS.ErrnoException).code === "EEXIST") {' },
 	{ path: "src/project/series.ts", text: 'if ((error as NodeJS.ErrnoException).code === "ENOENT") {' },
 	{ path: "src/project/series.ts", text: 'if ((error as NodeJS.ErrnoException).code === "ENOENT") {' },
 	{ path: "src/project/ticket-folders.ts", text: "(error: NodeJS.ErrnoException) => {" },

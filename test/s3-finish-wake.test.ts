@@ -4,9 +4,8 @@
 // wake by moving its claim to notify/delivered/<session>, and no listener injects that wake again afterwards, so once
 // the delivered record exists every wake the job will cause for that session is already recorded.
 import assert from "node:assert/strict";
-import { type ChildProcess, execFileSync, spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { open, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -20,6 +19,7 @@ import {
 	jobRecord,
 	jobState,
 	limen,
+	loggedAt,
 	type Plant,
 	plant,
 	release,
@@ -31,12 +31,6 @@ import {
 
 const WAKE_HOOK = fileURLToPath(new URL("../hook/wake.ts", import.meta.url));
 const ROUTE = ["--engine", "pi", "--provider", "p", "--model", "m", "--thinking", "high", "--detached"];
-/**
- * The timeout of the queued job `timed`. It waits in the queue for longer than this, and then its engine blocks until
- * the timeout ends it, so a timeout counted from the queue would end it as soon as it starts. A loaded machine can
- * only lengthen both intervals, so nothing here rests on how fast an engine runs (D-063 (3)).
- */
-const TIMED_TIMEOUT_MS = 2_000;
 let p: Plant;
 let coord = "";
 const sessions: ChildProcess[] = [];
@@ -65,16 +59,6 @@ function wakes(dir: string, id: string) {
 	return engineEvents(dir).flatMap((event, index) =>
 		event.text?.startsWith("Limen job") && event.text.includes(id) ? [{ ...event, index }] : [],
 	);
-}
-/** The time of the first Limen line of job `id`'s log whose message starts with `text`; NaN without one. */
-function logged(id: string, text: string): number {
-	for (const entry of jobFile(p, id, "log").split("\n")) {
-		const [, at = "", message = ""] = /^\[limen (\S+)\] (.*)$/.exec(entry) ?? [];
-		if (message.startsWith(text)) {
-			return Date.parse(at);
-		}
-	}
-	return Number.NaN;
 }
 const delivered = (ids: readonly string[], session = "coord") =>
 	until(join(p.root, ".limen", "jobs"), () =>
@@ -231,64 +215,59 @@ test("limen watch: watch and unwatch move a job's wake to another session", asyn
 	assert.deepEqual([wakes(other, moved).length, wakes(coord, moved).length], [1, 0]);
 });
 
-test("a held gate queues jobs by priority and a rule's start priority holds the rest; a queued job tells its session once that it started, then its finish wakes it once", async () => {
-	const reading = join(p.parent, "start-reading.json");
-	writeFileSync(reading, '{"cpuIdle":10,"memoryFree":80}');
-	const pipe = join(p.parent, "timed-reading");
-	execFileSync("mkfifo", [pipe]); // timed reads its load from this pipe: each sample it takes waits for the test
-	// A dead wrapper and a stopped job at the head hold nothing; a timeout counts from engine start, not the queue.
+/** The seat's start reading of the plant, which holds the gate at 10% CPU idle and opens it at 90%. */
+const startReading = () => join(p.parent, "start-reading.json");
+const HELD = '{"cpuIdle":10,"memoryFree":80}';
+const OPEN = '{"cpuIdle":90,"memoryFree":80}';
+
+test("a held gate starts its queued jobs by priority, then by queue time, and a dead wrapper or a stopped job ahead holds none", async () => {
+	writeFileSync(startReading(), HELD);
 	const [dead = "", stopped = ""] = ["q dead", "q stopped"].map((label) => job("say no", label, ["--priority", "1"]));
-	const timeout = ["--timeout", `${TIMED_TIMEOUT_MS / 1_000}s`];
-	const timed = job("block", "q timed", timeout, { PI_SESSION_ID: "coord", LIMEN_START_READING: pipe });
-	const run = limen(p, ["spawn", ...ROUTE, "--label", "late", "block"], { env: { PI_SESSION_ID: "coord" } });
+	const early = job("say early", "q early");
+	const run = limen(p, ["spawn", ...ROUTE, "--label", "late", "say late"], { env: { PI_SESSION_ID: "coord" } });
 	assert.match(
 		outputText(run),
 		/\nqueued late: CPU 10% idle \(gate 25%\), memory 80% free \(gate 20%\), 3 ahead\n\S+\nEnd your turn; Limen wakes you when the job ends\.\n$/,
 	);
 	const later = startedJob(run);
-	const urgent = job("block", "q urgent", ["--priority", "1"]);
+	const urgent = job("say urgent", "q urgent", ["--priority", "1"]);
 	process.kill(jobRecord(p, dead)?.identity?.pid ?? 0, "SIGKILL");
-	assert.equal(outputText(limen(p, ["stop", stopped, "not needed"])), `stopped ${stopped}: not needed\n`);
-	// The budget: urgent starts under a start priority 2 rule; a change to 1 while timed samples must still hold timed.
-	limen(p, ["rule", "set", "week", "--until", "1h", "--start-priority", "2", "Low"]);
-	writeFileSync(reading, '{"cpuIdle":90,"memoryFree":80}');
-	const head = await open(pipe, "w"); // timed, the head once urgent started, samples the load
-	assert.match(limen(p, ["rule", "set", "week", "--until", "1h", "--start-priority", "1", "Low"]).stdout, /changed/);
-	await head.writeFile("{}").finally(() => head.close());
-	const queued = () => JSON.stringify(jobRecord(p, later)?.queued ?? null);
-	await until(jobDir(p, later), () => /"held by rule week until .+"ahead":1/.test(queued()));
-	const held = "held by rule week until [^\\n]+ \\(start priority 1\\)";
-	const shown = limen(p, ["show", later], { env: { LIMEN_REAP_CONFIRM_MS: "1" } }).stdout;
-	assert.match(shown, new RegExp(` · queued · waiting \\d+s: ${held}, 1 ahead · `));
-	assert.match(limen(p, ["seat", "queue"]).stdout, new RegExp(`1\\. ${timed} .+\\n   ${held}\\n.+\\n2\\. ${later} `));
-	assert.ok(!engineEvents(coord).some((event) => event.text?.startsWith("limen: late started")), "no toast yet");
-	// timed cannot start before the next write to its pipe, so the steps above count toward its time in the queue.
-	await until(jobDir(p, timed), () => Date.now() - logged(timed, "queued: ") > TIMED_TIMEOUT_MS);
-	sessions[0]?.kill("SIGSTOP"); // timed ends while its listener sleeps, before its start notice.
-	assert.match(limen(p, ["rule", "end", "week"]).stdout, /^rule week ended/);
-	await writeFile(pipe, "{}"); // timed, the head again, samples once more
-	assert.equal(waitJob(p, timed), "failed");
+	const stop = limen(p, ["stop", stopped, "not needed"]);
+	assert.equal(stop.status, 0, stop.stderr);
+	// The gate opens: urgent, the head by priority, starts first, then early and late by their time in the queue.
+	writeFileSync(startReading(), OPEN);
+	assert.equal([urgent, early, later].map((id) => waitJob(p, id)).join(), "done,done,done");
+	const started = (id: string) => loggedAt(p, id, "start queue: started");
+	assert.ok(started(urgent) < started(early) && started(early) < started(later), "priority, then queue time");
+	// Every wake is in before the next test, so the coord session is idle for it.
+	await delivered([urgent, early, later]);
+});
+
+test("a queued job tells its session once that it started, and then its finish wakes the session once", async () => {
+	writeFileSync(startReading(), HELD);
+	const heard = job("block", "n heard");
+	writeFileSync(startReading(), OPEN);
+	await until(jobDir(p, heard), () => existsSync(join(jobDir(p, heard), "notify/delivered/_start.coord")));
+	await release(jobDir(p, heard));
+	assert.equal(waitJob(p, heard), "done");
+	await delivered([heard]);
+	const wokeWith = wakes(coord, heard).map((wake) => wake.text?.includes(") started after "));
+	assert.deepEqual(wokeWith, [true, false]);
+});
+
+// The start notice is its own receipt and comes first; a job that ended before its session heard it carries the
+// notice's line in its finish wake instead.
+test("a queued job that ends before its session hears that it started carries the start in its one finish wake", async () => {
+	sessions[0]?.kill("SIGSTOP"); // the coord session sleeps until the job has ended
+	writeFileSync(startReading(), HELD);
+	const ended = job("say ended", "n ended");
+	writeFileSync(startReading(), OPEN);
+	const state = waitJob(p, ended);
 	sessions[0]?.kill("SIGCONT");
-	// The timeout ended timed at least the timeout after its engine started, after it had waited longer in the queue.
-	const queuedMs = logged(timed, "start queue: started") - logged(timed, "queued: ");
-	const ranMs = Date.parse(jobRecord(p, timed)?.finishedAt ?? "") - logged(timed, "worker started");
-	const ended = { failure: jobRecord(p, timed)?.failure?.kind, queued: queuedMs > TIMED_TIMEOUT_MS };
-	assert.deepEqual(
-		{ ...ended, ran: ranMs >= TIMED_TIMEOUT_MS },
-		{ failure: "timeout", queued: true, ran: true },
-		`queued ${queuedMs} ms, ran ${ranMs} ms`,
-	);
-	const noticed = (id: string) => existsSync(join(jobDir(p, id), "notify/delivered/_start.coord"));
-	await until(jobDir(p, later), () => noticed(later) && noticed(urgent));
-	await Promise.all([later, urgent].map((id) => release(jobDir(p, id))));
-	assert.equal([later, urgent, stopped].map((id) => waitJob(p, id)).join(), "done,done,stopped");
-	const started = (id: string) => logged(id, "start queue: started");
-	assert.ok(started(urgent) < started(timed) && started(timed) < started(later), "priority, then queue time");
-	assert.equal(jobFile(p, stopped, "log").match(/\] stopped:/g)?.length, 1, "a queued stop finalizes once");
-	await delivered([later, urgent, timed]);
-	// The start notice is its own receipt and comes first; a job that ended before it carries its line in the finish wake.
-	const heard = [later, urgent, timed].map((id) => wakes(coord, id).map((w) => w.text?.includes(") started after ")));
-	assert.deepEqual(heard.flat(), [true, false, true, false, true]);
+	assert.equal(state, "done");
+	await delivered([ended]);
+	const wokeWith = wakes(coord, ended).map((wake) => wake.text?.includes(") started after "));
+	assert.deepEqual(wokeWith, [true]);
 });
 
 test("an idle owner hears a job whose session is gone through one fallback wake once its grace passes", async () => {

@@ -3,7 +3,7 @@ import { appendFileSync, existsSync, type FSWatcher, mkdirSync, readdirSync, rea
 import { basename, dirname, join } from "node:path";
 import { atomicWriteSync, TEMPORARY_NAME } from "../src/atomic-write.ts";
 import { transport } from "../src/config.ts";
-import { coordinatorProject, coordinatorRegistration } from "../src/integrations/coordinator-registration.ts";
+import { coordinatorProject } from "../src/integrations/coordinator-refusals.ts";
 import { herdrBinary } from "../src/integrations/herdr.ts";
 import { closedFeatures, closedJobFeatures, derivePulse, isTerminal, type Pulse, SESSION_ID } from "../src/job/job.ts";
 import {
@@ -134,7 +134,6 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 	let ownsJobs: boolean | undefined;
 	let cacheExpiresAt = 0;
 	let sweeping = false;
-	const coordinator = coordinatorRegistration();
 	let injectedThisSweep = false;
 	type PendingDelivery = {
 		readonly claim: string;
@@ -900,7 +899,6 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 				return;
 			}
 			const jobs = join(root, ".limen", "jobs");
-			coordinator.start(root, context);
 			stopTimers();
 			const id = context.sessionManager.getSessionId();
 			if (!SESSION_ID.test(id)) {
@@ -1038,7 +1036,6 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 	pi.on(
 		"session_shutdown",
 		recorded(() => {
-			coordinator.shutdown();
 			if (!active && !sweepTimer) {
 				return;
 			}

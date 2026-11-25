@@ -33,7 +33,6 @@ import { landCommand } from "./commands/land.ts";
 import { migrateCommand } from "./commands/migrate.ts";
 import { openCommand } from "./commands/open.ts";
 import { pictureBuildCommand, pictureServeCommand } from "./commands/picture.ts";
-import { ruleCommand, ruleEndCommand, ruleSetCommand, ruleTimerCommand } from "./commands/rule.ts";
 import { seatQueueCommand } from "./commands/seat-queue.ts";
 import { showCommand } from "./commands/show.ts";
 import { spawnCommand } from "./commands/spawn.ts";
@@ -682,11 +681,6 @@ const TICKETS: readonly Entry[] = [
 	},
 ];
 
-const RULE: Positional = {
-	positional: "name",
-	type: "word",
-	about: "the rule's name: letters, digits, dot, dash or underscore",
-};
 const SEAT: readonly Entry[] = [
 	{
 		name: "seat queue",
@@ -716,81 +710,6 @@ const SEAT: readonly Entry[] = [
 		refuses: refusals(["SWEEP_FLAGS", "SWEEP_IN_JOB"]),
 		example: "limen seat sweep --status",
 		handler: seatSweepCommand,
-	},
-	{
-		name: "rule",
-		object: "seat",
-		kind: "read",
-		visibility: "public",
-		summary: "the seat-wide rules that hold now",
-		schema: [],
-		ids: [],
-		refuses: [],
-		example: "limen rule",
-		movedBy: "R-102",
-		handler: ruleCommand,
-	},
-	{
-		name: "rule set",
-		object: "seat",
-		kind: "change",
-		visibility: "public",
-		summary: "a rule for every coordinator on this machine",
-		schema: [
-			RULE,
-			{
-				flag: "until",
-				value: "time",
-				required: true,
-				about: 'when it ends: 90m, 12h, 3d, "YYYY-MM-DD HH:MM" or an ISO time',
-			},
-			{
-				flag: "start-priority",
-				choices: ["1", "2", "3"],
-				about: "while it holds, the start queue starts only jobs this urgent",
-			},
-			{ positional: "text", type: "text", about: "the rule; every coordinator sees it in its turn" },
-		],
-		ids: [],
-		// Its refusals are untyped until R-102 cuts it.
-		refuses: [],
-		example: 'limen rule set claude-week --until 12h --start-priority 1 "Only urgent jobs until the reset"',
-		movedBy: "R-102",
-		handler: ruleSetCommand,
-	},
-	{
-		name: "rule end",
-		object: "seat",
-		kind: "change",
-		visibility: "public",
-		summary: "end a rule now",
-		schema: [
-			RULE,
-			{ positional: "reason", type: "text", optional: true, about: "why; each coordinator's end ping names it" },
-		],
-		ids: [],
-		// Its refusals are untyped until R-102 cuts it.
-		refuses: [],
-		example: 'limen rule end claude-week "the limit reset"',
-		movedBy: "R-102",
-		handler: ruleEndCommand,
-	},
-	{
-		name: "rule timer",
-		object: "seat",
-		kind: "change",
-		visibility: "internal",
-		caller: "the detached timer that rule set starts, or a later command when that timer died",
-		summary: "end one version of a rule once, at its end time",
-		schema: [
-			{ positional: "folder", type: "path", about: "the rule's folder" },
-			{ positional: "version", type: "word", about: "the version of the rule the timer ends" },
-		],
-		ids: [],
-		refuses: [],
-		example: "limen rule timer .limen/rules/claude-week 1763540000000-4242",
-		movedBy: "R-102",
-		handler: ruleTimerCommand,
 	},
 ];
 

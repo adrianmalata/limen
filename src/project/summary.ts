@@ -1,7 +1,7 @@
 // The summary of this project (`limen status`): what runs, what landed, what waits for a decision, in the last 7 days,
 // every finished job whose unlanded work blocks a worker spawn, whatever its age (A-001), each branch of abandoned work
 // (A-002), each job the seat sweep cannot end (R-032), whether the seat's alerts and its sweep run (A-066, A-024), a
-// Limen hook's refusal in a coordinator's session (T-32 (4)), and with `--all` every record and one row for each job
+// Limen hook's refusal in a coordinator's process (T-32 (4)), and with `--all` every record and one row for each job
 // (D-038). It is a read (T-04): a dead job is shown as dead and left to the sweep, which finalizes it.
 import { spawnSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
@@ -9,7 +9,7 @@ import { readFile, stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { shownField } from "../boundary.ts";
 import { ignoredSettings } from "../config.ts";
-import { coordinatorRefusals } from "../integrations/coordinator-registration.ts";
+import { coordinatorRefusals } from "../integrations/coordinator-refusals.ts";
 import { herdrBinary } from "../integrations/herdr.ts";
 import { type GroupIdentity, jobMembership } from "../job/group-cabinet.ts";
 import { DEAD_WRAPPER, isTerminal } from "../job/job.ts";
@@ -248,15 +248,16 @@ function stuckLine(record: JobRecord | undefined): string {
 }
 
 /**
- * One line for each coordinator session whose folder holds a Limen hook's refusal of a Pi value (T-32 (4)): the
- * session, the time and what was refused, while the folder holds it; Pi showed the refusal only in that session's
- * chat. The folder's name and the file's text come from outside Limen and reach the coordinator, so both go through
- * `shownField`, which keeps each refusal on its line. Empty when no session holds one.
+ * One line for each refusal file of a coordinator's process that holds a Limen hook's refusal of a Pi value (T-32 (4),
+ * R-102): the process, the time and what was refused, until the sweep removes the file of a process that is gone; Pi
+ * showed the refusal only in that session's chat. A file that does not read is its own line with its BAD_DATA message,
+ * and so is a `.limen/refusals` that is no folder or cannot be read.
+ * The file's name and text come from outside Limen and reach the coordinator, so the detail goes through `shownField`,
+ * which keeps each refusal on its line. Empty when no process holds one.
  */
 async function refusalLines(root: string): Promise<string[]> {
 	return (await coordinatorRefusals(root)).map(
-		({ session, at, detail }) =>
-			`Coordinator session ${shownField(session)}, ${at ?? "time unknown"}: ${shownField(detail)}`,
+		({ pid, at, detail }) => `Coordinator process ${pid}, ${at ?? "time unknown"}: ${shownField(detail)}`,
 	);
 }
 

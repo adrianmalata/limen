@@ -1,8 +1,9 @@
 // src/runtime/start-queue.ts: the seat's start gate and the wait's two thresholds come from <seat>/start-gate.json and
 // their defaults only; a wait past the first threshold gets one diagnosis and goes on, and one past the second ends
 // failed; a queued job whose folder or record is gone leaves the queue, at whichever of its record checks meets the
-// removal; a record check that fails for another reason than ENOENT ends the wait with that failure; and the queue as
-// `limen seat queue` reads it removes no entry, which the seat sweep removes (R-032).
+// removal; a record check that fails for another reason than ENOENT ends the wait with that failure; the queue as
+// `limen seat queue` reads it removes no entry, which the seat sweep removes (R-032); and only the gate and the jobs
+// ahead hold a job, whatever the seat folder holds (R-102).
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -15,6 +16,7 @@ import { withLock } from "../../src/lock.ts";
 import { LimenError } from "../../src/outcome.ts";
 import { queueDiagnosis } from "../../src/runtime/queue-diagnosis.ts";
 import {
+	enterStartQueue,
 	GATE_FILE,
 	type QueueEnd,
 	queueEntries,
@@ -489,4 +491,45 @@ test("the queue's entries as seat queue reads them hold only the live one, and e
 test("removeDeadEntries removes the dead and the malformed entry, keeps the live one, and says how many it removed", async (t) => {
 	const entries = await threeEntries(t);
 	assert.deepEqual([await removeDeadEntries(), readdirSync(entries)], [2, ["live.json"]]);
+});
+
+/**
+ * Writes, into the seat folder below `home`, a seat rule as `limen rule set --start-priority 1` wrote one before R-102,
+ * which held every job less urgent than priority 1 until a time far ahead.
+ */
+async function oldRule(home: string): Promise<void> {
+	const rule = {
+		name: "claude-week",
+		text: "Only urgent jobs until the reset",
+		until: "2999-01-01T00:00:00.000Z",
+		setBy: "a job",
+		setAt: "2026-11-24T14:10:00.000Z",
+		startPriority: 1,
+		version: "1",
+	};
+	await mkdir(join(home, ".limen", "rules", rule.name), { recursive: true });
+	await writeFile(join(home, ".limen", "rules", rule.name, "rule.json"), JSON.stringify(rule));
+}
+
+// A-010, R-102: a start priority that any process could set held every other job of the seat; the start priority goes
+// with no replacement (D-097 (6) (d)), so only the gate and the jobs ahead hold a job.
+test("a job with the gate off does not enter the start queue, whatever the seat folder holds", async (t) => {
+	const home = await seat(t, '"off"\n');
+	await oldRule(home);
+	const dir = join(home, "repo", ".limen", "jobs", JOB);
+	await mkdir(dir, { recursive: true });
+	assert.equal(await enterStartQueue(dir), undefined);
+});
+
+test("a queued job starts once the gate is open and no job is ahead, whatever the seat folder holds", async (t) => {
+	const paths = await queuedJob(t, OPEN);
+	await oldRule(paths.home);
+	const stop = new AbortController();
+	const waiting = waitForStart(paths.dir, stop.signal);
+	try {
+		assert.equal(await ended(waiting), "started");
+	} finally {
+		stop.abort();
+		await Promise.allSettled([waiting]);
+	}
 });

@@ -180,6 +180,16 @@ export const OLD_NAMES: readonly OldName[] = [
 		happened: "became the daily close of leftover Herdr tabs in limen seat sweep",
 		next: "limen seat sweep",
 	},
+	// A-010, D-097 (6) (c): any process could set a text that every coordinator followed, or hold the start of other
+	// jobs, so the rules go with every word after the name; the automatic resume after the subscription limit took over
+	// their one use, and no command replaces them yet (D-046 (1)).
+	{
+		name: "rule",
+		feature: "seat rules",
+		ticket: "R-102",
+		instead: "Limen itself resumes a job the subscription limit stopped, 5 minutes after the reset (limen seat sweep)",
+		next: null,
+	},
 ];
 
 /** Every cut ticket that removes a value of `--engine` adds its entry here. */

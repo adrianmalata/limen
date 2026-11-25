@@ -32,17 +32,16 @@ import { LimenError, usageError } from "../outcome.ts";
 import { platform } from "../platform/platform.ts";
 import { readOptional } from "../project/inherit.ts";
 import { seatDir } from "../project/seat.ts";
-import { activeRules, localTime, type SeatRule } from "../project/seat-rules.ts";
 import { hasCode } from "../system-error.ts";
 import { queueDiagnosis } from "./queue-diagnosis.ts";
 
 // The projects of the seat share its CPU and memory, so one queue and one gate serve the whole seat (docs/jobs.md,
 // "Start queue"). A detached job's own wrapper waits in it after its handshake and before setup; no daemon runs it. The
 // gate's defaults, 25% CPU idle and 20% memory free, are the values Limen started with, kept as the starting point of
-// every limit (T-10); only the seat's gate file changes them (T-03). A seat rule with a start priority holds every less
-// urgent job, gate or not, so that only urgent work spends the engine's budget while the rule lasts; R-102 cuts seat
-// rules (A-010). A wait has two thresholds (A-036): past the first the job's coordinator gets one diagnosis and the job
-// waits on; past the second the job ends failed, so no wait outlasts it.
+// every limit (T-10); only the seat's gate file changes them (T-03). Only the gate and the jobs ahead hold a job: the
+// start priority of a seat rule, which any process could set, went with the rules (A-010, R-102). A wait has two
+// thresholds (A-036): past the first the job's coordinator gets one diagnosis and the job waits on; past the second the
+// job ends failed, so no wait outlasts it.
 export type StartGate = { readonly cpuIdle: number; readonly memoryFree: number; readonly settleMs: number };
 /** When a wait gets its diagnosis and when it fails, in milliseconds since the job entered the queue (A-036). */
 export type WaitLimits = { readonly diagnoseAfterMs: number; readonly failAfterMs: number };
@@ -96,7 +95,7 @@ export type GateFile = {
 /**
  * The gate: `<seat>/start-gate.json`, the JSON string `"off"` or an object of the values it changes, else the
  * defaults; the seat's file is the only source, and no environment variable overrides it (T-03, R-015). Undefined
- * when the gate is off; the wait's thresholds keep their defaults then, since a seat rule can still hold a job.
+ * when the gate is off; the wait's thresholds keep their defaults then.
  * `ignored` holds the typed error of each value Limen did not use (T-27 (2)): an invalid or unknown value on its own,
  * a pair of thresholds out of order as one, and a file of another shape as a whole.
  */
@@ -211,34 +210,16 @@ export function gateOpen(reading: Reading, gate: StartGate): boolean {
 	return (reading.cpuIdle ?? 100) >= gate.cpuIdle && (reading.memoryFree ?? 100) >= gate.memoryFree;
 }
 
-/** The active rules that hold a job of this priority: each one whose start priority is more urgent. */
-export function holdingRules(priority: number): readonly SeatRule[] {
-	return activeRules().filter((rule) => rule.startPriority !== undefined && priority > rule.startPriority);
-}
-/** The words that say which rules hold a job and until when. */
-export const heldText = (rules: readonly SeatRule[]): string =>
-	rules
-		.map((rule) => `held by rule ${rule.name} until ${localTime(rule.until)} (start priority ${rule.startPriority})`)
-		.join("; ");
-/** A job that rules hold. A rule change is a new hold, so the job's `queued` file is written again. */
-const heldDecision = (rules: readonly SeatRule[], ahead: number): Decision => ({
-	start: false,
-	kind: `rules ${rules.map((rule) => rule.version).join(" ")}`,
-	detail: heldText(rules),
-	ahead,
-});
-
 /**
- * Whether the job queues: while the gate is on or a rule holds its priority. The wrapper writes the result into the
- * record with its handshake, so no reader sees a queued job running as started; logs gate values it ignored.
+ * Whether the job queues: while the gate is on. The wrapper writes the result into the record with its handshake, so
+ * no reader sees a queued job running as started; logs gate values it ignored.
  */
-export async function enterStartQueue(jobDir: string, record: JobRecord | undefined): Promise<Queued | undefined> {
+export async function enterStartQueue(jobDir: string): Promise<Queued | undefined> {
 	const { gate, ignored } = startGate();
 	if (ignored.length > 0) {
 		await appendLimenLog(jobDir, `start gate: ignored ${ignoredText(ignored)}`);
 	}
-	const queues = gate !== undefined || holdingRules(jobPriority(record)).length > 0;
-	return queues ? { since: new Date().toISOString(), detail: null, ahead: null } : undefined;
+	return gate === undefined ? undefined : { since: new Date().toISOString(), detail: null, ahead: null };
 }
 
 /**
@@ -248,15 +229,14 @@ export async function enterStartQueue(jobDir: string, record: JobRecord | undefi
 export type QueueEnd = "started" | "stopped" | "gone" | { readonly failed: string };
 
 /**
- * Holds the job in the seat queue until no rule holds its priority, it is first in priority, then queue-time order, the
- * settle interval since the last start has passed, and its reading passes the gate. Only the first job samples the
- * load. The gate and the rules are read again on each poll, so an edit or a rule's end reaches waiting jobs. A job that
- * waited leaves `start-notice` for its coordinator. A wait past the gate file's diagnoseAfter gets one diagnosis and
- * goes on; one past its failAfter ends, and the job's finisher ends the job (A-036). A job whose folder or record is
- * gone stops at its next poll and writes nothing more into the folder, since no record is left to end and no engine
- * can start (D-063 (3)). A record check that fails for another reason ends the wait with that failure. Its cause is
- * kept in the job's log, or, when the log cannot take the line, in the failure's message, which then names that error
- * too (T-01).
+ * Holds the job in the seat queue until it is first in priority, then queue-time order, the settle interval since the
+ * last start has passed, and its reading passes the gate. Only the first job samples the load. The gate is read again
+ * on each poll, so an edit reaches waiting jobs. A job that waited leaves `start-notice` for its coordinator. A wait
+ * past the gate file's diagnoseAfter gets one diagnosis and goes on; one past its failAfter ends, and the job's
+ * finisher ends the job (A-036). A job whose folder or record is gone stops at its next poll and writes nothing more
+ * into the folder, since no record is left to end and no engine can start (D-063 (3)). A record check that fails for
+ * another reason ends the wait with that failure. Its cause is kept in the job's log, or, when the log cannot take the
+ * line, in the failure's message, which then names that error too (T-01).
  */
 export async function waitForStart(jobDir: string, stop: AbortSignal): Promise<QueueEnd> {
 	const id = basename(jobDir);
@@ -329,7 +309,7 @@ async function pollQueue(entry: Entry, wait: Wait, stop: AbortSignal, checked: C
 			if (recordGone()) {
 				return "gone";
 			}
-			if (!shown || (decision.kind !== shown.kind && decision.kind.startsWith("rules"))) {
+			if (!shown) {
 				await appendLimenLog(jobDir, `queued: ${decision.detail}, ${decision.ahead} ahead`);
 			}
 			shown = { kind: decision.kind, ahead: decision.ahead, at: Date.now() };
@@ -509,11 +489,6 @@ async function enqueue(entry: Entry): Promise<void> {
 }
 async function decide(entry: Entry, gate: StartGate | undefined, stop: AbortSignal): Promise<Decision> {
 	const ahead = (await liveEntries()).filter((other) => other.id !== entry.id && order(other, entry) < 0).length;
-	// A held job sorts after every job it could start, so it never blocks the head.
-	const holding = holdingRules(entry.priority);
-	if (holding.length > 0) {
-		return heldDecision(holding, ahead);
-	}
 	if (!gate) {
 		return { start: true, detail: "the gate is off" };
 	}
@@ -536,15 +511,11 @@ async function decide(entry: Entry, gate: StartGate | undefined, stop: AbortSign
 			ahead: 0,
 		};
 	}
-	// Under the lock the rules, the head and the settle are checked again: a rule set while this job sampled the load
-	// still holds it, and two jobs that sampled at once never both start inside one settle.
+	// Under the lock the head and the settle are checked again, so two jobs that sampled at once never both start
+	// inside one settle.
 	return groupLock(
 		queueDir(),
 		async (): Promise<Decision> => {
-			const holdingNow = holdingRules(entry.priority);
-			if (holdingNow.length > 0) {
-				return heldDecision(holdingNow, 0);
-			}
 			if ((await liveEntries())[0]?.id !== entry.id || (await settleLeft(gate)) > 0) {
 				return { start: false, kind: "raced", detail, ahead: 0 };
 			}

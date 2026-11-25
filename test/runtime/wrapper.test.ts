@@ -1,9 +1,10 @@
 // src/runtime/wrapper.ts: a queued job's wrapper whose job folder is removed ends before its setup and its engine run,
-// a queued job whose wait passes the gate file's failAfter ends failed, a wrapper outside its job's systemd user scope
-// ends the job before it runs anything, each end has the kind its detector sets (A-016 (1)), the stall rule over the
-// scope's CPU time and its uncertainty note, the peak CPU share of the scope, an exhaustion whose scope cannot be ended
-// still kills its process group, a TERM or a signal without a stop request ends a job failed, a TERM after the engine
-// ended changes nothing, and the tests' end gate holds a wrapper only in test mode.
+// a queued job whose wait passes the gate file's failAfter ends failed, a queued job's timeout counts from its engine's
+// start, a wrapper outside its job's systemd user scope ends the job before it runs anything, each end has the kind its
+// detector sets (A-016 (1)), the stall rule over the scope's CPU time and its uncertainty note, the peak CPU share of
+// the scope, an exhaustion whose scope cannot be ended still kills its process group, a TERM or a signal without a
+// stop request ends a job failed, a TERM after the engine ended changes nothing, and the tests' end gate holds a
+// wrapper only in test mode.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -26,6 +27,7 @@ import {
 	jobRecord,
 	jobState,
 	limen,
+	loggedAt,
 	type Plant,
 	pathWithFailingScopeEnd,
 	pathWithUnscopedRun,
@@ -149,6 +151,33 @@ test("a queued job whose wait passes the gate file's failAfter ends failed, kind
 			engine: jobFile(p, id, "fake-argv.json"),
 		},
 		{ state: "failed", kind: "queue", detail: true, queued: null, since: "string", left: "string", engine: "" },
+	);
+});
+
+/**
+ * The timeout of the queued job of the test below. It waits in the queue for longer than this, and then its engine
+ * blocks until the timeout ends it, so a timeout counted from the queue would end it as soon as it starts. A loaded
+ * machine can only lengthen both intervals, so nothing here rests on how fast an engine runs (D-063 (3)).
+ */
+const QUEUED_TIMEOUT_MS = 2_000;
+
+// The wait in the start queue is no part of the job's run, so the wrapper counts the timeout from its engine's start.
+test("a queued job's timeout counts from its engine's start, so a job that waited longer than it in the queue runs for the whole timeout", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const reading = join(p.parent, "start-reading.json");
+	// Below the start gate's 25% CPU idle, so the job waits in the queue and starts no engine yet.
+	writeFileSync(reading, '{"cpuIdle":10,"memoryFree":80}');
+	const id = spawnJob(p, "block", ["--timeout", `${QUEUED_TIMEOUT_MS / 1_000}s`]);
+	await until(jobDir(p, id), () => Date.now() - loggedAt(p, id, "queued: ") > QUEUED_TIMEOUT_MS);
+	writeFileSync(reading, '{"cpuIdle":90,"memoryFree":80}');
+	assert.equal(waitJob(p, id), "failed");
+	const queuedMs = loggedAt(p, id, "start queue: started") - loggedAt(p, id, "queued: ");
+	const ranMs = Date.parse(jobRecord(p, id)?.finishedAt ?? "") - loggedAt(p, id, "worker started");
+	assert.deepEqual(
+		{ failure: jobRecord(p, id)?.failure?.kind, queued: queuedMs > QUEUED_TIMEOUT_MS, ran: ranMs >= QUEUED_TIMEOUT_MS },
+		{ failure: "timeout", queued: true, ran: true },
+		`queued ${queuedMs} ms, ran ${ranMs} ms`,
 	);
 });
 

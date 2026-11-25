@@ -89,7 +89,7 @@ test("a member whose stop fails with a plain Error is the environment's failure,
  * stop fails with `failure`: the registry's entry, whose handler throws it.
  */
 async function stopExit(t: TestContext, failure: LimenError): Promise<{ status: number | null; outcome: Outcome }> {
-	// LIMEN_HERDR 0: no rule timer starts from this in-process run (src/commands/rule.ts, endDueRules).
+	// LIMEN_HERDR 0: this in-process run reaches no Herdr of the machine.
 	withEnvironment(t, { LIMEN_HERDR: "0" });
 	const registry = REGISTRY.map((entry) =>
 		entry.name === "group stop"

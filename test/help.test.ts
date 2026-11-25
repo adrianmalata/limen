@@ -74,10 +74,6 @@ const GENERAL = [
 	"  limen seat queue                           the start queue and its CPU and memory reading",
 	"  limen seat sweep [--install] [--uninstall] [--status]",
 	"      end dead jobs, resume quota jobs, prune and retire daily; --install runs it every minute",
-	"  limen rule                                 the seat-wide rules that hold now",
-	'  limen rule set <name> --until <time> [--start-priority 1|2|3] "text"',
-	"                                             a rule for every coordinator on this machine",
-	'  limen rule end <name> ["reason"]           end a rule now',
 	"",
 	"Modules",
 	"  limen github connect|disconnect|status|doctor",
@@ -203,17 +199,5 @@ test("T-19: limen <group> --help prints the group's title and the lines of its p
 	assert.deepEqual(
 		lines.filter((line) => line.startsWith("  limen ")).map((line) => line.split(" ").slice(3, 5).join(" ")),
 		["group start", "group status", "group publish", "group stop", "group close"],
-	);
-});
-
-test("T-19: limen rule --help prints the help of rule, then the lines of rule set and rule end, whose names it starts", () => {
-	const run = limen(["rule", "--help"]);
-	assert.equal(run.status, 0, run.stderr);
-	const text = outputText(run);
-	assert.ok(text.startsWith("limen rule\nthe seat-wide rules that hold now\n"), text);
-	const usages = text.split("\n").filter((line) => line.startsWith("  limen rule "));
-	assert.deepEqual(
-		usages.map((line) => line.trim().split(/ {2,}/)[0]),
-		['limen rule set <name> --until <time> [--start-priority 1|2|3] "text"', 'limen rule end <name> ["reason"]'],
 	);
 });
