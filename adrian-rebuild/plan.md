@@ -1363,6 +1363,12 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   `.limen/archive/unregistered/`, `.git` or not, so nothing Git does not hold elsewhere is deleted (z. 29); this amends
   D-097 (4) (d) and is R-104's; (5) Q-59: a start-queue entry counts as live only when its job folder is one of the
   project's jobs, in R-104, which is M. Check: `## Tickets` rows R-104 and R-105 and their notes; T-04 in `taste.md`.
+- 2026-11-25 D-108 (Adrian: "rekomendacja", to the session's option 1 for the alerts at step 3.3): the relay refuses
+  the seat's IPv6 sender for its daily quota and takes IPv4 (`## State`, "`limen-rebuild-33`"), so the alerts run now
+  with a temporary systemd drop-in on the seat that sets `NODE_OPTIONS=--dns-result-order=ipv4first` for
+  `limen-alerts.service` only, and a fix ticket puts that setting into the alerts' unit (`seat/units.ts`); once a tag
+  with it is deployed, Adrian removes the drop-in. The ticket's place is decided with the other engine facts this
+  close refuted. Check: `## Tickets`, the fix ticket's row; `## Deployment`, the step that removes the drop-in.
 
 ### Gate 2 §2, copied
 
@@ -2222,7 +2228,10 @@ full SHA.
   `origin/adrian-rebuild`; checks it out detached and tags it locally; compares `git rev-parse HEAD` with the SHA;
   from a0.3.0 verifies the generated systemd units with
   `systemd-analyze verify` (R-032), and from a0.5.0 the nftables rules with `nft -c -f` (R-056). On any failure after
-  the checkout it returns to the previous SHA and exits with code 4 (D-010).
+  the checkout it returns to the previous SHA and exits with code 4 (D-010). The script that runs is the one already
+  in `/opt/limen`, the previous tag's, and its verifications are its own list, so a verification a tag adds runs only
+  from the next deployment; at its own tag it runs by hand from the new checkout, as root (at a0.3.0: `node
+  seat/sweep-units.ts` in `/opt/limen`; found at the a0.3.0 deployment, `## State`, "`limen-rebuild-33`").
 - **0.3** Reload every coordinator session with `/reload` (from a0.5.0: restart it through the start script, R-050).
 - **0.4** The stage's steps below, in order; a migration runs first with `--dry-run` where the step says so.
 - **0.5** From a0.4.0: the bridge contract of R-038 (T-31), the bridge log of one coordinator turn and one job turn
@@ -2308,13 +2317,15 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
   `## Unmeasured`), during a trial job and after its end: as root, the job scope's `cgroup.events` under the agents'
   `user@<uid>.service/app.slice/` reads `populated 1` while the job runs and `populated 0` (or the folder is gone) after
   it, which the deployment gate reads; on the agents' account `systemctl --user is-active limen-job-<id>.scope` prints
-  `inactive` or `failed` (exit 3) after the end and for a unit name that never existed (a scope systemd is still
-  stopping prints `deactivating`, which R-032 reads as not ended); and `limen seat sweep` run by hand from an SSH and a
+  `inactive` or `failed` after the end and for a unit name that never existed (a scope systemd is still
+  stopping prints `deactivating`, which R-032 reads as not ended); the seat's systemd 259 exits 4 for both, not the 3
+  this step and the code expected (seen at a0.3.0); and `limen seat sweep` run by hand from an SSH and a
   Herdr shell of the agents' account ends with a final line of class `ok`, as the timer's run does.
 - **3.2** From a Herdr pane on the agents' account, `systemd-run --user --scope true` exits 0 (item 12); during a trial
   job, `systemd-cgls` shows the engine and its tools in the job's scope, and `systemctl --user is-active --quiet
   limen-job-<id>.scope` exits 0 while the job runs and 3 after it ended, as it does for a unit name that never
-  existed: R-026 takes exit 3 as a scope that is gone (R-026 review round 2, note 8). A second trial job whose wrapper
+  existed: R-026 takes exit 3 as a scope that is gone (R-026 review round 2, note 8); on the seat's systemd 259 both
+  exit 4 (seen at a0.3.0; the record's cgroup decides first, so a job that recorded it is unaffected). A second trial job whose wrapper
   alone is killed (`kill -KILL` of the pid `limen show <id>` prints) is ended by the next reap: its record stays
   `running` until `systemd-cgls` shows its scope gone, then is `failed` with a log line that names the checks, and no
   process of the job is left (R-027).
@@ -2348,7 +2359,8 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
   a second trial job's wrapper alone (its pid from `limen show <id>`) ends it `failed`, kind `signal`, with one alert
   `<project> failed:signal <id>`, and its log shows `engine exited with code 143` and no `TERM grace elapsed` line, so
   Pi exited 143 within the grace (E-17; R-028). A gate file that
-  holds a third trial job (`cpuIdle` 100, `diagnoseAfter` `1m`, `failAfter` `3m`) gives one coordinator wake with the
+  holds a third trial job (`memoryFree` 100, `diagnoseAfter` `1m`, `failAfter` `3m`; `cpuIdle` 100 opens on an idle seat,
+  whose rounded reading reaches 100) gives one coordinator wake with the
   diagnosis and one alert `<project> queue <id>` after a minute, and `failed:queue` after three (R-035); then the
   gate file is restored.
 - **3.9** Land closes the job's Herdr tabs in its `cleaned` step: its watch tab and the tabs `limen open` and `limen
@@ -4921,3 +4933,131 @@ gate's cache folder still holds 365 `limen-live-*`, 364 `limen-tree-*`, 8 `limen
   the sleep: the stall rule (A-059, R-036) never applies to a tool that outlives another of its message. Fix
   direction: pending tools by `toolCallId` (each start adds, each end removes), pending while one is left, the key over
   that set. The job's time limit (default 90 minutes) still bounds such a tool. For the gate, with the exit-4 finding.
+- 3.3, first try (Adrian ran the commands with the proposed name, read as a yes to the scheme `limen-<role>`, to be
+  confirmed; the agents' account keeps its name until
+  5.1 at least): the seat has no `setfacl` (the package `acl`); `curl -d test` to the new topic got HTTP 429 from the
+  relay, sent before the phone had subscribed (the response body, which names the limit, was discarded, so the cause
+  is unknown); the alerts' system account was created and the topic file is `root:root 600`; `alerts.ts install`
+  refused, `setfacl cannot run (spawnSync setfacl ENOENT)`, exit 4, so nothing was granted or installed. The topic's
+  value reached the conversation's transcript through the pasted output, so the session advised a new one.
+- 3.3, second try: with the phone subscribed to a new topic (written into the topic file unseen), `curl -d test` got
+  HTTP 429, `{"code":42908,…,"error":"limit reached: daily message quota reached; …"}`: the relay's daily message
+  quota for the seat's address is used up although the alerts have sent nothing. Suspected: the old seat bell
+  (`docs/seat/bell.sh`, `bell.ts`, `limen-bell.{service,timer}` at `a0.2.0`, cut by `a0.3.0`), a timer every 15 s that
+  posts one ntfy message per terminal job record without its `notify/bell` receipt, so a receipt it cannot write would
+  repeat every 15 s; or a relay quota shared by the seat's IPv6 prefix. `alerts.ts install` waits.
+- The cause: no `limen-bell` unit is loaded or installed on the seat and its journal is empty today; `curl -4 -d
+  test4` got HTTP 200 and reached the phone, `curl -6 -d test6` got 429 `42908`. So the relay's daily quota of the
+  seat's IPv6 address (the relay counts IPv6 senders by prefix) is used up by other senders, and IPv4 works.
+  `seat/alerts.ts` sends with `fetch` from a unit with no address-family setting (`seat/units.ts` at `a0.3.0`), so
+  the alerts would go over IPv6 and fail every run (guessed for Node's choice; the session proposed a check).
+- D-108 (Adrian: "rekomendacja"). As root, without the drop-in Node's `fetch` to the relay got 429 and with
+  `NODE_OPTIONS=--dns-result-order=ipv4first` 200 (only the second reached the phone), so Node picks IPv6 and the
+  option fixes it. The drop-in `ipv4first.conf` in `limen-alerts.service.d/` was written; `alerts.ts install --account
+  limen-alerts` granted `--x` on 7 folders, `r-x` on 2 jobs folders and `r--` on 1 registry, wrote, verified and
+  reloaded the units, enabled the timer, exit 0. The timer is `active`; the first run (13:35:45) read 2 projects with
+  0 failed jobs (the migrated records are history no alert answers) and recorded 0 events, none sent (A-054); the run
+  of 13:36:46 the same; `limen status` (synchronizer) has no `Alerts not working` section. 3.3's test failure of a
+  trial job comes with the second stall trial.
+- The second stall trial (`2026-11-25-trial-stall-2-6b12bad7`, synchronizer, 13:39:02 UTC; its task put `sleep 300`
+  alone in its message): the log has `think`, `bash sleep 300`, then at 13:42:08 `stalled tool bash sleep 300: scope
+  CPU idle and no tool progress for 180s; TERM sent to process group …` and `failed: …` with the same detail, so the
+  stall rule works for a lone tool and the session's diagnosis of the first trial holds (a tool beside another of its
+  message). 3.3's test failure: the alerts' run of 13:42:52 read `1 failed job` and logged `sent: synchronizer
+  failed:stall 2026-11-25-trial-stall-2-6b12bad7`, and the phone got that one line (D-084). 3.3 is done.
+- 3.8's stop and 3.6's abandon (`2026-11-25-trial-abandon-46913d20`, synchronizer): the job wrote `trial-abandon.txt`
+  and ran `sleep 170`; `limen stop … "seat check 3.8"` printed `stopped …: seat check 3.8`, ok, and `limen show` reads
+  `STOPPED`, `stopped: seat check 3.8` (43 s, 5 tools); `limen status` listed it under `Unlanded work (spawn refuses
+  until each is continued or abandoned)` with `1 changed file, 0 unlanded commits` and both commands; `limen open`
+  opened its tab (`trial-abandon · stopped`, in `herdr tab list`); `limen abandon` saved it on `limen/abandon/<id>`,
+  removed its worktree and printed `closed the Herdr tab … of job …`, ok, and the tab is gone from the next `herdr tab
+  list` (T-28 (5), R-030); the branch exists. No alert came for the stopped job (the alerts answer failed jobs only).
+- 3.8's TERM and 3.2's KILL, first try: void. The session's commands held a placeholder (`kill -TERM <pid …>`), which
+  the pasted block ran as a bash syntax error, so neither wrapper was signalled and both jobs ended `done`
+  (`trial-term`, `trial-kill`, the second `done with open checks`); no alert, as for any `done` job. Seen on the way:
+  the start queue is the seat's, across projects (`queued trial-kill: … settling 52s after the last start, 0 ahead`,
+  started after 58 s), and the compact `limen show` of a running job ends its first line with `pid <n>`. The retry
+  reads the pid from that line.
+- 3.8's TERM and 3.2's KILL, second try (pids read from the compact `limen show`, each a `…/node /opt/limen/bin/limen`
+  wrapper): `kill -TERM` of `trial-term-2`'s wrapper alone: `failed: killed by SIGTERM`, the log's `engine exited with
+  code 143` and no `TERM grace elapsed` (E-17, R-028), and the alert `synchronizer failed:signal …` (14:03:12, on the
+  phone). `kill -KILL` of `trial-kill-2`'s wrapper alone: 2 s after it the scope still held `pi`, `claude` and `sleep
+  170`, and `limen show` read `RUNNING … wrapper dead; limen-sweep will finalize … pid … (not alive)`; the sweep then
+  ended it `failed: process group gone: wrapper … is not running; scope limen-job-….scope ended after TERM`
+  (14:03:53), no `sleep 170` is left, the scope reads `inactive` (exit 4), and the alert `ledger failed:reaped …`
+  (14:04:13, on the phone) (R-027). 3.2 is done; 3.8 has its busy loop and its queue trial left.
+- 3.7, the Herdr restart, during the busy-loop trial (`2026-11-25-trial-busy-9ee8f598`, synchronizer, spawned from an
+  SSH shell at 14:12:11): Herdr is no systemd unit but a `herdr server` process; Adrian's first try only closed and
+  reattached the client (the server's pid unchanged), the second ended the server (`kill`, then no `herdr` process)
+  and started Herdr again (a new server pid). Before and after, the job's scope held the same six processes (the
+  wrapper, `pi`, `claude`, `timeout 600 sh -c "while :; do :; done"`, its `sh`, `sleep 540`) and `limen show` read
+  `RUNNING`, so the job survived a Herdr restart (item 13; R-026). Spawned from an SSH shell, its environment held no
+  `LIMEN_COORDINATOR` (the dropped names lack it; Herdr panes have it).
+- 3.8's busy loop: the job ended `DONE WITH OPEN CHECKS` (9 min, 8 tools), no `stalled tool` in its log though it was
+  silent for over 8 minutes; systemd logged the scope `Killed … with SIGKILL on client request` at 14:21:51 and
+  `Consumed 9min 30.641s CPU time over 9min 40.222s wall clock time`, so the loop kept the scope busy and the stall
+  rule rightly left the job alone (R-036); the loop started at or after the scope (14:12:11), so its own 600 s limit
+  ends no earlier than 14:22:11, and the scope's end at 14:21:51 is what ended it (no `while :` process left). No
+  `herdr` line in the log: spawned from an SSH shell, the job opened no tab to close and had no pane to wake.
+- 3.8's queue trial, first try: void. With no seat gate file before (restored to none after), `cpuIdle` 100 queued the
+  job (`queued: CPU 99% idle (gate 100%) …`), but after 58 s a reading of `CPU 100% idle (gate 100%)` admitted it, so
+  it ran and ended `done` before any diagnosis: on an idle seat the rounded CPU reading reaches 100, and `## Deployment`
+  3.8's `cpuIdle` 100 is no gate that never opens. Seen on the way: the start notice and the completion wake went to
+  the spawning Herdr pane (`agent_not_found`, two attempts each). The retry uses `memoryFree` 100 (80 % was free).
+- 3.8's queue trial, second try (`memoryFree` 100 in the seat's gate file, removed after): spawn printed `queued
+  trial-queue-2: … memory 79% free (gate 100%), 0 ahead`; at 1 min the log's `start queue: queued for 1m without a
+  start: …; largest by memory: …` (the diagnosis), and the alert `ledger queue …` (14:32:39); at 3 min `failed: queued
+  for 3m without a start: …` (no engine started, 0 tool calls) and the alert `ledger failed:queue …` (14:34:41), both
+  on the phone; the gate file is gone again. The diagnosis's coordinator wake is not seen: no coordinator runs, and
+  the log names only the completion wake's two `agent_not_found` attempts (unmeasured until a coordinator runs). 3.8
+  is done.
+- 3.10 (`2026-11-25-trial-env-ffcd3293` in synchronizer, `…-ef41f90a` in ledger; one task through `--task-file`, its
+  credential probe printing only a count of `password=` lines and `env` only names): the same names in both jobs'
+  tool shell: the allow-list's (`HOME`, `PATH`, `USER`, `LOGNAME`, `LANG`, `XDG_RUNTIME_DIR`,
+  `DBUS_SESSION_BUS_ADDRESS`), Limen's (`LIMEN_JOB`, `LIMEN_JOB_ID`, `LIMEN_CONTEXT_ROOT`, `DISABLE_UPDATES`,
+  `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_0`, `GIT_CONFIG_VALUE_0`, `GIT_TERMINAL_PROMPT`, `GIT_ASKPASS`, `GH_CONFIG_DIR`),
+  those Pi and the bridge set on Pi's process (`PI_CODING_AGENT`, `PI_MANAGED_INSTALL_ROOT`, `PI_MODEL`,
+  `PI_PROVIDER`, `PI_REASONING_LEVEL`, `PI_SESSION_FILE`, `PI_SESSION_ID`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`,
+  `CLAUDE_AGENT_SDK_VERSION`, `AI_AGENT`, `NoDefaultCurrentDirectoryInExePath`), systemd's `INVOCATION_ID` and the
+  shell's `PWD`, `SHLVL`, `_`; no `LIMEN_COORDINATOR`, `LIMEN_TEST_MODE`, test knob or `HERDR_*`. `credential-fill
+  exit=128 password-lines=0`, `no-netrc`, `gh-api exit=4`; `systemctl --user is-system-running` answered `degraded`
+  (exit 1), so the user bus works and some user unit has failed (which one is not yet read). The projects' own gates
+  passed in the jobs: synchronizer `npm ci && npm run verify` exit 0 (11 checks in 375.0 s), ledger `./mvnw verify`
+  exit 0 (`BUILD SUCCESS`, 1:35 min), so no name a project check needs was dropped (the dropped list holds `JAVA_HOME`,
+  and Maven found Java on `PATH`). Outside the jobs, `gh auth status` names the account's token in gh's `hosts.yml` (a
+  file, which `GH_CONFIG_DIR` hides from a job). Both jobs ended `done with open checks`: their note check would not
+  take the task's `;`-joined probe as proof. Each job left its gate log in the shared `/tmp`.
+- `## Deployment` corrected from what this close found: 0.2 (a tag's new verification runs by hand at its own
+  deployment), 3.1 and 3.2 (systemd 259 exits 4 for an ended scope and for a name that never existed), 3.8 (the queue
+  trial's gate is `memoryFree` 100).
+- Done so far of D-106: 0.1, 0.2 (with the root Node link), 0.3 (nothing to reload), 3.1, 3.2, 3.3 (D-108), 3.5, 3.6,
+  3.7, 3.8, 3.10, and 3.4's part before the deployment. Left: 3.9 and 0.6, 3.11, the resumption; 3.4 waits for a real
+  limit; B.3's a0.3.0 part and B.4 belong to the a0.4.0 deployment.
+- Findings for Adrian's decision (in this entry above): (1) `systemctl --user is-active` exits 4 on systemd 259 where
+  `scopeState` expects 3, so a job that ended before its scope ran would be logged `scope … was not ended` and, from the
+  third sweep, listed and alerted `stuck` (from the code; not seen); (2) Pi 1.5.1 runs a message's tool calls in
+  parallel and the wrapper keeps one activity, so the stall rule misses a tool that outlives another of its message
+  (seen); (3) D-108's ticket: the alerts' unit sends over IPv4 first. The session's recommendation: three S fix
+  tickets at the head of stage 4, `delegated`, and the resumption does not wait for them, since a job's time limit
+  bounds (2), (1) is a false alarm with nothing lost, and the drop-in covers (3).
+
+Handover of 2026-11-25 (D-047, at 36 % context, after the commit of this entry, with the tree clean and pushed and no
+night running): `limen-rebuild-33` starts `limen-rebuild-34` with `node adrian-rebuild/tools/handover.mjs start 34`
+and ends its turn. By day, Adrian at the terminal. The next session's acts, in this order:
+1. A push notification to Adrian (one line in Polish) that it takes over the close of stage 3 on the seat at 3.9;
+   then `node adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into this section.
+2. D-106 goes on, one step at a time with Adrian, as in "`limen-rebuild-33`" above (each step: what he runs, what
+   result counts, his result recorded here; commands with no placeholder inside a pasted block, values read by the
+   commands themselves; output that could hold the alerts' topic or a token masked by the command): first
+   `systemctl --user --failed --no-pager` on the agents' account (the `degraded` of 3.10); then 3.9 with 0.6, a trial
+   route in one project through a coordinator Adrian starts as usual (one small ticket through spawn, review and
+   land; the exit codes and the time; the start notice and the completion wake reaching the coordinator, unmeasured
+   so far; land's `cleaned` closing the job's watch tab and the tabs `limen open` and `limen diff` opened, `herdr tab
+   list` before and after; the daily step's close of a leftover tab, from the sweep's journal); then 3.11 (the GitHub
+   ruleset on `main` of both projects); then Adrian's decision on the three findings above (D-109 onwards; rows in
+   `## Tickets` and `## Stages` → Stage 4 if he takes the recommendation); then the projects' resumption (D-012), with
+   the trial leftovers named for him: the branch `limen/abandon/2026-11-25-trial-abandon-46913d20` in synchronizer,
+   which Limen never deletes, and the two jobs' gate logs in the seat's `/tmp`.
+3. D-105's two `Tools:` commits, each test first, with a review by `rebuild-reviewer` as for D-026.
+4. Then stage 4 starts in a new session (D-106, D-081's pattern), which writes stage 4's `ticket.md` files.
+The handover after it is `limen-rebuild-35`.
