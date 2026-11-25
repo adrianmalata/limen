@@ -54,8 +54,8 @@ const GENERAL = [
 	"      set up Limen here; --drop-leftovers deletes files Limen no longer reads",
 	"  limen status [--all]",
 	"      what runs, what landed, what waits for the owner; --all lists every job",
-	"  limen stats",
-	"      jobs by route and role: done, failed, run time and tokens by class",
+	"  limen stats [--sessions <dir>]",
+	"      jobs by route and role, tokens and lead time per land; --sessions adds coordinator turns",
 	"  limen board [--write]",
 	"      the board with NOW and PROVEN; --write rewrites them in spec/build.md",
 	"  limen prune [--retire] [--dry-run]",
@@ -105,6 +105,15 @@ const LAND = [
 	"",
 	"Example: limen land a1b2c3d4",
 ];
+// R-098, D-098 (3): the flag that names the coordinator's sessions.
+const STATS = [
+	"limen stats [--sessions <dir>]",
+	"jobs by route and role, tokens and lead time per land; --sessions adds coordinator turns",
+	"",
+	"  --sessions <dir>    the folder of the coordinator's Pi sessions, or a copy of it",
+	"",
+	"Example: limen stats --sessions ../coordinator-sessions",
+];
 
 test("T-19: limen --help prints the general help of Change 4 and ends with the success line", () => {
 	const run = limen(["--help"]);
@@ -117,6 +126,12 @@ test("T-19: limen land --help prints its usage line, its summary, one line per p
 	const run = limen(["land", "--help"]);
 	assert.equal(run.status, 0, run.stderr);
 	assert.deepEqual(outputText(run).split("\n"), [...LAND, ""]);
+});
+
+test("T-19: limen stats --help prints its usage line, its summary, its flag and its example", () => {
+	const run = limen(["stats", "--help"]);
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(outputText(run).split("\n"), [...STATS, ""]);
 });
 
 test("T-10: no line of the general help or of any command's help is wider than 100 characters", () => {

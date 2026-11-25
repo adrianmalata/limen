@@ -3,7 +3,8 @@
 prowadzenia z podziałem, a z flagą `--sessions <dir>` także tokeny koordynatora, cache read na turę i na lądowanie oraz
 cache write pierwszej tury po lądowaniu; to źródło M-03, M-04, M-06 i M-07 w krokach B.3, B.4 i 9.1. Stan: napisany
 23.11 przy `f5d8b7b` z inwentarza `evidence/inventories/R-098.md`; odpowiedzi Adriana Q-54–Q-57 i rozstrzygnięcia
-dokumentów w `## Decisions`; gotowy na noc. -->
+dokumentów w `## Decisions`; sprawdzony ponownie przy `02492cb` w nocy 24/25.11 (Decyzje 8–10) i zrealizowany tej
+nocy; poprawki recenzji F1–F7 (F5 to domyślna decyzja nocy) i G1–G3 są na końcu `## Decisions`. -->
 
 # R-098 `limen stats` per landed ticket and per coordinator turn
 
@@ -183,3 +184,58 @@ inventory's questions in `evidence/inventories/R-098.md` → section 8):
    (`--session-dir`), so the directory holds the coordinator's sessions (the hand-run session is a Risk).
 7. B.3 and B.4's text (question 17) is in `plan.md` → `## Deployment`: B.4 copies the directory beside the snapshot,
    and B.3 runs `limen stats --sessions <that copy>` inside the migrated copy, which is a Git checkout (`limenRoot`).
+
+Checked again at `HEAD` `02492cb` (2026-11-25, the night of D-102, protocol step 2, D-025; the main session's reading,
+not a night default). No criterion is a grep or scan. R-032, R-034, R-036, R-037 and R-087 moved cited places, not the
+facts; `src/commands/stats.ts`, `src/job/statistics.ts`, `src/job/usage.ts` and `src/job/session-commands.ts` are
+unchanged since `f5d8b7b`:
+8. `src/registry.ts`: the `stats` entry starts at `:562`. `src/job/record.ts`: `Landed` is at `:251` (`{ sha, at }`,
+   unchanged), the record's `landed?` at `:229`. `src/job/landing.ts`: land writes `landed` with `at` = now at
+   `:113-114`; `limen ticket done` writes it with `at` = the ticket's day at midnight at `:283`. `src/job/migration.ts`:
+   the migration marks from a closing commit through `landedJobOf` (`src/project/lanes.ts`, R-037) at `:236-251`, with
+   its committer time.
+9. `src/job/spawning.ts`: `--review` requires `--branch <candidate-branch>` at `:767`, so a reviewer's `branch` is its
+   candidate's. `docs/jobs.md:53` (what `stats` counts) and `:150` (the jobs without a marker) hold the same facts;
+   `docs/commands.md`'s sentence on turns is at `:206` (was `:204`).
+10. R-087 made test knobs read only in test mode (`LIMEN_TEST_MODE=1`); a new test that sets a knob by hand sets the
+    marker too, as the test helpers do (`test/environment.ts`, `test/plant.ts`).
+
+Review round 1 (2026-11-25, the night of D-102; `review.md` → Round 1), the findings to fix, each fix of a mechanism
+with a test that fails before it:
+- F1 (finding 1, blocking): a land whose `landed.at` is a day at midnight UTC (`T00:00:00.000Z`) has no lead time,
+  whether its record is migrated or not, and is counted on `Not read` with the other `ticket done` lands; a closing
+  commit made at exactly midnight UTC is then named there too, which leaves a number out but guesses none (AC-8). The
+  comment beside `DAY_ONLY` and Deviation 3 of `outcome.md` are corrected. Test: a migrated record that `ticket done`
+  marks has no lead time and is counted on `Not read`.
+- F2 (finding 2): a job's transcript keeps `HEAD`'s rule, where only a missing `session` folder (`ENOENT`) means no
+  transcript; any other error of the folder behaves as at `HEAD` (T-01). A `--sessions` path that is a file still
+  refuses `SESSIONS_NOT_FOUND` (Deviation 6). Test: a job whose `session` is a file is not read as 0 tokens.
+- F3 (finding 3): `Not read` names, for each part of the lead time, the number of lands whose part the records cannot
+  give (a migrated record's queue, a job with no run time), in the form of the existing items, so a median over fewer
+  lands than the line counts is visible (AC-8).
+- F4 (finding 4): a test whose output prints a `—` lead-time part (`durationText`'s `NONE`), with the line of F3.
+- F5 (finding 6; a night default, for Adrian to confirm in the morning, D-054 (2) (b): a technical choice inside
+  `## Change` that (b)'s "split" and M-06 settle): `job runs` and `review` are each job's run time less its own queue
+  wait, so the parts do not overlap `queue`; a job whose queue wait is unknown gives an unknown run part, named by F3.
+  Test: a land with a queued job whose parts add up to its jobs' run times.
+- F6 (finding 7, T-25): the private `readJobs` of `src/job/statistics.ts` gets a name no other module's function has.
+- F7 (finding 8, T-29 (5)): the header line of `test/cli/stats.test.ts` names the lands and the coordinator sessions.
+- Not fixed, with its reason in `review.md`: finding 5 (a record a0.2.0 wrote holds no `queueWait`, which came with
+  a0.3.0, but the projects stand until a0.3.0, D-012, so no land holds one of its jobs).
+
+Review round 2 (2026-11-25, the night of D-102; `review.md` → Round 2; PASS), the second and last round of fixes:
+- G1 (finding 3): a land by `limen ticket done`, whose `landed.at` is its day (`DAY_ONLY`), lies in the sessions'
+  span when its day lies from the day of the span's first entry to the day of its last, the days taken as `ticket
+  done` takes the ticket's day (`src/project/lanes.ts:184`); every other land is compared by its time, as now. With a
+  test that fails before: a `ticket done` land on the first day of the sessions counts in M-03's divisor.
+- G2 (finding 4): a bash call that the parser takes as help (`-h` as well as `--help`, `src/parser.ts:359`) is no
+  land for M-04; with a test that fails before (`limen land <id> -h`); Deviation 5 names both.
+- G3 (findings 1 and 7): the comment of `startsRun` (`src/job/usage.ts`) says what the code checks (the next `user`
+  or `custom_message` entry) and that a follow-up of an active run is not told apart (E-16; `outcome.md` → Open
+  point 5); the header comment of `src/job/statistics.ts` is wrapped at 120 columns.
+- Fixed by the main session as text (D-053 (2)): findings 1 (Open point 5), 2 (Open point 1) and 5 (Deviation 9) in
+  `outcome.md`. Not fixed, with its reason in `review.md`: finding 6.
+
+Review round 3 (2026-11-25, the night of D-102; `review.md` → Round 3; PASS, the rounds of fixes spent): note 1 (the
+name `coordinatorLines`, T-25) is `outcome.md` → Open point 6, note 2 (the `ticket done` marker's day defined twice)
+goes to R-103's notes in `plan.md` → `## Tickets` (D-092), and note 3 (a long line of `outcome.md`) is fixed.

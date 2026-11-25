@@ -55,11 +55,19 @@ export function sessionRuns(jobDir: string): Run[] {
 	);
 }
 
+/**
+ * The simple commands of one shell call, each without its leading assignments and wrappers, in order: `cd x && CI=1
+ * limen land y` holds `cd x` and `limen land y`. `limen stats` finds the coordinator's lands in its bash calls with it.
+ */
+export function simpleCommands(command: string): string[] {
+	return pieces(command)
+		.map(({ words }) => words.replace(PREFIX, ""))
+		.filter(Boolean);
+}
+
 /** Undefined when each simple command of `named` starts one that surely ran: `npm test -- --grep x` runs `npm test`. */
 export function unproven(runs: readonly Run[], named: string): Gap | undefined {
-	const wanted = pieces(named)
-		.map((piece) => piece.words.replace(PREFIX, ""))
-		.filter(Boolean);
+	const wanted = simpleCommands(named);
 	for (const want of wanted) {
 		const matches = runs.filter(({ words }) => words === want || words.startsWith(`${want} `));
 		if (!matches.some(({ why }) => !why)) {

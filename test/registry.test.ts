@@ -728,19 +728,31 @@ const READ_REFUSALS: Readonly<Record<string, { readonly code: string; readonly w
  */
 const UNPRIVILEGED = { id: "#!/bin/sh\necho staff\n", sudo: "#!/bin/sh\nexit 1\n" };
 /**
- * The jobs of the test below: the finished one by its token, its branch and the root of its project, and a running
- * one whose wrapper is dead by its token.
+ * The jobs of the test below: the finished one by its token, its branch and the root of its project, a running one
+ * whose wrapper is dead by its token, and the folder of the project's coordinator sessions.
  */
-type Jobs = { readonly token: string; readonly branch: string; readonly root: string; readonly dead: string };
+type Jobs = {
+	readonly token: string;
+	readonly branch: string;
+	readonly root: string;
+	readonly dead: string;
+	readonly sessions: string;
+};
 /** The words after its name that each read command takes on the test project; a command not named takes none. */
 const READ_ARGUMENTS: Readonly<Record<string, (jobs: Jobs) => readonly string[]>> = {
 	diff: (jobs) => [jobs.token],
 	show: (jobs) => [jobs.dead],
+	stats: (jobs) => ["--sessions", jobs.sessions],
 	"ticket check": (jobs) => [jobs.branch],
 	"github ensure": (jobs) => [jobs.root],
 };
-/** The seat's folder of a test project, beside its root (LIMEN_HOME, test/plant.ts), which the snapshot digests too. */
-const SEAT = ["../.limen"] as const;
+/** The folder of the test project's coordinator sessions, beside its root, which `stats --sessions` reads (D-098 (3)). */
+const SESSIONS = "../coordinator-sessions";
+/**
+ * The seat's folder of a test project, beside its root (LIMEN_HOME, test/plant.ts), and the folder of its coordinator
+ * sessions, which the snapshot digests too.
+ */
+const SEAT = ["../.limen", SESSIONS] as const;
 /** A running job whose wrapper is gone: a pid no process holds, under this boot, as a wrapper killed alone leaves
  * it. */
 const DEAD_JOB = "2026-11-24-dead-wrapper-5e6f7a8b";
@@ -788,7 +800,20 @@ async function readProject(t: TestContext): Promise<{ p: Plant; jobs: Jobs }> {
 		pid: identity.pid,
 	};
 	await writeFile(join(entries, `${DEAD_JOB}.json`), `${JSON.stringify(entry)}\n`);
-	const jobs = { token: tokenOf(id) ?? id, branch: record.branch, root: p.root, dead: tokenOf(DEAD_JOB) ?? DEAD_JOB };
+	// One coordinator session with one turn, which `stats --sessions` reads and leaves as it was.
+	const sessions = join(p.root, SESSIONS);
+	await mkdir(sessions);
+	const usage = { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 };
+	const message = { role: "assistant", content: [], provider: "p", model: "m", usage };
+	const turn = { type: "message", id: "a", parentId: null, timestamp: startedAt, message };
+	await writeFile(join(sessions, "2026-11-24T00-00-00-000Z_0b1c.jsonl"), `${JSON.stringify(turn)}\n`);
+	const jobs = {
+		token: tokenOf(id) ?? id,
+		branch: record.branch,
+		root: p.root,
+		dead: tokenOf(DEAD_JOB) ?? DEAD_JOB,
+		sessions,
+	};
 	return { p, jobs };
 }
 
@@ -803,7 +828,8 @@ async function readOnly<T>(folders: readonly string[], work: () => T): Promise<T
 }
 
 // D-045 (6.3), T-04: a read run on a project leaves its files, `.limen/` and the seat as they were, and needs no write
-// right there; status and show are reads since R-032, and a dead job is left to the seat sweep.
+// right there; status and show are reads since R-032, and a dead job is left to the seat sweep. `stats` runs with
+// `--sessions`, so the folder of coordinator sessions it reads stays as it was too (D-098 (3)).
 test("T-04: every read command of the registry, run on a read-only .limen/ with a dead running job, leaves the project and the seat unchanged", async (t) => {
 	const { p, jobs } = await readProject(t);
 	const reads = REGISTRY.filter((entry) => entry.kind === "read").map((entry) => entry.name);
@@ -818,7 +844,7 @@ test("T-04: every read command of the registry, run on a read-only .limen/ with 
 		"an exception names a read command that the test runs or names as not run, or status or show is no read",
 	);
 	const wrong: string[] = [];
-	await readOnly([join(p.root, ".limen"), join(p.parent, ".limen")], () => {
+	await readOnly([join(p.root, ".limen"), join(p.parent, ".limen"), jobs.sessions], () => {
 		for (const name of runs) {
 			const before = snapshot(p.root, SEAT);
 			const run = limen(p, [...name.split(" "), ...(READ_ARGUMENTS[name]?.(jobs) ?? [])], {

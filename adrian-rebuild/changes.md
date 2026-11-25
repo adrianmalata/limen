@@ -423,3 +423,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-10; `## Deployment` 3.10)
 - Commit: R-087
 - Rollback: git revert $(git log --format=%H --grep='^R-087:' adrian-rebuild --) (no data to restore)
+
+## 2026-11-25 R-098 `limen stats` per landed ticket and per coordinator turn
+- What: `src/job/statistics.ts` (lands from records: a `landed` job, its `parent` chain and the reviewers of its branch; tokens per land, the median lead time with queue, job runs less their queue waits, and review; the coordinator lines from `--sessions`: turns, tokens by class, cache read per turn and per land in the sessions' span, the cache write of the first turn after a land; the new `Not read` items), `src/job/usage.ts` (the per-entry reader `readSessionFile`, `sessionFiles`), `src/job/session-commands.ts` (`simpleCommands`), `src/commands/stats.ts`, `src/registry.ts` (`--sessions <dir>`, `SESSIONS_NOT_FOUND`); tests in the stats, usage, statistics, registry and help files; `docs/jobs.md`, `docs/commands.md`
+- Why: §2, A-078, A-037, D-072, D-098, T-25, T-27, T-01, T-04, T-18
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (1144/1144); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (five test files); `node --test test/cli/stats.test.ts` → exit 0; `node --test test/job/statistics.test.ts` → exit 0
+- Measurement: unmeasured (plan.md → Measurement: M-03, M-04, M-06, M-07; `## Deployment` B.3, B.4 and 9.1)
+- Commit: R-098
+- Rollback: git revert $(git log --format=%H --grep='^R-098:' adrian-rebuild --) (nothing on disk to undo)

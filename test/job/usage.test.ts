@@ -1,12 +1,13 @@
 // The transcript reader of src/job/usage.ts: the tokens by class of the entries of a job's own transcript that carry a
-// Pi usage, each line it could not read, named by its file and line, and the model line `limen show` builds from them.
+// Pi usage, each line it could not read, named by its file and line, the entries of one session file as the counts
+// read them, and the model line `limen show` builds from them.
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
 import type { BadData } from "../../src/boundary.ts";
-import { modelLine, readSessionUsage, type SessionUsage } from "../../src/job/usage.ts";
+import { modelLine, readSessionFile, readSessionUsage, type SessionUsage } from "../../src/job/usage.ts";
 
 /**
  * When the job of these tests started, as its record holds it (`startedAt`): a turn written before it is a parent's,
@@ -153,6 +154,121 @@ test("a usage whose class is no count of tokens is named by its file, line and f
 test("a job with no session folder has no usage and no line it could not read", async (t) => {
 	const dir = await jobFolder(t);
 	assert.deepEqual(readSessionUsage(dir, START), { usage: undefined, unread: [] });
+});
+
+// T-01: only a missing folder (ENOENT) is an expected absence; any other failure to read one goes on.
+test("a job whose session is a file is not read as 0 tokens: the failure to list its transcripts goes on", async (t) => {
+	const dir = await jobFolder(t);
+	await writeFile(join(dir, "session"), "no folder\n");
+	assert.throws(() => readSessionUsage(dir, START), { code: "ENOTDIR" });
+});
+
+/** A Pi tool call of an assistant message's content (pi-ai `ToolCall`). */
+function toolCall(name: string, args: Record<string, unknown>) {
+	return { type: "toolCall", id: `call-${name}`, name, arguments: args };
+}
+/** An assistant message whose content holds `content`, as Pi writes one that calls tools. */
+function calling(timestamp: string, content: readonly unknown[], tokens: ReturnType<typeof usage>): string {
+	const message = { role: "assistant", content, api: "anthropic-messages", provider: "p", model: "m", usage: tokens };
+	return entry("message", timestamp, {
+		message: { ...message, stopReason: "toolUse", timestamp: Date.parse(timestamp) },
+	});
+}
+
+// D-098 (3): the coordinator's turns, its lands and its next runs come from these entries, through the same validators.
+test("the entries of a session file come in its order, each with its time, its kind and its usage, an assistant message with its bash commands", async (t) => {
+	const dir = await jobFolder(t);
+	const path = await transcript(dir, [
+		HEADER,
+		entry("message", "2026-11-14T10:00:01.000Z", { message: { role: "user", content: "land it", timestamp: 1 } }),
+		calling(
+			"2026-11-14T10:00:02.000Z",
+			[
+				{ type: "text", text: "landing" },
+				toolCall("bash", { command: "limen land 1a2b3c4d" }),
+				toolCall("read", { path: "README.md" }),
+			],
+			usage(1, 10, 100, 1000),
+		),
+		entry("message", "2026-11-14T10:00:03.000Z", {
+			message: { role: "toolResult", toolCallId: "call-bash", toolName: "bash", content: [], isError: false },
+		}),
+		entry("custom_message", "2026-11-14T10:30:00.000Z", {
+			customType: "limen-wake",
+			content: "a job ended",
+			display: true,
+		}),
+		entry("model_change", "2026-11-14T10:30:01.000Z", { provider: "p", modelId: "m" }),
+		entry("compaction", "2026-11-14T10:40:00.000Z", {
+			summary: "the work so far",
+			firstKeptEntryId: "e-2026-11-14T10:00:02.000Z",
+			tokensBefore: 900_000,
+			usage: usage(2, 20, 200, 2000),
+		}),
+	]);
+	const tokens = (input: number, output: number, cacheRead: number, cacheWrite: number) => ({
+		input,
+		output,
+		cacheRead,
+		cacheWrite,
+	});
+	assert.deepEqual(readSessionFile(path), {
+		entries: [
+			{ at: Date.parse("2026-11-14T10:00:01.000Z"), kind: "user", usage: undefined, served: undefined, commands: [] },
+			{
+				at: Date.parse("2026-11-14T10:00:02.000Z"),
+				kind: "assistant",
+				usage: tokens(1, 10, 100, 1000),
+				served: "p/m",
+				commands: ["limen land 1a2b3c4d"],
+			},
+			{
+				at: Date.parse("2026-11-14T10:30:00.000Z"),
+				kind: "custom_message",
+				usage: undefined,
+				served: undefined,
+				commands: [],
+			},
+			{
+				at: Date.parse("2026-11-14T10:40:00.000Z"),
+				kind: "compaction",
+				usage: tokens(2, 20, 200, 2000),
+				served: undefined,
+				commands: [],
+			},
+		],
+		unread: [],
+	});
+});
+
+test("a session line the validators reject is returned as unread, named by its file and line, beside the entries that parse", async (t) => {
+	const dir = await jobFolder(t);
+	const good = calling(
+		"2026-11-14T10:00:02.000Z",
+		[toolCall("bash", { command: "npm test" })],
+		usage(1, 10, 100, 1000),
+	);
+	const path = await transcript(dir, [
+		HEADER,
+		good,
+		calling(
+			"2026-11-14T10:00:03.000Z",
+			[toolCall("bash", { command: "ls" }), "a part that is no object"],
+			usage(1, 1, 1, 1),
+		),
+		good.slice(0, 70),
+	]);
+	const read = readSessionFile(path);
+	assert.deepEqual(
+		[read.entries.map((each) => each.commands), read.unread.map(named)],
+		[
+			[["npm test"]],
+			[
+				{ file: `${path}:3`, field: "message.content.1", expected: "an object", code: "BAD_DATA" },
+				{ file: `${path}:4`, field: "", expected: "JSON", code: "BAD_DATA" },
+			],
+		],
+	);
 });
 
 // Compactions and other entries with a usage count tokens, but only an assistant message says which model served.

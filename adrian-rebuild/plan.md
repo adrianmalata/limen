@@ -1719,7 +1719,7 @@ Columns:
 | R-036 | Stall is measured over the whole job scope | 3 | A-059 | R-026 | M | delegated | night | — | systemd | 3.8 | done |
 | R-037 | The closing commit of land and `ticket done` is atomic | 3 | A-021, A-057, T-38, D-094 | R-023, R-031, R-092 | M | delegated | night | — | — | — | done |
 | R-087 | The job environment is an allow-list; git and gh in a job hold no credential (T1) | 3 | A-004, A-061, E-4, D-017 | R-015, R-021, R-026 | M | delegated | night | — | pi, bridge | 3.10 | done |
-| R-098 | `limen stats` per landed ticket and per coordinator turn | 3 | §2, A-078, A-037, D-072, D-098 | R-024, R-031 | M | delegated | night | — | pi | B.3, B.4 | ready |
+| R-098 | `limen stats` per landed ticket and per coordinator turn | 3 | §2, A-078, A-037, D-072, D-098 | R-024, R-031 | M | delegated | night | — | pi | B.3, B.4 | done |
 | R-100 | One definition of the ISO time, the 429 rule, the error-code check and the jobs listing | 3 | T-25, D-080 | R-022, R-093, R-097 | S | delegated | night | — | — | — | done |
 | R-101 | Prune, retire and leftover Herdr tabs are steps of the sweep; nothing is deleted | 3 | A-024, A-002, T-18, T-28, D-092, D-094, D-096, D-097 | R-032 | M | delegated | night | yes | herdr | 3.9 | ready (D-097) |
 | R-102 | Seat rules are cut | 3 | A-010, T-42, D-094, D-097 | R-034 | M | delegated | night | yes | systemd | 3.5 | ready (D-097) |
@@ -2041,6 +2041,10 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   cannot make fail, and the test that a run removes a dead queue entry and says how many registers a second project
   no assertion reads; R-101, which adds its daily steps to the sweep and these tests, makes each test check one
   mechanism (T-29).
+- R-103 (R-098 `review.md` → Round 3, note 2, D-092): the time of a `ticket done` land's marker, the ticket's day at
+  `T00:00:00.000Z`, is written in `src/job/landing.ts` and matched by its own regex `DAY_ONLY` in
+  `src/job/statistics.ts`; R-103, which rewrites the marker steps of land and `ticket done`, gives the form one
+  definition in the module that writes it, which `stats` reads (T-25 (2)).
 
 ## Deployment
 
@@ -4474,3 +4478,19 @@ criteria against the allow-list); `HEAD` equal to `origin/adrian-rebuild`, clean
   Decisions 1, 2, 4 and 10. Unmeasured: step 3.10. Two commands of this session were refused by the permissions (an
   `echo` after a guard call; a `gate.mjs --out`) and were not worked around; the reviewer's own Biome run was refused
   too (not on its list), so AC-8 was judged from the records. Next: R-098 (protocol step 2).
+- R-098 `active` (01:15, from `02492cb`): its `ticket.md` (written at `f5d8b7b`) was checked again at `HEAD` (protocol
+  step 2, D-025): no criterion is a grep or scan; the `stats`, statistics, usage and session-commands modules are
+  unchanged, and R-032–R-087 moved cited places only (`ticket.md` → `## Decisions` 8–10). Next: the implementer
+  (protocol step 3).
+- R-098 `done` (delegated): `limen stats` counts lands (a `landed` job, its `parent` chain and the reviewers of its
+  branch, from records only) and prints, after the jobs table, the tokens per land and the median lead time with its
+  parts (queue, job runs, review); with `--sessions <dir>` also the coordinator's sessions: turns, tokens by class,
+  cache read per turn and per land in the sessions' span (M-03), the cache write of the first turn after a land
+  (M-04); `SESSIONS_NOT_FOUND`; `Not read` names every part it could not give. Review FAIL in round 1 (a migrated
+  record that `ticket done` marks got a lead time to midnight, a guessed number), PASS in rounds 2 and 3 (round 3's
+  first reply rejected by `review-verdict.mjs` for its form and run again), with two rounds of fixes (F1–F7, G1–G3)
+  and the main session's text fixes. Gate 1144/1144. Night default for Adrian to confirm: F5, the run parts less each
+  job's queue wait, so the parts do not overlap; its cost is that every B.3 land (migrated records) prints the parts
+  as `—`, M-06's "before" being the total alone (`outcome.md` → Open point 1 gives the other option). For gate 5.3:
+  `outcome.md` → Open points 2–7; round 3's note 2 went to R-103's notes (D-092). Unmeasured: M-03, M-04, M-06, M-07
+  (B.3, B.4, 9.1). Next: R-101 (protocol step 2).
