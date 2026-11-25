@@ -6,7 +6,8 @@ Adriana na bramce 3 (2026-11-17, D-007); 18.11 T-37 dostała pole ids w końcowe
 D-022), a T-02 zasadę, że kod wyjścia ustawia tylko wspólne opakowanie (nocne pytanie Q-7, D-028); 19.11 T-19
 dostała zasady helpu na czas przejściowy (pytania R-014, D-039–D-041), a T-37 zasadę bramki 5.1, że `code` i `next`
 są wartością albo `null`, a `next` zawsze jest poleceniem (D-045, D-046); 23.11 z listy poleceń odczytu T-04
-wypadł `diff`, bo `diff` i `open` otwierają kartę Herdra i ją zapisują (D-096). -->
+wypadł `diff`, bo `diff` i `open` otwierają kartę Herdra i ją zapisują (D-096); 25.11 T-04 dopuszcza
+odczyt z limitem czasu i wymienia te limity (D-107). -->
 
 # Taste
 
@@ -701,6 +702,10 @@ the author's choice. Taste decisions taken after this interview are added here w
 - Source: interview round 1, AU-205; departs from the author. 2026-11-23 (`plan.md` D-096 (2), Q-50): `diff` leaves the
   list; `limen diff` and `limen open` are change commands, since each opens a Herdr tab and records its place so that
   Limen can close it (R-103).
+  2026-11-25 (`plan.md` D-107 (3), Q-57): "never wait" means no wait without a bound; a read may take a bounded
+  reading of an outside system, each bound named here: `limen status`'s Herdr and systemd probes (2–5 s each, among
+  them two 3 s probes of user units, R-032) and `limen seat queue`'s 2 s sample of the machine; the read test keeps
+  these as its exceptions.
 
 ### T-05 A product question is a typed exit
 - Rule: The author's sense stays: a product decision stops the worker; an engineering decision the worker makes

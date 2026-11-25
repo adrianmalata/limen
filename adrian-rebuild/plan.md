@@ -134,7 +134,9 @@ zamknięty (land jako zapisane kroki merged, closed, cleaned; wspólne zamykanie
 zmiany), więc wszystkie 18 ticketów etapu 3 są zamknięte; etap 3 zamknięty przy lokalnym tagu a0.3.0
 (bramka 1237/1237, M-10 317,2 s); bramka 5.3 częściowo rozstrzygnięta
 (D-103–D-106: noc potwierdzona, pozycje (A) zostają, dwa commity Tools:, etap 4 czeka na zamknięcie etapu 3 na
-seacie); otwarte Q-53 (przydział punktów otwartych) i Q-56–Q-59. -->
+seacie); potem D-107: przydział punktów otwartych
+(notatki dla 10 ticketów, nowe R-104 i R-105 w etapie 4), „refusal” bez zmian, odczyt z limitem w T-04, archiwum
+każdego niezarejestrowanego folderu i żywy wpis kolejki tylko dla joba projektu; przekazanie do limen-rebuild-33. -->
 
 
 
@@ -1351,6 +1353,16 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   deployment of `a0.3.0` and the seat steps 3.0–3.11 of `## Deployment`, with the projects' resumption (D-012); a new
   day session goes through them with Adrian one step at a time (he runs them; the session states each step, reads
   his results and records them in `## State`). Q-53 waits for its proposal. Check: `## State` → Next.
+- 2026-11-25 D-107 (Adrian: "Q-53 - rekomendacja, Q-56 - rekomendacja, Q-57 - rekomendacja, Q-58 - rekomendacja,
+  Q-59 - rekomendacja"; gate 5.3): (1) Q-53: stage 3's open points go as `evidence/gate-5.3-placement.md` proposes:
+  notes for R-049, R-050, R-051, R-054, R-059, R-060, R-062, R-073, R-076 and R-085 in `## Tickets`, two new fix tickets
+  of stage 4, R-104 and R-105, and no change for the rest; (2) Q-56: "refusal" keeps both meanings, a command's exit-1
+  refusal and a guard's `BAD_DATA` of a Pi value (T-32 (4), D-055); (3) Q-57: a read command may take a bounded reading
+  of an outside system, each bound named in T-04 by a dated line (`taste.md`), and the read test keeps its exceptions;
+  (4) Q-58: the daily prune moves every folder of the worktree root that Git does not register into
+  `.limen/archive/unregistered/`, `.git` or not, so nothing Git does not hold elsewhere is deleted (z. 29); this amends
+  D-097 (4) (d) and is R-104's; (5) Q-59: a start-queue entry counts as live only when its job folder is one of the
+  project's jobs, in R-104, which is M. Check: `## Tickets` rows R-104 and R-105 and their notes; T-04 in `taste.md`.
 
 ### Gate 2 §2, copied
 
@@ -1579,7 +1591,7 @@ questions; their number cannot be known in advance.
 | 1 | a0.1.0 | 17: 6 / 4 / 7 | 2: R-014, R-088 (day-after) | 4: gate 5.1; the golden help of R-014 (the wording is set by T-19, Adrian confirms the output); the same-task ticket before B.2 (R-011); the leftover list before `--drop-leftovers` (1.1) | 4 (1.0 bootstrap), plus B.1 and B.2 before it |
 | 2 | a0.2.0 | 12: 0 / 10 / 2 | 0 | 3: gate 5.2; id collisions in the record migration report (2.1); the `LIMEN_*` variables to remove (2.4) | 5, plus B.3 |
 | 3 | a0.3.0 | 13: 0 / 9 / 4 | 0 | 3, plus one per unlanded job: gate 5.3; the account names (3.3); `continue` or `abandon` for each finished job with unlanded work (3.6) | 12 |
-| 4 | a0.4.0 | 10: 2 / 6 / 2 | 2: R-041, R-046 (day-after) | 4: gate 5.4; the cue wording (R-041); the role prompt texts and their glossary of terms (T-14, R-046); the modules to switch on (4.9) | 10 |
+| 4 | a0.4.0 | 12: 2 / 8 / 2 | 2: R-041, R-046 (day-after) | 4: gate 5.4; the cue wording (R-041); the role prompt texts and their glossary of terms (T-14, R-046); the modules to switch on (4.9) | 10 |
 | 5 | a0.5.0 | 13: 0 / 9 / 4 | 0 | 3: gate 5.5; the owner channel's key, forced command and tokens (5.1); the domains added to the egress list (5.16) | 21 |
 | 6 | a0.6.0 | 7: 0 / 1 / 6 | 3: R-065, R-066, R-068 (day-after) | 5: gate 5.6; the refusal and message texts of the ticket commands (R-065); the board, and which old prose sections go to `docs/` (R-066, 6.4); the question blocks (R-068); the `limen init` values (6.1) | 5 |
 | 7 | a0.7.0 | 9: 3 / 4 / 2 | 1: R-073 (day-after) | 2: gate 5.7; the footer wording (R-073) | 6 |
@@ -1632,7 +1644,8 @@ moved here from stage 5 by D-012). Tickets R-026–R-037, R-087, R-098 and R-100
 
 Closes A-086: one Limen context message per session, frozen, saved and sent again after compaction, tested on a fake
 engine that shows the model's view under the bridge; the turn cue keeps only variable parts; role texts come from the
-package and are literal, sourced and budgeted per role. Tickets R-038–R-047.
+package and are literal, sourced and budgeted per role. Tickets R-038–R-047, and from gate 5.3 (D-107) the fixes
+R-104 (the daily prune and the start queue) and R-105 (the T-04 and T-26 scans).
 
 ### Stage 5 — The trust boundary (a0.5.0)
 
@@ -1759,6 +1772,8 @@ Columns:
 | R-045 | Tools and skills per role; a read-only role that writes fails | 4 | A-081, E-5 | R-044 | M | delegated | night | — | pi, bridge | 4.3 | planned |
 | R-046 | Role prompts are literal, sourced and budgeted | 4 | T-09, T-14, T-15, T-08, T-10, T-21, A-043, A-085, A-040 | R-040, R-041, R-042, R-044 | L | pair | day-after | — | — | — | planned |
 | R-047 | The coordinator never waits | 4 | T-34 | R-039 | S | delegated | night | — | pi | 4.6 | planned |
+| R-104 | The sweep's daily prune archives every unregistered folder and waits on no job's lock; a queue entry is live only for a project's job | 4 | A-002, A-024, T-25, D-107 | R-101 | M | delegated | night | — | — | — | planned |
+| R-105 | The T-04 and T-26 scans follow what their rules name | 4 | T-04, T-26, D-107 | R-032 | M | delegated | night | — | — | — | planned |
 | R-048 | Jobs run the bridge isolated: no `--approve`, `--offline`, a private `TMPDIR`, an explicit Claude Code path | 5 | A-025, E-3, E-4, E-15, D-005, D-017 | R-040, R-087 | M | delegated | night | — | pi, bridge | 5.8, 5.9 | planned |
 | R-049 | Agents run only root-owned code; Pi, bridge and Claude Code versions are declared | 5 | A-025, T-32, T-36, D-017 | R-017, R-020, R-048 | L | delegated | night | yes | pi | 5.3, 5.5, 5.6, 5.10, 5.20 | planned |
 | R-050 | The registered coordinator and its start script | 5 | A-033, A-061, A-029, §2, D-017 | R-026, R-033, R-034, R-049 | L | delegated | night | yes | pi, herdr, systemd | 5.4, 5.11, 5.20 | planned |
@@ -2076,6 +2091,44 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   the 10 s bound, so a Herdr that hangs costs 10 s per tab and about 30 tabs pass the sweep unit's 300 s (the run is
   cut, writes no stamp and repeats each minute); R-103, which rewrites the tab close for its `cleaned` step, records a
   tab once it closed or Herdr no longer lists it, so it is not asked again, and bounds the step's total time.
+- R-060 (D-107; R-032 `outcome.md` → Open points 5 and 6): `limen seat sweep --install` inside a job's scope is not
+  refused, though the run refuses `SWEEP_IN_JOB` (agents create no timers, T-42); `--uninstall` reads `is-active` as
+  unknown both for `inactive` and a failed probe, so a timer file removed by hand stops every rerun.
+- R-062 (D-107; R-033 `outcome.md` → Open point 5; R-034 `outcome.md` → Open point 4): `limen init` rewrites the
+  registry with `atomicWrite`, which drops the alerts' ACL until root installs again (a registry writer that keeps
+  the file's ACL); a parent with a `null` model resumes on `defaultModel()`, where the routes of R-062 decide.
+- R-059 (D-107; R-033 `outcome.md` → Open point 6): after `seat/deploy.ts`'s units step succeeds and the next tag fails,
+  the checkout goes back but the new units stay loaded.
+- R-049 (D-107; R-034 `outcome.md` → Open point 5 and `ticket.md` → Decision 2): the sweep unit's `PATH` is the
+  installing process's own; a declared `PATH` is R-049's (T-12).
+- R-051 (D-107; R-034 `outcome.md` → Open point 7): an owed completion wake released after the quota resume names a
+  resume time already past; the wake's header from records names the resume that ran.
+- R-073 (D-107; R-035 `outcome.md` → Open point 4): `limen seat queue` shows no thresholds and `limen show` no
+  `queueWait`; the one renderer over records shows both.
+- R-050 (D-107; R-035 `outcome.md` → Open point 2; R-102 `outcome.md` → Open point 7): units outside the user manager
+  (a coordinator's `session-N.scope` from SSH) are not ranked by the start queue until the coordinator has a unit; the
+  refusal writer follows a link in place of `.limen/refusals`, while both readers refuse it (the writer refuses it
+  too, one place for the check).
+- R-076 (D-107; R-098 `outcome.md` → Open point 6): two private `coordinatorLines` (`src/job/statistics.ts`,
+  `src/project/summary.ts`), and T-25's name scan covers two files only; a rename.
+- R-085 (D-107; R-101 `outcome.md` → Open point 5): the `limen seat sweep` help summary is the implementer's wording
+  and omits the daily close of leftover tabs.
+- R-054 (D-107; R-103 `outcome.md` → Open points 4–6): `closeStep`'s comment calls the closing-commit rule "the
+  migration's rule"; G1's filter runs once per earlier land in HEAD's history (test the job's id first); a land run
+  again on a record whose merged commit Git no longer holds ends exit 4 each time (a merged commit Git does not hold
+  counts as no closing commit).
+- R-104 (D-107; R-101 `outcome.md` → Open points 3, 4 and 6; R-102 `outcome.md` → Open point 9): the daily prune moves
+  every unregistered folder of the worktree root into `.limen/archive/unregistered/`, `.git` or not (Q-58, amending
+  D-097 (4) (d)); a lock taken after a retire can leave an empty `.limen/jobs/<id>/`, which fails the daily prune until
+  the month changes (a test that plants the empty folder first); prune's moves take a folder's lock in one attempt
+  under the jobs lock, as retire does; a start-queue entry is live only when its job folder is one of the project's
+  jobs (Q-59).
+- R-105 (D-107; R-032 `outcome.md` → Open point 1 and `ticket.md` → Decision 16; R-026 `outcome.md` → Open point 3):
+  T-04's scan reads direct imports only, while read commands reach state-transition functions through their imports
+  (`listing.ts` → `reap.ts`, `start-queue.ts`; command files that hold both kinds), so the scan follows the transitive
+  closure, with `ownerState` and `queuedText` moved into modules with no transition and the mixed command files kept as
+  a ratchet naming their end tickets; T-26's launch scan sees `node:child_process` only, so a start through
+  `platform.startInScope` outside `launcher.ts` passes.
 
 ## Deployment
 
@@ -4699,5 +4752,30 @@ on the seat, gone through with a new day session one step at a time).
     accepted risk, since that account already runs every job.
 - For Adrian's hand, added to the summary's: R-029's test folders left in the gate's cache (about 84 MB, R-029
   `outcome.md` → Open points).
-- Next: Adrian's answers to Q-53 and Q-56–Q-59, then a handover (D-047) to `limen-rebuild-33`, which goes through
+- Superseded by "Gate 5.3 decided" below; formerly: Adrian's answers to Q-53 and Q-56–Q-59, then a handover to `limen-rebuild-33`, which goes through
   D-106's seat steps with Adrian and then makes D-105's two `Tools:` commits before stage 4.
+
+Gate 5.3 decided (2026-11-25, `limen-rebuild-32`; Adrian: "Q-53 - rekomendacja, Q-56 - rekomendacja, Q-57 -
+rekomendacja, Q-58 - rekomendacja, Q-59 - rekomendacja"): D-107. Applied in the same commit: the rows R-104 (M) and
+R-105 (M) in stage 4 (`## Tickets`, `## Stages` → Stage 4 and Cost and effect: 12 tickets), the notes for R-049,
+R-050, R-051, R-054, R-059, R-060, R-062, R-073, R-076, R-085, R-104 and R-105 in `## Tickets`, and Q-57's dated line
+in T-04 (`taste.md`). Adrian asked for the commands to remove the leftover files by hand; the session gave them in the
+conversation (the checkout's `.limen/`, and the `limen-live-*`, `limen-tree-*`, `limen-plant-*` and `r029-head-*`
+folders of the gate's cache folder, `node-compile` kept), to run while no gate or test runs.
+
+Handover of 2026-11-25 (D-047, at about 33 % context, after the commit `D-107:`, with the tree clean and pushed and no
+night running): `limen-rebuild-32` starts `limen-rebuild-33` with `node adrian-rebuild/tools/handover.mjs start 33`
+and ends its turn. By day, Adrian at the terminal. The next session's acts, in this order:
+1. A push notification to Adrian (one line in Polish) that it takes over for the close of stage 3 on the seat; then
+   `node adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into this section.
+2. D-106: Adrian's close of stage 3 on the seat, one step at a time with him: `## Deployment` 0.1–0.3 for `a0.3.0`
+   (full SHA `6f8a872c237c5ffc8176f37d493b43dffb50c888`), then 3.0–3.11 with the projects' resumption (D-012). For each
+   step the session states what Adrian runs and what result counts, reads his result, and records it in this section;
+   a failed step goes by `## Stages` → Closing a stage (0.7's rollback or a fix, Adrian's choice). Ask first whether
+   he removed the leftover files.
+3. D-105's two `Tools:` commits (the gate's check for new ignored files in the checkout; `check.mjs`'s check that
+   every test file a `ready` or `active` criterion names exists), each test first, with a review by `rebuild-reviewer`
+   as for D-026 (`evidence/<tool-change>/` with ticket, review, outcome).
+4. Then stage 4 starts in a new session (D-106, D-081's pattern), which writes stage 4's `ticket.md` files, R-104 and
+   R-105 among them.
+The handover after it is `limen-rebuild-34`.
