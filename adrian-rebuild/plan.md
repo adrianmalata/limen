@@ -131,7 +131,8 @@ przerwanego przebiegu w `## Agents`. Noc 24/25.11: R-087 i R-098 zamknięte w pr
 03:37); przebieg 2 wznowił R-101 po regule D-102 (4) i go zamknął (dzienne kroki `seat sweep`: prune, retire i
 zamykanie kart Herdr; nic, czego Git nie trzyma gdzie indziej, nie jest kasowane). R-102 zamknięty (reguły seata wycięte). limen-rebuild-32: R-103
 zamknięty (land jako zapisane kroki merged, closed, cleaned; wspólne zamykanie kart Herdr; diff i open jako polecenia
-zmiany), więc wszystkie 18 ticketów etapu 3 są zamknięte; dalej zamknięcie etapu 3 i bramka 5.3. -->
+zmiany), więc wszystkie 18 ticketów etapu 3 są zamknięte; etap 3 zamknięty przy lokalnym tagu a0.3.0
+(bramka 1237/1237, M-10 317,2 s); bramka 5.3 otwarta z pytaniami Q-51–Q-55. -->
 
 
 
@@ -2608,8 +2609,9 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-25 by day (`limen-rebuild-32`: R-103 `done`, so every stage-3 ticket is `done`; "`limen-rebuild-32`" at the
-end of this section. Before it `limen-rebuild-31`, before the night: R-103 `ready` in "`limen-rebuild-31`" at the end of
+Updated 2026-11-25 by day (`limen-rebuild-32`: R-103 `done`, stage 3 closed at `a0.3.0`, gate 5.3 open with Q-51–Q-55 in
+"Gate 5.3 summary" at the end of this section, after "`limen-rebuild-32`" and "Close of stage 3".
+Before it `limen-rebuild-31`, before the night: R-103 `ready` in "`limen-rebuild-31`" at the end of
 this section; before it `limen-rebuild-30`, after R-036; R-029, R-032, R-034 and R-036 are `done`, by day, in
 "Evening of 2026-11-23", "R-034 in `limen-rebuild-29`" and "R-036 in `limen-rebuild-30`" at the end of this section,
 the next ticket in `Next` 2), rebuild
@@ -4604,3 +4606,45 @@ the terminal being active; context 11 % at the start.
   recommendation for Adrian: `check.mjs` checks that every test file a `ready` or `active` criterion names exists, so
   Decision 24's miss cannot recur (a `Tools:` commit).
 - Next: the close of stage 3 (`## Stages` → Closing a stage) and gate 5.3 with Adrian.
+
+Close of stage 3 (2026-11-25, `limen-rebuild-32`, by day, `## Stages` → Closing a stage):
+- At `9bdf42e` (the tree clean, `HEAD` pushed, no night running) the gate exits 0 with 1237/1237 twice (once alone in
+  307.0 s, once through the gate-time tool), `check.mjs` reports 0 errors and Biome is clean; M-10: 317.2 s
+  (`evidence/gate-time-a0.3.0.md`; 150.8 s at a0.2.0 with 733 tests). M-01 is from stage 4 (R-039's
+  `context-size.mjs`); the coordinator's manual `templates/agents.md` grew from 41,097 to 41,424 bytes (about 10,274 to
+  10,356 tokens) between `a0.2.0` and `9bdf42e`.
+- The inventory for the gate, by a read-only `general-purpose` agent that wrote only that file:
+  `evidence/gate-5.3-inventory.md` (78 night defaults, 75 confirmed by D-093; 69 items for gate 5.3 or marked (A) in
+  14 tickets; 126 open points, 61 of them for Adrian by their own text; 36 unmeasured items; 41 new codes and
+  wordings; 22 findings; the steps 3.0–3.11; no open night question). A second such agent drafts the placement of the
+  open points into `evidence/gate-5.3-placement.md` (Q-53), as Q-29 was at gate 5.2.
+- The commit `Stage 3: close` and the local annotated tag `a0.3.0` on it; the tag's full SHA is in the gate reply and is
+  the argument of `## Deployment` 3.0.
+
+Gate 5.3 summary (stage 3's 18 tickets are done; the gate is by day, with Adrian):
+- Verdict: stage 3 is complete at `a0.3.0`: R-026–R-037, R-087, R-098, R-100–R-103 are `done`, each with a green gate
+  and a review PASS; the gate grew from 733 to 1237 tests. Findings closed by stage 3's tickets (their sources): A-001,
+  A-002, A-004, A-005, A-010, A-016, A-017, A-020, A-021, A-024, A-029, A-036, A-037, A-052, A-054, A-056, A-057,
+  A-059, A-061, A-066, A-068, A-078. Unmeasured: 36 items in 16 tickets (inventory, section 4), measured by the seat
+  steps 3.1–3.10, B.3, B.4 and M-01, M-03–M-07, M-11.
+- Asked at gate 5.3 in the conversation (Adrian's answers become D-103 onwards):
+  - Q-51: the three night defaults of the night of D-102: R-087 F2 (an empty `GIT_ASKPASS` in the job), R-098 F5 (the
+    run parts less each job's queue wait), R-101 Decision 7 (the transport name `LIMEN_SETUP`). Options: 1. confirm all
+    (recommended: each passed review, and none closes a door a coming ticket needs); 2. all but the ones named; 3. one
+    by one.
+  - Q-52: the items for gate 5.3 and those marked (A) in the tickets' `## Decisions` (69 in 14 tickets, inventory
+    section 2) and the 41 new codes and wordings (R-034, R-037, R-102, R-103). Options: 1. they stand as written, but
+    for the ones Adrian names (recommended: each passed review; the final help and texts are R-085's and R-065's); 2.
+    one ticket at a time.
+  - Q-53: the placement of the open points that need a decision (`evidence/gate-5.3-placement.md`, once drafted and
+    checked by the main session). Options: 1. as proposed; 2. another placement, named.
+  - Q-54: two `Tools:` commits before stage 4: a gate check that the gate leaves no new ignored file in the checkout
+    (R-102 Open point 6), and a `check.mjs` check that every test file a `ready` or `active` criterion names exists
+    (R-103 Decision 24). Options: 1. both (recommended: each is a guarantee in code for a miss this stage had); 2. one;
+    3. none.
+  - Q-55: stage 4 in a new session, while the seat steps of `a0.3.0` (3.0–3.11) and the projects' resumption (D-012)
+    are Adrian's. Options: 1. go on (recommended: the next stage does not wait for seat steps unless Adrian says so);
+    2. wait for 3.0–3.11 first.
+- For Adrian's hand, outside the questions: R-102 Open point 5 (the checkout's ignored `.limen/`, six refusal files
+  of the first tree's gate runs; `rm` is denied to the sessions).
+- Next: Adrian's answers to Q-51–Q-55 (Q-53 once `evidence/gate-5.3-placement.md` is drafted and checked).
