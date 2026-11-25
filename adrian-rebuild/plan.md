@@ -132,7 +132,9 @@ przerwanego przebiegu w `## Agents`. Noc 24/25.11: R-087 i R-098 zamknięte w pr
 zamykanie kart Herdr; nic, czego Git nie trzyma gdzie indziej, nie jest kasowane). R-102 zamknięty (reguły seata wycięte). limen-rebuild-32: R-103
 zamknięty (land jako zapisane kroki merged, closed, cleaned; wspólne zamykanie kart Herdr; diff i open jako polecenia
 zmiany), więc wszystkie 18 ticketów etapu 3 są zamknięte; etap 3 zamknięty przy lokalnym tagu a0.3.0
-(bramka 1237/1237, M-10 317,2 s); bramka 5.3 otwarta z pytaniami Q-51–Q-55. -->
+(bramka 1237/1237, M-10 317,2 s); bramka 5.3 częściowo rozstrzygnięta
+(D-103–D-106: noc potwierdzona, pozycje (A) zostają, dwa commity Tools:, etap 4 czeka na zamknięcie etapu 3 na
+seacie); otwarte Q-53 (przydział punktów otwartych) i Q-56–Q-59. -->
 
 
 
@@ -1332,6 +1334,23 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   night's `claude -p`, which is older than the new session and runs in the repository, at a clean moment between its
   commits; built by the main session and reviewed by `rebuild-reviewer` as D-026 was, in the commit `Tools: …` after
   this one. Check: `node --test adrian-rebuild/tools/test-handover.mjs` (from that commit); `## Agents` → protocol.
+- 2026-11-25 D-103 (Adrian: "Q-51 - rekomendacja"; gate 5.3, asked in the conversation): the three night defaults of
+  the night of D-102 stand as recorded: R-087 F2 (an empty `GIT_ASKPASS` in the job's environment), R-098 F5 (the run
+  parts less each job's queue wait), R-101 Decision 7 (the transport name `LIMEN_SETUP`). Check: the three tickets'
+  `ticket.md` → `## Decisions`.
+- 2026-11-25 D-104 (Adrian: "Q-52 - rekomendacja"): the items for gate 5.3 and those marked (A) in stage 3's
+  `ticket.md` → `## Decisions` (69 in 14 tickets, `evidence/gate-5.3-inventory.md` → section 2) and the 41 new codes
+  and wordings of R-034, R-037, R-102 and R-103 stand as written; R-065 and R-085 write the final texts and help.
+  Check: the inventory's sections 2 and 5.
+- 2026-11-25 D-105 (Adrian: "Q-54 - rekomendacja"): two `Tools:` commits before stage 4, each with its test and a
+  review by `rebuild-reviewer` as for D-026: (1) the gate checks that it leaves no new ignored file in the checkout
+  (R-102 `outcome.md` → Open point 6); (2) `check.mjs` checks that every test file a `ready` or `active` criterion
+  names exists (R-103 `ticket.md` → Decision 24). Check: `git log --grep='^Tools:'`.
+- 2026-11-25 D-106 (Adrian: "Q-55 - najpierw ja zamknę etap 3 po swojej stronie. W nowej sesji przejdziemy razem
+  krok po kroku zamknięcie etapu 3 po mojej stronie."): stage 4 waits for Adrian's close of stage 3 on the seat: the
+  deployment of `a0.3.0` and the seat steps 3.0–3.11 of `## Deployment`, with the projects' resumption (D-012); a new
+  day session goes through them with Adrian one step at a time (he runs them; the session states each step, reads
+  his results and records them in `## State`). Q-53 waits for its proposal. Check: `## State` → Next.
 
 ### Gate 2 §2, copied
 
@@ -4647,4 +4666,38 @@ Gate 5.3 summary (stage 3's 18 tickets are done; the gate is by day, with Adrian
     2. wait for 3.0–3.11 first.
 - For Adrian's hand, outside the questions: R-102 Open point 5 (the checkout's ignored `.limen/`, six refusal files
   of the first tree's gate runs; `rm` is denied to the sessions).
-- Next: Adrian's answers to Q-51–Q-55 (Q-53 once `evidence/gate-5.3-placement.md` is drafted and checked).
+- Superseded by "Gate 5.3, partly decided" below.
+
+Gate 5.3, partly decided (2026-11-25, `limen-rebuild-32`; Adrian: "Q-51 - rekomendacja, Q-52 - rekomendacja, Q-53 -
+czekam na propozycję, Q-54 - rekomendacja, Q-55 - najpierw ja zamknę etap 3 po swojej stronie"): D-103 (Q-51), D-104
+(Q-52), D-105 (Q-54, two `Tools:` commits before stage 4) and D-106 (Q-55: stage 4 waits for Adrian's close of stage 3
+on the seat, gone through with a new day session one step at a time).
+- Q-53's proposal: `evidence/gate-5.3-placement.md`, drafted by a read-only `general-purpose` agent that wrote only that
+  file; the main session checked its four placements that rest on a reading of a planned ticket's scope (R-032 Open
+  points 5 and 6 → R-060, R-033 Open point 6 → R-059, R-035 Open point 4 → R-073, R-102 Open point 7 → R-050) against
+  those tickets' rows and found each within the row's title. In short: 16 notes for ten planned tickets (R-049, R-050,
+  R-051, R-054, R-059, R-060, R-062, R-073, R-076, R-085); two new fix tickets in stage 4, R-104 (S: the sweep's daily
+  prune, R-101 Open points 4 and 6) and R-105 (M: the T-04 and T-26 scans of `test/structure.test.ts`, R-032 Open point
+  1 and R-026 Open point 3); 36 points no change (14 already closed by another stage-3 ticket or by D-093); five for
+  Adrian, one of them Q-54 already. Asked with it:
+  - Q-56 (R-029 Open point 4): "refusal" names both a command's exit-1 refusal and a guard's `BAD_DATA` of a Pi value.
+    Options: 1. keep it (recommended: the guard's word is T-32 (4)'s and D-055's, and the two never meet in one
+    output); 2. another word for the guard's field, `.limen/refusals/` and its writers, as a note for R-085, with a
+    record migration (D-079).
+  - Q-57 (R-032 Open point 4, `ticket.md` → Decision 9): may a read command take a bounded reading of an outside
+    system (`limen status`'s Herdr and systemd probes, 2–5 s; `seat queue`'s 2 s sample)? Options: 1. yes, each bound
+    named in T-04 by a dated line, the read test keeping its exceptions (recommended: a read writes nothing, which is
+    T-04's guarantee, and the bounds are code); 2. no, the sweep records what the probes read and reads show that
+    record (a fix ticket).
+  - Q-58 (R-101 Open point 3): a worktree-root folder that Git does not register but that holds a `.git` is still
+    deleted by the daily prune. Options: 1. every unregistered folder moves to `.limen/archive/unregistered/`, `.git`
+    or not (recommended: nothing Git does not hold elsewhere is deleted, z. 29), in R-104, amending D-097 (4) (d); 2.
+    only one whose `.git` Git cannot read; 3. as now.
+  - Q-59 (R-102 Open point 9): a start-queue entry is live on its pid and job folder alone, so a process of the agents'
+    account can hold other jobs' starts until their `failAfter`. Options: 1. a fix that checks the entry's job folder
+    against the project's jobs, in R-104, which becomes M (recommended: the queue's own rule in code, z. 14); 2. an
+    accepted risk, since that account already runs every job.
+- For Adrian's hand, added to the summary's: R-029's test folders left in the gate's cache (about 84 MB, R-029
+  `outcome.md` → Open points).
+- Next: Adrian's answers to Q-53 and Q-56–Q-59, then a handover (D-047) to `limen-rebuild-33`, which goes through
+  D-106's seat steps with Adrian and then makes D-105's two `Tools:` commits before stage 4.
