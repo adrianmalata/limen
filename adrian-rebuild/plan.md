@@ -141,7 +141,8 @@ która z Adrianem wdrożyła a0.3.0 na seacie i przeszła kroki 0.1–0.3, 3.1�
 IPv4); limen-rebuild-34: D-109 (artefakty prób dozwolone tylko w trakcie przebudowy), D-110 (ruleset nie działa na
 prywatnych repo projektów, więc zamiast kroku 3.11 obserwator `main` R-106 w etapie 4), D-111 (projekt zawodowy
 korzysta z Limena najwcześniej od a1.0.0), D-112 (cztery znaleziska zamknięcia etapu 3: R-107–R-109 w etapie 4 i
-notatka do R-051); próbna trasa F012 na ledgerze i krok 3.9 zaliczone. -->
+notatka do R-051); próbna trasa F012 na ledgerze i krok 3.9 zaliczone; D-113: projekty na seacie dalej stoją, a limity
+subskrypcji idą na przebudowę. -->
 
 
 
@@ -1410,6 +1411,12 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   unconfirmed attempt, so only fallback wakes are affected. The projects' resumption waits for none of them: a job's
   time limit bounds (2), (1) is a false alarm that loses nothing, and the drop-in covers (3). Check: `## Tickets`, the
   rows R-107–R-109 and the note for R-051.
+- 2026-11-25 D-113 (Adrian, at the end of the close of stage 3 on the seat: "nie wznawiam jeszcze pracy na seacie, niech
+  limity subskrypcji skupiają się na przebudowie limen"): the projects stay paused after the close; the Max window
+  goes to the rebuild, and stage 4 starts without them. The resumption (D-012) is Adrian's word at a time he picks,
+  with no date; until then no coordinator or job runs on the seat, so D-012's accepted risk is not live and D-013's
+  yield has nothing to yield. The trial leftovers of the close are cleaned by Adrian first (a job's record is deleted
+  only by a person, R-031 Decision 6). Check: `## State`, the resumption's entry when it comes.
 
 ### Gate 2 §2, copied
 
@@ -5232,3 +5239,10 @@ the terminal being active; context 10 % at the start; `HEAD` = `origin/adrian-re
 - Q-62 → D-112 (Adrian: "Q-62 zgodnie z rekomendacjami"): R-107 (E-18), R-108 (E-19) and R-109 (D-108) in stage 4,
   each S, `delegated`, `night`, with seat steps 4.13, 4.12 and 4.11; (4) a note for R-051; stage 4 has 16 tickets and
   14 seat steps.
+- D-113 (Adrian): the projects stay paused and the Max window goes to the rebuild; the resumption waits for his word.
+  He cleans the trial leftovers first. Limen has no command that removes them: `limen abandon` refuses a job with no
+  unlanded work (`NO_UNLANDED_WORK`, `src/job/abandoning.ts` line 180 at `a0.3.0`), retire takes only a job with a
+  `landed` or `abandoned` marker 24 hours old (`src/runtime/retiring.ts`), and only a person deletes a job's record
+  (R-031 Decision 6). So the trial jobs of 2026-11-25 (their folders, branches, any worktree, the gate logs in `/tmp`)
+  are listed first and removed by hand after; removing their folders also keeps them out of `limen stats` (B.3, B.4)
+  and spares synchronizer's coordinator their fallback wakes.
