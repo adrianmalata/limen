@@ -753,6 +753,78 @@ export async function installHook(p: Plant, name: string, body: string): Promise
 	git(p.root, "config", "core.hooksPath", folder);
 }
 
+/**
+ * A fake Herdr: `tab get <tab>` answers the tab and its label from the state file, or `tab_not_found` once it is
+ * closed or unknown, or fails with the state's `unread` text for the tab; `tab close <tab>` closes it, or refuses with
+ * `busy` while the state's `refuse` holds it; with `hang` set every call waits until it is killed. Every call is a line
+ * of `calls.jsonl` beside it.
+ */
+const HERDR_FAKE = `#!/usr/bin/env node
+const fs = require("node:fs"), path = require("node:path");
+const args = process.argv.slice(2), file = path.join(__dirname, "state.json");
+fs.appendFileSync(path.join(__dirname, "calls.jsonl"), JSON.stringify(args) + "\\n");
+const state = JSON.parse(fs.readFileSync(file, "utf8"));
+const ok = (result) => { console.log(JSON.stringify({ result })); process.exit(0); };
+const fail = (code, message = code) => { console.log(JSON.stringify({ error: { code, message } })); process.exit(1); };
+const [noun, verb, tab] = args;
+const row = state.tabs[tab], unread = (state.unread ?? {})[tab];
+if (state.hang) setInterval(() => {}, 1000);
+else if (noun + " " + verb === "tab get" && unread !== undefined) fail("unavailable", unread);
+else if (noun + " " + verb === "tab get") row && !row.closed ? ok({ tab: { tab_id: tab, label: row.label } }) : fail("tab_not_found");
+else if (noun + " " + verb === "tab close") {
+	if (!row || row.closed) fail("tab_not_found");
+	if ((state.refuse ?? []).includes(tab)) fail("busy");
+	row.closed = true;
+	fs.writeFileSync(file, JSON.stringify(state));
+	ok({});
+} else ok({});
+`;
+
+/** What the fake Herdr starts with: its tabs by id with their labels, and how it misbehaves (`HERDR_FAKE`). */
+export type HerdrState = {
+	readonly tabs: Readonly<Record<string, { readonly label: string }>>;
+	readonly refuse?: readonly string[];
+	readonly unread?: Readonly<Record<string, string>>;
+	readonly hang?: true;
+};
+
+/**
+ * Writes the fake Herdr into `folder`, a new folder, with `state`; returns its binary, for `LIMEN_HERDR`, the calls it
+ * got, and the ids of the tabs it was asked to close, in order.
+ */
+export async function herdrFake(
+	folder: string,
+	state: HerdrState,
+): Promise<{ readonly binary: string; readonly calls: () => string[][]; readonly closes: () => string[] }> {
+	await mkdir(folder, { recursive: true });
+	await writeFile(join(folder, "state.json"), JSON.stringify(state));
+	await writeFile(join(folder, "herdr"), HERDR_FAKE, { mode: 0o755 });
+	const calls = (): string[][] =>
+		existsSync(join(folder, "calls.jsonl"))
+			? readFileSync(join(folder, "calls.jsonl"), "utf8")
+					.trim()
+					.split("\n")
+					.map((line): string[] => {
+						const words: unknown = JSON.parse(line);
+						return Array.isArray(words) ? words.map(String) : [];
+					})
+			: [];
+	const closes = () => calls().flatMap(([noun, verb, tab]) => (noun === "tab" && verb === "close" && tab ? [tab] : []));
+	return { binary: join(folder, "herdr"), calls, closes };
+}
+
+/**
+ * Records `tab` as the job's Herdr tab of `place`, as Limen records one: its log tab in `herdr/`, its diff tab in
+ * `herdr/diff/`.
+ */
+export async function recordTab(jobDir: string, place: "log" | "diff", tab: string): Promise<void> {
+	const folder = place === "log" ? join(jobDir, "herdr") : join(jobDir, "herdr", "diff");
+	await mkdir(folder, { recursive: true });
+	for (const [name, value] of Object.entries({ workspace: "w1", tab, pane: `${tab}:p`, mode: place })) {
+		await writeFile(join(folder, name), `${value}\n`);
+	}
+}
+
 /** Every fetch any Limen process in this plant made; `respond` rows answer the first request whose URL contains `match`. */
 export function requests(plant: Plant): Array<{
 	readonly url: string;

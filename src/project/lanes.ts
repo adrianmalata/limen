@@ -16,6 +16,7 @@ import {
 	editIndex,
 	followCommit,
 	headCommit,
+	headHistory,
 	type IndexEntry,
 	indexEntries,
 	indexEnvironment,
@@ -154,6 +155,75 @@ export function landedJobOf(subject: string): string | undefined {
 	return /^\S+$/.test(id) ? id : undefined;
 }
 
+/** Whether `subject` is the subject of a closing commit, of `limen land` or of `limen ticket done`. */
+export function isClosingSubject(subject: string): boolean {
+	return CLOSE_SUBJECT.test(subject);
+}
+
+/** The ticket codes a closing commit with `subject` names, as its subject joins them; empty for any other subject. */
+export function closingCodes(subject: string): string {
+	return /^Close ([^:]+): /.exec(subject)?.[1] ?? "";
+}
+
+/** A commit of the history of HEAD: its full sha and its committer time in seconds. */
+export type HistoryCommit = { readonly sha: string; readonly time: number };
+
+/**
+ * The closing commit of each job whose land made one in the history of HEAD of the checkout at `root`
+ * (`landedJobOf`): the oldest, the first close, for a job two name, among the commits `counts` takes (every one when
+ * it is not given). None in a root that is no Git repository, where a close commits nothing. The one reading of the
+ * migration's markers and of a land that goes on after its close (R-103, T-25).
+ */
+export function landClosingCommits(
+	root: string,
+	counts: (commit: HistoryCommit) => boolean = () => true,
+): ReadonlyMap<string, HistoryCommit> {
+	const closing = new Map<string, HistoryCommit>();
+	if (!isGitRepository(root)) {
+		return closing;
+	}
+	for (const commit of headHistory(root)) {
+		const id = landedJobOf(commit.subject);
+		if (id !== undefined && counts(commit)) {
+			closing.set(id, { sha: commit.sha, time: commit.time });
+		}
+	}
+	return closing;
+}
+
+/**
+ * The ticket codes a closing commit of `limen ticket done` closed, by its subject `Close <codes>: landed` or `Close
+ * <codes>: landed <YYYY-MM-DD>`; none for any other subject, a land's among them.
+ */
+export function ticketDoneCodes(subject: string): readonly string[] {
+	const reason = CLOSE_SUBJECT.exec(subject)?.[1] ?? "";
+	if (!/^landed(?: \d{4}-\d\d-\d\d)?$/.test(reason)) {
+		return [];
+	}
+	return closingCodes(subject)
+		.split(", ")
+		.map((code) => code.toUpperCase());
+}
+
+/**
+ * The newest closing commit of `limen ticket done` in the history of HEAD of the checkout at `root` for each ticket
+ * code it closed (`ticketDoneCodes`), which a `ticket done` run again takes for the markers it still owes (R-103).
+ */
+export function ticketDoneClosings(root: string): ReadonlyMap<string, HistoryCommit> {
+	const closing = new Map<string, HistoryCommit>();
+	if (!isGitRepository(root)) {
+		return closing;
+	}
+	for (const commit of headHistory(root)) {
+		for (const code of ticketDoneCodes(commit.subject)) {
+			if (!closing.has(code)) {
+				closing.set(code, { sha: commit.sha, time: commit.time });
+			}
+		}
+	}
+	return closing;
+}
+
 /** A close of active tickets as its checks decided it, before anything moves (T-38 (1)). */
 export type TicketClose = {
 	readonly root: string;
@@ -237,6 +307,8 @@ export function stayedLine(folder: string): string {
  * What a command asks of the close. `root` is validate's first step, the call's own checks and then the project's
  * root, so that their refusals come before any read of the lanes. `today` is the `landed` date, the local day when
  * undefined. `again` is the command that runs the close again, the `next` of a STATE_CHANGED and a HOOK_REJECTED.
+ * `retry` is the command its refusals name, `planTicketClose`'s, when the caller is not `limen ticket done`: `limen land`
+ * names its own call, so a land that goes on after its merge never names a `ticket done` (R-103, review round 1, F1).
  * `added` holds the reads the caller's validate makes beside the plan, such as the jobs `limen ticket done` marks; a
  * refusal from it ends validate, and what it reads comes back with what the close did.
  */
@@ -246,6 +318,7 @@ export type CloseRequest<Added> = {
 	readonly reason: string;
 	readonly today: string | undefined;
 	readonly again: string | null;
+	readonly retry?: string;
 	readonly added?: (view: StateView, close: TicketClose) => Promise<Added | Refusal>;
 };
 
@@ -261,12 +334,12 @@ export function closeOperation<Added = undefined>(
 	TicketClose & { readonly added: Added | undefined },
 	TicketsClosed & { readonly added: Added | undefined }
 > {
-	const { codes, reason, today, again } = request;
+	const { codes, reason, today, again, retry } = request;
 	return {
 		validate: async (view) => {
 			const root = request.root();
 			const close = await view.hold(`the active tickets ${codes.join(", ")} in ${root}`, () =>
-				planTicketClose(root, codes, reason, today),
+				planTicketClose(root, codes, reason, today, retry),
 			);
 			const added = await request.added?.(view, close);
 			return isRefusal(added) ? added : { ...close, added };
@@ -336,7 +409,8 @@ async function commitClose(
 	try {
 		followCommit(root, head, commit);
 	} catch (error) {
-		throw checkoutBehind(close, { head, commit, short, paths }, error);
+		const codes = close.tickets.map((ticket) => ticket.code).join(", ");
+		throw checkoutBehind(root, codes, { head, commit, short, paths }, error);
 	}
 	const stayed = moves.filter(({ from }) => existsSync(join(root, from))).map(({ from }) => from);
 	return { moved: moves.map(({ to }) => to), commit: short, sha: commit, day: close.today, stayed };
@@ -413,29 +487,32 @@ function passHook(
 }
 
 /**
- * The failure of a close whose commit `step.commit` is on the branch, while the checkout still holds `step.paths` as
- * they were at `step.head`: git refused to overwrite a file there that changed after validate (z. 29). Its `next` is
- * null, since what finishes it is git's, not Limen's (T-37, D-046 (1)): the message names it. It tells to move the
- * changed files aside, never to commit them: a commit in that state reverts the close, and the read-tree then no longer
- * finishes it (R-037's Risk 3; R-037, review round 1, F2).
+ * The failure of a close of `codes` in the checkout at `root` whose commit `step.commit` is on the branch, while the
+ * checkout still holds `step.paths` as they were at `step.head`: git refused to overwrite a file there that changed
+ * after validate (z. 29). It tells to move the changed files aside, never to commit them: a commit in that state
+ * reverts the close, and the read-tree then no longer finishes it (R-037's Risk 3; R-037, review round 1, F2). Its
+ * `next` is null for `limen ticket done`, since what finishes it is git's, not Limen's (T-37, D-046 (1)): the message
+ * names it; `limen land` names itself, whose run again finishes the checkout and records the commit (R-103).
  */
-function checkoutBehind(
-	close: TicketClose,
+export function checkoutBehind(
+	root: string,
+	codes: string,
 	step: { readonly head: string; readonly commit: string; readonly short: string; readonly paths: readonly string[] },
 	error: unknown,
+	next: string | null = null,
 ): LimenError {
-	const codes = close.tickets.map((ticket) => ticket.code).join(", ");
-	const changed = changedInCheckout(close.root, step.paths);
+	const changed = changedInCheckout(root, step.paths);
 	const files = changed?.length ? changed.join(", ") : "git could not name them here, so see its words above";
 	return environmentError(
 		CHECKOUT_BEHIND,
 		[
-			`the closing commit ${step.short} of ${codes} is on the branch of ${close.root}, but the checkout still holds`,
+			`the closing commit ${step.short} of ${codes} is on the branch of ${root}, but the checkout still holds`,
 			`these paths as they were before it: ${step.paths.join(", ")}. Git refused to bring them: ${failureOf(error).message}.`,
 			`Move the files that changed since the close's checks aside, out of the checkout or to another name: ${files};`,
 			"make no commit before the read-tree, since it would revert the close.",
-			`Then run in ${close.root}: git update-index -q --refresh, then git read-tree -m -u ${step.head} ${step.commit}`,
+			`Then run in ${root}: git update-index -q --refresh, then git read-tree -m -u ${step.head} ${step.commit}`,
 		].join(" "),
+		next,
 	);
 }
 

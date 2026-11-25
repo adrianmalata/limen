@@ -90,6 +90,7 @@ const GENERAL = [
 const LAND = [
 	"limen land <job> [--onto <branch>] [--yes] [--keep-open]",
 	"merge a done job onto this branch and close its ticket",
+	"kind: change",
 	"",
 	"  <job>              the job's full id or its 8-character token",
 	"  --onto <branch>    refuse unless <branch> is the checked-out branch",
@@ -102,6 +103,7 @@ const LAND = [
 const STATS = [
 	"limen stats [--sessions <dir>]",
 	"jobs by route and role, tokens and lead time per land; --sessions adds coordinator turns",
+	"kind: read",
 	"",
 	"  --sessions <dir>    the folder of the coordinator's Pi sessions, or a copy of it",
 	"",
@@ -115,16 +117,25 @@ test("T-19: limen --help prints the general help of Change 4 and ends with the s
 	assert.deepEqual(outputText(run).split("\n"), [...GENERAL, ""]);
 });
 
-test("T-19: limen land --help prints its usage line, its summary, one line per part and its example", () => {
+test("T-19: limen land --help prints its usage line, its summary, its kind, one line per part and its example", () => {
 	const run = limen(["land", "--help"]);
 	assert.equal(run.status, 0, run.stderr);
 	assert.deepEqual(outputText(run).split("\n"), [...LAND, ""]);
 });
 
-test("T-19: limen stats --help prints its usage line, its summary, its flag and its example", () => {
+test("T-19: limen stats --help prints its usage line, its summary, its kind, its flag and its example", () => {
 	const run = limen(["stats", "--help"]);
 	assert.equal(run.status, 0, run.stderr);
 	assert.deepEqual(outputText(run).split("\n"), [...STATS, ""]);
+});
+
+// D-041 (6), R-103: the kind was left out of a command's help while read commands still wrote.
+test("T-19: the help of every registry entry says its kind on the line after its summary", () => {
+	const wrong = REGISTRY.filter((entry) => {
+		const lines = entryHelp(entry).split("\n");
+		return lines[lines.indexOf(entry.summary) + 1] !== `kind: ${entry.kind}`;
+	}).map((entry) => entry.name);
+	assert.deepEqual(wrong, []);
 });
 
 test("T-10: no line of the general help or of any command's help is wider than 100 characters", () => {

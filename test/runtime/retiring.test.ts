@@ -63,3 +63,23 @@ test("retire moves a job's folder only under the job's own lock, so while anothe
 		[id],
 	);
 });
+
+// D-096 (3) (h), R-103: a land run again goes on from the job's folder, so retire leaves a land with steps left.
+test("retire keeps a landed job whose land has not recorded its cleaned step, and moves it once the step is recorded", async (t) => {
+	const p = await fresh(t);
+	const id = "2026-11-23-landing-1a2b3c4d";
+	const at = new Date(Date.now() - 25 * HOUR).toISOString();
+	const landed = { sha: "3".repeat(40), at };
+	const closed = { sha: "4".repeat(40), at };
+	await writeRecord(jobDir(p, id), { state: "done", startedAt: at, finishedAt: at, landed, land: { closed } });
+	const kept = await retireMarkedJobs(p.root);
+	await writeRecord(jobDir(p, id), {
+		state: "done",
+		startedAt: at,
+		finishedAt: at,
+		landed,
+		land: { closed, cleaned: { at } },
+	});
+	const moved = await retireMarkedJobs(p.root);
+	assert.deepEqual([kept.retired, moved.retired.map((job) => job.id)], [[], [id]]);
+});

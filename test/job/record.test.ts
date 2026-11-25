@@ -1,6 +1,6 @@
 // src/job/record.ts: the job's record.json, its reads, the one function that writes it, a failure's kind, the reset
-// time of a limit's text, the optional fields of a record, the markers `landed` and `abandoned` with their one writer,
-// and the job archive's listing.
+// time of a limit's text, the optional fields of a record, the markers `landed` and `abandoned` and a land's steps
+// with their one writer, and the job archive's listing.
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
@@ -552,6 +552,82 @@ test("BAD_DATA: a landed marker whose commit is no full commit SHA gives a typed
 		readRecord(await recorded(t, { ...DONE, landed: { ...LANDED, sha: "0123" } })),
 	);
 	assert.deepEqual([error.code, "field" in error && error.field], ["BAD_DATA", "landed.sha"]);
+});
+
+const CLOSING = "fedcba9876543210fedcba9876543210fedcba98";
+
+// R-103, A-021: before R-103 land recorded no step past its merge, so a land that failed after it could not go on.
+test("writeMarker writes a land's merged step as the landed marker with an empty land, then closed and cleaned, each in its own write", async (t) => {
+	const dir = await recorded(t, DONE);
+	const merged = await writeMarker(dir, { merged: LANDED });
+	const closed = await writeMarker(dir, { closed: { sha: CLOSING, at: "2026-11-21T12:01:00.000Z" } });
+	const cleaned = await writeMarker(dir, { cleaned: { at: "2026-11-21T12:02:00.000Z" } });
+	assert.deepEqual(
+		[merged.landed, merged.land, closed.land, cleaned.land, (await readRecord(dir))?.land],
+		[
+			LANDED,
+			{},
+			{ closed: { sha: CLOSING, at: "2026-11-21T12:01:00.000Z" } },
+			{ closed: { sha: CLOSING, at: "2026-11-21T12:01:00.000Z" }, cleaned: { at: "2026-11-21T12:02:00.000Z" } },
+			cleaned.land,
+		],
+	);
+});
+
+// T-28 (3): a land run again writes a step it finds recorded once more; the record keeps the first.
+test("a land step written again with the same commit at a later time changes nothing", async (t) => {
+	const dir = await recorded(t, DONE);
+	await writeMarker(dir, { merged: LANDED });
+	await writeMarker(dir, { closed: { sha: null, at: "2026-11-21T12:01:00.000Z" } });
+	await writeMarker(dir, { cleaned: { at: "2026-11-21T12:02:00.000Z" } });
+	const text = await readFile(join(dir, "record.json"), "utf8");
+	await writeMarker(dir, { merged: { ...LANDED, at: "2026-11-22T08:00:00.000Z" } });
+	await writeMarker(dir, { closed: { sha: null, at: "2026-11-22T08:00:00.000Z" } });
+	await writeMarker(dir, { cleaned: { at: "2026-11-22T08:00:00.000Z" } });
+	assert.equal(await readFile(join(dir, "record.json"), "utf8"), text);
+});
+
+// D-096 (3) (g): a record with `landed` and no `land` came from a land before R-103, `limen ticket done` or the
+// migration, and a land run again records its first step there.
+test("a record with the landed marker and no land takes land with its closed step", async (t) => {
+	const dir = await recorded(t, { ...DONE, landed: LANDED });
+	const closed = await writeMarker(dir, { closed: { sha: LANDED.sha, at: "2026-11-21T12:01:00.000Z" } });
+	assert.deepEqual(
+		[closed.landed, closed.land],
+		[LANDED, { closed: { sha: LANDED.sha, at: "2026-11-21T12:01:00.000Z" } }],
+	);
+});
+
+test("MARKER_DIFFERS: writeMarker refuses a land's closed step with another closing commit, and the first one stays", async (t) => {
+	const dir = await recorded(t, DONE);
+	await writeMarker(dir, { merged: LANDED });
+	await writeMarker(dir, { closed: { sha: null, at: LANDED.at } });
+	const text = await readFile(join(dir, "record.json"), "utf8");
+	const error = await thrown(() => writeMarker(dir, { closed: { sha: CLOSING, at: LANDED.at } }));
+	assert.deepEqual(
+		[error.class, error.code, await readFile(join(dir, "record.json"), "utf8")],
+		["internal", "MARKER_DIFFERS", text],
+	);
+});
+
+test("MARKER_OUT_OF_ORDER: writeMarker refuses a closed step before the landed marker and a cleaned step before the closed one, and writes nothing", async (t) => {
+	const dir = await recorded(t, DONE);
+	const text = await readFile(join(dir, "record.json"), "utf8");
+	const closed = await thrown(() => writeMarker(dir, { closed: { sha: CLOSING, at: LANDED.at } }));
+	const cleaned = await thrown(() => writeMarker(dir, { cleaned: { at: LANDED.at } }));
+	assert.deepEqual(
+		[closed.class, closed.code, cleaned.code, await readFile(join(dir, "record.json"), "utf8")],
+		["internal", "MARKER_OUT_OF_ORDER", "MARKER_OUT_OF_ORDER", text],
+	);
+});
+
+// D-079: a record refuses a field it does not know, inside `land` too.
+test("BAD_DATA: a land with a key of no step gives a typed error that names the field", async (t) => {
+	const dir = await recorded(t, { ...DONE, landed: LANDED });
+	const record = JSON.parse(await readFile(join(dir, "record.json"), "utf8"));
+	await writeFile(join(dir, "record.json"), JSON.stringify({ ...record, land: { merged: { at: LANDED.at } } }));
+	const error = await thrown(() => readRecord(dir));
+	assert.deepEqual([error.code, "field" in error && error.field], ["BAD_DATA", "land.merged"]);
 });
 
 // A-002: the job archive holds a folder per UTC month of a marker, and a job folder per job below it.

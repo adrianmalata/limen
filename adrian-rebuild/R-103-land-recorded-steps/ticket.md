@@ -4,7 +4,10 @@ runner i zapisuje swoje kroki w rekordzie (`merged` to znacznik `landed` z nowym
 worktree znikają dopiero w `cleaned`, który zamyka też karty Herdr joba. `ticket done` kontynuuje swój krok znaczników,
 `abandon` zamyka obie karty synchronicznie, `limen diff` i `limen open` stają się poleceniami zmiany, a `--help` polecenia
 pokazuje jego rodzaj. Stan: napisany 24.11 przy `9601408` (po R-037) z D-096 (3), notatek w `## Tickets` i inwentarza
-`evidence/inventories/R-103.md`; 18 pytań inwentarza rozstrzygniętych dokumentami w `## Decisions`. -->
+`evidence/inventories/R-103.md`; 18 pytań inwentarza rozstrzygniętych dokumentami w `## Decisions`; 25.11 sprawdzony
+ponownie przy `4f8dea1` (po R-087–R-102): miejsca przesunięte, wspólne zamykanie kart z R-101 i dwie notatki z nocy
+(R-098, R-101) w `## Decisions` 20–23, nowe kryterium AC-15; po implementacji AC-6 poprawione (24), odchylenie
+`MERGE_FAILED` przyjęte (25), poprawki recenzji F1–F6 i G1, ticket zamknięty. -->
 
 # R-103 Land runs as recorded steps; its `cleaned` step closes the job's Herdr tabs
 
@@ -183,8 +186,11 @@ in `templates/.history/agents.md`), and the code comments the inventory lists (s
 
 ## Out of scope
 
-- `limen close`, `limen prune`, the daily sweep's leftover tabs and retire's 24 h rule (R-101, D-096 (1), D-097 (4)).
-- `limen show` printing `land` or any marker (it prints none today); `limen stats` (R-098 reads `landed`, unchanged).
+- `limen close`, `limen prune`, retire's 24 h rule and the daily sweep's leftover tabs (R-101, D-096 (1),
+  D-097 (4)), except the mark of a closed tab and the bound of the daily close, which Decision 23 brings into this
+  ticket.
+- `limen show` printing `land` or any marker (it prints none today); `limen stats` (R-098 reads `landed`, unchanged),
+  except that it takes the day-only form of a `ticket done` marker from the module that writes it (Decision 22).
 - `ticket done`'s `irreversible` mark (R-065), `ticket drop`, a generated `outcome.md`, `limen spec fix` (R-065,
   R-066); the exit 0 of "no active ticket" in land (R-037 Out of scope).
 - The owner-file refusal in land's validate (R-054); further land conditions (R-071).
@@ -197,7 +203,7 @@ in `templates/.history/agents.md`), and the code comments the inventory lists (s
 - AC-3: `node --test test/job/record.test.ts` → exit 0; `node --test test/project/lanes.test.ts` → exit 0.
 - AC-4: `node --test test/registry.test.ts` → exit 0; `node --test test/structure.test.ts` → exit 0.
 - AC-5: `node --test test/help.test.ts` → exit 0; `node --test test/s2-herdr.test.ts` → exit 0.
-- AC-6: `node --test test/cli/prune.test.ts` → exit 0; `node --test test/cli/migrate.test.ts` → exit 0.
+- AC-6: `node --test test/cli/migrate.test.ts` → exit 0.
 - AC-7: `git grep -q 'throw new Error(' -- src/job/landing.ts` → exit 1.
 - AC-8: `git grep -q 'nothing of their close was written' -- src/job/landing.ts` → exit 1.
 - AC-9: `git grep -q '// Review round' -- test/cli/land.test.ts` → exit 1.
@@ -212,6 +218,8 @@ in `templates/.history/agents.md`), and the code comments the inventory lists (s
   function, skip the coordinator's own tab, and name every tab that does not close; `diff` and `open` are `change`
   entries through the runner; `limen <command> --help` shows the kind; retire keeps a record whose `land` lacks
   `cleaned`.
+- AC-15: `node --test test/integrations/herdr.test.ts` → exit 0; `node --test test/cli/sweep.test.ts` → exit 0;
+  `node --test test/runtime/retiring.test.ts` → exit 0; `node --test test/job/statistics.test.ts` → exit 0.
 
 ## Migration
 
@@ -271,3 +279,97 @@ documents (2026-11-24, `limen-rebuild-31`; none asked, the sources searched: `ga
 17. `irreversible` (question 17): Change (b).
 18. The steps' line (question 18): abandon's `markedLine` form; `limen show` unchanged (Out of scope). (A: a new wording)
 19. Size L (the row said M; the inventory, section 11, and R-037's inventory, "M to L"); the plan row follows.
+
+Protocol step 2 at `4f8dea1` (2026-11-25, `limen-rebuild-32`), after R-087, R-098, R-101 and R-102, which came after
+this ticket was written:
+20. The scans at `HEAD`: AC-7 matches the 11 throws of `src/job/landing.ts` (`:69`, `:94`, `:222`, `:225`, `:302`,
+    `:305`, `:321`, `:327`, `:332`, `:353`, `:363`), AC-8 the line `:195`, AC-9 the seven pointers of
+    `test/cli/land.test.ts` (`:81`, `:91`, `:98`, `:124`, `:154`, `:174`, `:179`): each a line the change removes or
+    rewrites (D-025). `src/job/landing.ts`, `src/commands/land.ts`, `src/project/ticket-folders.ts`,
+    `src/job/abandoning.ts` (but for `NO_UNLANDED_WORK`'s `next`, now `limen seat sweep`), `src/project/git.ts:105`
+    (`unlandedBranches`) and `test/cli/land.test.ts` are unchanged since `9601408`, so the places the Problem cites in
+    them hold. Moved places: `OUTSIDE_RUNNER` is `test/structure.test.ts:175`, land in it `:187`; `settleJobTab`
+    `src/integrations/herdr.ts:45-59`, `closeJobTab` `:68-97`, `openDiffTab` `:117-149`, `openJobPlace` `:158-192`,
+    `recordPlace` `:445-454`, `readPlace` `:456-465`; `deleteLandedBranches` `src/runtime/pruning.ts:146`; retire's rule
+    `markedAt` `src/runtime/retiring.ts:93` (a terminal record whose `landed.at`, else `abandoned.at`, is at least
+    `RETIRE_AFTER_MS`, 24 h, old) and its branch rule `landedBranches` `:102`, which uses `unlandedBranches` as
+    Change (b) step 3 does (T-25). Change (h) is a condition in `markedAt`. R-087 (the job's environment) and R-102
+    (seat rules, `.limen/refusals/`) touch nothing this ticket changes; R-102's help and registry edits are the
+    goldens Change (g) follows.
+21. R-101 is `done`, so Change (d)'s "one closing function" is R-101's, as Change's first paragraph says, in this form:
+    `closeJobTab` (`herdr.ts:68`, its 10 s bound `TAB_CALL_MS` and one retry, returning whether the tab is closed, also
+    when Herdr had closed it) closes one tab and checks no label; the label check (`listedTab`, `herdr tab get`) and
+    the skip of the caller's own `HERDR_TAB_ID` live in `closeLeftoverTabs` (`herdr.ts:207`, the sweep's daily step,
+    `src/runtime/sweeping.ts:313`). The change factors the close of one job's recorded tabs (both places, the label
+    check, the own tab skipped, `closeJobTab`) out of `closeLeftoverTabs` into one function that the sweep calls for
+    each leftover job and that land's `cleaned`, `ticket done` and `abandon` call for their jobs (T-25). Its output
+    lines keep R-101's forms, each tab id, job name and Herdr's words through `shownField` (z. 15, R-101 review round
+    2, G1), with "leftover" only in the sweep's; the log lines stay `closeJobTab`'s (`herdr tab close <tab>: …`), which
+    are the words Change (d) names. With no Herdr, the sweep's line stays as R-101 wrote it, and the job's close says
+    so in one line of the same form, the step counting as done. The implementer lists each new wording in
+    `outcome.md` for gate 5.3. (A: new wordings)
+22. R-098's review round 3, note 2 (D-092; plan `## Tickets`, note for R-103): the day-only form of a `ticket done`
+    marker's time (`` `${ticket.day}T00:00:00.000Z` ``, `src/job/landing.ts:283`) and its regex `DAY_ONLY`
+    (`src/job/statistics.ts:51`, read at `:284` and `:358`) become one definition in the module that writes the
+    marker, which `statistics.ts` imports (T-25 (2)); a test of `test/job/statistics.test.ts` builds the marker through
+    that definition.
+23. R-101's review round 3, note 1 (guessed; D-092; R-101 `outcome.md` → Open point 7; plan `## Tickets`, note for
+    R-103): the sweep's daily close asks Herdr about every recorded tab of every finished job of closed features, with
+    a blocking call of up to 10 s each, so a hung Herdr and about 30 tabs pass the sweep unit's 300 s
+    (`SWEEP_TIMEOUT_SEC`, `src/platform/systemd-units.ts:42`), and the cut run writes no stamp and repeats. The main
+    session's reading of the note: (a) the shared close of Decision 21 records, in a place's folder, that its tab is
+    gone once `closeJobTab` reports it closed or Herdr no longer lists it, and no close asks Herdr about a place so
+    marked again; a tab that stays open is not marked, so the next run asks again; (b) a new tab recorded in that
+    place (`recordPlace`, by spawn, `limen open` or `limen diff`) is asked about again; (c) the mark is Limen's own
+    bookkeeping, so nothing D-097 (4) (d) protects is removed, and a place is never deleted to mark it; (d) the
+    sweep's daily close has a total bound, a constant (R-015) of at most 120 s, so prune and retire keep at least
+    180 s of the unit's 300 s: once it passes, the close asks Herdr nothing more, names the tabs it did not reach in one
+    line, and counts as done (T-01), so the stamp is written and the next daily run takes them; land's `cleaned` and the
+    other callers close at most two tabs of one job, bounded by `closeJobTab` (Risk 2). Tests: a marked place is not
+    asked again, a reopened tab is, the bound reached on a fake Herdr that hangs (a small bound through a test knob read
+    only with `LIMEN_TEST_MODE=1`, R-087), and the sweep's stamp written after it (AC-15). (A: the bound's value and
+    the mark's form)
+
+After the implementer's `DONE` (2026-11-25, `limen-rebuild-32`):
+24. AC-6 named `test/cli/prune.test.ts`, which R-101 removed with `limen prune`; protocol step 2 at `4f8dea1` ran the
+    scan criteria but did not check that every test file a criterion names exists (the main session's miss, the
+    implementer's Deviation 10). AC-6 now names `test/cli/migrate.test.ts` alone; retire's and the sweep's tests are
+    AC-15's.
+25. The implementer's Deviation 1 (`outcome.md`): `MERGE_FAILED` is class `environment` (exit 4) with `next` the
+    land's own command line, where `HEAD` gives a refusal (exit 1). The merge is land's first write and no check before
+    it decides a conflict on the declared git, so by T-38 (1) a refusal cannot arise there, and T-02 puts git's
+    failures in class 4; the main session takes it as settled by those rules, against Change (b)'s "a failed step
+    keeps its class", which did not foresee it. (A)
+
+Review round 1 (2026-11-25, `review.md` → Round 1; PASS with nine notes), the findings to fix, by the resumed
+implementer:
+- F1 (finding 1): the close that land runs, in `validate` and again in `apply` after `merged`, gets the land's own
+  command line as its `retry`, so every `TICKETS_UNCOMMITTED` (and any other message of the close that names a next
+  command) that land prints names `limen land <id>` with its flags, as its `next` does; `ticket done` keeps its own. A
+  test: a land run again after `merged` with an uncommitted change in a ticket folder names the land's command line in
+  both the message and `next`, and no `limen ticket done`.
+- F2 (finding 3): a recorded tab that Herdr no longer lists gets, besides its mark, the job's log line
+  `herdr tab close <tab>: already closed` (the closer's word for `tab_not_found`, Change (d)); the output keeps R-101's
+  forms (Decision 21), which name a tab that closed or stays open, and `outcome.md` → Deviations says so. A test reads
+  the log line.
+- F3 (finding 4): `finishCheckout`'s comment states the condition the code checks (a path of the close staged otherwise
+  than the closing commit has it) and why a path changed since then keeps `CHECKOUT_BEHIND` rather than being
+  overwritten (z. 29); the behaviour stays.
+- F4 (finding 5): a test that land's `CHECKOUT_BEHIND` (a kill after the branch move, then a path of the close changed
+  in the checkout) has `next` the land's own command line, while `ticket done`'s keeps `null`.
+- F5 (finding 6): the bound test of `test/integrations/herdr.test.ts` asserts only what the bound decides and not how
+  fast the fake starts (for example the tabs past the bound named as not reached, and Herdr asked about none of them),
+  so a slow host cannot fail it for another reason (z. 17, T-29 (3)).
+- F6 (finding 9): the comment on the day-only marker time sits with the code it explains (T-30), or with the import of
+  the definition, not as a loose block between unrelated constants.
+
+Review round 2 (2026-11-25, `review.md` → Round 2; PASS with two notes), the last round of fixes (protocol step 6), by
+the resumed implementer:
+- G1 (finding 1): a closing commit that land's `closed` step takes from the history (`closingCommitOf`, through
+  `landClosingCommits`) counts only when it is a strict descendant of the merged commit (`merged.sha`; `isAncestor` of
+  `src/project/git.ts`, and not `merged.sha` itself), since land makes its closing commit after its merge and every
+  commit of the job is that commit or one of its ancestors (z. 15, T-01). The migration's reading of
+  `landClosingCommits` is unchanged. The case of an older record whose `landed.sha` itself carries a closing subject
+  (Change (c), `ticket done` and the migration) stays as it is and goes to `outcome.md` → Open points (a fast-forwarded
+  job commit with such a subject). A test: a job commit with the subject `Close <codes>: landed by <id>`, landed; land
+  runs the close and makes its own closing commit, and the record's `closed` is that commit.

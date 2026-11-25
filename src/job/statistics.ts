@@ -15,6 +15,7 @@ import { LimenError, usageError } from "../outcome.ts";
 import { limenRoot } from "../project/git.ts";
 import { localDay } from "../project/lanes.ts";
 import { everRan, isTerminal } from "./job.ts";
+import { isDayOnly } from "./landing.ts";
 import {
 	archivedJobs,
 	FAILURE_KINDS,
@@ -42,13 +43,6 @@ import {
 const UNKNOWN = "unknown";
 /** A number the records cannot give, such as a lead time part no land has (D-098 (4)). */
 const NONE = "—";
-/**
- * The time `limen ticket done` writes into its marker, the ticket's day at midnight UTC (src/job/landing.ts), into a
- * migrated record's marker too, where every other land holds the time of its merge or its closing commit; a land at
- * that time has no lead time (D-098 (5) (d)), migrated or not. A closing commit made at exactly midnight UTC is then
- * left out too: a number is missing and named on `Not read`, none is guessed (D-057 (4)).
- */
-const DAY_ONLY = /T00:00:00\.000Z$/;
 /** A simple command that lands work, by the name or the path of `limen`: `limen land …` or `limen ticket done …`. */
 const LAND_COMMAND = /^(?:\S*\/)?limen (?:land|ticket done)(?: |$)/;
 /** A flag the parser takes as help, `--help` or `-h` (`asksHelp`, src/parser.ts), as one word of a simple command. */
@@ -277,11 +271,14 @@ function sameBranch(a: JobRecord, b: JobRecord): boolean {
 }
 
 /**
- * The lead time of `land` and its parts (M-06); undefined for a land by `limen ticket done`, whose time is a day, the
- * record migrated or not.
+ * The lead time of `land` and its parts (M-06); undefined for a land by `limen ticket done`, the record migrated or not,
+ * whose `landed` time holds a day only (`isDayOnly`, defined where `limen ticket done` writes it, T-25 (2)): the ticket's
+ * day at midnight UTC, where every other land holds the time of its merge or its closing commit (D-098 (5) (d)). A
+ * closing commit made at exactly midnight UTC is then left out too: a number is missing and named on `Not read`, none
+ * is guessed (D-057 (4)).
  */
 export function leadTimeOf(land: Land): LeadTime | undefined {
-	if (DAY_ONLY.test(land.landed.at)) {
+	if (isDayOnly(land.landed.at)) {
 		return undefined;
 	}
 	const starts = land.jobs.map(startOf);
@@ -344,7 +341,7 @@ function elapsed(ms: number): number | undefined {
 }
 /**
  * The number of `lands` whose time lies within `span`; none without a span. A land by `limen ticket done` holds only
- * its day (`DAY_ONLY`), so it lies within when that day lies from the day of the span's first entry to the day of its
+ * its day (`isDayOnly`), so it lies within when that day lies from the day of the span's first entry to the day of its
  * last, each taken as `ticket done` takes the ticket's day, the local one (src/project/lanes.ts). Any other land lies
  * within by its time.
  */
@@ -355,7 +352,7 @@ function landsWithin(lands: readonly Land[], span: Span | undefined): number {
 	const first = localDay(new Date(span.first));
 	const last = localDay(new Date(span.last));
 	return lands.filter(({ landed }) => {
-		if (DAY_ONLY.test(landed.at)) {
+		if (isDayOnly(landed.at)) {
 			const day = landed.at.slice(0, 10);
 			return day >= first && day <= last;
 		}

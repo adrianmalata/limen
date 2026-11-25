@@ -1,4 +1,4 @@
-// `limen abandon`: a finished job's work goes on limen/abandon/<id>, then its worktree and its Herdr tab go (A-001).
+// `limen abandon`: a finished job's work goes on limen/abandon/<id>, then its worktree and its Herdr tabs go (A-001).
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -8,16 +8,17 @@ import { test } from "node:test";
 import { outputText, readOutcome } from "../final-line.ts";
 import {
 	git,
+	herdrFake,
 	jobDir,
 	jobRecord,
 	limen,
 	nestedJob,
 	type Plant,
 	plant,
+	recordTab,
 	routed,
 	spawnJob,
 	TICKET,
-	until,
 	waitJob,
 	writeRecord,
 } from "../plant.ts";
@@ -426,27 +427,32 @@ test("abandon keeps and names a Git-locked worktree, and still writes its branch
 	);
 });
 
-// T-18: closing the job's Herdr tab is part of abandon's cleaned step. The tests' Herdr logs its words and refuses
-// nothing; the place is the one a job's start records when Herdr runs.
-test("abandon closes the job's Herdr tab through the tab closer, which logs the close in the job's log", async (t) => {
+// T-18 (1), D-096 (3) (i): closing the job's Herdr tabs is part of abandon's cleaned step; before R-103 a detached closer
+// closed only the log tab, and the diff tab stayed open.
+test("abandon closes the job's recorded log and diff tabs before it ends, names each, and logs each close in the job's log", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const job = doneJob(p);
-	const herdr = join(p.parent, "herdr-fake");
-	await mkdir(herdr);
-	await writeFile(join(herdr, "herdr"), '#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$(dirname "$0")/calls.log"\n', {
-		mode: 0o755,
+	const label = jobRecord(p, job.id)?.label ?? "";
+	const herdr = await herdrFake(join(p.parent, "herdr-fake"), {
+		tabs: { "w1:t7": { label: `${label} · done` }, "w1:t8": { label: `${label} · diff` } },
 	});
-	const place = { workspace: "w1", tab: "w1:t7", pane: "w1:p7", mode: "watch" };
-	await mkdir(join(jobDir(p, job.id), "herdr"));
-	for (const [name, value] of Object.entries(place)) {
-		await writeFile(join(jobDir(p, job.id), "herdr", name), `${value}\n`);
-	}
-	const run = limen(p, ["abandon", job.id], { env: { LIMEN_HERDR: join(herdr, "herdr") } });
+	await recordTab(jobDir(p, job.id), "log", "w1:t7");
+	await recordTab(jobDir(p, job.id), "diff", "w1:t8");
+	const run = limen(p, ["abandon", job.id], { env: { LIMEN_HERDR: herdr.binary } });
 	assert.equal(run.status, 0, run.stderr);
-	const log = join(jobDir(p, job.id), "log");
-	await until(jobDir(p, job.id), () => readFileSync(log, "utf8").includes(`herdr tab close ${place.tab}: closed`));
-	assert.equal(readFileSync(join(herdr, "calls.log"), "utf8"), `tab close ${place.tab}\n`);
+	const log = readFileSync(join(jobDir(p, job.id), "log"), "utf8");
+	assert.deepEqual(
+		[
+			outputText(run).includes(
+				`closed the Herdr tab w1:t7 of job ${job.id}\nclosed the Herdr tab w1:t8 of job ${job.id}\n`,
+			),
+			herdr.closes(),
+			log.includes("herdr tab close w1:t7: closed") && log.includes("herdr tab close w1:t8: closed"),
+		],
+		[true, ["w1:t7", "w1:t8"], true],
+		run.stdout,
+	);
 });
 
 /** Abandons `id` and returns the run with the snapshots before and after it. */

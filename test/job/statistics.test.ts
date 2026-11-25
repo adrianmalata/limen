@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
+import { dayOnlyTime } from "../../src/job/landing.ts";
 import { emptyRecord, type JobRecord } from "../../src/job/record.ts";
 import { landsOf, leadTimeOf, projectStatistics } from "../../src/job/statistics.ts";
 import { plant, writeRecord } from "../plant.ts";
@@ -165,10 +166,11 @@ test("a land's queue, job runs and review add up to its jobs' run times: a job's
 	assert.equal((time?.queue ?? 0) + (time?.runs ?? 0) + (time?.review ?? 0), minutes(60) + minutes(40));
 });
 
+// R-098, review round 3, note 2: the marker's day-only form had two copies, the writer's and this reader's (T-25 (2)).
 test("a land by limen ticket done, whose marker holds the ticket's day at midnight, has no lead time", () => {
 	const record = job("2026-11-03-worker-1a2b3c4d", ["2026-11-03T09:00:00.000Z", "2026-11-03T09:50:00.000Z"], {
 		role: "worker",
-		landed: { sha: SHA, at: "2026-11-04T00:00:00.000Z" },
+		landed: { sha: SHA, at: dayOnlyTime("2026-11-04") },
 	});
 	const [land] = landsOf([record]);
 	assert.ok(land);

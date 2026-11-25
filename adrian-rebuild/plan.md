@@ -129,7 +129,9 @@ limen-rebuild-31: R-103 gotowy (ticket.md z inwentarza, 18 pytań rozstrzygnięt
 blokadzie nocy sesja dzienna tylko czyta, biegacz nocny startuje jako śledzone zadanie w tle, reguła wznowienia
 przerwanego przebiegu w `## Agents`. Noc 24/25.11: R-087 i R-098 zamknięte w przebiegu 1 (urwanym limitem 5 h o
 03:37); przebieg 2 wznowił R-101 po regule D-102 (4) i go zamknął (dzienne kroki `seat sweep`: prune, retire i
-zamykanie kart Herdr; nic, czego Git nie trzyma gdzie indziej, nie jest kasowane). -->
+zamykanie kart Herdr; nic, czego Git nie trzyma gdzie indziej, nie jest kasowane). R-102 zamknięty (reguły seata wycięte). limen-rebuild-32: R-103
+zamknięty (land jako zapisane kroki merged, closed, cleaned; wspólne zamykanie kart Herdr; diff i open jako polecenia
+zmiany), więc wszystkie 18 ticketów etapu 3 są zamknięte; dalej zamknięcie etapu 3 i bramka 5.3. -->
 
 
 
@@ -1726,7 +1728,7 @@ Columns:
 | R-100 | One definition of the ISO time, the 429 rule, the error-code check and the jobs listing | 3 | T-25, D-080 | R-022, R-093, R-097 | S | delegated | night | — | — | — | done |
 | R-101 | Prune, retire and leftover Herdr tabs are steps of the sweep; nothing is deleted | 3 | A-024, A-002, T-18, T-28, D-092, D-094, D-096, D-097 | R-032 | M | delegated | night | yes | herdr | 3.9 | done |
 | R-102 | Seat rules are cut | 3 | A-010, T-42, D-094, D-097 | R-034 | M | delegated | night | yes | systemd | 3.5 | done |
-| R-103 | Land runs as recorded steps; its `cleaned` step closes the job's Herdr tabs | 3 | A-021, T-04, T-18, T-28, T-38, D-092, D-094, D-096 | R-037 | L | delegated | night | yes | herdr | 3.9 | ready |
+| R-103 | Land runs as recorded steps; its `cleaned` step closes the job's Herdr tabs | 3 | A-021, T-04, T-18, T-28, T-38, D-092, D-094, D-096 | R-037 | L | delegated | night | yes | herdr | 3.9 | done |
 | R-038 | The fake engine shows the model's view under the bridge | 4 | T-31, A-051 | R-017 | M | delegated | night | — | bridge | 4.1 | planned |
 | R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16 | R-021, R-038 | L | delegated | night | yes | pi, bridge | 4.2 | planned |
 | R-040 | Role texts come from the package, in three registers | 4 | A-038, A-039, A-042, D-005 | R-001, R-039 | M | delegated | night | yes | — | — | planned |
@@ -2606,7 +2608,8 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-24 by day (`limen-rebuild-31`, before the night: R-103 `ready` in "`limen-rebuild-31`" at the end of
+Updated 2026-11-25 by day (`limen-rebuild-32`: R-103 `done`, so every stage-3 ticket is `done`; "`limen-rebuild-32`" at the
+end of this section. Before it `limen-rebuild-31`, before the night: R-103 `ready` in "`limen-rebuild-31`" at the end of
 this section; before it `limen-rebuild-30`, after R-036; R-029, R-032, R-034 and R-036 are `done`, by day, in
 "Evening of 2026-11-23", "R-034 in `limen-rebuild-29`" and "R-036 in `limen-rebuild-30`" at the end of this section,
 the next ticket in `Next` 2), rebuild
@@ -4571,3 +4574,33 @@ before R-087, R-098, R-101 and R-102, so step 2 first runs AC-7–AC-9 at `HEAD`
 `src/runtime/retiring.ts`). Open for Adrian: R-102 `outcome.md` → Open points 5 (he removes the checkout's ignored
 `.limen/` by hand) and 6 (a gate check for new ignored files, recommended); for gate 5.3 the open points of R-036,
 R-037, R-087, R-098, R-101 and R-102 and R-103's items marked (A). The handover after it is `limen-rebuild-33`.
+
+`limen-rebuild-32` (2026-11-25, by day, Adrian at the terminal): `close-previous` printed `handover: closed tmux session
+limen-rebuild-31` and one `handover: stopped claude …` line and exited 0; the takeover push was skipped as redundant,
+the terminal being active; context 11 % at the start.
+- R-103 `active` (from `4f8dea1`): its `ticket.md` (written at `9601408`) was checked again at `HEAD` (protocol step 2,
+  D-025): AC-7–AC-9 match only lines the change removes or rewrites; the places R-087–R-102 moved, R-101's closing
+  function as the change uses it, and the two R-103 notes the night added to `## Tickets` (R-098 round 3, note 2: the
+  day-only marker time in one definition; R-101 round 3, note 1: a closed tab is marked and not asked again, the daily
+  close bounded) are `ticket.md` → `## Decisions` 20–23, the last two settled by the documents and marked (A) for gate
+  5.3; a new AC-15 runs the tests of the sweep, retire, the Herdr module and statistics. Next: the implementer
+  (protocol step 3).
+- R-103 `done` (delegated): `limen land` runs through the runner and records its steps `merged` (R-031's `landed`
+  with the new field `land`), `closed` and `cleaned`, each once; a rerun continues from the first step not recorded and
+  never merges again; the branch and worktree go only in `cleaned`, which also closes the job's recorded Herdr tabs
+  through one function that `ticket done`, `abandon` and the sweep share (a closed tab marked, the daily close bounded
+  at 60 s); `diff` and `open` are `change` commands; `limen <command> --help` shows the kind; retire keeps a record
+  whose `land` lacks `cleaned`. The implementer's `DONE`, `compare --git` → exit 0, the main session's gate → exit 0
+  (1233/1233), `fails-before.mjs` → exit 0 (16 files). AC-6 named `test/cli/prune.test.ts`, which R-101 removed (the
+  main session's miss in step 2, Decision 24). Review PASS in rounds 1–3 (9, 2 and 4 notes), two rounds of fixes
+  (F1–F6: the close's `next` and message on a rerun, an unlisted tab's log line, a comment, two tests, a test made
+  independent of the fake's start; G1: a closing commit counts only after the merge, so a job commit with a closing
+  subject is never recorded as `closed`), the main session's text fixes of round 3; gate after G1 1237/1237. For gate
+  5.3: `outcome.md` → `## New codes and wordings`, Deviation 1 (`MERGE_FAILED` exit 4, `ticket.md` → Decision 25),
+  Open points 3–6 (6: a rerun on a record whose merged commit Git no longer holds ends exit 4 each time;
+  recommended a fix in the next ticket of `src/job/landing.ts`), and the items marked (A) in Decisions 2, 5, 6, 9,
+  15, 16, 18, 21 and 23. One command of this session was refused by the permissions (a stray `python3 --version`
+  before an edit) and was not worked around; the edit ran without it. Unmeasured: M-01, M-05, step 3.9. A
+  recommendation for Adrian: `check.mjs` checks that every test file a `ready` or `active` criterion names exists, so
+  Decision 24's miss cannot recur (a `Tools:` commit).
+- Next: the close of stage 3 (`## Stages` → Closing a stage) and gate 5.3 with Adrian.

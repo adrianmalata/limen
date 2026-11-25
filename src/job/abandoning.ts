@@ -1,13 +1,14 @@
 // The abandon of a finished job (A-001, T-26 (2)): it keeps the job's work on the branch `limen/abandon/<id>` and
 // removes the worktree only while that branch holds all of it, so nothing goes that Git does not hold (R-030, D-088),
 // and only then writes the `abandoned` marker that resolves the job, since a marker never hides work (R-031,
-// Decisions 3 and 5). Ignored files go with the worktree, which is why the registry marks the command irreversible.
+// Decisions 3 and 5), then closes the job's recorded Herdr tabs as land does (R-103). Ignored files go with the worktree,
+// which is why the registry marks the command irreversible.
 import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { shownField } from "../boundary.ts";
-import { settleJobTab } from "../integrations/herdr.ts";
+import { closeJobTabs } from "../integrations/herdr.ts";
 import { runOperation, stepFailure } from "../operation.ts";
 import { refused } from "../outcome.ts";
 import {
@@ -78,15 +79,18 @@ export async function abandonJob(query: JobReference, cwd: string, again: string
 		lock: (plan) => worktreeGuard(plan.jobsRoot),
 		apply: async (plan) => ({ plan, done: await applyAbandon(plan) }),
 	});
+	let tabs: readonly string[];
 	try {
 		if (done.worktree && done.worktree.kept === undefined) {
 			await removeTrash(done.worktree.trash);
 		}
-		await settleJobTab(plan.jobDir);
+		// The job's recorded tabs close on every run, after its marker, as land's `cleaned` step closes them; a close found
+		// gone again is no line (D-096 (3) (i), R-103).
+		tabs = await closeJobTabs(plan.jobDir);
 	} catch (error) {
 		throw stepFailure(error);
 	}
-	return report(plan, done);
+	return [report(plan, done), ...tabs].join("\n");
 }
 
 /**

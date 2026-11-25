@@ -440,29 +440,44 @@ const JOBS: readonly Entry[] = [
 			{ flag: "keep-open", about: "keep the ticket active, because more slices remain" },
 		],
 		ids: [],
-		// A group member is refused before its job is resolved; the close of its tickets refuses before the merge, and a
-		// close that fails after it ends the land with the close's class and `limen ticket done <codes>`, except a refusal
-		// there, which is STATE_CHANGED, and CHECKOUT_BEHIND, whose `next` is null since its commit is on the branch
-		// (R-037, Decision 18).
+		// A group member is refused before its job is resolved; the merge's checks, the close's refusals among them,
+		// refuse before the merge while the record holds no `merged` step, and the terminal question's no after them. A
+		// step that fails after the merge keeps its class and names the land itself, which goes on from the first step
+		// not recorded (R-103); a refusal of the close there is STATE_CHANGED.
 		refuses: refusals(JOB_WORD, [
 			"BAD_REPO",
-			"MERGE_FAILED",
+			"JOB_NOT_DONE",
+			"JOB_NO_BASE",
+			"JOB_NO_BRANCH",
+			"LAND_CANCELLED",
+			"LAND_IN_GROUP",
+			"NOTHING_TO_LAND",
 			"NOT_A_PROJECT",
+			"ON_JOB_BRANCH",
 			"PICTURE_NOT_A_FOLDER",
+			"TARGET_NOT_CHECKED_OUT",
+			"TARGET_STAGED",
+			"TEST_LINE_CAP",
 			"TICKETS_UNCOMMITTED",
+			"TICKET_CHECK_FAILED",
+			"UNCOMMITTED_OVERLAP",
 		]),
 		example: "limen land a1b2c3d4",
+		// The merge and the closing commit stay on the target, and the branch it deletes is in the target's history; a
+		// run again goes on from the first step not recorded (T-28 (3), D-075).
+		irreversible: true,
 		handler: landCommand,
 	},
 	{
 		name: "diff",
 		object: "job",
-		kind: "read",
+		// A change since in Herdr it opens a tab and records its place, so that a close finds it (D-096 (2)).
+		kind: "change",
 		visibility: "public",
 		summary: "the change a job made against its base",
 		schema: [JOB],
 		ids: [],
-		refuses: refusals(IN_PROJECT, JOB_WORD, ["BAD_REPO"]),
+		refuses: refusals(IN_PROJECT, JOB_WORD, ["BAD_REPO", "JOB_NO_BASE", "JOB_NO_BRANCH"]),
 		example: "limen diff a1b2c3d4",
 		handler: diffCommand,
 	},
@@ -482,12 +497,13 @@ const JOBS: readonly Entry[] = [
 	{
 		name: "open",
 		object: "job",
-		kind: "read",
+		// A change since it records the place of the tab it opens, so that a close finds it (D-096 (2)).
+		kind: "change",
 		visibility: "public",
 		summary: "open the job's log tab in Herdr",
 		schema: [JOB],
 		ids: [],
-		refuses: refusals(IN_PROJECT, JOB_WORD),
+		refuses: refusals(IN_PROJECT, JOB_WORD, ["HERDR_UNAVAILABLE"]),
 		example: "limen open a1b2c3d4",
 		handler: openCommand,
 	},

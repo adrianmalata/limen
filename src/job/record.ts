@@ -1,7 +1,8 @@
 // The job record (S1+, A-019, D-057): the one module, with src/job/migration.ts for older records, that reads, writes
 // and lists job records and the job archive, so that every read goes through one validator and every write through
 // one lock (T-25 (1), T-27 (2)). A record changes through `transition` until its job finishes, and after that only
-// through `writeMarker`, once per marker, so that what a finished job left stays as it was (A-002; R-031, Decision 2).
+// through `writeMarker`, once per marker and once per step of a land, so that what a finished job left stays as it was
+// (A-002; R-031, Decision 2; R-103).
 import {
 	closeSync,
 	constants,
@@ -227,6 +228,12 @@ export type JobRecord = Facts & {
 	readonly migrated?: { readonly at: string };
 	/** Set once the job's work is on its target (A-002); only `writeMarker` writes it. */
 	readonly landed?: Landed;
+	/**
+	 * The steps of `limen land` after its merge (A-021, R-103): set empty with `landed` in one write by the land's
+	 * `merged` step, then `closed` and `cleaned`, each once; only `writeMarker` writes it. A record that `limen ticket
+	 * done` or the migration marked, or that a land before R-103 wrote, has `landed` and no `land`.
+	 */
+	readonly land?: Land;
 	/** Set once `limen abandon` saved the job's whole worktree on a branch (A-002); only `writeMarker` writes it. */
 	readonly abandoned?: Abandoned;
 	/** The last `kendex:rate-limit` event the job's engine received (E-9); a job that met none has none. */
@@ -251,12 +258,32 @@ export type JobRecord = Facts & {
 export type Landed = { readonly sha: string; readonly at: string };
 /** The marker of an abandoned job: the branch that holds its whole worktree, the branch's commit, and when. */
 export type Abandoned = { readonly branch: string; readonly commit: string; readonly at: string };
-/** One marker for `writeMarker` to write. */
-export type Marker = { readonly landed: Landed } | { readonly abandoned: Abandoned };
+/**
+ * A land's `closed` step: the closing commit of the job's tickets, or null when the land made none (no active ticket,
+ * `--keep-open`, or a project root that is no Git repository), and when it was recorded.
+ */
+export type LandClosed = { readonly sha: string | null; readonly at: string };
+/** A land's `cleaned` step: when it was done with the job's branch, its worktree and its Herdr tabs. */
+export type LandCleaned = { readonly at: string };
+/**
+ * The steps of a land after its merge, which `landed` records (R-103): what a land run again needs to go on from the
+ * first step not recorded, and nothing more; what each step did goes to the land's output and the job's log.
+ */
+export type Land = { readonly closed?: LandClosed; readonly cleaned?: LandCleaned };
+/**
+ * One marker for `writeMarker` to write. `merged`, `closed` and `cleaned` are the steps of a land, in that order:
+ * `merged` writes `landed` with an empty `land` in one write, the other two a field of `land` each.
+ */
+export type Marker =
+	| { readonly landed: Landed }
+	| { readonly abandoned: Abandoned }
+	| { readonly merged: Landed }
+	| { readonly closed: LandClosed }
+	| { readonly cleaned: LandCleaned };
 
 /** The fields a change may set; the state, the transitions and the markers are the record module's own. */
 export type Fields = Partial<
-	Omit<JobRecord, "version" | "id" | "state" | "transitions" | "landed" | "abandoned" | "stuck" | "owedWake">
+	Omit<JobRecord, "version" | "id" | "state" | "transitions" | "landed" | "land" | "abandoned" | "stuck" | "owedWake">
 >;
 
 /**
@@ -307,6 +334,7 @@ const RECORD_FIELDS = [
 	"scope",
 	"migrated",
 	"landed",
+	"land",
 	"abandoned",
 	"rateLimit",
 	"refusal",
@@ -658,8 +686,12 @@ export async function transition(jobDir: string, change: Change): Promise<JobRec
  * The one write after a terminal state (A-002, T-38 (2)): under the job's lock it sets `marker` on the finished record
  * of `jobDir` and returns the record. A marker is written once: when the record holds the same one, with the same commit
  * (and branch), it writes nothing and returns the record as it is, so a caller run again changes nothing; it keeps the
- * first time. A record that is not finished, or a folder without one, refuses with MARKER_NOT_FINISHED, and a marker of
- * the same kind with another commit with MARKER_DIFFERS: Limen's callers check both first, so either is a fault.
+ * first time. A land's steps are written so too, each once and in their order (R-103): `merged` writes `landed` and an
+ * empty `land` in one write, then `closed` and `cleaned` each fill their field of `land`; a record with `landed` and no
+ * `land`, which an older land, `limen ticket done` or the migration wrote, takes `land` with its first step. A record
+ * that is not finished, or a folder without one, refuses with MARKER_NOT_FINISHED, a marker or step of the same kind
+ * with another commit with MARKER_DIFFERS, and a step before the one it follows with MARKER_OUT_OF_ORDER: Limen's
+ * callers check all three first, so each is a fault.
  */
 export async function writeMarker(jobDir: string, marker: Marker): Promise<JobRecord> {
 	if (!existsSync(join(jobDir, RECORD))) {
@@ -674,20 +706,74 @@ export async function writeMarker(jobDir: string, marker: Marker): Promise<JobRe
 				`job ${basename(jobDir)} is ${state}; only a finished job takes a marker`,
 			);
 		}
-		const held = "landed" in marker ? current.landed : current.abandoned;
-		const given = "landed" in marker ? marker.landed : marker.abandoned;
-		if (held !== undefined) {
-			if (markerKey(held) !== markerKey(given)) {
-				const kind = "landed" in marker ? "landed" : "abandoned";
-				const message = `job ${current.id} holds the ${kind} marker ${markerKey(held)}, not ${markerKey(given)}`;
-				throw markerRefusal("MARKER_DIFFERS", message);
-			}
+		const changed = "closed" in marker || "cleaned" in marker ? landStep(current, marker) : marked(current, marker);
+		if (changed === undefined) {
 			return current;
 		}
-		const next = checkedRecord(join(jobDir, RECORD), { ...current, ...marker });
+		const next = checkedRecord(join(jobDir, RECORD), changed);
 		await atomicWrite(join(jobDir, RECORD), serialized(next));
 		return next;
 	});
+}
+/**
+ * The record a marker, or a land's `merged` step, makes of `current`, or undefined when `current` holds the same one
+ * already; MARKER_DIFFERS when it holds one of that kind with another commit (and branch).
+ */
+function marked(
+	current: JobRecord,
+	marker: Exclude<Marker, { readonly closed: LandClosed } | { readonly cleaned: LandCleaned }>,
+): JobRecord | undefined {
+	if ("abandoned" in marker) {
+		return current.abandoned === undefined
+			? { ...current, abandoned: marker.abandoned }
+			: same(current, "abandoned marker", markerKey(current.abandoned), markerKey(marker.abandoned));
+	}
+	const given = "landed" in marker ? marker.landed : marker.merged;
+	if (current.landed !== undefined) {
+		return same(current, "landed marker", markerKey(current.landed), markerKey(given));
+	}
+	return "merged" in marker ? { ...current, landed: given, land: {} } : { ...current, landed: given };
+}
+/**
+ * The record the land step `marker` makes of `current`, or undefined when `current` holds it already: `closed` follows
+ * `landed`, and `cleaned` follows `closed` (R-103); a `closed` with another commit is MARKER_DIFFERS.
+ */
+function landStep(
+	current: JobRecord,
+	marker: { readonly closed: LandClosed } | { readonly cleaned: LandCleaned },
+): JobRecord | undefined {
+	const land = current.land ?? {};
+	if ("closed" in marker) {
+		if (current.landed === undefined) {
+			throw outOfOrder(current, "closed", "the landed marker");
+		}
+		if (land.closed !== undefined) {
+			return same(current, "closed step", closedKey(land.closed), closedKey(marker.closed));
+		}
+		return { ...current, land: { ...land, closed: marker.closed } };
+	}
+	if (land.closed === undefined) {
+		throw outOfOrder(current, "cleaned", "the closed step");
+	}
+	return land.cleaned === undefined ? { ...current, land: { ...land, cleaned: marker.cleaned } } : undefined;
+}
+/** Nothing to write when a record holds the marker `kind` with the key it is given; MARKER_DIFFERS when another. */
+function same(current: JobRecord, kind: string, held: string, given: string): undefined {
+	if (held !== given) {
+		throw markerRefusal("MARKER_DIFFERS", `job ${current.id} holds the ${kind} ${held}, not ${given}`);
+	}
+	return undefined;
+}
+/** What tells two `closed` steps apart: the closing commit, or that the land made none; never the time. */
+function closedKey(closed: LandClosed): string {
+	return closed.sha ?? "with no closing commit";
+}
+/** The fault of a land step written before the step it follows. */
+function outOfOrder(current: JobRecord, step: string, before: string): LimenError {
+	return markerRefusal(
+		"MARKER_OUT_OF_ORDER",
+		`job ${current.id} has no ${before}, which comes before the land's ${step} step`,
+	);
 }
 /**
  * The one write of `stuck` (R-032): under the job's lock it sets the field of the record of `jobDir` to what `update`
@@ -769,7 +855,10 @@ export function escalatedStuck(record: JobRecord): Stuck | undefined {
 function markerKey(marker: Landed | Abandoned): string {
 	return "sha" in marker ? marker.sha : `${marker.branch} at ${marker.commit}`;
 }
-function markerRefusal(code: "MARKER_NOT_FINISHED" | "MARKER_DIFFERS", message: string): LimenError {
+function markerRefusal(
+	code: "MARKER_NOT_FINISHED" | "MARKER_DIFFERS" | "MARKER_OUT_OF_ORDER",
+	message: string,
+): LimenError {
 	return new LimenError({ class: "internal", code, message, next: null });
 }
 
@@ -1204,6 +1293,22 @@ function landedOf(value: unknown, field: string): Landed {
 	const fields = object(["sha", "at"])(value, field);
 	return { sha: commitOf(fields.get("sha"), at(field, "sha")), at: isoTime(fields.get("at"), at(field, "at")) };
 }
+/** The validator of a land's steps after its merge (R-103): each step optional, a key of no step refused. */
+function landOf(value: unknown, field: string): Land {
+	const fields = object(["closed", "cleaned"])(value, field);
+	const closed = (step: unknown, name: string): LandClosed => {
+		const parts = object(["sha", "at"])(step, name);
+		return { sha: nullOr(commitOf)(parts.get("sha"), at(name, "sha")), at: isoTime(parts.get("at"), at(name, "at")) };
+	};
+	const cleaned = (step: unknown, name: string): LandCleaned => {
+		const parts = object(["at"])(step, name);
+		return { at: isoTime(parts.get("at"), at(name, "at")) };
+	};
+	return {
+		...(fields.has("closed") ? { closed: closed(fields.get("closed"), at(field, "closed")) } : {}),
+		...(fields.has("cleaned") ? { cleaned: cleaned(fields.get("cleaned"), at(field, "cleaned")) } : {}),
+	};
+}
 /** The validator of the record's `abandoned` marker (`abandonEvidence` of src/job/migration.ts reads Git's, T-18). */
 function abandonedMarker(value: unknown, field: string): Abandoned {
 	const fields = object(["branch", "commit", "at"])(value, field);
@@ -1276,6 +1381,7 @@ function recordOf(value: unknown, field: string): JobRecord {
 	const queueWait = fields.has("queueWait") ? { queueWait: read("queueWait", queueWaitOf) } : {};
 	const migrated = fields.has("migrated") ? { migrated: read("migrated", migratedOf) } : {};
 	const landed = fields.has("landed") ? { landed: read("landed", landedOf) } : {};
+	const land = fields.has("land") ? { land: read("land", landOf) } : {};
 	const abandoned = fields.has("abandoned") ? { abandoned: read("abandoned", abandonedMarker) } : {};
 	const rateLimit = fields.has("rateLimit") ? { rateLimit: read("rateLimit", rateLimitOf) } : {};
 	const refusal = fields.has("refusal") ? { refusal: read("refusal", refusalOf) } : {};
@@ -1321,6 +1427,7 @@ function recordOf(value: unknown, field: string): JobRecord {
 		...queueWait,
 		...migrated,
 		...landed,
+		...land,
 		...abandoned,
 		...rateLimit,
 		...refusal,

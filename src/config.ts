@@ -88,6 +88,10 @@ export const ENVIRONMENT = {
 	},
 	LIMEN_WAKE_FALLBACK_MS: { kind: "test", carries: "the grace before a fallback wake, in place of 5 min" },
 	LIMEN_LOCK_WAIT_MS: { kind: "test", carries: "the lock's wait bound, in place of 60 s" },
+	LIMEN_LEFTOVER_TABS_MS: {
+		kind: "test",
+		carries: "the bound of the seat sweep's daily close of leftover Herdr tabs, in place of 60 s",
+	},
 	LIMEN_CGROUP_ROOT: {
 		kind: "test",
 		carries: "a folder in place of the system's cgroup hierarchy, where the tests' scopes keep their readings",

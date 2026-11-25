@@ -126,6 +126,11 @@ const IRREVERSIBLE = {
 		again: "a second abandon after all its steps prints the branch, exits 0 and changes nothing",
 		kept: "abandon keeps every changed, deleted and untracked file of the worktree on its branch byte for byte, and no ignored one",
 	},
+	land: {
+		file: "test/cli/land.test.ts",
+		again: "a second land after all its steps prints the steps' line, exits 0 and changes nothing",
+		kept: "land keeps the merge, the closed ticket and every commit of the job's branch on the target, so the branch it deletes loses nothing",
+	},
 	migrate: {
 		file: "test/cli/migrate.test.ts",
 		again: "a second run has nothing to do, exits 0 and changes nothing",
@@ -587,10 +592,8 @@ const WITHOUT_CODE_TEST: readonly string[] = [
 	"GROUP_TEAM_JOB",
 	"GROUP_TEAM_UNKNOWN",
 	"GROUP_TIMEOUT_SHORT",
-	"JOB_NO_BRANCH",
 	"JOB_NO_SESSION",
 	"JOB_NO_WORKTREE",
-	"MERGE_FAILED",
 	"NOT_A_PROJECT",
 	"NO_COMMIT",
 	"NO_GROUP",
@@ -671,7 +674,6 @@ test("T-38: every CODE test of a change command's own or a shared code compares 
  */
 const WITHOUT_SUCCESS_TEST: readonly string[] = [
 	"board",
-	"diff",
 	"github connect",
 	"github deliver",
 	"github disconnect",
@@ -683,7 +685,6 @@ const WITHOUT_SUCCESS_TEST: readonly string[] = [
 	"group close",
 	"group publish",
 	"group stop",
-	"open",
 	"picture serve",
 	"seat queue",
 	"show",
@@ -702,7 +703,6 @@ test("T-28: every registry command has a success test named limen <command words
 
 /** The read commands the test below cannot run, each with why; every other read command of the registry runs there. */
 const READS_NOT_RUN: Readonly<Record<string, string>> = {
-	open: "it opens the job's log tab in Herdr, which a test project does not run (LIMEN_HERDR=0)",
 	"picture serve": "it serves the activity until it is stopped, so it never ends for the snapshot after it",
 };
 /**
@@ -738,7 +738,6 @@ type Jobs = {
 };
 /** The words after its name that each read command takes on the test project; a command not named takes none. */
 const READ_ARGUMENTS: Readonly<Record<string, (jobs: Jobs) => readonly string[]>> = {
-	diff: (jobs) => [jobs.token],
 	show: (jobs) => [jobs.dead],
 	stats: (jobs) => ["--sessions", jobs.sessions],
 	"ticket check": (jobs) => [jobs.branch],

@@ -33,12 +33,14 @@ import {
 	fakeCgroup,
 	fakeManager,
 	git,
+	herdrFake,
 	jobDir,
 	jobRecord,
 	limen,
 	type Plant,
 	plant,
 	type RunOptions,
+	recordTab,
 	scopeCalls,
 	scopeProcess,
 	spawnJob,
@@ -549,6 +551,31 @@ test("a second run within 24 hours does no daily step", async (t) => {
 	const second = sweep(p);
 	assert.equal(second.status, 0, second.stderr);
 	assert.deepEqual([existsSync(folder), outputText(second).includes("ran the daily steps")], [true, false]);
+});
+
+// R-103 Decision 23 (d): on a hung Herdr the daily close of leftover tabs could pass the sweep unit's 300 s, and the
+// cut run wrote no stamp, so every minute ran the daily steps again.
+test("a daily close of leftover tabs that reaches its bound on a Herdr that hangs names what it left, and the run writes the stamp", async (t) => {
+	const p = await fresh(t);
+	await mkdir(join(p.root, "spec/features/done/2026-11/F009-old"), { recursive: true });
+	const id = "2026-11-24-f009-old-1a2b3c4d";
+	await writeRecord(jobDir(p, id), { state: "done", label: "F009 old" });
+	await recordTab(jobDir(p, id), "log", "w1:t1");
+	await recordTab(jobDir(p, id), "diff", "w1:t2");
+	const herdr = await herdrFake(join(p.parent, "herdr-hung"), { tabs: {}, hang: true });
+	const run = sweep(p, [], { env: { LIMEN_HERDR: herdr.binary, LIMEN_LEFTOVER_TABS_MS: "300" } });
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(
+		[
+			outputText(run).includes(
+				`the close of leftover Herdr tabs reached its bound of 0.3 s, so 1 tab waits for the next daily run: w1:t2 of job ${id}\n`,
+			),
+			outputText(run).includes(`ran the daily steps of ${p.root}\n`),
+			existsSync(stampOf(p)),
+		],
+		[true, true, true],
+		outputText(run),
+	);
 });
 
 /** A done job of the plant with no branch and no worktree, whose `abandoned` marker is 25 hours old. */

@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { usageError } from "../outcome.ts";
+import { refused, usageError } from "../outcome.ts";
 import { archiveRows } from "../project/series.ts";
 
 type JobIdentity = { readonly id: string; readonly label: string; readonly branch: string };
@@ -179,6 +179,24 @@ export function closedFeatures(root: string): ReadonlySet<string> {
 export function closedJobFeatures(label: string, id: string, closed: ReadonlySet<string>): readonly string[] {
 	const named = [...new Set(`${label}\n${id}`.match(/\bF\d+\b/gi)?.map((feature) => feature.toUpperCase()))];
 	return named.every((feature) => closed.has(feature)) ? named : [];
+}
+/**
+ * The branch and the base the record of the job `id` names, which `limen land` and `limen diff` both need; a refusal
+ * when it names no branch (JOB_NO_BRANCH) or no base (JOB_NO_BASE), as a record of a job that made none holds.
+ */
+export function recordedBranch(
+	id: string,
+	record: { readonly branch: string | null; readonly base: string | null } | undefined,
+): { readonly branch: string; readonly base: string } {
+	const branch = record?.branch ?? "";
+	const base = record?.base ?? "";
+	if (!branch) {
+		throw refused("JOB_NO_BRANCH", `job ${id} has no recorded branch`);
+	}
+	if (!base) {
+		throw refused("JOB_NO_BASE", `job ${id} has no recorded base`);
+	}
+	return { branch, base };
 }
 /**
  * The features a job works on: those its label, ID or `Ticket:` pointers name. A job that names none works on the

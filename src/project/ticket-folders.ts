@@ -6,13 +6,31 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { atomicWriteSync } from "../atomic-write.ts";
 import { transport } from "../config.ts";
+import { closeTicketTabs } from "../integrations/herdr.ts";
 import { markTicketJobs, type TicketJob, ticketDoneJobs } from "../job/landing.ts";
-import { type Operation, runOperation } from "../operation.ts";
-import { type CommandText, refused, type Success, usageError } from "../outcome.ts";
+import { type Operation, runOperation, type StateView, stepFailure } from "../operation.ts";
+import {
+	type CommandText,
+	failureOf,
+	isRefusal,
+	LimenError,
+	type Refusal,
+	refused,
+	type Success,
+	usageError,
+} from "../outcome.ts";
 import { readPicture } from "../picture/picture-build.ts";
 import { ID_PATTERN } from "../picture/picture-model.ts";
-import { limenRoot, repoRoot } from "./git.ts";
-import { closeOperation, stayedLine, type TicketClose, type TicketsClosed } from "./lanes.ts";
+import { readTickets } from "../picture/tickets.ts";
+import { limenRoot, repoRoot, shortCommit } from "./git.ts";
+import {
+	closeOperation,
+	localDay,
+	stayedLine,
+	type TicketClose,
+	type TicketsClosed,
+	ticketDoneClosings,
+} from "./lanes.ts";
 import { withNextTicketCode } from "./series.ts";
 
 const PLACE_ID = ID_PATTERN;
@@ -100,7 +118,9 @@ async function checkTouches(root: string, plant: string, touches: readonly strin
  * operation of src/project/lanes.ts, whose apply runs under the lock of the ticket lanes once the tickets, their jobs
  * and HEAD are still the ones validate read: one closing commit through the project's hooks, then the checkout. It
  * says each closed ticket in `out`, then writes the `landed` marker, with its closing commit, on those jobs that
- * hold no unlanded work (A-002).
+ * hold no unlanded work (A-002), and closes the Herdr tabs of the finished jobs of the tickets it closed. The markers
+ * are a step that a run again goes on with (T-38 (3), R-103): a number whose ticket an earlier `ticket done` closed
+ * takes that close's commit for the jobs it still finds, and with none left it says so and exits 0.
  */
 export async function closeDoneTickets(
 	codes: readonly string[],
@@ -116,11 +136,68 @@ export async function closeDoneTickets(
 	for (const folder of closed.stayed) {
 		out.line(stayedLine(folder));
 	}
-	if (closed.sha && closed.commit) {
-		const { sha, commit, day } = closed;
-		await markTicketJobs(limenRoot(cwd), closed.added ?? [], { sha, commit, day }, out);
+	try {
+		await markAndCloseTabs(limenRoot(cwd), closed, out);
+	} catch (error) {
+		// The close is committed, and the markers are a step that this command run again goes on with (R-103).
+		const failure = failureOf(stepFailure(error));
+		throw new LimenError({
+			class: failure.class,
+			code: failure.code,
+			message: failure.message,
+			next: again,
+			cause: error,
+		});
 	}
 }
+
+/**
+ * The steps after the closing commit: the `landed` marker on each job the close found, with its commit, and on each job
+ * of an earlier close of a number named again, with that close's commit, a line for an earlier close with none left;
+ * then the close of the tabs of the finished jobs of every ticket named.
+ */
+async function markAndCloseTabs(
+	root: string,
+	closed: TicketsClosed & { readonly added: DoneJobs | undefined },
+	out: CommandText,
+): Promise<void> {
+	const { jobs, earlier, closing } = closed.added ?? { jobs: [], earlier: [], closing: [] };
+	if (closed.sha && closed.commit) {
+		const { sha, commit, day } = closed;
+		await markTicketJobs(root, jobs, { sha, commit, day }, out);
+	}
+	for (const close of earlier) {
+		const commit = shortCommit(root, close.sha);
+		if (close.jobs.length === 0) {
+			out.line(`${close.code} was closed in ${commit} already; no job of it was left to mark`);
+		}
+		await markTicketJobs(root, close.jobs, { sha: close.sha, commit, day: close.day }, out);
+	}
+	for (const line of await closeTicketTabs(root, [...closing, ...earlier.map((close) => close.code)])) {
+		out.line(line);
+	}
+}
+
+/**
+ * A ticket a `ticket done` run again names that an earlier `ticket done` closed (R-103, Change (e)): its code, the
+ * closing commit, the ticket's `landed` day, and the finished jobs of it that still owe their marker.
+ */
+type EarlierClose = {
+	readonly code: string;
+	readonly sha: string;
+	readonly day: string;
+	readonly jobs: readonly TicketJob[];
+};
+
+/**
+ * What `ticket done`'s validate reads beside the close: the tickets it closes, the jobs its commit marks, and the
+ * earlier closes it goes on with.
+ */
+type DoneJobs = {
+	readonly closing: readonly string[];
+	readonly jobs: readonly TicketJob[];
+	readonly earlier: readonly EarlierClose[];
+};
 
 /**
  * The operation of `limen ticket done`: the one close operation of src/project/lanes.ts (T-25), with the call's date
@@ -133,10 +210,10 @@ export function ticketDoneOperation(
 	cwd: string,
 	again: string | null,
 ): Operation<
-	TicketClose & { readonly added: readonly TicketJob[] | undefined },
-	TicketsClosed & { readonly added: readonly TicketJob[] | undefined }
+	TicketClose & { readonly added: DoneJobs | undefined },
+	TicketsClosed & { readonly added: DoneJobs | undefined }
 > {
-	return closeOperation({
+	return closeOperation<DoneJobs>({
 		root: () => {
 			if (on && !/^\d{4}-\d\d-\d\d$/.test(on)) {
 				throw usageError("BAD_DATE", "--on takes the landed date as YYYY-MM-DD");
@@ -149,22 +226,57 @@ export function ticketDoneOperation(
 		again,
 		added: async (view, close) => {
 			const missing = codes.filter((code) => !close.tickets.some((ticket) => sameCode(ticket.code, code)));
-			if (missing.length) {
-				return refused(
-					"NO_ACTIVE_TICKET",
-					`no active ticket for ${missing.join(", ")} in ${close.root}/spec/features/active/`,
-				);
+			const earlier = await earlierCloses(view, close.root, missing);
+			if (isRefusal(earlier)) {
+				return earlier;
 			}
 			// Only a close that commits marks jobs; the read refuses, as NOT_MIGRATED, before anything moves (R-031, review
 			// round 2, G4).
 			const closing = close.tickets.map((ticket) => ticket.code);
-			return close.committed
+			const jobs = close.committed
 				? await view.hold(`the finished jobs of ${closing.join(", ")} in ${close.root}`, () =>
 						ticketDoneJobs(close.root, closing, view),
 					)
 				: [];
+			return { closing, jobs, earlier };
 		},
 	});
+}
+
+/**
+ * The earlier closes of `codes`, numbers with no active ticket: each one's ticket must be in `done/` with the closing
+ * commit of an earlier `ticket done` that names it in the history of HEAD (`ticketDoneClosings`), whose finished jobs
+ * it reads as the close reads them; any other number refuses, NO_ACTIVE_TICKET, before anything is written.
+ */
+async function earlierCloses(
+	view: StateView,
+	root: string,
+	codes: readonly string[],
+): Promise<readonly EarlierClose[] | Refusal> {
+	if (codes.length === 0) {
+		return [];
+	}
+	const done = (await readTickets(root)).tickets.filter((ticket) => ticket.lane === "done");
+	const closings = ticketDoneClosings(root);
+	const found: EarlierClose[] = [];
+	const missing: string[] = [];
+	for (const code of codes) {
+		const ticket = done.find((candidate) => sameCode(candidate.code, code));
+		const closing = closings.get(code.toUpperCase());
+		if (ticket === undefined || closing === undefined) {
+			missing.push(code);
+			continue;
+		}
+		const day = ticket.landed ?? localDay(new Date(closing.time * 1000));
+		const jobs = await view.hold(`the finished jobs of ${ticket.code} in ${root}`, () =>
+			ticketDoneJobs(root, [ticket.code], view),
+		);
+		found.push({ code: ticket.code, sha: closing.sha, day, jobs });
+	}
+	if (missing.length) {
+		return refused("NO_ACTIVE_TICKET", `no active ticket for ${missing.join(", ")} in ${root}/spec/features/active/`);
+	}
+	return found;
 }
 
 /** Whether two ticket numbers name one ticket, whatever their case. */

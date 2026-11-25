@@ -90,7 +90,15 @@ When a job finishes, Limen closes its tab. The job log records the result:
 `herdr tab close <tab>: closed`, `already closed`, or the refusal. Limen retries a
 refused close once. If the retry also fails, the log says
 `failed after one retry`, and the tab label changes to the final state, for
-example `· done`. `limen open <job>` opens a log view again.
+example `· done`. `limen open <job>` opens a log view again, and `limen diff <job>`
+opens the job's diff in a tab of its own; Limen records the place of each.
+
+`limen land`, in its `cleaned` step, `limen ticket done` and `limen abandon`
+close the job's recorded tabs, its log tab and its diff tab, before they end, with
+the same close and retry, and print one line for each tab. They leave a tab whose
+label is not the job's and the tab of the pane they run in. The daily steps of
+`limen seat sweep` close the tabs still open of finished jobs whose features are
+all closed.
 
 ## Activity is evidence, not a human blocker
 

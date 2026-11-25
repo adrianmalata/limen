@@ -88,9 +88,14 @@ async function markedJobs(root: string, holding: ReadonlySet<string>): Promise<C
 
 /**
  * The time of a finished record's marker, `landed` before `abandoned`, once it is at least `RETIRE_AFTER_MS` old;
- * undefined for a record retire does not take, also one whose marker is younger.
+ * undefined for a record retire does not take, also one whose marker is younger and one whose land has steps left, its
+ * `land` without `cleaned`, which a land run again takes from the job's folder (R-103, D-096 (3) (h)). A record with
+ * `landed` and no `land`, which only a land before R-103, `limen ticket done` or the migration wrote, retires as before.
  */
 function markedAt(record: JobRecord): string | undefined {
+	if (record.land !== undefined && record.land.cleaned === undefined) {
+		return undefined;
+	}
 	const at = isTerminal(record.state) ? (record.landed?.at ?? record.abandoned?.at) : undefined;
 	return at !== undefined && Date.now() - Date.parse(at) >= RETIRE_AFTER_MS ? at : undefined;
 }

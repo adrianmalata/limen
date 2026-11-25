@@ -159,8 +159,9 @@ test("T-01: the catch-all sites in src/ and hook/ stay at most their baseline co
 
 // The author's untyped refusals, which `failureOf` maps to UNTYPED (exit code 1) until R-082 types them. The count
 // measured at R-092, which typed the refusals on the paths of the nine change commands it moved onto the runner of
-// src/operation.ts and git's failures; a change may only lower it. R-102 removed the four of `limen rule`.
-const UNTYPED_THROWS = 106 - 4;
+// src/operation.ts and git's failures; a change may only lower it. R-102 removed the four of `limen rule`, and R-103
+// typed the eleven of `limen land` and the six on the paths of `limen open` and `limen diff`.
+const UNTYPED_THROWS = 106 - 4 - 17;
 test("T-01: the untyped throw new Error( sites in src/ and hook/ stay at most their baseline count, less the typed ones", async () => {
 	const [all] = await occurrences(["src", "hook"], "throw new Error(", "src/outcome.ts");
 	assert.ok(all <= UNTYPED_THROWS, `${all} sites of throw new Error(, at most ${UNTYPED_THROWS}`);
@@ -170,7 +171,7 @@ test("T-01: the untyped throw new Error( sites in src/ and hook/ stay at most th
  * T-38's ratchet: the change commands without `movedBy` whose handler does not go through the runner of
  * src/operation.ts yet. The list may only shrink; R-082 brings it to zero, and a ticket that rewrites one of these
  * commands moves it onto the runner (D-070 (2)). `status` and `show` left it with R-032, which made them read commands
- * (D-045 (6.2)), and `seat sweep` goes through the runner.
+ * (D-045 (6.2)), and `seat sweep` goes through the runner; `land` left it with R-103.
  */
 const OUTSIDE_RUNNER = [
 	"board",
@@ -184,7 +185,6 @@ const OUTSIDE_RUNNER = [
 	"group publish",
 	"group status",
 	"init",
-	"land",
 	"migrate",
 	"steer",
 	"ticket new",
@@ -975,8 +975,9 @@ const MATCHER_EXCEPTIONS: ReadonlyArray<{ readonly path: string; readonly text: 
 	{ path: "src/job/spawning.ts", text: "record?.label === label" },
 	// Herdr tabs' labels, not jobs'.
 	{ path: "src/integrations/herdr.ts", text: "row.label !== name" },
-	// Whether a recorded tab still carries the label Limen gave the job's tab, so a tab id Herdr gave again stays (R-101).
-	{ path: "src/integrations/herdr.ts", text: "listed.label === label || listed.label.startsWith(" },
+	// Whether a recorded tab still carries the label Limen gave the job's tab, so a tab id Herdr gave again stays (R-101;
+	// the one close of a job's tabs since R-103).
+	{ path: "src/integrations/herdr.ts", text: "listed.label === recorded.label || listed.label.startsWith(" },
 	{ path: "src/project/summary.ts", text: "label !== String(tab.number)" },
 ];
 

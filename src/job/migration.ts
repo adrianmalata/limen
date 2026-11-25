@@ -15,8 +15,8 @@ import { atomicRename, atomicWrite } from "../atomic-write.ts";
 import { arrayOf, isIsoTime, nullOr, numberIn, object, parseJson, string } from "../boundary.ts";
 import { LimenError, type Success } from "../outcome.ts";
 import { platform } from "../platform/platform.ts";
-import { branchTip, committerTime, headHistory, isGitRepository, limenRoot } from "../project/git.ts";
-import { landedJobOf } from "../project/lanes.ts";
+import { branchTip, committerTime, limenRoot } from "../project/git.ts";
+import { landClosingCommits } from "../project/lanes.ts";
 import { holdsProcesses, STARTUP_GRACE_MS, startingJob } from "../runtime/reap.ts";
 import { hasCode } from "../system-error.ts";
 import { hexEndOf, TOKEN, tokenOf } from "./id.ts";
@@ -233,19 +233,14 @@ function markersOf(step: MarkerStep): Array<{ landed: Landed } | { abandoned: Ab
 }
 /**
  * The `landed` marker of each job a closing commit of `limen land` in the history of HEAD of the project's repository
- * names (`landedJobOf`): that commit and its committer time; the oldest such commit, the first close, for a job two
- * name. None in a project that is no Git repository, where land commits no close.
+ * names (`landClosingCommits`, the rule a land that goes on after its close reads too, T-25): that commit and its
+ * committer time; the oldest such commit, the first close, for a job two name. None in a project that is no Git
+ * repository, where land commits no close.
  */
 function closingCommits(root: string): Map<string, Landed> {
 	const landed = new Map<string, Landed>();
-	if (!isGitRepository(root)) {
-		return landed;
-	}
-	for (const commit of headHistory(root)) {
-		const id = landedJobOf(commit.subject);
-		if (id !== undefined) {
-			landed.set(id, { sha: commit.sha, at: new Date(commit.time * 1000).toISOString() });
-		}
+	for (const [id, commit] of landClosingCommits(root)) {
+		landed.set(id, { sha: commit.sha, at: new Date(commit.time * 1000).toISOString() });
 	}
 	return landed;
 }

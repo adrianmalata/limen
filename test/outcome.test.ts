@@ -253,11 +253,12 @@ test("JOB_NOT_FOUND: show of a well-formed id that names no job exits 2 with lim
 });
 
 test("UNTYPED: a refusal that carries no type of its own exits 1 with code UNTYPED", () => {
-	// A group member's land is one of the author's untyped refusals (R-082 types them).
-	const run = limen(p, ["land", "2026-11-18-none-1a2b3c4d"], { env: { LIMEN_GROUP_ID: "g1" } });
+	// A ticket's blank title is one of the author's untyped refusals (R-082 types them); a group member's land was the
+	// example until R-103 typed it.
+	const run = limen(p, ["ticket", "new", " "]);
 	assert.equal(run.status, 1, run.stderr);
 	assert.deepEqual(readChecked(run), { class: "refused", code: "UNTYPED", next: null });
-	assert.equal(textChecked(run), "group members cannot land; the owner-facing lead owns landing\n");
+	assert.equal(textChecked(run), "a ticket's title is one line that says what becomes true\n");
 });
 
 test("limen status ends its stdout with the success line", () => {

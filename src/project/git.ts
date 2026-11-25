@@ -288,14 +288,15 @@ export function currentBranch(cwd: string): string {
 	return requireGit(cwd, ["symbolic-ref", "--short", "HEAD"]).stdout.trim();
 }
 /**
- * Merges `branch` into the checkout. A merge git stops, as on a conflict, is land's refusal (exit 1, as before R-092),
- * with git's own words; land is R-103's, which types it further.
+ * Merges `branch` into the checkout. A merge git stops, as on a conflict, is git's failure (MERGE_FAILED, exit 4), with
+ * git's own words: it is land's first write, which no check before it can decide, so it is no refusal (T-38 (1), (3);
+ * R-103).
  */
 export function mergeBranch(cwd: string, branch: string): string {
 	requireGit(cwd, ["check-ref-format", "--branch", branch]);
 	const result = git(cwd, ["merge", "--no-edit", branch]);
 	if (result.status !== 0) {
-		throw refused("MERGE_FAILED", result.stderr.trim() || result.stdout.trim() || "git merge failed");
+		throw environmentError("MERGE_FAILED", result.stderr.trim() || result.stdout.trim() || "git merge failed");
 	}
 	return result.stdout.trimEnd();
 }
@@ -603,6 +604,23 @@ export function moveHead(cwd: string, from: string, to: string, message: string)
 export function followCommit(cwd: string, from: string, to: string): void {
 	requireGit(cwd, ["update-index", "-q", "--refresh"]);
 	requireGit(cwd, ["read-tree", "-m", "-u", from, to]);
+}
+/** The first parent of the commit `commit`, or undefined for a commit with none. */
+export function firstParent(cwd: string, commit: string): string | undefined {
+	const result = git(cwd, ["rev-parse", "--verify", "--quiet", `${commit}^1`]);
+	return result.status === 0 ? result.stdout.trim() : undefined;
+}
+/**
+ * The paths of `paths` whose entry in the index of the checkout at `cwd` differs from the commit `commit`, as a close
+ * killed after its branch moved and before the checkout followed leaves them (R-037, Risk 3); none for no path.
+ */
+export function stagedAgainst(cwd: string, commit: string, paths: readonly string[]): readonly string[] {
+	if (paths.length === 0) {
+		return [];
+	}
+	return requireGit(cwd, ["diff", "--cached", "--name-only", "-z", "--no-renames", commit, "--", ...paths])
+		.stdout.split("\0")
+		.filter(Boolean);
 }
 /**
  * The files of `paths` in the checkout at `cwd` that differ from its index, or that its index lacks: what a two-way

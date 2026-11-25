@@ -1,13 +1,28 @@
 // `limen ticket`: check refuses a failing ticket through the final line, new takes its number under the lock, and done
-// closes a ticket with its board in one commit and marks its landed jobs, or refuses before anything moves (T-38).
+// closes a ticket with its board in one commit, marks its landed jobs and closes their Herdr tabs, or refuses before
+// anything moves (T-38), and run again goes on with the markers an earlier close owes.
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { dayOnlyTime } from "../../src/job/landing.ts";
 import { lockPath, withLock } from "../../src/lock.ts";
 import { outputText, readOutcome } from "../final-line.ts";
-import { git, installHook, jobRecord, limen, type Plant, plant, spawnJob, TICKET, waitJob } from "../plant.ts";
+import {
+	git,
+	herdrFake,
+	installHook,
+	jobDir,
+	jobRecord,
+	limen,
+	type Plant,
+	plant,
+	recordTab,
+	spawnJob,
+	TICKET,
+	waitJob,
+} from "../plant.ts";
 import { snapshot } from "../snapshot.ts";
 
 const BAD = TICKET.replace("F001-demo", "F002-bad");
@@ -23,17 +38,18 @@ async function badBranch(p: Plant): Promise<void> {
 	git(p.root, "checkout", "-q", "main");
 }
 
-test("TICKET_CHECK_FAILED: ticket check of a branch with a failing ticket exits 1, lists it and names the check again in next", async (t) => {
+// R-103: land's strict ticket check refuses with this code too, so its tests compare the shared snapshot (T-38 (4)).
+test("TICKET_CHECK_FAILED: ticket check of a branch with a failing ticket exits 1, lists it, names the check again in next and leaves the snapshot identical", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
 	await badBranch(p);
+	const before = snapshot(p.root);
 	const run = limen(p, ["ticket", "check", "bad"]);
 	assert.equal(run.status, 1, run.stdout);
-	assert.deepEqual(readOutcome(run), {
-		class: "refused",
-		code: "TICKET_CHECK_FAILED",
-		next: "limen ticket check bad",
-	});
+	assert.deepEqual(
+		[readOutcome(run), snapshot(p.root)],
+		[{ class: "refused", code: "TICKET_CHECK_FAILED", next: "limen ticket check bad" }, before],
+	);
 	assert.ok(
 		outputText(run)
 			.split("\n")
@@ -43,15 +59,16 @@ test("TICKET_CHECK_FAILED: ticket check of a branch with a failing ticket exits 
 });
 
 // D-045 (5.1): the fix is prose, so it leaves `next` for the stderr line after the refusal's own.
-test("TICKET_CHECK_FAILED: ticket check of a failing ticket says on stderr to fix the tickets listed above", async (t) => {
+test("TICKET_CHECK_FAILED: ticket check of a failing ticket says on stderr to fix the tickets listed above, and leaves the snapshot identical", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
 	await badBranch(p);
+	const before = snapshot(p.root);
 	const run = limen(p, ["ticket", "check", "bad"]);
-	assert.deepEqual(outputText(run).trimEnd().split("\n").slice(-2), [
-		"ticket check: changed tickets on bad fail against main",
-		"fix the tickets listed above",
-	]);
+	assert.deepEqual(
+		[outputText(run).trimEnd().split("\n").slice(-2), snapshot(p.root)],
+		[["ticket check: changed tickets on bad fail against main", "fix the tickets listed above"], before],
+	);
 });
 
 // A-055: two `ticket new` runs at once took one number, since the number was read with no lock.
@@ -134,6 +151,67 @@ test("ticket done leaves a job of the ticket that holds unlanded work without a 
 	assert.deepEqual(
 		[jobRecord(p, id)?.landed, outputText(run).split("\n").slice(1, 2)],
 		[undefined, [`job ${id} stays without a landed marker: it holds unlanded work (limen status)`]],
+	);
+});
+
+// R-031, open point 2, R-103: ticket done wrote its markers after its commit, outside its operation, so a marker write
+// that failed left the job unmarked, and a run again refused NO_ACTIVE_TICKET.
+test("ticket done run again after its marker write failed marks the job with the earlier closing commit and exits 0", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = ticketJob(p);
+	git(p.root, "merge", "-q", "--no-edit", jobRecord(p, id)?.branch ?? "");
+	const failed = await withLock({ folder: jobDir(p, id) }, async () =>
+		limen(p, ["ticket", "done", "F001", "--on", "2026-11-21"], { env: { LIMEN_LOCK_WAIT_MS: "100" } }),
+	);
+	const close = git(p.root, "rev-parse", "HEAD");
+	assert.deepEqual(
+		[failed.status, readOutcome(failed), jobRecord(p, id)?.landed],
+		[3, { class: "transient", code: "LOCK_TIMEOUT", next: "limen ticket done F001 --on 2026-11-21" }, undefined],
+		failed.stderr,
+	);
+	const again = limen(p, ["ticket", "done", "F001", "--on", "2026-11-21"]);
+	assert.deepEqual(
+		[again.status, jobRecord(p, id)?.landed, git(p.root, "rev-parse", "HEAD")],
+		[0, { sha: close, at: dayOnlyTime("2026-11-21") }, close],
+		again.stderr,
+	);
+});
+
+// D-096 (3) (j), T-02: nothing is left to do, which is a success.
+test("ticket done run again on a ticket its own close closed, with no job left to mark, says so, exits 0 and changes nothing", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	assert.equal(limen(p, ["ticket", "done", "F001"]).status, 0);
+	const before = snapshot(p.root);
+	const again = limen(p, ["ticket", "done", "F001"]);
+	const short = git(p.root, "rev-parse", "--short", "HEAD");
+	assert.deepEqual(
+		[again.status, outputText(again), snapshot(p.root)],
+		[0, `F001 was closed in ${short} already; no job of it was left to mark\n`, before],
+		again.stderr,
+	);
+});
+
+// D-096 (3) (i), T-18 (1): before R-103 ticket done closed no Herdr tab of the jobs of the ticket it closed.
+test("ticket done closes the recorded tabs of the finished jobs of the ticket it closed and names each", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = ticketJob(p);
+	const herdr = await herdrFake(join(p.parent, "herdr"), {
+		tabs: { "w1:t1": { label: "F001 demo work · done" }, "w1:t2": { label: "F001 demo work · diff" } },
+	});
+	await recordTab(jobDir(p, id), "log", "w1:t1");
+	await recordTab(jobDir(p, id), "diff", "w1:t2");
+	const run = limen(p, ["ticket", "done", "F001"], { env: { LIMEN_HERDR: herdr.binary } });
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(
+		[
+			outputText(run).includes(`closed the Herdr tab w1:t1 of job ${id}\nclosed the Herdr tab w1:t2 of job ${id}\n`),
+			herdr.closes(),
+		],
+		[true, ["w1:t1", "w1:t2"]],
+		run.stdout,
 	);
 });
 

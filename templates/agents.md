@@ -90,10 +90,10 @@ Herdr is the visible layout when it is running. Job records under `.limen/jobs/`
 **Other job controls:**
 
 - `limen steer <id|token> "correction"` — deliver one mid-flight correction between tool calls (works for workers with the steering extension). `limen steer --running "correction"` delivers that text to every live job this conversation watches: the jobs that subscribe this Pi session.
-- `limen open <id|token>` — focus the job’s Herdr tab, or recreate a log/watch place if it was closed.
+- `limen open <id|token>` — focus the job’s Herdr tab, or recreate a log/watch place if it was closed; land, `ticket done` and abandon close the tabs it records.
 - `limen stop <id|token> [reason]` — stop a running job.
 - `limen continue <id|token> "follow-up"` — start a linked job that keeps a finished job's conversation and recorded engine; pass the board's provider, model, and reasoning again. It refuses a different `--engine`.
-- `limen land <id|token>` — merge a `done` job onto the current branch, then move the active ticket it works on to `done/YYYY-MM/` with a `landed` date and regenerate NOW and PROVEN, in one commit. Pass `--keep-open` while more slices remain. `done` is a clean exit, not approval: inspect the diff and checks and follow the review policy first.
+- `limen land <id|token>` — merge a `done` job onto the current branch, then move the active ticket it works on to `done/YYYY-MM/` with a `landed` date and regenerate NOW and PROVEN, in one commit, then delete the job's branch and close its Herdr tabs. Pass `--keep-open` while more slices remain. `done` is a clean exit, not approval: inspect the diff and checks and follow the review policy first.
 - `limen ticket done FNNN` — the same close for work that landed without `limen land`.
 - `limen status` — the plant inbox: running jobs, unlanded candidates to inspect, recent jobs that need a decision, every finished job whose unlanded work makes a worker spawn refuse, and coordinator tabs.
 - `limen abandon <id|token>` — give up on a finished job and keep its work on the branch `limen/abandon/<id>`; it then removes the job's worktree.

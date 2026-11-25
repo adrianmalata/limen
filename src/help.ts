@@ -98,8 +98,8 @@ function exampleLines(example: string): string[] {
 }
 
 /**
- * `limen <name> --help`: the usage line, the summary, one line per positional and flag with its description, and the
- * example (D-041 (6)).
+ * `limen <name> --help`: the usage line, the summary, the kind, `read` or `change` (T-19 (2); shown since no read
+ * command writes, D-041 (6), R-103), one line per positional and flag with its description, and the example.
  */
 export function entryHelp(entry: Entry): string {
 	const parts = entry.schema.flatMap((part): Array<readonly [string, string]> => {
@@ -114,6 +114,7 @@ export function entryHelp(entry: Entry): string {
 	return [
 		...usageLines(entry, ""),
 		entry.summary,
+		`kind: ${entry.kind}`,
 		...(entry.caller ? [`internal: run by ${entry.caller}`] : []),
 		"",
 		...(described.length ? [...described, ""] : []),
