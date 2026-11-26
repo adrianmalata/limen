@@ -3,7 +3,8 @@ Każdy wpis wskazuje pliki, źródła (A-NNN, T-NN), dowód, status pomiaru, com
 wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: R-008, R-010, R-011, R-001, R-088, R-002,
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
 R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025, R-097, R-099, R-026, R-030, R-033,
-R-027, R-028, R-031, R-035, R-100, R-029, R-032, R-034, R-036, R-037, R-087, R-098, R-101. -->
+R-027, R-028, R-031, R-035, R-100, R-029, R-032, R-034, R-036, R-037, R-087, R-098, R-101, R-102, R-103, R-038,
+R-111. -->
 
 # Changes
 
@@ -463,3 +464,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-02; `## Deployment` 0.5 and 4.1 for the contract on the seat)
 - Commit: R-038
 - Rollback: git revert $(git log --format=%H --grep='^R-038:' adrian-rebuild --)
+
+## 2026-11-26 R-111 A wake is settled only by the run it entered; an idle sweep starts one run
+- What: `hook/wake.ts` (settle by entry: `agent_settled` settles only the deliveries that entered the run it ends; `countLostWakes`, the backstop after `CLAIM_STALE_MS` of quiet; one send per idle sweep, the other wakes from a sweep at `before_agent_start`; a sweep asked for during one runs once more), `test/fake-engine.mjs` (E-21: a user send reserves the session after Pi's awaits, a second start fails with Pi's text and settles inside the first run), `docs/herdr-status.md` (delivery after the run it entered settles); tests in `test/hook/wake.test.ts` (A-089, A-090, the two halves of the backstop; `jobFor` subscribes before `ready`) and `test/fake-engine.test.ts` (E-21; `again()` keeps stderr)
+- Why: A-089, A-090, D-128, D-129, T-01, T-28
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (1287/1287); `node adrian-rebuild/tools/fails-before.mjs test/fake-engine.test.ts` → exit 0; `node adrian-rebuild/tools/fails-before.mjs test/hook/wake.test.ts test/fake-engine.mjs` → exit 0; `node --test test/hook/wake.test.ts` → exit 0; `node adrian-rebuild/tools/check.mjs` → exit 0
+- Measurement: unmeasured (plan.md → Measurement: M-08, a blocked wake claim being an owner touchpoint; `## Deployment` 4.14 checks the wakes on the seat's Pi)
+- Commit: R-111
+- Rollback: git revert $(git log --format=%H --grep='^R-111:' adrian-rebuild --)

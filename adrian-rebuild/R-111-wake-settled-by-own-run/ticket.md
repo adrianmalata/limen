@@ -2,7 +2,8 @@
 biegu, do którego weszło, a nie przez settle cudzego biegu. Przy bezczynnej sesji jeden sweep wysyła najwyżej jedno
 budzenie, a pozostałe idą jako follow-upy z `before_agent_start` tego biegu. Budzenie, które nie weszło do żadnego
 biegu, liczy się jako niepotwierdzone po 30 s ciszy. Atrapa R-038 odtwarza lukę `prompt` z Pi (E-21), a testy na niej
-padają przed zmianą. Stan: napisany 26.11 przy `aae86b7` z inwentarza `evidence/inventories/R-111.md`, gotowy (`ready`). -->
+padają przed zmianą. Stan: napisany 26.11 przy `aae86b7` z inwentarza `evidence/inventories/R-111.md`; zamknięty 26.11 w dzień (dwie rundy
+recenzji PASS, poprawki F1–F3 w testach). -->
 
 # R-111 A wake is settled only by the run it entered; an idle sweep starts one run
 
@@ -210,3 +211,13 @@ the inventory's questions in `evidence/inventories/R-111.md` → section 11), fo
    Pi, and the starter rule depends on E-21 (D-129).
 8. Step 4.14 is reworded and E-20 and E-21 are recorded in `## Engine facts` (questions 8 and 9), in the commit that
    makes this ticket `ready`.
+9. 2026-11-26 review round 1 (`review.md`), findings to fix, each in the tests and each with the proof that the test
+   checks what it names:
+   - F1: the A-089 test cannot hang: a planted done job becomes routable only once it is subscribed (the record last,
+     as `finished()` in `test/fake-engine.test.ts` writes it, or the subscriber before `notify/ready`), and every wait
+     of the test ends at a bound with a failure naming what it waited for.
+   - F2: the backstop's second half has a test: a wake accepted and not entered, older than `CLAIM_STALE_MS`, is not
+     counted while a run started or settled less than `CLAIM_STALE_MS` ago, and is counted once that run is older.
+   - F3: the A-089 test asserts that each of the three wakes entered a run of its own (one run start per wake, as the
+     A-090 test's notes extension records them), or its name says only what it asserts.
+   No change: finding 4 (`review.md`).

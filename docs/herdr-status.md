@@ -131,7 +131,8 @@ judgment from activity or introduce a merge-readiness state machine.
 
 A completion toast or queued message is not a confirmed coordinator response.
 The local wake hook records delivery only after its injected message enters a
-turn, gets an assistant answer without error/abort, and Pi settles. The records
+turn, gets an assistant answer without error or abort, and the run it entered has
+settled. The records
 under a job's `notify/claims/` and `notify/delivered/` distinguish pending from
 confirmed delivery. Confirmation is not the owner's review or proof that a separate
 recipient observed a notification.

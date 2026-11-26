@@ -1,8 +1,9 @@
-// test/fake-engine.mjs: each Pi 1.5.1 behaviour it reproduces, seen in the model's view it records under the bridge or
-// in what its hooks see, its Pi-shaped transcript, and the name of every variable of its environment.
+// test/fake-engine.mjs: each Pi 1.5.1 behaviour it reproduces, seen in the model's view it records under the bridge,
+// in what its hooks see or in what it writes on Pi's error channel, its Pi-shaped transcript, and the name of every
+// variable of its environment.
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -39,16 +40,22 @@ async function fake(t: TestContext, task: string, body: string, files: Record<st
 }
 /**
  * Runs the fake engine once more in the folder `fake` made, on the session folder there, with `prompt`'s arguments.
- * Its home and Pi's agent directory are in that folder, so no file of the account enters a view.
+ * Its home and Pi's agent directory are in that folder, so no file of the account enters a view. Its stderr, where it
+ * writes what Pi writes on its extension error channel, is added to stderr.txt there.
  */
 function again(dir: string, ...prompt: string[]): void {
 	const args = ["--session-dir", join(dir, "session"), "--extension", join(dir, "test.mjs"), ...prompt];
-	execFileSync(process.execPath, [FAKE_ENGINE, ...args], {
-		cwd: dir,
-		env: { PATH: process.env.PATH ?? "", HOME: dir, PI_CODING_AGENT_DIR: join(dir, AGENT_DIR) },
-		stdio: "ignore",
-		timeout: 30_000,
-	});
+	const errors = openSync(join(dir, "stderr.txt"), "a");
+	try {
+		execFileSync(process.execPath, [FAKE_ENGINE, ...args], {
+			cwd: dir,
+			env: { PATH: process.env.PATH ?? "", HOME: dir, PI_CODING_AGENT_DIR: join(dir, AGENT_DIR) },
+			stdio: ["ignore", "ignore", errors],
+			timeout: 30_000,
+		});
+	} finally {
+		closeSync(errors);
+	}
 }
 /** The JSON lines of the record `name` in `dir`; none when the engine wrote no such record. */
 function lines<T>(dir: string, name: string): T[] {
@@ -272,6 +279,48 @@ test("a message a hook sends during agent_settled gets its run after the first s
 		{
 			seen: ["agent_settled", "agent_settled", "session_shutdown"],
 			prompts: [asked("say done"), asked("after settle")],
+		},
+	);
+});
+
+/**
+ * A test extension's lines: a command `race` that sends two user messages in one stretch and returns once a run that
+ * reached its agent_end has settled; it notes each run's start, each user message that enters, each agent_end and each
+ * settle, with whether the session read idle there.
+ */
+const RACE = `let race;
+let ended = false;
+pi.on("before_agent_start", (event) => note({ start: event.prompt }));
+pi.on("message_start", (event) => { if (event.message.role === "user") note({ enter: event.message.content[0].text }); });
+pi.on("agent_end", (_event, context) => { ended = true; note({ end: true, idle: context.isIdle() }); });
+pi.on("agent_settled", (event, context) => { note({ settled: event.aborted, idle: context.isIdle() }); if (ended) race?.(); });
+pi.registerCommand("race", { handler: () => { pi.sendUserMessage("first"); pi.sendUserMessage("second", { deliverAs: "followUp" }); return new Promise((resolve) => (race = resolve)); } });`;
+
+// The fake reserved the session at the send, so there two sends of one stretch joined one run, which they never do in
+// Pi (A-090).
+test("E-21: two sends made in one stretch while the session is idle start two runs; the second fails with Pi's text and settles inside the first", async (t) => {
+	const dir = await fake(t, "/race\nsay done", RACE);
+	type Seen = { start?: string; enter?: string; end?: true; settled?: boolean; idle?: boolean };
+	const seen = lines<Seen>(dir, "seen.jsonl");
+	const [first, end] = [seen.findIndex((one) => one.start === "first"), seen.findIndex((one) => one.end)];
+	const busy =
+		"Agent is already processing a prompt. Use steer() or followUp() to queue messages, or wait for completion.";
+	assert.deepEqual(
+		{
+			starts: seen.flatMap((one) => (one.start === undefined ? [] : [one.start])),
+			entered: seen.flatMap((one) => (one.enter === undefined ? [] : [one.enter])),
+			settledInsideFirst: seen.slice(first, end).filter((one) => one.settled !== undefined),
+			idleAtFirstEnd: seen[end]?.idle,
+			errors: readFileSync(join(dir, "stderr.txt"), "utf8")
+				.split("\n")
+				.filter((line) => line.includes("already processing")),
+		},
+		{
+			starts: ["/race\nsay done", "first", "second"],
+			entered: ["first", "/race\nsay done"],
+			settledInsideFirst: [{ settled: false, idle: true }],
+			idleAtFirstEnd: true,
+			errors: [`Extension error (<runtime>): ${busy}`],
 		},
 	);
 });

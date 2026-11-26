@@ -19,7 +19,10 @@
 // The task's run is Pi's first prompt: it is prepared at the start (`before_agent_start`), as Pi's prompt prepares it,
 // and makes its first model call at the first `tool` word, each `tool` word one call that ends in that bash call, or
 // after the last word. Until that call the session is idle, so the words before it stand for what happens while a
-// session waits: a wake, a command, a `block`. Every other run starts from a message a hook sends, as Pi 1.5.1 runs it.
+// session waits: a wake, a command, a `block`. Every other run starts from a message a hook sends, as Pi 1.5.1 runs it:
+// a user message sent while the session is idle marks it busy only after Pi's awaits before `_startRun`, so two sent
+// in one stretch both start a run, and the second fails with Pi's error and settles inside the first (E-21); a custom
+// message starts its run at the send.
 // For every model call the fake builds Pi's context and appends what the model receives under the bridge, from
 // src/runtime/bridge-view.ts, as one line of fake-view.jsonl (T-31 (1)); the fake applies no mapping of its own.
 // A SIGTERM ends it as Pi's print mode does (E-17): one `sigterm` event, then exit 143; a second one exits 143 at once.
@@ -186,6 +189,11 @@ const context = {
 // Pi's run state (`core/agent-session.js`): a run reserved or active makes the session busy, as `isStreaming` does;
 // steers and follow-ups wait in queues that hand out one message at a time, Pi's default (`settings-defaults.js:6-7`).
 let reserved = false;
+/**
+ * The runs started and not yet past their loops: pi-agent-core's `activeRun` (`agent.js:345-354`), which makes the
+ * `agent.prompt` of a run started meanwhile throw (`agent.js:246-248`; `secondStart`).
+ */
+let holders = 0;
 let emittingSettled = false;
 const deferredSettled = [];
 const steering = [];
@@ -216,24 +224,52 @@ const customMessage = ({ customType, content, display, details }) => ({
 	timestamp: Date.now(),
 });
 
-/** Pi's `prompt` from `sendUserMessage` (`core/agent-session.js:1695-1757`, `:2012-2039`). */
-function promptMessage(text, behavior, inline = false) {
+/**
+ * Pi's `prompt` from `sendUserMessage` (`core/agent-session.js:1695-1727`, `:2012-2039`): deferred while agent_settled
+ * is emitted (`:1696-1699`), else it awaits `_preparePrompt` (`:1720`) and starts a run with the trigger it returns
+ * (`:1726`). Pi's runtime gives a send's error only to the extension error channel (`:2870-2877`).
+ */
+async function promptMessage(text, behavior, inline = false) {
 	if (emittingSettled) {
 		deferredSettled.push(() => promptMessage(text, behavior, true));
 		return;
 	}
+	let trigger;
+	try {
+		trigger = await preparePrompt(text, behavior);
+	} catch (error) {
+		console.error(`Extension error (<runtime>): ${said(error)}`);
+		return;
+	}
+	if (trigger) {
+		await startRun(trigger, inline);
+	}
+}
+/**
+ * Pi's `_preparePrompt` (`core/agent-session.js:1732-1778`): it awaits the input handlers first (`:1736`), and only then
+ * reads `isStreaming` (`:1749`), which only `_startRun` sets (`:1488`), so a send made in the same stretch reads the
+ * session idle too (E-21). Busy, a follow-up or a steer is queued and a send with no `deliverAs` throws (`:1749-1760`);
+ * idle, it returns the run's trigger.
+ */
+async function preparePrompt(text, behavior) {
+	await inputHandlers();
 	if (!reserved) {
-		return startRun({ messageType: "user", prompt: text }, inline);
+		return { messageType: "user", prompt: text };
 	}
 	if (behavior === "followUp" || behavior === "steer") {
 		(behavior === "followUp" ? followUp : steering).push(userMessage(text));
-		return;
+		return undefined;
 	}
-	console.error(
-		"Extension error (<runtime>): Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.",
+	throw new Error(
+		"Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.",
 	);
 }
-/** Pi's `sendCustomMessage` (`core/agent-session.js:1946-1984`). */
+/** Pi's `_runInputHandlers` with no `input` handler, as in Limen's sessions: it returns at once (`:1654-1657`). */
+async function inputHandlers() {}
+/**
+ * Pi's `sendCustomMessage` (`core/agent-session.js:1946-1984`). Idle with `triggerTurn`, it calls `_startRun` with no
+ * await before it (`:1972`), so a custom message marks the session busy at the send.
+ */
 function sendCustom(message, options, inline = false) {
 	if (options?.deliverAs === "nextTurn") {
 		nextTurn.push(customMessage(message));
@@ -253,14 +289,41 @@ function sendCustom(message, options, inline = false) {
 		session.append(customMessage(message));
 	}
 }
-/** A run of `trigger`; one that a hook asked for while agent_settled was emitted runs inside that settle. */
+/**
+ * A run of `trigger`; one that a hook asked for while agent_settled was emitted runs inside that settle. Pi's
+ * `_startRun` marks the session busy first (`core/agent-session.js:1488`); a run started while another one holds the
+ * agent fails (`secondStart`), and the runs it chains wait for it too.
+ */
 function startRun(trigger, inline) {
 	reserved = true;
+	if (holders > 0) {
+		// Each of Pi's two starts emits its before_agent_start in the order they started; the first one here begins a
+		// microtask after its start, through `runs`, so the second waits one microtask as well.
+		const failed = Promise.resolve().then(() => secondStart(trigger));
+		runs = Promise.all([runs, failed]);
+		return failed;
+	}
+	holders += 1;
 	if (inline) {
 		return execute(prepare(trigger));
 	}
 	runs = runs.then(() => execute(prepare(trigger)));
 	return runs;
+}
+/**
+ * A run started while another one holds the agent (E-21): `_startRun` marks the session busy (`core/agent-session.js:1488`)
+ * and emits before_agent_start (`:1552`); pi-agent-core's `agent.prompt` throws before any `message_start`
+ * (`agent.js:246-248`); `_startRun`'s `finally` settles it, idle first, while the other run goes on (`:1528-1536`,
+ * `:740`); then the error reaches the extension error channel (`:2870-2877`). Its message enters no run.
+ */
+async function secondStart(trigger) {
+	reserved = true;
+	await prepare(trigger);
+	flushPendingCustom();
+	await settle(false);
+	console.error(
+		"Extension error (<runtime>): Agent is already processing a prompt. Use steer() or followUp() to queue messages, or wait for completion.",
+	);
 }
 /** Appends the custom messages held while the session was busy (`core/agent-session.js:1999-2007`). */
 function flushPendingCustom() {
@@ -326,6 +389,7 @@ async function execute(preparing) {
 	} catch (error) {
 		// Pi's `_startRun` leaves the session idle when the run cannot start, and settles nothing.
 		reserved = false;
+		holders -= 1;
 		console.error(`fake engine: the run did not start: ${said(error)}`);
 		return;
 	}
@@ -347,6 +411,8 @@ async function execute(preparing) {
 	} catch (error) {
 		console.error(`fake engine: the run failed: ${said(error)}`);
 	} finally {
+		// pi-agent-core's run ends with its loops (`agent.js:345-354`), before Pi settles the session.
+		holders -= 1;
 		flushPendingCustom();
 		await settle(aborting);
 	}
@@ -627,6 +693,7 @@ async function startTask() {
 	taskStarted = true;
 	await idle();
 	reserved = true;
+	holders += 1;
 	taskActive = true;
 	runs = runs.then(async () => {
 		await execute(taskRun);

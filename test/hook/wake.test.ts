@@ -1,20 +1,25 @@
 // hook/wake.ts: the guard on the `limen` command's arguments, nothing done before `limen migrate`, damaged records
 // and progress files, which stop no wake and no status line, are named once, and are forgotten at a session start,
 // a tick that ends no dead job (T-04), a wake the subscription limit kept from a coordinator's turn, owed until the
-// sweep releases it (A-016 (2)), and one advisory wake per source and session (the D-092 note).
+// sweep releases it (A-016 (2)), one advisory wake per source and session (the D-092 note), a wake settled only by
+// the run it entered (A-089), one wake that starts a run per idle sweep, the others its follow-ups (A-090), and the
+// count of a wake that entered no run.
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
+import { fileURLToPath } from "node:url";
 import limenWake, { notMigratedNotice } from "../../hook/wake.ts";
 import { emptyRecord, type JobRecord, readRecordSync, serialized } from "../../src/job/record.ts";
+import { CLAIM_STALE_MS } from "../../src/job/wake-delivery.ts";
 import { LimenError } from "../../src/outcome.ts";
 import { platform } from "../../src/platform/platform.ts";
 import { processIdentity } from "../../src/runtime/reap.ts";
 import { inTemporaryProject, withEnvironment } from "../environment.ts";
-import { editRecord, fakeSystemd, writeRecord } from "../plant.ts";
+import { editRecord, engineEvents, fakeSystemd, type Plant, plant, within, writeRecord } from "../plant.ts";
 
 /** The handler of the `limen` command that the hook registers on a fake `pi`. */
 function commandHandler(): (args: unknown, context: unknown) => Promise<void> {
@@ -301,8 +306,10 @@ async function jobFor(jobs: string, id: string, session: string, fields: Partial
 	const job = join(jobs, id);
 	await writeRecord(job, { state: "done", label: "finished", finishedAt: "2026-11-24T14:00:00.000Z", ...fields });
 	await mkdir(join(job, "notify", "subscribers"), { recursive: true });
-	await writeFile(join(job, "notify", "ready"), "1\n");
+	// Subscribed before it is routable: a sweep of a running hook between the two writes would otherwise find a routable
+	// job of no session, past its fallback grace, and send its wake as a fallback, which no subscriber's receipt records.
 	await writeFile(join(job, "notify", "subscribers", session), `${new Date().toISOString()}\n`);
+	await writeFile(join(job, "notify", "ready"), "1\n");
 	return job;
 }
 
@@ -455,4 +462,256 @@ test("a coordinator's own turn that ends on the subscription limit, with no wake
 	turn(coordinator, "the owner's message", { stopReason: "error", errorMessage: LIMIT_TEXT });
 	await sweeps(coordinator, 4);
 	assert.deepEqual([coordinator.wakes, readRecordSync(join(jobs, id))?.owedWake], [[], undefined]);
+});
+
+const WAKE_HOOK = fileURLToPath(new URL("../../hook/wake.ts", import.meta.url));
+const COORDINATOR = "coord";
+/** The longest wait on the fake coordinator, far above the few seconds each test takes under the gate's load. */
+const WAIT_MS = 60_000;
+
+/** Waits until `check` holds, read again on each file event below `dir` and every second; fails naming `what`. */
+async function waitFor(dir: string, what: string, check: () => boolean): Promise<void> {
+	assert.ok(await within(dir, check, WAIT_MS), `${what}: not within ${WAIT_MS / 1_000} s`);
+}
+
+/**
+ * Starts a coordinator session in the folder `dir` of the plant `p`: the fake engine (`p.bin/pi`) with the real hook,
+ * then the test extension of source `extension`, as the project stub loads the hook before others
+ * (templates/limen-extension.ts), on a task that waits at its `block`, so the session stays idle but for wakes.
+ */
+function fakeCoordinator(p: Plant, dir: string, extension: string): void {
+	writeFileSync(join(dir, "test.mjs"), extension);
+	writeFileSync(join(dir, "task.md"), "block\n");
+	const args = ["--session-dir", join(dir, "session"), "--extension", WAKE_HOOK, "--extension", join(dir, "test.mjs")];
+	const env = { ...p.env, PI_SESSION_ID: COORDINATOR };
+	spawn(join(p.bin, "pi"), [...args, `@${join(dir, "task.md")}`], { cwd: p.root, env, stdio: "ignore" });
+}
+
+/** The wakes the fake coordinator in `dir` received for the job `id`, with how each was sent. */
+function wakesOf(dir: string, id: string) {
+	return engineEvents(dir).filter((event) => event.text?.startsWith("Limen job") && event.text.includes(id));
+}
+
+/**
+ * Whether every wake of the job `id` for the coordinator is recorded: its claim delivered, blocked after two
+ * attempts, or one attempt counted unconfirmed, after which the assertions fail whatever comes next.
+ */
+function heard(jobs: string, id: string): boolean {
+	const notify = (path: string) => existsSync(join(jobs, id, "notify", path));
+	return notify(`delivered/${COORDINATOR}`) || notify(`claims/${COORDINATOR}/blocked`) || notify("unconfirmed");
+}
+
+/** The jobs of `ids` with an unconfirmed wake attempt. */
+function unconfirmed(jobs: string, ids: readonly string[]): string[] {
+	return ids.filter((id) => existsSync(join(jobs, id, "notify", "unconfirmed")));
+}
+
+/**
+ * The source of a test extension that writes, as JSON lines of seen.jsonl in `dir`, each run's starting prompt, each
+ * user message that enters and each settle. With `hold`, it then holds the session's first agent_settled until one
+ * write to the FIFO `hold-gate` in `dir`, and writes `held` there while it holds; loaded after the hook, it holds the
+ * settle once the hook's handler has run, as another extension's awaiting handler holds Pi's (E-20).
+ */
+function notesExtension(dir: string, hold: boolean): string {
+	const [seen, gate, held] = ["seen.jsonl", "hold-gate", "held"].map((name) => JSON.stringify(join(dir, name)));
+	return `import { appendFileSync, createReadStream, writeFileSync } from "node:fs";
+const note = (value) => appendFileSync(${seen}, \`\${JSON.stringify(value)}\\n\`);
+let holding = ${hold};
+export default function notes(pi) {
+	pi.on("before_agent_start", (event) => note({ start: event.prompt }));
+	pi.on("message_start", (event) => {
+		if (event.message.role === "user") {
+			note({ enter: event.message.content[0].text });
+		}
+	});
+	pi.on("agent_settled", async () => {
+		note({ settled: true });
+		if (!holding) {
+			return;
+		}
+		holding = false;
+		const released = new Promise((resolve) => createReadStream(${gate}).once("data", resolve));
+		writeFileSync(${held}, "");
+		await released;
+	});
+}
+`;
+}
+
+/**
+ * The runs the notes extension in `dir` saw, as steps: `start <name>` and `enter <name>` for a run's start and a user
+ * message that names a job of `names` (its id, its name), `settled` for each settle; the task's own start, while it
+ * waits at `block`, names no job and is left out.
+ */
+function runSteps(dir: string, names: Readonly<Record<string, string>>): string[] {
+	const path = join(dir, "seen.jsonl");
+	const seen: Array<{ start?: string; enter?: string; settled?: true }> = existsSync(path)
+		? JSON.parse(`[${readFileSync(path, "utf8").trim().split("\n").join(",")}]`)
+		: [];
+	return seen.flatMap((note) => {
+		if (note.settled) {
+			return ["settled"];
+		}
+		const text = note.start ?? note.enter ?? "";
+		const name = Object.entries(names).find(([id]) => text.includes(id))?.[1];
+		return name === undefined ? [] : [`${note.start === undefined ? "enter" : "start"} ${name}`];
+	});
+}
+
+/**
+ * Whether every run the notes extension in `dir` saw start for a job of `names` has settled: the hook records a
+ * delivery in its settle handler, before the notes extension, loaded after it, notes that settle.
+ */
+function runsSettled(dir: string, names: Readonly<Record<string, string>>): boolean {
+	const steps = runSteps(dir, names);
+	return steps.filter((step) => step === "settled").length >= steps.filter((step) => step.startsWith("start ")).length;
+}
+
+// The hook's settle handler marked every pending wake settled, so a wake Pi deferred behind another one was counted
+// unconfirmed at that one's settle and sent again, and its second count stopped its delivery (D-128).
+test("A-089: wakes sent while a settle is held each enter their own run, settled by it, and wake the session once", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const jobs = join(p.root, ".limen", "jobs");
+	const dir = join(p.parent, COORDINATOR);
+	mkdirSync(dir);
+	execFileSync("mkfifo", [join(dir, "hold-gate")]);
+	const names = {
+		"2026-11-26-early-0001": "early",
+		"2026-11-26-a-0002": "a",
+		"2026-11-26-b-0003": "b",
+		"2026-11-26-c-0004": "c",
+	} as const;
+	const [early = "", ...ids] = Object.keys(names);
+	await jobFor(jobs, early, COORDINATOR);
+	fakeCoordinator(p, dir, notesExtension(dir, true));
+	// The early job's wake opens a run whose settle holds; three jobs end meanwhile, and the hook's sweeps send their
+	// wakes inside that settle, so the engine runs each after it, in a run of its own.
+	await waitFor(dir, "the early job's run holds its settle", () => existsSync(join(dir, "held")));
+	for (const id of ids) {
+		await jobFor(jobs, id, COORDINATOR);
+	}
+	await waitFor(dir, "a wake sent for each of a, b and c", () => ids.every((id) => wakesOf(dir, id).length > 0));
+	await writeFile(join(dir, "hold-gate"), "go\n");
+	const recorded = () => ids.every((id) => heard(jobs, id)) && runsSettled(dir, names);
+	await waitFor(dir, "every wake of a, b and c recorded, and every run settled", recorded);
+	assert.deepEqual(
+		{
+			runs: runSteps(dir, names),
+			wakes: ids.map((id) => wakesOf(dir, id).length),
+			unconfirmed: unconfirmed(jobs, ids),
+		},
+		{
+			runs: [
+				...["start early", "enter early", "settled"],
+				...["start a", "enter a", "settled", "start b", "enter b", "settled", "start c", "enter c", "settled"],
+			],
+			wakes: [1, 1, 1],
+			unconfirmed: [],
+		},
+	);
+});
+
+// The hook sent every due wake of an idle sweep at once; the engine started a run for each, dropped the second and
+// settled it inside the first, so both wakes were counted unconfirmed (E-21).
+test("A-090: two wakes due in one sweep while the coordinator is idle enter one run, the second as a follow-up, each once", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const jobs = join(p.root, ".limen", "jobs");
+	const names = { "2026-11-26-one-0005": "one", "2026-11-26-two-0006": "two" } as const;
+	const ids = Object.keys(names);
+	for (const id of ids) {
+		await jobFor(jobs, id, COORDINATOR);
+	}
+	const dir = join(p.parent, COORDINATOR);
+	mkdirSync(dir);
+	// Both jobs are done before the session starts, so its first sweep finds both due.
+	fakeCoordinator(p, dir, notesExtension(dir, false));
+	const recorded = () => ids.every((id) => heard(jobs, id)) && runsSettled(dir, names);
+	await waitFor(dir, "every wake of one and two recorded, and every run settled", recorded);
+	assert.deepEqual(
+		{
+			run: runSteps(dir, names),
+			wakes: ids.map((id) => wakesOf(dir, id).map((wake) => wake.event)),
+			unconfirmed: unconfirmed(jobs, ids),
+		},
+		{ run: ["start one", "enter one", "enter two", "settled"], wakes: [["user"], ["followUp"]], unconfirmed: [] },
+	);
+});
+
+/** Yields to the event loop with no timer, mocked or real, until `check` holds; fails after 1,000 turns. */
+async function turnsUntil(check: () => boolean): Promise<void> {
+	for (let turn = 0; !check(); turn += 1) {
+		assert.ok(turn < 1_000, "the condition did not hold in 1,000 turns of the event loop");
+		await new Promise((resolve) => setImmediate(resolve));
+	}
+}
+
+/**
+ * Mocks the clock and the timers of `t`, the clock two stale ages behind the real one: the claim recovery of
+ * src/job/wake-delivery.ts compares it with file times, so while the clock stays behind the real one through the
+ * test's jumps no claim looks old by its files, and only the hook's own times move.
+ */
+function mockClock(t: TestContext): void {
+	t.mock.timers.enable({ apis: ["Date", "setInterval", "setTimeout"], now: Date.now() - 2 * CLAIM_STALE_MS });
+}
+
+/** A check that holds once the hook has swept after this call: each sweep sets the status line. */
+function nextSweep(coordinator: Coordinator): () => boolean {
+	const seen = coordinator.statuses.length;
+	return () => coordinator.statuses.length > seen;
+}
+
+/** Each line of the log of the job folder `job`, without its time stamp. */
+function logLines(job: string): string[] {
+	const log = existsSync(join(job, "log")) ? readFileSync(join(job, "log"), "utf8") : "";
+	return log.split("\n").flatMap((line) => (line ? [line.replace(/^\[limen [^\]]+\] /, "")] : []));
+}
+
+/** The job log's line of a wake counted because it entered no run. */
+const LOST = "wake entered no run while the session stayed idle for 30 s; unsuccessful wake attempt 1/2";
+
+// T-01: a wake the engine dropped (the second of two sends in one stretch, E-21) entered no run, so no settle counted
+// it, and it waited unseen until the session ended.
+test("a wake that enters no run is counted unconfirmed, with its reason in the job's log, once the session has been quiet for 30 s", async (t) => {
+	mockClock(t);
+	const { root, jobs } = await hookProject(t, "limen-wake-lost-");
+	const session = "wake-lost-session";
+	const job = await jobFor(jobs, "2026-11-26-lost-0015", session);
+	const coordinator = startCoordinator(t, root, session);
+	await turnsUntil(() => existsSync(join(job, "notify", "claims", session, "accepted")));
+	// The session reads idle throughout, and no run starts: the wake never enters.
+	const beforeBound = nextSweep(coordinator);
+	t.mock.timers.tick(CLAIM_STALE_MS - 1);
+	await turnsUntil(beforeBound);
+	const early = logLines(job);
+	const atBound = nextSweep(coordinator);
+	t.mock.timers.tick(1);
+	await turnsUntil(atBound);
+	assert.deepEqual({ early, log: logLines(job) }, { early: [], log: [LOST] });
+});
+
+// While runs go on, a wake Pi deferred behind them is late, not lost (E-20), so the quiet the count waits for starts at
+// the last run's start or settle, not only at the send.
+test("a wake that enters no run is not counted while a run settled less than 30 s ago, and is counted once that settle is 30 s old", async (t) => {
+	mockClock(t);
+	const { root, jobs } = await hookProject(t, "limen-wake-lost-run-");
+	const session = "wake-lost-run-session";
+	const job = await jobFor(jobs, "2026-11-26-late-0016", session);
+	const coordinator = startCoordinator(t, root, session);
+	await turnsUntil(() => existsSync(join(job, "notify", "claims", session, "accepted")));
+	// Another run, which the wake did not enter, settles 15 s after the send.
+	const settled = nextSweep(coordinator);
+	t.mock.timers.tick(15_000);
+	coordinator.fire("agent_settled", {});
+	await turnsUntil(settled);
+	// Then the wake is 45 s old, beyond the bound, while that settle is just under it, then at it.
+	const beforeBound = nextSweep(coordinator);
+	t.mock.timers.tick(CLAIM_STALE_MS - 1);
+	await turnsUntil(beforeBound);
+	const early = logLines(job);
+	const atBound = nextSweep(coordinator);
+	t.mock.timers.tick(1);
+	await turnsUntil(atBound);
+	assert.deepEqual({ early, log: logLines(job) }, { early: [], log: [LOST] });
 });

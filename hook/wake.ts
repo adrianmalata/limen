@@ -72,6 +72,8 @@ const REFRESH_TICKS = CACHE_REFRESH_MS / SWEEP_MS;
 // Herdr drops pane metadata after its TTL; an unchanged label is re-sent well before then.
 const METADATA_TTL_MS = 180_000;
 const METADATA_REFRESH_MS = 60_000;
+// The reason in the job's log of a wake counted because it entered no run (`countLostWakes`).
+const LOST_WAKE = `wake entered no run while the session stayed idle for ${CLAIM_STALE_MS / 1_000} s`;
 // The tail Limen keeps on the coordinator tab. The optional `◆` is the mark Limen put in front of the counts before
 // R-006; a tab labelled then may still be open, and its old tail must still be read as one.
 const TAB_TAIL = /(?:\s*·\s*(?:◆\s+)?\d+\s+(?:running|finished))+$/;
@@ -134,19 +136,30 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 	let ownsJobs: boolean | undefined;
 	let cacheExpiresAt = 0;
 	let sweeping = false;
+	// A sweep asked for while one was in flight runs once more after it, so the sweep of a run's start is never lost.
+	let sweepAgain = false;
 	let injectedThisSweep = false;
+	// When a run of this session last started or settled; the count of a wake that entered no run waits from here.
+	let runSeenAt = 0;
 	type PendingDelivery = {
 		readonly claim: string;
 		readonly delivered: string;
 		readonly message: string;
 		readonly blocked: () => void;
+		/** When the wake was sent, by `Date.now()`. */
+		readonly sentAt: number;
 		accepted: boolean;
 		entered: boolean;
 		answered: boolean;
 		errored: boolean;
+		/**
+		 * Set only by the agent_settled after this wake's own `message_start`, the settle of the run it entered: another
+		 * run's settle comes first when Pi deferred the send behind that run (E-20, A-089).
+		 */
 		settled: boolean;
 	};
 	const pendingDeliveries = new Map<string, PendingDelivery>();
+	// The deliveries whose wake entered the run that settles next.
 	const activeDeliveries = new Set<string>();
 	// The run's last turn ended on the subscription limit; its settle owes the wakes it could not take (A-016 (2)).
 	let limitEnd: LimitEnd | undefined;
@@ -416,9 +429,18 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 			state === "done" ? "done" : "request",
 		]);
 	};
-	const injectWake = (message: string): Promise<void> => {
-		// First idle inject in a sweep is a real turn; later injects, and any inject while busy, are followUp.
-		if (session?.isIdle() === true && !injectedThisSweep) {
+	/**
+	 * Sends `message` after `announce`, its toast; `false` sends nothing, which releases the claim with no attempt. A
+	 * sweep that sent a wake while the session read idle sends no other: Pi starts a run for every send made while it
+	 * reads idle, and the second fails inside the first (E-21, A-090). That run's before_agent_start sweeps again, and
+	 * the wakes held back go into it as follow-ups; while busy, every wake is a follow-up.
+	 */
+	const injectWake = (message: string, announce: () => void = () => {}): false | Promise<void> => {
+		if (injectedThisSweep) {
+			return false;
+		}
+		announce();
+		if (session?.isIdle() === true) {
 			injectedThisSweep = true;
 			return Promise.resolve(pi.sendUserMessage(message));
 		}
@@ -436,6 +458,7 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 				delivered,
 				message,
 				blocked,
+				sentAt: Date.now(),
 				accepted: false,
 				entered: false,
 				answered: false,
@@ -524,20 +547,21 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 			job,
 			slot,
 			eligible,
-			() => {
-				// Toast always — steers alone are easy to miss on a busy coordinator, and workers' steer inbox is not this session.
-				try {
-					session?.ui.notify(
-						state === "done"
-							? `limen: ${label} ${openChecks(recordOf(job)).length ? OPEN_DONE.toast : PLAIN_DONE.toast} (${id})`
-							: `limen: ${label} is ${state}; inspect failure (${id})`,
-						"info",
-					);
-				} catch {
-					dropFooter("ui.notify failed");
-				}
-				return injectWake(message);
-			},
+			() =>
+				injectWake(message, () => {
+					// Toast every sent wake — steers alone are easy to miss on a busy coordinator, and workers' steer inbox is
+					// not this session.
+					try {
+						session?.ui.notify(
+							state === "done"
+								? `limen: ${label} ${openChecks(recordOf(job)).length ? OPEN_DONE.toast : PLAIN_DONE.toast} (${id})`
+								: `limen: ${label} is ${state}; inspect failure (${id})`,
+							"info",
+						);
+					} catch {
+						dropFooter("ui.notify failed");
+					}
+				}),
 			deliveryCallbacks(message, blocked),
 		);
 		if (routed) {
@@ -615,14 +639,14 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 			job,
 			slot,
 			eligible,
-			() => {
-				try {
-					session?.ui.notify(`limen: ${label} · advisory (${id})`, "info");
-				} catch {
-					dropFooter("ui.notify failed");
-				}
-				return injectWake(message);
-			},
+			() =>
+				injectWake(message, () => {
+					try {
+						session?.ui.notify(`limen: ${label} · advisory (${id})`, "info");
+					} catch {
+						dropFooter("ui.notify failed");
+					}
+				}),
 			deliveryCallbacks(message, blocked),
 		);
 		if (routed) {
@@ -742,6 +766,26 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 			pendingDeliveries.delete(pending.claim);
 		}
 	};
+	/**
+	 * A wake Pi dropped enters no run, so no settle counts it (A-089, E-21). Once the session reads idle and no run has
+	 * started or settled for a claim's stale age, a wake sent that long ago that has not entered is counted unconfirmed
+	 * here, and blocked at its second count as a settle's count is, instead of waiting unseen (T-01).
+	 */
+	const countLostWakes = () => {
+		const now = Date.now();
+		if (session?.isIdle() !== true || now - runSeenAt < CLAIM_STALE_MS) {
+			return;
+		}
+		for (const pending of pendingDeliveries.values()) {
+			if (!pending.accepted || pending.entered || now - pending.sentAt < CLAIM_STALE_MS) {
+				continue;
+			}
+			if (recordUnconfirmed(pending.claim, LOST_WAKE)) {
+				pending.blocked();
+			}
+			pendingDeliveries.delete(pending.claim);
+		}
+	};
 	const refreshPendingClaims = () => {
 		for (const pending of pendingDeliveries.values()) {
 			refreshClaim(pending.claim);
@@ -759,7 +803,11 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 		}
 	};
 	const sweep = () => {
-		if (!active || !session || !jobsDir || sweeping) {
+		if (!active || !session || !jobsDir) {
+			return;
+		}
+		if (sweeping) {
+			sweepAgain = true;
 			return;
 		}
 		sweeping = true;
@@ -814,6 +862,8 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 			if (!active || generation !== sessionGeneration) {
 				return;
 			}
+			// Counted here, at the time the sends below read, so a wake counted now is sent again by this sweep.
+			countLostWakes();
 			observeEach(jobs, ids);
 			await updateStatus(
 				jobs,
@@ -827,7 +877,8 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 			// Display and delivery are advisory; durable state remains on disk.
 		} finally {
 			sweeping = false;
-			if (active && generation !== sessionGeneration) {
+			if (active && (generation !== sessionGeneration || sweepAgain)) {
+				sweepAgain = false;
 				sweep();
 			}
 		}
@@ -925,6 +976,7 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 			finishedCache = undefined;
 			pendingDeliveries.clear();
 			activeDeliveries.clear();
+			runSeenAt = 0;
 			// A limit end belongs to its own session's run, so no run of this session owes a wake on it.
 			limitEnd = undefined;
 			reportedDamage.clear();
@@ -1021,10 +1073,29 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 		}),
 	);
 	pi.on(
+		"before_agent_start",
+		recorded((): undefined => {
+			runSeenAt = Date.now();
+			// Pi marks a run busy before it emits this event (`core/agent-session.js:1488`, `:1552`), so this sweep sends
+			// the wakes a starter held back as follow-ups into the run. A session that reads idle here has no run to
+			// follow, and an idle sweep could send a second starter beside one Pi has not started yet (E-21).
+			if (session?.isIdle() !== true) {
+				sweep();
+			}
+			return undefined;
+		}),
+	);
+	pi.on(
 		"agent_settled",
 		recorded(() => {
-			for (const pending of pendingDeliveries.values()) {
-				pending.settled = true;
+			runSeenAt = Date.now();
+			// A settle counts only the wakes that entered the run it ends; a wake still waiting for its run is settled
+			// by that run's own settle (A-089).
+			for (const claim of activeDeliveries) {
+				const pending = pendingDeliveries.get(claim);
+				if (pending) {
+					pending.settled = true;
+				}
 			}
 			confirmDeliveries();
 			limitEnd = undefined;
