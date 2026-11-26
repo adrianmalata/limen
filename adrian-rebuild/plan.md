@@ -159,7 +159,8 @@ R-047 gotowe na noc za R-039; przekazanie do limen-rebuild-39 na ticket.md R-044
 koordynatora; D-124: R-044 zależy też od R-040 i jest gotowy na noc; przekazanie do limen-rebuild-40 na ticket.md
 R-045 i R-110; tam oba ticket.md napisane (R-045: narzędzia i skille z tabeli ról, sprawdzenie efektu roli tylko do
 odczytu w finalizeJob; R-110: powiadomienia o zmianach i skrót tablicy z biegiem, golden kontynuacji), kroki 4.2 i 4.3
-oraz M-04 uzupełnione, a pytania Q-86 i Q-87 o zależności od R-042, R-043 i R-044 czekają na Adriana. -->
+oraz M-04 uzupełnione; D-125 i D-126: R-045 zależy też od R-042, a R-110 od R-042, R-043 i R-044, oba gotowe na noc, więc
+każdy nocny ticket etapu 4 ma ticket.md (15 gotowych); dalej noc na prośbę Adriana. -->
 
 
 
@@ -1518,6 +1519,14 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   R-039, since both change `src/runtime/context-message.ts`, the manual and the `## Specs` register, and R-044's module
   files extend R-040's part files (`templates/manual.md`, `templates/registers/specs.md`); Q-71's precedent. R-045
   waits for R-040 through R-044. Check: `## Tickets` row R-044; R-044 `ticket.md` → Decision 15.
+- 2026-11-26 D-125 (Adrian: "zgodnie z rekomendacjami"; Q-86, option 1, from R-045 `ticket.md`): R-045 depends on
+  R-042 as well as R-044, since both change the `done` path of `finalizeJob` (`src/job/finalize.ts`), with
+  `test/job/finalize.test.ts`, `src/runtime/wrapper.ts` and `test/cli/continue.test.ts`; Q-71's and Q-85's precedent.
+  Check: `## Tickets` row R-045; R-045 `ticket.md` → Decision 15.
+- 2026-11-26 D-126 (Adrian, the same message; Q-87, option 1, from R-110 `ticket.md`): R-110 depends on R-042, R-043
+  and R-044 as well as R-039, since R-042 and R-043 change `hook/communication.ts`, R-043 and R-044 (after R-040)
+  change `src/runtime/context-message.ts`, and R-110's comparison covers the parts R-040 and R-044 add. Check:
+  `## Tickets` row R-110; R-110 `ticket.md` → Decision 19.
 
 ### Gate 2 §2, copied
 
@@ -1928,7 +1937,7 @@ Columns:
 | R-042 | The task-note mechanism is cut | 4 | A-044, A-059, D-121 | R-039 | M | delegated | night | yes | — | — | ready |
 | R-043 | Just-in-time reminders arrive in the triggering tool result | 4 | A-041, H-12 | R-039 | M | delegated | night | — | pi | 4.5 | ready |
 | R-044 | Module switches; hooks load by role and module | 4 | G1.10, G1.1, G1.2, G1.9, A-082, A-040, D-122, D-124 | R-015, R-039, R-040 | M | delegated | night | yes | pi | 4.7, 4.9 | ready |
-| R-045 | Tools and skills per role; a read-only role that writes fails | 4 | A-081, E-5, D-123 | R-044 | M | delegated | night | — | pi, bridge | 4.3 | planned |
+| R-045 | Tools and skills per role; a read-only role that writes fails | 4 | A-081, E-5, D-123, D-125 | R-042, R-044 | M | delegated | night | — | pi, bridge | 4.3 | ready |
 | R-046 | Role prompts are literal, sourced and budgeted | 4 | T-09, T-14, T-15, T-08, T-10, T-21, A-043, A-085, A-040 | R-040, R-041, R-042, R-044 | L | pair | day-after | — | — | — | planned |
 | R-047 | The coordinator never waits | 4 | T-34 | R-039 | S | delegated | night | — | pi | 4.6 | ready |
 | R-104 | The sweep's daily prune archives every unregistered folder and waits on no job's lock; a queue entry is live only for a project's job | 4 | A-002, A-024, T-25, D-107 | R-101 | M | delegated | night | — | — | — | ready |
@@ -1937,7 +1946,7 @@ Columns:
 | R-107 | The exit 4 of systemd 259's `is-active` reads as not active | 4 | A-029, E-18, D-112 | R-026 | S | delegated | night | — | systemd | 4.13 | ready |
 | R-108 | The stall rule follows every pending tool of a message | 4 | A-059, E-19, D-112 | R-036 | S | delegated | night | — | pi | 4.12 | ready |
 | R-109 | The alerts' unit sends over IPv4 first | 4 | A-066, D-108, D-112 | R-033 | S | delegated | night | — | systemd | 4.11 | ready |
-| R-110 | A continuation reuses its parent's context message; change notices and the board digest come only on a change | 4 | A-079, A-037, A-051, D-114, D-120 | R-039 | M | delegated | night | — | pi | 4.2 | planned |
+| R-110 | A continuation reuses its parent's context message; change notices and the board digest come only on a change | 4 | A-079, A-037, A-051, D-114, D-120, D-126 | R-039, R-042, R-043, R-044 | M | delegated | night | — | pi | 4.2 | ready |
 | R-048 | Jobs run the bridge isolated: no `--approve`, `--offline`, a private `TMPDIR`, an explicit Claude Code path | 5 | A-025, E-3, E-4, E-15, D-005, D-017 | R-040, R-087 | M | delegated | night | — | pi, bridge | 5.8, 5.9 | planned |
 | R-049 | Agents run only root-owned code; Pi, bridge and Claude Code versions are declared | 5 | A-025, T-32, T-36, D-017 | R-017, R-020, R-048 | L | delegated | night | yes | pi | 5.3, 5.5, 5.6, 5.10, 5.20 | planned |
 | R-050 | The registered coordinator and its start script | 5 | A-033, A-061, A-029, §2, D-017 | R-026, R-033, R-034, R-049 | L | delegated | night | yes | pi, herdr, systemd | 5.4, 5.11, 5.20 | planned |
@@ -5678,7 +5687,21 @@ the terminal being active; context 9 % at the start; `HEAD` = `origin/adrian-reb
   `input/zasady-budowy-harnessu.md`, `## Decisions`; no general rule on a dependency through a shared file, and D-094
   (3), D-116 (3) and D-124 each decided one case): Q-86 whether R-045 depends on R-042 (both change `finalizeJob`'s
   `done` path in `src/job/finalize.ts`); Q-87 whether R-110 depends on R-042, R-043 and R-044 (each changes
-  `hook/communication.ts` or `src/runtime/context-message.ts`, R-044 after R-040). Recommended: yes for both.
-- Night-ready in stage 4 unchanged (13): R-038, then R-039, then R-040, R-042, R-043 and R-047, and R-044 after R-040;
-  R-104, then R-105; R-106; R-107; R-108; R-109. `planned`: R-045 (Q-86), R-110 (Q-87), and the pair tickets R-041 and
-  R-046 (`day-after`).
+  `hook/communication.ts` or `src/runtime/context-message.ts`, R-044 after R-040). Recommended: yes for both; commit
+  `b6365c8`.
+- Adrian: "zgodnie z rekomendacjami" → D-125 (R-045 depends on R-042 and R-044) and D-126 (R-110 depends on R-039,
+  R-042, R-043 and R-044); both `ready`, their Decisions 15 and 19 dated. `check.mjs` exit 0 (15 ready).
+- Night-ready in stage 4 (15), in ID order with their dependencies: R-038, then R-039, then R-040, R-042, R-043 and
+  R-047, R-044 after R-040, R-045 after R-042 and R-044, R-110 after R-042, R-043 and R-044; R-104, then R-105; R-106;
+  R-107; R-108; R-109. Still `planned`: the pair tickets R-041 and R-046 (`day-after`, their variants sheets once their
+  dependencies are `done`, D-054 (3)). Every stage-4 `night` ticket now has its `ticket.md`.
+
+Next (for this session or the one after it):
+1. A night run of stage 4 when Adrian asks for it in the conversation (D-024: the session starts `tools/night.mjs`).
+2. After the night: the day session moves the night's answers into each `ticket.md` (`.night/questions.md`) and sends
+   the variants sheets of R-041 and R-046 once R-039 (R-041) and R-040, R-041, R-042 and R-044 (R-046) are `done`.
+3. At gate 5.4: the session's reading of D-105 (2) (`evidence/check-test-files/outcome.md` → Deviations), R-038
+   Decisions 3 and 4, R-039 Decision 5, R-040 Decisions 7 and 9, R-042 Decision 1, R-044 Decision 9, R-045 Decisions 9
+   (the role table as the one list of job roles, a departure from the inventory) and 13 (`COORDINATOR_SESSION`),
+   R-110 Decisions 16 (today's digest text until R-073) and 17 (one notice form), and the open points of
+   `limen-rebuild-36`.

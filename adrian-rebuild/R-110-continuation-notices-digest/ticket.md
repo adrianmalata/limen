@@ -3,7 +3,7 @@ jedno powiadomienie o plikach zmienionych od jej zbudowania; w trakcie sesji (ko
 „changed <plik>” na zmieniony plik; skrót tablicy (NOW i NEXT) na końcu kontekstu koordynatora tylko po zmianie; golden
 trybu kontynuacji. Powiadomienia i skrót jadą z biegiem jak cue (D-120), a stan „co już dostarczono” czytany jest z
 kontekstu sesji, bez nowego pliku. Stan: napisany 26.11 przy `8b3cc59` z inwentarza `evidence/inventories/R-110.md`;
-`planned` do odpowiedzi na Q-87 (zależności od R-042, R-043 i R-044). -->
+`ready` za R-039, R-042, R-043 i R-044 (D-126: wspólne pliki hooka i modułu wiadomości kontekstowej). -->
 
 # R-110 A continuation reuses its parent's context message; change notices and the board digest come only on a change
 
@@ -119,7 +119,7 @@ lines are pointers to today's code):
 7. Docs (T-30, A-085): `docs/setup.md` (Hooks: the digest at the end of the coordinator's context only when it changed;
    one notice per changed path, also in jobs); `docs/jobs.md` (continue: the child keeps the parent's context message
    and gets one notice of the files changed since); `CONTRIBUTING.md` where it names the digest; the hook's comments.
-8. Tests, each failing at HEAD with R-039 done (T-29):
+8. Tests, each failing at HEAD with R-039, R-042, R-043 and R-044 done (T-29):
    - `test/runtime/context-message.test.ts`: item 1 on fixtures: no change names nothing; a changed styleguide names
      `.agents/limen/styleguide.md`; an edit below `## Cue:` names nothing; a removed vision and a new module part are
      named.
@@ -219,3 +219,7 @@ inventory's questions in `evidence/inventories/R-110.md` → section 11):
     words. "New text from the next session" stays true for a continuation, which keeps its parent's text by design.
 18. The plan's gaps (inventory section 11) are fixed in this ticket's commit of the plan: step 4.2 also checks the
     digest and an in-session notice, and M-04's Tickets column names R-110.
+19. 2026-11-26 D-126 (Adrian: "zgodnie z rekomendacjami"; Q-87, option 1): R-110 depends on R-042, R-043 and R-044
+    as well as R-039: R-042 and R-043 change `hook/communication.ts`, R-043 and R-044 (after R-040) change
+    `src/runtime/context-message.ts`, and item 1 compares the parts R-040 and R-044 add. The night re-reads their
+    changes there (D-025).

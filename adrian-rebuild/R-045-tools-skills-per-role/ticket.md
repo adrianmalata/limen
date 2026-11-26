@@ -3,7 +3,7 @@
 każdy job `--no-skills`. Gwarancją jest sprawdzenie efektu w `finalizeJob`: rola tylko do odczytu, której worktree albo
 gałąź różni się od stanu startowego, kończy się `failed`, rodzaj `read-only-violation`. Wpis koordynatora jest tylko
 zadeklarowany (D-123), stosuje go R-050. Stan: napisany 26.11 przy `8b3cc59` z inwentarza `evidence/inventories/R-045.md`;
-`planned` do odpowiedzi na Q-86 (czy zależy też od R-042). -->
+`ready` za R-042 i R-044 (D-125: zależność od R-042, bo oba zmieniają ścieżkę `done` w `finalizeJob`). -->
 
 # R-045 Tools and skills per role; a read-only role that writes fails
 
@@ -119,7 +119,7 @@ Facts at `8b3cc59` (the product code is `aa721d7`'s, the inventory's; R-038–R-
      still loads what Pi finds;
    - `docs/commands.md` → "Pi extensions": an extension's tools reach a job only when its role's list names them, and
      no list does now.
-8. Tests, each failing at HEAD with R-044 done (T-29):
+8. Tests, each failing at HEAD with R-042 and R-044 done (T-29):
    - `test/runtime/roles.test.ts`, new: every table role has a `templates/<role>.md`; no list is empty; every list holds
      `finish`; no read-only role holds `edit` or `write`; exactly `reviewer`, `judge` and `researcher` are read-only;
      `COORDINATOR_SESSION` holds the four default tools and no skill.
@@ -232,3 +232,6 @@ inventory's questions in `evidence/inventories/R-045.md` → section 8):
     table's `coordinator` is the group team (R-044 Decision 9).
 14. A continuation carries its parent's start state (the inventory's Unverified point on resumes): otherwise a quota
     resume after a write would start from the dirty state and end `done`.
+15. 2026-11-26 D-125 (Adrian: "zgodnie z rekomendacjami"; Q-86, option 1): R-045 depends on R-042 as well as R-044:
+    both change the `done` path of `finalizeJob` (`src/job/finalize.ts`), with `test/job/finalize.test.ts`,
+    `src/runtime/wrapper.ts` and `test/cli/continue.test.ts`. The night re-reads R-042's changes there (D-025).
