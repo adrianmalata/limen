@@ -1883,12 +1883,12 @@ Columns:
 | R-045 | Tools and skills per role; a read-only role that writes fails | 4 | A-081, E-5 | R-044 | M | delegated | night | — | pi, bridge | 4.3 | planned |
 | R-046 | Role prompts are literal, sourced and budgeted | 4 | T-09, T-14, T-15, T-08, T-10, T-21, A-043, A-085, A-040 | R-040, R-041, R-042, R-044 | L | pair | day-after | — | — | — | planned |
 | R-047 | The coordinator never waits | 4 | T-34 | R-039 | S | delegated | night | — | pi | 4.6 | planned |
-| R-104 | The sweep's daily prune archives every unregistered folder and waits on no job's lock; a queue entry is live only for a project's job | 4 | A-002, A-024, T-25, D-107 | R-101 | M | delegated | night | — | — | — | planned |
+| R-104 | The sweep's daily prune archives every unregistered folder and waits on no job's lock; a queue entry is live only for a project's job | 4 | A-002, A-024, T-25, D-107 | R-101 | M | delegated | night | — | — | — | ready |
 | R-105 | The T-04 and T-26 scans follow what their rules name | 4 | T-04, T-26, D-107, D-116 | R-032, R-104 | M | delegated | night | — | — | — | planned |
 | R-106 | A watcher outside the agents' account keeps a copy of `main` and alerts on its forced update or deletion | 4 | A-006, §7, D-110, D-117 | R-033 | S | delegated | night | — | systemd | 4.10 | planned |
-| R-107 | The exit 4 of systemd 259's `is-active` reads as not active | 4 | A-029, E-18, D-112 | R-026 | S | delegated | night | — | systemd | 4.13 | planned |
-| R-108 | The stall rule follows every pending tool of a message | 4 | A-059, E-19, D-112 | R-036 | S | delegated | night | — | pi | 4.12 | planned |
-| R-109 | The alerts' unit sends over IPv4 first | 4 | A-066, D-108, D-112 | R-033 | S | delegated | night | — | systemd | 4.11 | planned |
+| R-107 | The exit 4 of systemd 259's `is-active` reads as not active | 4 | A-029, E-18, D-112 | R-026 | S | delegated | night | — | systemd | 4.13 | ready |
+| R-108 | The stall rule follows every pending tool of a message | 4 | A-059, E-19, D-112 | R-036 | S | delegated | night | — | pi | 4.12 | ready |
+| R-109 | The alerts' unit sends over IPv4 first | 4 | A-066, D-108, D-112 | R-033 | S | delegated | night | — | systemd | 4.11 | ready |
 | R-110 | A continuation reuses its parent's context message; change notices and the board digest come only on a change | 4 | A-079, A-037, A-051, D-114 | R-039 | M | delegated | night | — | pi | 4.2 | planned |
 | R-048 | Jobs run the bridge isolated: no `--approve`, `--offline`, a private `TMPDIR`, an explicit Claude Code path | 5 | A-025, E-3, E-4, E-15, D-005, D-017 | R-040, R-087 | M | delegated | night | — | pi, bridge | 5.8, 5.9 | planned |
 | R-049 | Agents run only root-owned code; Pi, bridge and Claude Code versions are declared | 5 | A-025, T-32, T-36, D-017 | R-017, R-020, R-048 | L | delegated | night | yes | pi | 5.3, 5.5, 5.6, 5.10, 5.20 | planned |
@@ -5392,3 +5392,7 @@ the terminal being active; context 8 % at the start; `HEAD` = `origin/adrian-reb
 - `context-size.mjs HEAD` fails on this laptop (exit 1, `MISSING_TOOL`: no `pi` on `PATH` for its fixture's `limen
   init`; `evidence/inventories/R-039.md` → section 8), so M-01's "before" of stage 4 needs R-039's change of the tool
   (the note of `## Tickets`: "`context-size.mjs` learns to measure the context message in this ticket").
+- R-104, R-107, R-108 and R-109 `ready`: their `ticket.md` written at `cbe6f1a` from the inventories, every question
+  settled by the documents (each `## Decisions`, the main session's reading, not night defaults); every grep criterion
+  run at HEAD (D-025): those the change makes true exit 1, R-104's AC-6 and AC-7 exit 0 and expect 1 after it.
+  `check.mjs` exit 0 (4 ready). Four independent branches for the night (D-054 (1)).
