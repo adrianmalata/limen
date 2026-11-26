@@ -1884,7 +1884,7 @@ Columns:
 | R-046 | Role prompts are literal, sourced and budgeted | 4 | T-09, T-14, T-15, T-08, T-10, T-21, A-043, A-085, A-040 | R-040, R-041, R-042, R-044 | L | pair | day-after | — | — | — | planned |
 | R-047 | The coordinator never waits | 4 | T-34 | R-039 | S | delegated | night | — | pi | 4.6 | planned |
 | R-104 | The sweep's daily prune archives every unregistered folder and waits on no job's lock; a queue entry is live only for a project's job | 4 | A-002, A-024, T-25, D-107 | R-101 | M | delegated | night | — | — | — | ready |
-| R-105 | The T-04 and T-26 scans follow what their rules name | 4 | T-04, T-26, D-107, D-116 | R-032, R-104 | M | delegated | night | — | — | — | planned |
+| R-105 | The T-04 and T-26 scans follow what their rules name | 4 | T-04, T-26, D-107, D-116 | R-032, R-104 | M | delegated | night | — | — | — | ready |
 | R-106 | A watcher outside the agents' account keeps a copy of `main` and alerts on its forced update or deletion | 4 | A-006, §7, D-110, D-117 | R-033 | S | delegated | night | — | systemd | 4.10 | ready |
 | R-107 | The exit 4 of systemd 259's `is-active` reads as not active | 4 | A-029, E-18, D-112 | R-026 | S | delegated | night | — | systemd | 4.13 | ready |
 | R-108 | The stall rule follows every pending tool of a message | 4 | A-059, E-19, D-112 | R-036 | S | delegated | night | — | pi | 4.12 | ready |
@@ -5400,3 +5400,9 @@ the terminal being active; context 8 % at the start; `HEAD` = `origin/adrian-reb
   run on the alerts account, `seat/main-watch.ts` with its new test file, the entries in a root-owned credential folder
   that the install and the deployment's `units` step make when absent, so 4.0's new unit never lacks its source); its
   grep criteria exit 1 at HEAD. `check.mjs` exit 0 (5 ready).
+- R-105 `ready` behind R-104 (D-116 (3)): its `ticket.md` written at `c2513a9` from the inventory and D-116 (the
+  transitive T-04 scan with its wait half at module granularity, the moves into `src/runtime/liveness.ts`,
+  `src/runtime/queue-reading.ts`, `src/job/listing.ts` and `src/job/record.ts`, the ratchet of `ticket.ts` → R-065 and
+  `github.ts` → R-058, T-26's `startInScope` and `startOutsideJob`); its line numbers are `c3bbc5c`'s, and the night
+  re-reads those R-104 changes (D-025). Its grep criteria: AC-7–AC-9 exit 0 at HEAD and expect 1, AC-10 exit 1 and
+  expects 0. `check.mjs` exit 0 (6 ready).
