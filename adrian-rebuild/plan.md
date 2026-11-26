@@ -156,7 +156,8 @@ D-120–D-123 (skrót tablicy i powiadomienia jadą z biegiem jak cue, steer 80 
 w commicie, reguła lidera A-082 do R-077, wpis koordynatora z R-045 stosuje R-050) i ticket.md R-040, R-042, R-043 i
 R-047 gotowe na noc za R-039; przekazanie do limen-rebuild-39 na ticket.md R-044, R-045 i R-110; tam ticket.md R-044
 (przełączniki modułów, zestaw hooków według roli, tekst modułów w osobnych plikach) i krok 4.9 z nową sesją
-koordynatora; R-044 czeka na odpowiedź Q-85 (zależność od R-040). -->
+koordynatora; D-124: R-044 zależy też od R-040 i jest gotowy na noc; przekazanie do limen-rebuild-40 na ticket.md
+R-045 i R-110. -->
 
 
 
@@ -1511,6 +1512,10 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   coordinator's entry in the role table (its four tools, no skills), and R-050's coordinator start script applies it in
   stage 5; until then the coordinator, started by hand, keeps Pi's defaults. Check: R-045 `ticket.md`; the note of
   R-050 in `## Tickets`.
+- 2026-11-26 D-124 (Adrian: "1"; Q-85, option 1, from R-044 `ticket.md`): R-044 depends on R-040 as well as R-015 and
+  R-039, since both change `src/runtime/context-message.ts`, the manual and the `## Specs` register, and R-044's module
+  files extend R-040's part files (`templates/manual.md`, `templates/registers/specs.md`); Q-71's precedent. R-045
+  waits for R-040 through R-044. Check: `## Tickets` row R-044; R-044 `ticket.md` → Decision 15.
 
 ### Gate 2 §2, copied
 
@@ -1920,7 +1925,7 @@ Columns:
 | R-041 | The turn cue holds only variable parts and the audience line | 4 | A-077, T-13 | R-039 | S | pair | day-after | — | pi | 4.4 | planned |
 | R-042 | The task-note mechanism is cut | 4 | A-044, A-059, D-121 | R-039 | M | delegated | night | yes | — | — | ready |
 | R-043 | Just-in-time reminders arrive in the triggering tool result | 4 | A-041, H-12 | R-039 | M | delegated | night | — | pi | 4.5 | ready |
-| R-044 | Module switches; hooks load by role and module | 4 | G1.10, G1.1, G1.2, G1.9, A-082, A-040, D-122 | R-015, R-039 | M | delegated | night | yes | pi | 4.7, 4.9 | planned |
+| R-044 | Module switches; hooks load by role and module | 4 | G1.10, G1.1, G1.2, G1.9, A-082, A-040, D-122, D-124 | R-015, R-039, R-040 | M | delegated | night | yes | pi | 4.7, 4.9 | ready |
 | R-045 | Tools and skills per role; a read-only role that writes fails | 4 | A-081, E-5, D-123 | R-044 | M | delegated | night | — | pi, bridge | 4.3 | planned |
 | R-046 | Role prompts are literal, sourced and budgeted | 4 | T-09, T-14, T-15, T-08, T-10, T-21, A-043, A-085, A-040 | R-040, R-041, R-042, R-044 | L | pair | day-after | — | — | — | planned |
 | R-047 | The coordinator never waits | 4 | T-34 | R-039 | S | delegated | night | — | pi | 4.6 | ready |
@@ -5615,3 +5620,31 @@ the terminal being active; `HEAD` = `origin/adrian-rebuild` = `6e5f5ca`, the tre
   `src/runtime/context-message.ts`, the manual and the `## Specs` register, and R-044's module files extend R-040's part
   files (Q-71's precedent: R-105 on R-104). Recommended: yes; R-040 runs first in a night anyway (lower ID), so only an
   R-040 block would hold R-044 and R-045.
+- Adrian: "1" → D-124 (R-044 depends on R-040); R-044 `ready` behind R-039 and R-040, its Decision 15 dated.
+  `check.mjs` exit 0 (13 ready).
+- Night-ready in stage 4: R-038, then R-039, then R-040, R-042, R-043 and R-047, and R-044 after R-040; R-104, then
+  R-105; R-106; R-107; R-108; R-109. Still `planned`: R-045 (behind R-044), R-110 (behind R-039), and the pair tickets
+  R-041 and R-046 (`day-after`).
+
+Handover of 2026-11-26 (D-047, at about 55 % context, after the commit of this entry, with the tree clean and pushed
+and no night running): `limen-rebuild-39` starts `limen-rebuild-40` with `node adrian-rebuild/tools/handover.mjs start
+40` and ends its turn. By day, Adrian at the terminal. The next session's acts, in this order:
+1. A push notification to Adrian (one line in Polish) that it takes over at the `ticket.md` files of R-045 and R-110;
+   then `node adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into this section.
+2. R-045's `ticket.md` from `evidence/inventories/R-045.md` and D-123 (its section 8 settled by its recommendations,
+   its question A by D-123): R-044 creates the role table `src/runtime/roles.ts` with each job role's module (R-044
+   `ticket.md` → Change 3, Decision 13), and R-045 adds to the same entries the tools, the skills and the read-only flag,
+   and the coordinator's entry (D-123); `finish` in every `--tools` list, `--no-skills`, the effect check in
+   `finalizeJob`, kind `read-only-violation`; `ready` behind R-044. Then R-110's from `evidence/inventories/R-110.md`
+   and D-120 (its S1–S7 settled; Q1–Q7 by its recommendations; O2 settled by T-37 (3): today's digest text until R-073;
+   O3 by A-037 and T-18: one notice form, R-046 sets the words); its plan gaps (step 4.2 checks neither the digest nor
+   the in-session notice; M-04's Tickets column names only R-039) are fixed in `## Deployment` and `## Measurement`
+   with it. Each `ticket.md` names in `## Change` every file of R-039, R-040 or R-044 that its criteria name (D-105
+   (2)); the manual is `templates/manual.md` (R-040).
+3. Thirteen tickets are `ready` for a night (the line above); Adrian starts a night himself (D-024: the session starts
+   it when he asks in the conversation).
+4. At gate 5.4: the session's reading of D-105 (2) (`evidence/check-test-files/outcome.md` → Deviations), R-038
+   Decisions 3 and 4, R-039 Decision 5, R-040 Decisions 7 and 9, R-042 Decision 1, R-044 Decision 9 (one file per
+   module and part, a departure from the inventory), R-110's digest text until R-073, and the open points of
+   `limen-rebuild-36`.
+The handover after it is `limen-rebuild-41`.

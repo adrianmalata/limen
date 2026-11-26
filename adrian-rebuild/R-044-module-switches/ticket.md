@@ -2,7 +2,7 @@
 wyłączone. Wyłączony moduł nie daje tekstu do wiadomości kontekstowej ani hooka, a jego polecenia i role odmawiają
 kodem `MODULE_OFF`; hooki sesji wybiera jeden moduł `src/runtime/hook-set.ts`, a tekst modułów przenosi się do
 `templates/modules/<moduł>/<plik części>`. `limen migrate` raportuje moduły w użyciu na krok 4.9. Stan: napisany 26.11
-przy `6e5f5ca` z inwentarza `evidence/inventories/R-044.md`; `planned` do odpowiedzi na Q-85 (zależność od R-040). -->
+przy `6e5f5ca` z inwentarza `evidence/inventories/R-044.md`; `ready` za R-039 i R-040 (D-124: zależność od R-040). -->
 
 # R-044 Module switches; hooks load by role and module
 
@@ -242,5 +242,6 @@ inventory's questions in `evidence/inventories/R-044.md` → section 8):
     session (z. 3); `## Deployment` 4.9 says to open a new coordinator session.
 13. The role table (R-045's inventory Q1 (a)): created here with each role's module, so R-045 extends one table.
 14. The keeper's packet: its `Map:` line is prompt text, so it follows the `picture` switch (G1.10).
-15. Pending: R-044 depends on R-040 (Q-85): both change `src/runtime/context-message.ts`, the manual and the `## Specs`
-    register, and item 6 extends R-040's part files (`templates/manual.md`, `templates/registers/specs.md`).
+15. 2026-11-26 D-124 (Adrian: "1"; Q-85, option 1): R-044 depends on R-040 as well as R-015 and R-039: both change
+    `src/runtime/context-message.ts`, the manual and the `## Specs` register, and item 6 extends R-040's part files
+    (`templates/manual.md`, `templates/registers/specs.md`).
