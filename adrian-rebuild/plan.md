@@ -149,8 +149,9 @@ pathspec `git grep` (D-105 (2)); limen-rebuild-36 zaczęła etap 4: siedem inwen
 D-114–D-118 (komunikat kontekstowy bez dodatkowej tury i podział R-039 na R-039 i nowy R-110, pełny fake engine R-038
 w rozmiarze L, skan „never wait” w R-105, projekt obserwatora `main` R-106, poprawione kroki 4.11 i 4.13) oraz
 ticket.md dla R-104–R-109, wszystkie `ready` na noc; przekazanie do limen-rebuild-37: D-119 (kontrakt mostu na
-seacie czyta plik sesji Claude Code, bo formatu logu mostu nie ma w repo) i ticket.md R-038 gotowy na noc; dalej
-ticket.md R-039. -->
+seacie czyta plik sesji Claude Code, bo formatu logu mostu nie ma w repo) oraz ticket.md R-038 i R-039 gotowe na noc
+(R-039 za R-038; granica wobec R-110: kontynuacja przenosi wiadomość rodzica, R-110 dodaje powiadomienia i skrót
+tablicy); przekazanie do limen-rebuild-38, która pisze pozostałe ticket.md etapu 4. -->
 
 
 
@@ -1888,7 +1889,7 @@ Columns:
 | R-102 | Seat rules are cut | 3 | A-010, T-42, D-094, D-097 | R-034 | M | delegated | night | yes | systemd | 3.5 | done |
 | R-103 | Land runs as recorded steps; its `cleaned` step closes the job's Herdr tabs | 3 | A-021, T-04, T-18, T-28, T-38, D-092, D-094, D-096 | R-037 | L | delegated | night | yes | herdr | 3.9 | done |
 | R-038 | The fake engine shows the model's view under the bridge | 4 | T-31, A-051, D-115, D-119 | R-017 | L | delegated | night | — | bridge | 4.1 | ready |
-| R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16, D-114 | R-021, R-038 | L | delegated | night | yes | pi, bridge | 4.2 | planned |
+| R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16, D-114 | R-021, R-038 | L | delegated | night | yes | pi, bridge | 4.2 | ready |
 | R-040 | Role texts come from the package, in three registers | 4 | A-038, A-039, A-042, D-005 | R-001, R-039 | M | delegated | night | yes | — | — | planned |
 | R-041 | The turn cue holds only variable parts and the audience line | 4 | A-077, T-13 | R-039 | S | pair | day-after | — | pi | 4.4 | planned |
 | R-042 | The task-note mechanism is cut | 4 | A-044, A-059 | R-039 | M | delegated | night | yes | — | — | planned |
@@ -2021,6 +2022,10 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   per coordinator turn are R-098's, after R-031 (D-072; `## Deployment` B.3, B.4).
 - R-030: from R-068 on, a job in `needs-decision` does not block worker spawns for other tickets (T-05 (5)).
 - R-039: `context-size.mjs` learns to measure the context message in this ticket (M-01).
+- R-110 (the line R-039 sets, its `ticket.md` → `## Decisions` 5): R-039 already carries the parent's `context.md` into a
+  continuation, so the child holds one context message; R-110 adds the one notice of the files changed since the
+  parent's message was built (A-079), the in-session `changed <file>` notices (A-037), the board digest at the end of
+  the context only when it changed (A-037, A-051's second test), and the golden of the continuation mode (A-051).
 - R-040, R-048: the project's `AGENTS.md` goes into the context message exactly when the job runs the bridge isolated
   (E-15, D-005); R-040 builds the rule from a launcher flag, and R-048 turns isolation on, so the file never arrives
   twice. Neither project has an `AGENTS.md` today (gate 2 §1).
@@ -5466,5 +5471,29 @@ the terminal being active; context 9 % at the start; `HEAD` = `origin/adrian-reb
 - Open for gate 5.4 from this session: R-038 Decision 3 (the contract compares the Claude Code session with the
   declaration applied to the same run's Pi session, so no rule for ids, times or paths is needed) and Decision 4 (the
   fake has one mode, the bridge, departing from the inventory's recommendation of a mode by route).
-- Next: R-039's `ticket.md` from `evidence/inventories/R-039.md` and D-114, `ready` behind R-038; R-110 stays
-  `planned` until R-039's `ticket.md` sets the line between them.
+- R-039 `ready` behind R-038: its `ticket.md` written at `445c254` from `evidence/inventories/R-039.md` and D-114 (the
+  one module `src/runtime/context-message.ts`, `context.md` published with each job and carried by a continuation, the
+  `limen-context` custom message sent with no trigger at `session_start` and again after a compaction by E-13's rule,
+  the presence rule through `buildContextEntries()`, no system-prompt append, committed goldens per role,
+  `context-size.mjs` without `pi` on `PATH` and measuring the message); every inventory question settled by the
+  documents. Grep criteria run at HEAD (D-025): AC-9 and AC-10 exit 0 and expect 1; AC-11 exits 1 and expects 0.
+  `check.mjs` exit 0 (8 ready).
+- R-110's line is set (R-039 Decision 5, the note of `## Tickets`): R-039 carries the parent's `context.md`, R-110 adds
+  the notice of changed files, the in-session notices, the digest and the continuation golden. For Adrian at gate 5.4.
+- Night-ready in stage 4: R-038, then R-039; R-104, then R-105; R-106; R-107; R-108; R-109.
+
+Handover of 2026-11-26 (D-047, at 32 % context, after the commit `State: ticket.md of R-039 …`, with the tree clean and
+pushed and no night running): `limen-rebuild-37` starts `limen-rebuild-38` with `node adrian-rebuild/tools/handover.mjs
+start 38` and ends its turn. By day, Adrian at the terminal. The next session's acts, in this order:
+1. A push notification to Adrian (one line in Polish) that it takes over at the remaining stage-4 `ticket.md` files;
+   then `node adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into this section.
+2. The `ticket.md` files of the stage-4 night tickets still `planned`: R-040, R-042, R-043, R-044, R-045, R-047 and
+   R-110, each from a read-only inventory in `evidence/inventories/` (D-081's pattern) and the notes of `## Tickets`,
+   asking Adrian in one plain message only what the documents leave open; each `ready` behind its dependencies (most
+   behind R-039). R-041 and R-046 are `pair`, `day-after`: their variants sheets once their dependencies are `done`
+   (D-054 (3)).
+3. Eight tickets are `ready` for a night now (the line above); Adrian starts a night himself (D-024: the session
+   starts it when he asks in the conversation).
+4. At gate 5.4: the session's reading of D-105 (2) (`evidence/check-test-files/outcome.md` → Deviations), R-038
+   Decisions 3 and 4, R-039 Decision 5, and the open points of `limen-rebuild-36` above.
+The handover after it is `limen-rebuild-39`.
