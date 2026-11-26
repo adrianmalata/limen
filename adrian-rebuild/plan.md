@@ -1527,6 +1527,16 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   and R-044 as well as R-039, since R-042 and R-043 change `hook/communication.ts`, R-043 and R-044 (after R-040)
   change `src/runtime/context-message.ts`, and R-110's comparison covers the parts R-040 and R-044 add. Check:
   `## Tickets` row R-110; R-110 `ticket.md` → Decision 19.
+- 2026-11-26 D-127 (Adrian: "1"; Q-88, option 1, from R-038's `BLOCKED`): `test/s1-spawn.test.ts` relied on a fake
+  that wrote no Pi turn; R-038's fake writes one with a zero usage, so the test removes the fake's own transcript
+  before it plants its turns, and its assertions stay. Check: R-038 `ticket.md` → Decision 10.
+- 2026-11-26 D-128 (Adrian: "rekomendacja"; Q-89, option 1, from R-038's last fix round): `test/s3-finish-wake.test.ts`
+  hung once on its own with R-038's fake (a wake re-sent as unconfirmed, then delivery stopped); before R-038's commit a
+  read-only subagent reads Pi 1.5.1's sources for whether a message sent while `agent_settled` is emitted waits for a
+  run of its own after the event, as the fake does. If it does, R-038 goes on unchanged and the wake hook's defect becomes a finding
+  (A-089) with a new stage-4 ticket (R-111, delegated, night, after R-038) and a deterministic test of the
+  interleaving; if it is not, the fake's deferral is fixed in R-038 only after Adrian's yes, as a round beyond the two.
+  Check: R-038 `ticket.md` → Decision 13; `review.md`.
 
 ### Gate 2 §2, copied
 
@@ -1812,8 +1822,9 @@ Closes A-086: one Limen context message per session, frozen, saved and sent agai
 engine that shows the model's view under the bridge; the turn cue keeps only variable parts; role texts come from the
 package and are literal, sourced and budgeted per role. Tickets R-038–R-047, and from gate 5.3 (D-107) the fixes
 R-104 (the daily prune and the start queue) and R-105 (the T-04 and T-26 scans), from D-110 R-106 (the `main` watcher,
-§7 D1 per project), from D-112 the fixes R-107–R-109 of the close of stage 3 on the seat, and from D-114 R-110 (the
-continuation's reuse of the context message, the change notices and the digest, split from R-039).
+§7 D1 per project), from D-112 the fixes R-107–R-109 of the close of stage 3 on the seat, from D-114 R-110 (the
+continuation's reuse of the context message, the change notices and the digest, split from R-039), and from D-128 R-111
+(a wake sent during a settle, A-089, found with R-038's fake).
 
 ### Stage 5 — The trust boundary (a0.5.0)
 
@@ -1930,7 +1941,7 @@ Columns:
 | R-101 | Prune, retire and leftover Herdr tabs are steps of the sweep; nothing is deleted | 3 | A-024, A-002, T-18, T-28, D-092, D-094, D-096, D-097 | R-032 | M | delegated | night | yes | herdr | 3.9 | done |
 | R-102 | Seat rules are cut | 3 | A-010, T-42, D-094, D-097 | R-034 | M | delegated | night | yes | systemd | 3.5 | done |
 | R-103 | Land runs as recorded steps; its `cleaned` step closes the job's Herdr tabs | 3 | A-021, T-04, T-18, T-28, T-38, D-092, D-094, D-096 | R-037 | L | delegated | night | yes | herdr | 3.9 | done |
-| R-038 | The fake engine shows the model's view under the bridge | 4 | T-31, A-051, D-115, D-119 | R-017 | L | delegated | night | — | bridge | 4.1 | ready |
+| R-038 | The fake engine shows the model's view under the bridge | 4 | T-31, A-051, D-115, D-119 | R-017 | L | delegated | night | — | bridge | 4.1 | active |
 | R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16, D-114 | R-021, R-038 | L | delegated | night | yes | pi, bridge | 4.2 | ready |
 | R-040 | Role texts come from the package, in three registers | 4 | A-038, A-039, A-042, D-005 | R-001, R-039 | M | delegated | night | yes | — | — | ready |
 | R-041 | The turn cue holds only variable parts and the audience line | 4 | A-077, T-13 | R-039 | S | pair | day-after | — | pi | 4.4 | planned |
@@ -1947,6 +1958,7 @@ Columns:
 | R-108 | The stall rule follows every pending tool of a message | 4 | A-059, E-19, D-112 | R-036 | S | delegated | night | — | pi | 4.12 | ready |
 | R-109 | The alerts' unit sends over IPv4 first | 4 | A-066, D-108, D-112 | R-033 | S | delegated | night | — | systemd | 4.11 | ready |
 | R-110 | A continuation reuses its parent's context message; change notices and the board digest come only on a change | 4 | A-079, A-037, A-051, D-114, D-120, D-126 | R-039, R-042, R-043, R-044 | M | delegated | night | — | pi | 4.2 | ready |
+| R-111 | A wake is settled only by the run it entered | 4 | A-089, D-128 | R-038 | M | delegated | night | — | pi | 4.14 | planned |
 | R-048 | Jobs run the bridge isolated: no `--approve`, `--offline`, a private `TMPDIR`, an explicit Claude Code path | 5 | A-025, E-3, E-4, E-15, D-005, D-017 | R-040, R-087 | M | delegated | night | — | pi, bridge | 5.8, 5.9 | planned |
 | R-049 | Agents run only root-owned code; Pi, bridge and Claude Code versions are declared | 5 | A-025, T-32, T-36, D-017 | R-017, R-020, R-048 | L | delegated | night | yes | pi | 5.3, 5.5, 5.6, 5.10, 5.20 | planned |
 | R-050 | The registered coordinator and its start script | 5 | A-033, A-061, A-029, §2, D-017 | R-026, R-033, R-034, R-049 | L | delegated | night | yes | pi, herdr, systemd | 5.4, 5.11, 5.20 | planned |
@@ -2646,6 +2658,8 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
 - **4.13** No job log of either project holds a line `not ended: exit code 4` stamped after the deployment time (both
   the end's `was not ended` and the sweep's `reap: … not ended` go to the job's own `log`, never to the sweep's
   journal, D-118), and no `stuck` alert came for a job whose record has no cgroup (R-107).
+- **4.14** Two trial jobs that finish within a few seconds of each other while the coordinator is in a turn each bring
+  one wake, in the order they finished, and the coordinator's log holds no "unconfirmed" line for them (R-111, A-089).
 
 ### After stage 5 (a0.5.0)
 

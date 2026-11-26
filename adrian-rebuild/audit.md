@@ -4,8 +4,8 @@ decisions z faktami z seata, decyzjami przekrojowymi G1–G4, S, S1+ i rozstrzyg
 trafiają do sekcji To verify. Stan: bramka 2 zamknięta w rewizji 4 decyzji Adriana (86 znalezisk, w tym A-086 o promptach
 ról, które nie docierają przez bridge); 18.11 doszło A-087 (znikające rejestracje seata przy przejęciu martwej blokady,
 decyzja fix w R-019) i A-088 (helper testów `waitJob` wraca przed końcem wrappera joba; luka w kodzie, nie zaobserwowana, decyzja fix
-w R-007); razem
-fix 78, rejected 9, rejected / fix 1; pole Final dojdzie w etapie 6. -->
+w R-007); 26.11 doszło A-089 (budzenie wysłane w trakcie settle liczone jako niepotwierdzone przed własnym biegiem
+i wysyłane ponownie; decyzja fix w R-111); razem fix 79, rejected 9, rejected / fix 1; pole Final dojdzie w etapie 6. -->
 
 # Audit of Limen at `rebuild-base`
 
@@ -461,6 +461,7 @@ intents: `evidence/audit-pass2/history.md`.
 | A-086 | critical | reliability | non-compliant | Limen's role prompts and coordinator manual never reach the model under the Claude bridge | none (gate 2 §7 B) | new | fix |
 | A-087 | high | reliability | non-compliant | Seat registrations vanish when processes take over an abandoned registry lock together | none (rebuild stage 5) | new | fix |
 | A-088 | low | cross-cutting | non-compliant | The test helper `waitJob` returns before the job's wrapper has exited, so a test that acts on the finished job races it | none (rebuild stage 5) | new | fix |
+| A-089 | high | reliability | non-compliant | A wake sent during a settle is counted unconfirmed before its own run, re-sent, and can stop automatic delivery | none (rebuild stage 5) | new | fix |
 
 ### A-001 Prune deletes the uncommitted work of every finished job, automatically
 - Area: reliability
@@ -1742,6 +1743,21 @@ intents: `evidence/audit-pass2/history.md`.
 - History: Related only: R-006 replaced `limen wait` in `waitJob` with a watch of the `state` file; the old command returned at the same point but started a whole process first. A-087 is the one test failure seen in rebuild stage 5.
 - Note: Added in rebuild stage 5 (2026-11-18, `plan.md` D-034) on a failure that turned out to come from the environment; kept, on Adrian's second answer, because the window is in the code.
 - Decision: fix — Low: a window in the code that no run has hit; a test acting in it would fail the gate (z. 17, z. 31); the product's refusal is right, the helper is wrong. The fix goes into R-007 as an explicit addition to its scope: `waitJob` (`test/plant.ts`) waits, with a bound, for a terminal `state` and for `pid` to be gone, and a test of the helper fails before the fix every time. Check: that test (fails before, passes after); R-007's gate (Adrian, 2026-11-18, corrected the same day).
+
+### A-089 A wake sent during a settle is counted unconfirmed before its own run, re-sent, and can stop automatic delivery
+- Area: reliability
+- Severity: high
+- Location: `hook/wake.ts:1001`, `hook/wake.ts:753`, `hook/wake.ts:446`
+- Evidence: in Pi 1.5.1 a message sent while `agent_settled` is emitted is deferred and run as its own run after the event, each deferred run emitting its own `agent_settled` while the later ones still wait (Pi's agent-session.js, lines 1695-1698, 738-760 and 1528-1535, quoted in `evidence/wake-settle-deferral.md`). The hook's settle handler marks every pending delivery settled and then sweeps (`hook/wake.ts:1001-1009`), and the sweep's sends land in that window, so they are deferred; at the first deferred run's settle the others are marked settled although they have not entered, and `confirmDeliveries` (`hook/wake.ts:753-764`) records them unconfirmed, the sweep re-sends them, and a second time blocks the claim. Seen once in rebuild stage 5 with R-038's fake, which defers as Pi does: `test/s3-finish-wake.test.ts` hung until its bound with "q urgent wake was unconfirmed twice; automatic delivery stopped", the re-send entering before the first send (`evidence/wake-settle-deferral.md`).
+- Rule: z. 17, z. 21
+- Verdict: non-compliant
+- Direction: a delivery is settled only by the settle of the run it entered, never by another run's settle, so a deferred wake is neither counted unconfirmed nor sent twice; a deterministic test on the fake forces two or more wakes sent inside one settle and fails before the fix every time. R-111's inventory also settles the back-to-back idle sends of one sweep (`evidence/wake-settle-deferral.md` → Related).
+- Scenario: Two jobs finish while the coordinator settles a turn. Both wakes are sent inside the settle and deferred; the first runs, and its settle counts the second unconfirmed, which the sweep sends again. The re-send runs first; if it is caught the same way, the claim is blocked and "automatic delivery stopped" waits for Adrian, while the original wake arrives later matched to another delivery or to none, so a finished job's wake is late, doubled or lost.
+- Candidates: none (found in rebuild stage 5, R-038, 2026-11-26)
+- Status: new
+- History: Related: A-033 (lost wakes) and R-038, whose fake reproduces Pi's settle deferral; the old fake ran every queued message in one turn, so no test could reach this order.
+- Note: Added in rebuild stage 5 (2026-11-26, `plan.md` D-128) from one hang and a read-only diagnosis of Pi's sources.
+- Decision: fix — High: the wake is the coordinator's only news of a finished job on the critical path, and a blocked claim waits for a person (A-033). The fix is a new ticket R-111 in stage 4 after R-038, with the deterministic test above; the gate's test stays (D-029). Check: that test (fails before, passes after); `## Deployment` 4.14 (Adrian, 2026-11-26, D-128).
 
 ## Pass 2: hypotheses from the owner's analysis
 
