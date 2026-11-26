@@ -1893,11 +1893,11 @@ Columns:
 | R-040 | Role texts come from the package, in three registers | 4 | A-038, A-039, A-042, D-005 | R-001, R-039 | M | delegated | night | yes | — | — | planned |
 | R-041 | The turn cue holds only variable parts and the audience line | 4 | A-077, T-13 | R-039 | S | pair | day-after | — | pi | 4.4 | planned |
 | R-042 | The task-note mechanism is cut | 4 | A-044, A-059 | R-039 | M | delegated | night | yes | — | — | planned |
-| R-043 | Just-in-time reminders arrive in the triggering tool result | 4 | A-041, H-12 | R-039 | M | delegated | night | — | pi | 4.5 | planned |
+| R-043 | Just-in-time reminders arrive in the triggering tool result | 4 | A-041, H-12 | R-039 | M | delegated | night | — | pi | 4.5 | ready |
 | R-044 | Module switches; hooks load by role and module | 4 | G1.10, G1.1, G1.2, G1.9, A-082, A-040 | R-015, R-039 | M | delegated | night | yes | pi | 4.7, 4.9 | planned |
 | R-045 | Tools and skills per role; a read-only role that writes fails | 4 | A-081, E-5 | R-044 | M | delegated | night | — | pi, bridge | 4.3 | planned |
 | R-046 | Role prompts are literal, sourced and budgeted | 4 | T-09, T-14, T-15, T-08, T-10, T-21, A-043, A-085, A-040 | R-040, R-041, R-042, R-044 | L | pair | day-after | — | — | — | planned |
-| R-047 | The coordinator never waits | 4 | T-34 | R-039 | S | delegated | night | — | pi | 4.6 | planned |
+| R-047 | The coordinator never waits | 4 | T-34 | R-039 | S | delegated | night | — | pi | 4.6 | ready |
 | R-104 | The sweep's daily prune archives every unregistered folder and waits on no job's lock; a queue entry is live only for a project's job | 4 | A-002, A-024, T-25, D-107 | R-101 | M | delegated | night | — | — | — | ready |
 | R-105 | The T-04 and T-26 scans follow what their rules name | 4 | T-04, T-26, D-107, D-116 | R-032, R-104 | M | delegated | night | — | — | — | ready |
 | R-106 | A watcher outside the agents' account keeps a copy of `main` and alerts on its forced update or deletion | 4 | A-006, §7, D-110, D-117 | R-033 | S | delegated | night | — | systemd | 4.10 | ready |
@@ -5497,3 +5497,21 @@ start 38` and ends its turn. By day, Adrian at the terminal. The next session's 
 4. At gate 5.4: the session's reading of D-105 (2) (`evidence/check-test-files/outcome.md` → Deviations), R-038
    Decisions 3 and 4, R-039 Decision 5, and the open points of `limen-rebuild-36` above.
 The handover after it is `limen-rebuild-39`.
+
+`limen-rebuild-38` (2026-11-26, by day, Adrian at the terminal): `close-previous` printed `handover: closed tmux session
+limen-rebuild-37` and one `handover: stopped claude …` line and exited 0; the takeover push was skipped as redundant,
+the terminal being active; context 8 % at the start; `HEAD` = `origin/adrian-rebuild` = `aa721d7`, the tree clean.
+- Six read-only inventories at `aa721d7` (`general-purpose` agents, in parallel, each writing only its files):
+  `evidence/inventories/R-040.md`, `R-042.md`, `R-043.md` and `R-047.md` (one agent), `R-044.md` and `R-045.md` (one
+  agent), `R-110.md`.
+- R-043 and R-047 `ready` behind R-039: their `ticket.md` written at `aa721d7` from the inventories, every question
+  settled by the documents (each `## Decisions`, the main session's reading). Grep criteria run at HEAD (D-025): R-043's
+  AC-6–AC-10 exit 0 and expect 1; R-047's AC-6 and AC-8 exit 1 and expect 0, AC-7 exits 0 and expects 1. R-047's
+  module is `src/runtime/mistake-guard.ts` (T-34's and T-42's term). `check.mjs` exit 0 (10 ready).
+- Q-80–Q-84 asked in one message with a push (searched first: `input/gate-2-decisions.md`, `taste.md`,
+  `input/zasady-budowy-harnessu.md`, `## Decisions`): Q-80 R-110's delivery of the board digest and the change notices
+  (T-16 names `followUp` with `triggerTurn: true`; D-114 (1) departs for the context message only); Q-81 R-042's 80 %
+  steer per role (A-059 words two roles, and two of its clauses are not true before R-063); Q-82 R-044's modules header
+  (D-040's T-19 text names `limen init` and the owner channel, neither of which switches a module at R-044's commit);
+  Q-83 A-082's "only in a session that leads a group" to R-077; Q-84 R-045's coordinator entry applied by R-050's start
+  script.
