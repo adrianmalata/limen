@@ -4,7 +4,8 @@ mapowania mostu w `src/runtime/bridge-view.ts`, odtwarza fakty silnika E-1–E-1
 `triggerTurn` i `nextTurn`, wyniki narzędzi, przyczyny `session_start`), pisze transkrypt w kształcie Pi zamiast linii
 `{"task": …}` i ma test wiadomości wysłanej w trakcie `agent_settled`; skrypt seata `seat/bridge-contract.ts`
 porównuje pierwszy prompt z pliku sesji Claude Code z widokiem z tej samej deklaracji. Stan: napisany 26.11 przy
-`3c2ac1d` z inwentarza `evidence/inventories/R-038.md`; `ready` na noc. -->
+`3c2ac1d` z inwentarza `evidence/inventories/R-038.md`; zamknięty 26.11 w dzień (D-127 po `BLOCKED`, trzy rundy
+recenzji, D-128 z nowym znaleziskiem A-089). -->
 
 # R-038 The fake engine shows the model's view under the bridge
 
@@ -279,3 +280,43 @@ inventory's questions in `evidence/inventories/R-038.md` → section 12):
 7. E-1–E-14 in full, without the notice's text (Q7 (a)): D-115 (1).
 8. The negative test and the view of today's job start (Q8 (a) and (b)); they pass at the gate and show A-086.
 9. T-31 (4) is R-083's (Q10): D-115 (3).
+10. 2026-11-26 D-127 (Adrian: "1"; Q-88, option 1, from the implementer's `BLOCKED`): `test/s1-spawn.test.ts:62`
+    relied on a fake that wrote no Pi turn, so `limen show` counted only the turns the test plants; with item 3 the
+    fake's own zero-usage turn on the argv's route joins the count (`served p/m + p/other`, `3 turns`). The test's setup
+    changes, not its assertions: before planting `session/turns.jsonl` it removes the fake's own
+    `session/fake.jsonl`, with a comment that the fake's zero-token turn on the requested route would join the count;
+    the assertions at `:112-113` stay as they are (AC-12).
+11. 2026-11-26 review round 1 (`review.md`), findings to fix, each with its test where it changes behaviour (T-29):
+    - F1: every rule of `src/runtime/bridge-view.ts` names its E-n and its `bridge@5.0.3/<file>#L…` line from
+      `evidence/engine-sources/bridge-5.0.3.md`: the E-13 reference in `serve` names `src/index.ts`, and `fresh`,
+      `toolRecord`, the summary record and `PRESET` gain theirs (AC-12).
+    - F2: the bridge's "query running" state (restart or rebuild by whether a query waits) is decided in
+      `src/runtime/bridge-view.ts`, carried by the cursor, so `test/fake-engine.mjs` applies no bridge rule of its own;
+      a `test/runtime/bridge-view.test.ts` test for the rule.
+    - F3: the fake's `transcript()` opens the session file Pi 1.5.1 continues (cite its line), so `--continue` after
+      `new` opens the newer session; a `test/fake-engine.test.ts` test.
+    - F4: the `reload` and `new` words while a run is active do what Pi 1.5.1 does (`agent-session.js:3095-3097` for
+      `/reload`; `new` by its own line); a `test/fake-engine.test.ts` test.
+    - F5: custom content enters the view in the form Pi hands the bridge (text blocks, `messages.js:89-96`), so an
+      empty custom message follows the declared array rule; with zero Pi tools the view's `tools` says what E-5 says
+      (Claude Code's own tools come back); a `test/runtime/bridge-view.test.ts` test each.
+    - F6: `agentsPath` cites the Pi or bridge line whose lookup it follows and stops where that lookup stops.
+    - F7: `test/cli/spawn.test.ts` opens with a one-line header (T-29 (5)).
+    No change: finding 1 (`outcome.md` → `## Fails before` explains it); finding 3 goes to `outcome.md` → `## Open
+    points`.
+12. 2026-11-26 review round 2 (`review.md`), the last round of fixes, each with a test that fails before it:
+    - G1: the `compact` word schedules each reason as Pi 1.5.1 does: `manual` aborts an active run first, which ends
+      with `aborted` and is not continued (`agent-session.js:2321-2327`, `:2073-2084`); `threshold` and `overflow` run
+      at Pi's points (before the next assistant response, or between `agent_end` and `agent_settled`, `:477-486`,
+      `:1623`); the comment cites those lines.
+    - G2: a compaction during the task's run happens inside the next model call's preparation, before that call's
+      context and view are built, so no view pairs the messages from before it with a `restart` cursor; a test runs
+      `tool ls`, `compact threshold`, `tool pwd`, `say done` and asserts the second call's view (the summary, the
+      task once).
+    - G3: `test/fake-engine.test.ts` runs the fake with `PI_CODING_AGENT_DIR` and `HOME` set to its own folder, so no
+      file of the account enters a view.
+13. 2026-11-26 D-128 (Adrian: "rekomendacja"; Q-89, option 1): `test/s3-finish-wake.test.ts` hung once when run alone
+    during round 3 ("q urgent wake was unconfirmed twice; automatic delivery stopped"). Before the commit a read-only
+    subagent decides from Pi 1.5.1's sources whether a message sent while `agent_settled` is emitted is deferred to a
+    run of its own, as this fake does. Yes → this ticket goes on unchanged, and the wake hook's defect is a new finding
+    with its own ticket; no → the fake's deferral is fixed here after Adrian's yes.

@@ -160,7 +160,10 @@ koordynatora; D-124: R-044 zależy też od R-040 i jest gotowy na noc; przekazan
 R-045 i R-110; tam oba ticket.md napisane (R-045: narzędzia i skille z tabeli ról, sprawdzenie efektu roli tylko do
 odczytu w finalizeJob; R-110: powiadomienia o zmianach i skrót tablicy z biegiem, golden kontynuacji), kroki 4.2 i 4.3
 oraz M-04 uzupełnione; D-125 i D-126: R-045 zależy też od R-042, a R-110 od R-042, R-043 i R-044, oba gotowe na noc, więc
-każdy nocny ticket etapu 4 ma ticket.md (15 gotowych); dalej noc na prośbę Adriana. -->
+każdy nocny ticket etapu 4 ma ticket.md (15 gotowych); potem w dzień R-038 zamknięty (D-127: test s1-spawn usuwa
+transkrypt atrapy; trzy rundy recenzji PASS), a zawieszenie testu s3-finish-wake dało D-128, znalezisko A-089 (budzenie
+wysłane w trakcie settle liczone jako niepotwierdzone) i nowy ticket R-111; przekazanie do limen-rebuild-41 na
+ticket.md R-111 i R-039. -->
 
 
 
@@ -1941,7 +1944,7 @@ Columns:
 | R-101 | Prune, retire and leftover Herdr tabs are steps of the sweep; nothing is deleted | 3 | A-024, A-002, T-18, T-28, D-092, D-094, D-096, D-097 | R-032 | M | delegated | night | yes | herdr | 3.9 | done |
 | R-102 | Seat rules are cut | 3 | A-010, T-42, D-094, D-097 | R-034 | M | delegated | night | yes | systemd | 3.5 | done |
 | R-103 | Land runs as recorded steps; its `cleaned` step closes the job's Herdr tabs | 3 | A-021, T-04, T-18, T-28, T-38, D-092, D-094, D-096 | R-037 | L | delegated | night | yes | herdr | 3.9 | done |
-| R-038 | The fake engine shows the model's view under the bridge | 4 | T-31, A-051, D-115, D-119 | R-017 | L | delegated | night | — | bridge | 4.1 | active |
+| R-038 | The fake engine shows the model's view under the bridge | 4 | T-31, A-051, D-115, D-119 | R-017 | L | delegated | night | — | bridge | 4.1 | done |
 | R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16, D-114 | R-021, R-038 | L | delegated | night | yes | pi, bridge | 4.2 | ready |
 | R-040 | Role texts come from the package, in three registers | 4 | A-038, A-039, A-042, D-005 | R-001, R-039 | M | delegated | night | yes | — | — | ready |
 | R-041 | The turn cue holds only variable parts and the audience line | 4 | A-077, T-13 | R-039 | S | pair | day-after | — | pi | 4.4 | planned |
@@ -5710,12 +5713,38 @@ the terminal being active; context 9 % at the start; `HEAD` = `origin/adrian-reb
   R-107; R-108; R-109. Still `planned`: the pair tickets R-041 and R-046 (`day-after`, their variants sheets once their
   dependencies are `done`, D-054 (3)). Every stage-4 `night` ticket now has its `ticket.md`.
 
-Next (for this session or the one after it):
-1. A night run of stage 4 when Adrian asks for it in the conversation (D-024: the session starts `tools/night.mjs`).
-2. After the night: the day session moves the night's answers into each `ticket.md` (`.night/questions.md`) and sends
-   the variants sheets of R-041 and R-046 once R-039 (R-041) and R-040, R-041, R-042 and R-044 (R-046) are `done`.
-3. At gate 5.4: the session's reading of D-105 (2) (`evidence/check-test-files/outcome.md` → Deviations), R-038
-   Decisions 3 and 4, R-039 Decision 5, R-040 Decisions 7 and 9, R-042 Decision 1, R-044 Decision 9, R-045 Decisions 9
-   (the role table as the one list of job roles, a departure from the inventory) and 13 (`COORDINATOR_SESSION`),
-   R-110 Decisions 16 (today's digest text until R-073) and 17 (one notice form), and the open points of
-   `limen-rebuild-36`.
+- By day, Adrian (12:30: "jaka noc jak jest dopiero 12:30"): the session takes the next `ready` ticket by day itself
+  (protocol step 1), not a night run; its earlier "a night run when Adrian asks" was wrong.
+- R-038 `done` (delegated, `limen-rebuild-40`): `BLOCKED` on `test/s1-spawn.test.ts:62`, which relied on a fake that
+  wrote no Pi turn → Q-88 → D-127 (Adrian: "1": the test removes the fake's own transcript before it plants its turns,
+  its assertions kept). Review rounds 1–3 all PASS: round 1's nine notes → F1–F7 (Decision 11), round 2's three → G1–G3
+  (Decision 12), round 3's five → `outcome.md` → Open points 5–8 and one count fixed by the session (D-092, D-053 (2)).
+  In the last fix round `test/s3-finish-wake.test.ts` hung once when run alone → Q-89 → D-128 (Adrian: "rekomendacja"):
+  a read-only diagnosis, guarded by `review-guard.mjs compare` ("unchanged"), found that Pi 1.5.1 runs a message sent
+  while `agent_settled` is emitted as its own run after the event, as the fake does, so the wake hook counts such a
+  wake unconfirmed before it enters: finding A-089 (high, fix, present at `rebuild-base`;
+  `evidence/wake-settle-deferral.md`) and the new ticket R-111 (stage 4, M, delegated, night, after R-038, step 4.14),
+  committed apart from R-038 in `854d579`. The main session's gates: 1271/1271, 1278/1278, 1282/1282 (the last 328.8 s);
+  `fails-before.mjs` exit 0 each time. Until R-111 the gate's `s3-finish-wake` test can hang again; it is never run
+  again to get a green gate (D-029): a hang is a question for Adrian by day, a `.night/questions.md` entry by night.
+- Ready in stage 4 (14): R-039 (its dependencies now `done`), then R-040, R-042, R-043 and R-047, R-044 after R-040,
+  R-045 after R-042 and R-044, R-110 after R-042, R-043 and R-044; R-104, then R-105; R-106; R-107; R-108; R-109.
+  `planned`: R-111 (its `ticket.md` is not written), R-041 and R-046 (`pair`, `day-after`).
+
+Handover of 2026-11-26 (D-047, at about 40 % context, after the commit `R-038:`, with the tree clean and pushed and no
+night running): `limen-rebuild-40` starts `limen-rebuild-41` with `node adrian-rebuild/tools/handover.mjs start 41` and
+ends its turn. By day, Adrian at the terminal. The next session's acts, in this order:
+1. A push notification to Adrian (one line in Polish) that it takes over at R-111's `ticket.md` and R-039; then `node
+   adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into this section.
+2. R-111's `ticket.md` from a read-only inventory in `evidence/inventories/R-111.md` (D-081's pattern), from A-089 and
+   `evidence/wake-settle-deferral.md` (its Related part, the back-to-back idle sends of one sweep, settled there): a
+   delivery is settled only by the settle of the run it entered; a deterministic test on R-038's fake forces two or
+   more wakes sent inside one settle and fails before the fix every time. `ready` behind R-038 (done). Since R-111
+   removes a cause of gate hangs, it goes before R-039 by day, though its ID is higher: Adrian's word first (the
+   protocol takes the lowest ID).
+3. By day, the next tickets by protocol step 1 (R-039 first), each through steps 2–7; at 30–50 % context a handover.
+4. At gate 5.4: the session's reading of D-105 (2) (`evidence/check-test-files/outcome.md` → Deviations), R-038
+   Decisions 3 and 4 and its Open points 3 and 5–8, R-039 Decision 5, R-040 Decisions 7 and 9, R-042 Decision 1, R-044
+   Decision 9, R-045 Decisions 9 (the role table as the one list of job roles) and 13 (`COORDINATOR_SESSION`), R-110
+   Decisions 16 and 17, and the open points of `limen-rebuild-36`.
+The handover after it is `limen-rebuild-42`.

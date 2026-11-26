@@ -108,6 +108,8 @@ test("limen spawn: a detached job runs in its own worktree from the base with th
 		JSON.stringify({ type: "message", timestamp, message: { role: "assistant", provider: "p", model, usage } });
 	const now = new Date().toISOString();
 	const turns = [turn("2020-01-01T00:00:00.000Z", "parent"), turn(now, "other"), turn(now, "other")];
+	// The fake's own transcript holds its zero-token turn on the requested route, which would join the count (D-127).
+	await rm(join(dir, "session", "fake.jsonl"));
 	await writeFile(join(dir, "session", "turns.jsonl"), `${turns.join("\n")}\n`);
 	const detail = limen(p, ["show", id]).stdout;
 	assert.ok(detail.includes(`model served p/other · requested ${jobRecord(p, id)?.route.model}`), detail);

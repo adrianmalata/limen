@@ -6,10 +6,22 @@
 // its own start, so that a continuation does not count the parent turns it copied (src/job/publication.ts); which
 // entries count is this module's policy alone, so it takes the start as the record holds it. Each line goes through
 // the validators of src/boundary.ts (T-27 (2)); a line that does not parse is kept as its typed error, which names the
-// file and the line, and the other lines still count (z. 10). `limen show` and `limen stats` read it.
+// file and the line, and the other lines still count (z. 10). `limen show` and `limen stats` read it, and so does the
+// bridge contract on the seat, which takes the messages of a session's first model call (seat/bridge-contract.ts).
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { arrayOf, at, type BadData, isoTime, numberIn, object, optional, parseJson, string } from "../boundary.ts";
+import {
+	arrayOf,
+	at,
+	type BadData,
+	either,
+	isoTime,
+	numberIn,
+	object,
+	optional,
+	parseJson,
+	string,
+} from "../boundary.ts";
 import { LimenError } from "../outcome.ts";
 import { hasCode } from "../system-error.ts";
 
@@ -110,17 +122,50 @@ export function usageOf(entries: Iterable<SessionEntry>): SessionUsage | undefin
 
 /** The entries of the session file at `path` that a count reads, in the file's order, and each line that did not parse. */
 export function readSessionFile(path: string): SessionFile {
-	const entries: SessionEntry[] = [];
+	const { values, unread } = sessionLines(path, readFileSync(path, "utf8"), entryOf);
+	return { entries: values, unread };
+}
+
+/** A part of a message's content: its type, and its text when it is a text part. */
+export type CallPart = { readonly type: string; readonly text?: string };
+/**
+ * One message of a session's first model call, as Pi sends it to the provider: Pi's `system` entry, the owner's or the
+ * task's `user` message, each with its content as the entry holds it, and a custom message as `user` with a string
+ * content as one text block (`pi-coding-agent@1.5.1/dist/core/messages.js:89-96`).
+ */
+export type CallMessage = { readonly role: "user" | "system"; readonly content: string | readonly CallPart[] };
+/** The messages of a session's first model call, in the file's order, and each line of the file that did not parse. */
+export type FirstCall = { readonly messages: readonly CallMessage[]; readonly unread: readonly BadData[] };
+
+/**
+ * What the bridge contract needs of the session file `file` whose text is `text` (seat/bridge-contract.ts, D-119): the
+ * messages of its first run up to its first model call, the entries before its first assistant message. Every line is
+ * read, so a line that does not parse is kept as its typed error, after the first call too.
+ */
+export function firstCallOf(file: string, text: string): FirstCall {
+	const { values, unread } = sessionLines(file, text, callEntryOf);
+	const answered = values.indexOf(ANSWERED);
+	const messages = (answered < 0 ? values : values.slice(0, answered)).filter((value) => value !== ANSWERED);
+	return { messages, unread };
+}
+
+/** Each non-empty line of the session file `file`, whose text is `text`, through `validator`, and each that did not parse. */
+function sessionLines<T>(
+	file: string,
+	text: string,
+	validator: (value: unknown, field: string) => T | undefined,
+): { readonly values: T[]; readonly unread: BadData[] } {
+	const values: T[] = [];
 	const unread: BadData[] = [];
-	for (const [index, line] of readFileSync(path, "utf8").split("\n").entries()) {
-		const entry = line.trim() ? parseJson(`${path}:${index + 1}`, line, entryOf) : undefined;
-		if (entry instanceof LimenError) {
-			unread.push(entry);
-		} else if (entry) {
-			entries.push(entry);
+	for (const [index, line] of text.split("\n").entries()) {
+		const value = line.trim() ? parseJson(`${file}:${index + 1}`, line, validator) : undefined;
+		if (value instanceof LimenError) {
+			unread.push(value);
+		} else if (value !== undefined) {
+			values.push(value);
 		}
 	}
-	return { entries, unread };
+	return { values, unread };
 }
 
 /**
@@ -254,6 +299,45 @@ function bashCommandOf(value: unknown, field: string): string[] {
 /** The time of a session entry, which Pi writes with `toISOString`. */
 function writtenAt(fields: ReadonlyMap<string, unknown>, field: string): number {
 	return Date.parse(isoTime(fields.get("timestamp"), at(field, "timestamp")));
+}
+
+/** The mark of the session's first assistant message, which ends its first model call. */
+const ANSWERED = "answered";
+
+/**
+ * One line as an entry of a first call: a message of role `user` or `system`, a custom message as `user`, the mark of
+ * an assistant message, or undefined for any other entry, which the call does not hold.
+ */
+function callEntryOf(value: unknown, field: string): CallMessage | typeof ANSWERED | undefined {
+	const fields = object()(value, field);
+	const kind = string(fields.get("type"), at(field, "type"));
+	if (kind === CUSTOM_MESSAGE) {
+		const content = contentOf(fields.get("content"), at(field, "content"));
+		return { role: "user", content: typeof content === "string" ? [{ type: "text", text: content }] : content };
+	}
+	if (kind !== "message") {
+		return undefined;
+	}
+	const place = at(field, "message");
+	const message = object()(fields.get("message"), place);
+	const role = string(message.get("role"), at(place, "role"));
+	if (role === "assistant") {
+		return ANSWERED;
+	}
+	if (role !== "user" && role !== "system") {
+		return undefined;
+	}
+	return { role, content: contentOf(message.get("content"), at(place, "content")) };
+}
+
+/** A message's content: a string, or its parts, of which a count reads the type and a text part's text. */
+const contentOf = either(string, arrayOf(partOf));
+
+function partOf(value: unknown, field: string): CallPart {
+	const fields = object()(value, field);
+	const type = string(fields.get("type"), at(field, "type"));
+	const text = optional(string)(fields.get("text"), at(field, "text"));
+	return text === undefined ? { type } : { type, text };
 }
 
 /** A Pi `Usage`: its four classes, each a count of tokens. */

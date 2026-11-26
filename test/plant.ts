@@ -17,6 +17,7 @@ import { atomicWrite } from "../src/atomic-write.ts";
 import { TERMINAL_STATES } from "../src/job/job.ts";
 import { emptyRecord, type JobRecord, readRecordSync, serialized } from "../src/job/record.ts";
 import { platform } from "../src/platform/platform.ts";
+import type { BridgeView } from "../src/runtime/bridge-view.ts";
 import { hasCode } from "../src/system-error.ts";
 import { readOutcome } from "./final-line.ts";
 
@@ -694,7 +695,20 @@ export async function release(dir: string, n = 1): Promise<void> {
 export function engineEvents(
 	dir: string,
 ): Array<{ readonly event: string; readonly text?: string; readonly code?: number; readonly pid?: number }> {
-	const path = join(dir, "fake-events.jsonl");
+	return engineLines(dir, "fake-events.jsonl");
+}
+
+/**
+ * What the model received in each call the fake engine made in `dir`, in order: the view under the bridge that
+ * src/runtime/bridge-view.ts declares (T-31 (1)).
+ */
+export function engineViews(dir: string): BridgeView[] {
+	return engineLines(dir, "fake-view.jsonl");
+}
+
+/** The JSON lines of the fake engine's record `name` in `dir`; none when it wrote no such record. */
+function engineLines<T>(dir: string, name: string): T[] {
+	const path = join(dir, name);
 	return existsSync(path) ? JSON.parse(`[${readFileSync(path, "utf8").trim().split("\n").join(",")}]`) : [];
 }
 

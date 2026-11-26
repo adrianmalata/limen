@@ -455,3 +455,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-01, M-05; `## Deployment` 3.9 for the tab close on the real Herdr)
 - Commit: R-103
 - Rollback: git revert $(git log --format=%H --grep='^R-103:' adrian-rebuild --) (records written with `land` are `BAD_DATA` for the reverted code; the rollback runs with no job running: `ticket.md` → Rollback)
+
+## 2026-11-26 R-038 The fake engine shows the model's view under the bridge
+- What: `src/runtime/bridge-view.ts` (new: the one declaration of the bridge 5.0.3 mapping, each rule with its E-n and bridge line; the query state carried by the cursor; `CLAUDE_CODE_TOOLS` for zero Pi tools; `agentsPath`), `seat/bridge-contract.ts` (new: the seat contract of D-119), `src/job/usage.ts` (`firstCallOf`); `test/fake-engine.mjs` (the bridge's view per model call in `fake-view.jsonl`, Pi 1.5.1's runs, queues, `nextTurn`, `triggerTurn`, tool events, `agent_end`, the settle deferral, `compact` at Pi's points, `reload`, `new`, `--continue`), `test/fake-session.mjs` (new: Pi-shaped transcript entries); tests in `test/runtime/bridge-view.test.ts` and `test/seat/bridge-contract.test.ts` (new), `test/fake-engine.test.ts`, `test/cli/spawn.test.ts`, `test/job/usage.test.ts`, `test/s1-spawn.test.ts` (setup only, D-127) and `test/plant.ts` (`engineViews`)
+- Why: T-31, A-051, A-086, D-115, D-119, D-127, D-128
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (1282/1282); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (four test files); `node --test test/runtime/bridge-view.test.ts` → exit 0; `node adrian-rebuild/tools/check.mjs` → exit 0
+- Measurement: unmeasured (plan.md → Measurement: M-02; `## Deployment` 0.5 and 4.1 for the contract on the seat)
+- Commit: R-038
+- Rollback: git revert $(git log --format=%H --grep='^R-038:' adrian-rebuild --)

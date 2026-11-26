@@ -1,13 +1,13 @@
 // The transcript reader of src/job/usage.ts: the tokens by class of the entries of a job's own transcript that carry a
 // Pi usage, each line it could not read, named by its file and line, the entries of one session file as the counts
-// read them, and the model line `limen show` builds from them.
+// read them, the messages of its first model call, and the model line `limen show` builds from them.
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
 import type { BadData } from "../../src/boundary.ts";
-import { modelLine, readSessionFile, readSessionUsage, type SessionUsage } from "../../src/job/usage.ts";
+import { firstCallOf, modelLine, readSessionFile, readSessionUsage, type SessionUsage } from "../../src/job/usage.ts";
 
 /**
  * When the job of these tests started, as its record holds it (`startedAt`): a turn written before it is a parent's,
@@ -267,6 +267,34 @@ test("a session line the validators reject is returned as unread, named by its f
 				{ file: `${path}:3`, field: "message.content.1", expected: "an object", code: "BAD_DATA" },
 				{ file: `${path}:4`, field: "", expected: "JSON", code: "BAD_DATA" },
 			],
+		],
+	);
+});
+
+// The bridge contract (seat/bridge-contract.ts) computes the view of a session's first call from these messages.
+test("a session's first call is its messages before the first assistant message, a custom message as a user text block", () => {
+	const lines = [
+		HEADER,
+		entry("model_change", "2026-11-14T10:00:00.000Z", { provider: "p", modelId: "m" }),
+		entry("message", "2026-11-14T10:00:01.000Z", { message: { role: "system", content: "", timestamp: 1 } }),
+		entry("message", "2026-11-14T10:00:02.000Z", {
+			message: { role: "user", content: [{ type: "text", text: "task" }], timestamp: 2 },
+		}),
+		entry("custom_message", "2026-11-14T10:00:03.000Z", { customType: "limen-cue", content: "cue", display: false }),
+		assistant("2026-11-14T10:00:04.000Z", "m", usage(1, 1, 1, 1)),
+		entry("message", "2026-11-14T10:00:05.000Z", { message: { role: "user", content: "later", timestamp: 5 } }),
+		"not json",
+	];
+	const read = firstCallOf("fixture.jsonl", lines.join("\n"));
+	assert.deepEqual(
+		[read.messages, read.unread.map(named)],
+		[
+			[
+				{ role: "system", content: "" },
+				{ role: "user", content: [{ type: "text", text: "task" }] },
+				{ role: "user", content: [{ type: "text", text: "cue" }] },
+			],
+			[{ file: "fixture.jsonl:8", field: "", expected: "JSON", code: "BAD_DATA" }],
 		],
 	);
 });

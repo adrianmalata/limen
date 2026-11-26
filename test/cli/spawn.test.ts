@@ -1,10 +1,7 @@
-// `limen spawn`: the job it starts takes its time limit from the spawn, never from the spawner's environment, and its
-// task from the words after the flags; each refusal of its worktree and its group slot leaves the shared snapshot
-// identical (T-38 (4)); a job whose systemd user scope cannot start never runs; a worker spawn refuses while a finished job
-// holds unlanded work (A-001), and a reviewer spawn does not.
+// `limen spawn`: the job it starts, each refusal with the snapshot unchanged, and what the job's model gets (A-086).
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -12,6 +9,7 @@ import { isTerminal } from "../../src/job/job.ts";
 import { platform } from "../../src/platform/platform.ts";
 import { outputText, readOutcome } from "../final-line.ts";
 import {
+	engineViews,
 	git,
 	jobDir,
 	jobFile,
@@ -364,4 +362,25 @@ test("a reviewer spawn beside a done job whose branch holds an unlanded commit s
 	const branch = jobRecord(p, done)?.branch ?? "";
 	const review = spawnJob(p, "say reviewed", ["--review", "--branch", branch]);
 	assert.equal(waitJob(p, review), "done");
+});
+
+// A-086: until R-039 moves Limen's standing text out of Pi's system prompt, the model under the bridge never gets it.
+test("A-086: a spawned worker's first model call holds its task, then the cue, as one prompt, and none of the system prompt the hooks return", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = spawnJob(p, "say viewed");
+	assert.equal(waitJob(p, id), "done");
+	const dir = jobDir(p, id);
+	const [task, cue, system] = ["fake-task.txt", "fake-context.txt", "fake-system.txt"].map((name) =>
+		readFileSync(join(dir, name), "utf8"),
+	);
+	const [first] = engineViews(dir);
+	const seen = JSON.stringify(first ?? null);
+	const reached = (system ?? "")
+		.split("\n")
+		.filter((line) => line.trim().length >= 20 && seen.includes(JSON.stringify(line).slice(1, -1)));
+	assert.deepEqual(
+		{ prompt: first?.messages, path: first?.path, system: Boolean(system?.trim()), reached },
+		{ prompt: [{ role: "user", text: [`${task}\n\n${cue}`] }], path: "fresh", system: true, reached: [] },
+	);
 });
