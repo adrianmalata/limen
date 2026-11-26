@@ -142,7 +142,8 @@ IPv4); limen-rebuild-34: D-109 (artefakty prób dozwolone tylko w trakcie przebu
 prywatnych repo projektów, więc zamiast kroku 3.11 obserwator `main` R-106 w etapie 4), D-111 (projekt zawodowy
 korzysta z Limena najwcześniej od a1.0.0), D-112 (cztery znaleziska zamknięcia etapu 3: R-107–R-109 w etapie 4 i
 notatka do R-051); próbna trasa F012 na ledgerze i krok 3.9 zaliczone; D-113: projekty na seacie dalej stoją, a limity
-subskrypcji idą na przebudowę. -->
+subskrypcji idą na przebudowę; artefakty prób usunięte z seata, zamknięcie etapu 3 na seacie (D-106) skończone,
+przekazanie do limen-rebuild-35 (dwa commity Tools: z D-105). -->
 
 
 
@@ -5246,3 +5247,26 @@ the terminal being active; context 10 % at the start; `HEAD` = `origin/adrian-re
   (R-031 Decision 6). So the trial jobs of 2026-11-25 (their folders, branches, any worktree, the gate logs in `/tmp`)
   are listed first and removed by hand after; removing their folders also keeps them out of `limen stats` (B.3, B.4)
   and spares synchronizer's coordinator their fallback wakes.
+- The cleanup (Adrian, as the agents' account, with the sweep's timer stopped and started again, `active` after): in
+  synchronizer `git worktree remove` of the six registered trial worktrees, `git branch -d` of the seven trial
+  branches (each `was 2699d60`) and `git branch -D` of `limen/abandon/2026-11-25-trial-abandon-46913d20` (`was
+  b7e290c`, the trial's one file), and its seven trial job folders; in ledger `git branch -d` of the five trial
+  branches (`was 3336935`) and its five trial job folders; in `/tmp` the two `trial-env` gate logs; the chain of `&&`
+  ended `CLEANED`. F012's jobs and temporary files are untouched.
+- D-106 is complete: `## Deployment` 0.1–0.3, 0.6, 3.1–3.3, 3.5–3.10, and 3.4's part before the deployment are done;
+  3.11 is not done by D-110. Left: 3.4 waits for a real limit, which cannot come while the projects stay paused
+  (D-113); B.3's a0.3.0 part and B.4 belong to the a0.4.0 deployment; the resumption waits for Adrian (D-113).
+
+Handover of 2026-11-26 (D-047, at about 31 % context, after the commit of this entry, with the tree clean and pushed
+and no night running): `limen-rebuild-34` starts `limen-rebuild-35` with `node adrian-rebuild/tools/handover.mjs start
+35` and ends its turn. By day, Adrian at the terminal. The next session's acts, in this order:
+1. A push notification to Adrian (one line in Polish) that it takes over at D-105's two `Tools:` commits; then
+   `node adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into this section.
+2. D-105's two `Tools:` commits, each test first, with a review by `rebuild-reviewer` as for D-026
+   (`evidence/<tool-change>/` with ticket, review, outcome): (a) the gate's check that a gate run leaves no new ignored
+   file in the checkout (R-102 `outcome.md` → Open point 6); (b) `check.mjs`'s check that every test file a `ready` or
+   `active` criterion names exists (R-103 `ticket.md` → Decision 24).
+3. Then stage 4 starts in a new session (D-106, D-081's pattern), which writes stage 4's `ticket.md` files: R-038–R-047
+   and R-104–R-109, with the notes of `## Tickets` for each (R-104, R-105, R-107–R-109, and R-051's for stage 5); the
+   projects stay paused (D-113), so the Max window is the rebuild's, by day and by night.
+The handover after it is `limen-rebuild-36`.
