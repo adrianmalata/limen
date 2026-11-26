@@ -7,7 +7,8 @@ D-022), a T-02 zasadę, że kod wyjścia ustawia tylko wspólne opakowanie (nocn
 dostała zasady helpu na czas przejściowy (pytania R-014, D-039–D-041), a T-37 zasadę bramki 5.1, że `code` i `next`
 są wartością albo `null`, a `next` zawsze jest poleceniem (D-045, D-046); 23.11 z listy poleceń odczytu T-04
 wypadł `diff`, bo `diff` i `open` otwierają kartę Herdra i ją zapisują (D-096); 25.11 T-04 dopuszcza
-odczyt z limitem czasu i wymienia te limity (D-107). -->
+odczyt z limitem czasu i wymienia te limity (D-107); 26.11 kontrakt mostu z T-31 (2) czyta plik sesji Claude Code
+zamiast logu mostu, dopóki formatu logu nie ma w repo (D-119). -->
 
 # Taste
 
@@ -1343,6 +1344,11 @@ the author's choice. Taste decisions taken after this interview are added here w
   per failure kind of A-016; a scan for waiting in `test/`; the contract script with a test on a recorded bridge log
   (a synthetic fixture).
 - Source: interview round 7, AU-225; keeps the author's suite, adds two layers.
+  2026-11-26 (`plan.md` D-119, R-038's question): while the bridge's log format is not in the repository, (2)'s script
+  reads the Claude Code session file that the bridge writes and resumes (its `user` records, as the bridge's
+  `cc-session-io` writes them), not the bridge log, for the first query of a coordinator turn and a job turn; a line it
+  cannot read fails it (`BAD_DATA`, exit 4), and seat step 4.1 first shows that file's format. The Check's synthetic
+  fixture is such a session file.
 
 ### T-32 One adapter declares the Pi API, checked against Pi's real types
 - Rule: (1) The Pi API that Limen uses is declared only in the adapter of T-27; hooks import it from there, with no

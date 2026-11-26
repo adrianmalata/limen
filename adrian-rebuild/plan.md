@@ -148,8 +148,9 @@ w checkoucie (D-105 (1)), a check.mjs wymaga, żeby istniał każdy plik, który
 pathspec `git grep` (D-105 (2)); limen-rebuild-36 zaczęła etap 4: siedem inwentarzy, pytania Q-63–Q-79 i decyzje
 D-114–D-118 (komunikat kontekstowy bez dodatkowej tury i podział R-039 na R-039 i nowy R-110, pełny fake engine R-038
 w rozmiarze L, skan „never wait” w R-105, projekt obserwatora `main` R-106, poprawione kroki 4.11 i 4.13) oraz
-ticket.md dla R-104–R-109, wszystkie `ready` na noc; przekazanie do limen-rebuild-37, która pisze ticket.md R-038
-i R-039. -->
+ticket.md dla R-104–R-109, wszystkie `ready` na noc; przekazanie do limen-rebuild-37: D-119 (kontrakt mostu na
+seacie czyta plik sesji Claude Code, bo formatu logu mostu nie ma w repo) i ticket.md R-038 gotowy na noc; dalej
+ticket.md R-039. -->
 
 
 
@@ -1471,6 +1472,18 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   reloads, and checks that `systemctl show -p Environment limen-alerts.service` names
   `NODE_OPTIONS=--dns-result-order=ipv4first`, then no HTTP 429 and an alert on the phone. Check: `## Deployment` 4.11
   and 4.13.
+- 2026-11-26 D-119 (Adrian: "zgodnie z rekomendacją", asked in the conversation while R-038's `ticket.md` was written):
+  the bridge sources are still not extracted (the `mkdir` of `adrian-rebuild/input/vendor/pi-claude-bridge/` was
+  refused again on 2026-11-26, although `.claude/settings.local.json` has a rule for it), so the format of the bridge
+  log is not in the repository. The seat contract of T-31 (2) reads the `user` records of the Claude Code session file
+  (JSONL) that the bridge writes and resumes, in the shape the bridge's `cc-session-io` writes and the Agent SDK sends
+  (`type: "user"`, `message.content` a string or text blocks; `evidence/engine-sources/bridge-5.0.3.md` §1, §9, §10),
+  for the first query of one coordinator turn and one job turn, against the fake's model view; a line it cannot read
+  ends it with `BAD_DATA` (exit 4), never a pass. Step 4.1 first shows that file's format; a mismatch is a finding to
+  fix before a0.4.0's further steps (R-011's precedent: `pi-rpc.mjs` declared from documentation, confirmed by B.2).
+  The system part is checked in the repository by the fake's bridge view and its negative test, and on the seat by 4.1
+  and 4.2 from the per-query CLI log. `taste.md` T-31 carries the change. Check: R-038 `ticket.md`; `## Deployment` 0.5
+  and 4.1.
 
 ### Gate 2 §2, copied
 
@@ -1874,7 +1887,7 @@ Columns:
 | R-101 | Prune, retire and leftover Herdr tabs are steps of the sweep; nothing is deleted | 3 | A-024, A-002, T-18, T-28, D-092, D-094, D-096, D-097 | R-032 | M | delegated | night | yes | herdr | 3.9 | done |
 | R-102 | Seat rules are cut | 3 | A-010, T-42, D-094, D-097 | R-034 | M | delegated | night | yes | systemd | 3.5 | done |
 | R-103 | Land runs as recorded steps; its `cleaned` step closes the job's Herdr tabs | 3 | A-021, T-04, T-18, T-28, T-38, D-092, D-094, D-096 | R-037 | L | delegated | night | yes | herdr | 3.9 | done |
-| R-038 | The fake engine shows the model's view under the bridge | 4 | T-31, A-051, D-115 | R-017 | L | delegated | night | — | bridge | 4.1 | planned |
+| R-038 | The fake engine shows the model's view under the bridge | 4 | T-31, A-051, D-115, D-119 | R-017 | L | delegated | night | — | bridge | 4.1 | ready |
 | R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16, D-114 | R-021, R-038 | L | delegated | night | yes | pi, bridge | 4.2 | planned |
 | R-040 | Role texts come from the package, in three registers | 4 | A-038, A-039, A-042, D-005 | R-001, R-039 | M | delegated | night | yes | — | — | planned |
 | R-041 | The turn cue holds only variable parts and the audience line | 4 | A-077, T-13 | R-039 | S | pair | day-after | — | pi | 4.4 | planned |
@@ -2375,9 +2388,10 @@ full SHA.
   seat/sweep-units.ts` in `/opt/limen`; found at the a0.3.0 deployment, `## State`, "`limen-rebuild-33`").
 - **0.3** Reload every coordinator session with `/reload` (from a0.5.0: restart it through the start script, R-050).
 - **0.4** The stage's steps below, in order; a migration runs first with `--dry-run` where the step says so.
-- **0.5** From a0.4.0: the bridge contract of R-038 (T-31), the bridge log of one coordinator turn and one job turn
-  against the fake engine's model view of the same scenario. It runs at every tag and after any change of the Pi,
-  bridge or Claude Code version; a version change lands only after the bridge and the type contract pass (D-017).
+- **0.5** From a0.4.0: the bridge contract of R-038 (T-31, D-119), `node /opt/limen/seat/bridge-contract.ts <pi
+  session file> <claude code session file>` for the first turn of a new coordinator session and of a new job, each
+  exit 0. It runs at every tag and after any change of the Pi, bridge or Claude Code version; a version change lands
+  only after the bridge and the type contract pass (D-017).
 - **0.6** Trial route in one project: one small ticket through spawn, review and land; note the exit codes and the
   time. The stage's steps name what else to watch.
 - **0.7** Rollback: copy the current `<project>/.limen/` of both projects aside, to be kept (z. 29); run
@@ -2532,8 +2546,12 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
 ### After stage 4 (a0.4.0)
 
 - **4.0** Deploy a0.4.0 by 0.1–0.3: `node /opt/limen/seat/deploy.ts <sha>` with the full SHA from gate 5.4.
-- **4.1** The bridge contract (T-31): the bridge log of one coordinator turn and one job turn against the fake engine's
-  model view of the same scenario (R-038; item 16).
+- **4.1** The bridge contract (T-31, D-119; R-038; item 16), on the agents' account with `CLAUDE_BRIDGE_DEBUG=1`: first
+  the format of the Claude Code session file of one job turn is shown (its record types and the shape of a `user`
+  record's `message.content`, no text of it), against D-119's declaration; a mismatch is a finding to fix before the
+  further steps. Then step 0.5's command for the first turn of a new coordinator session and of a new job (the Pi
+  session file, and the Claude Code session file of the same run, the newest in the Claude Code project folder of its
+  cwd), each exit 0; an exit 1 names the first difference.
 - **4.2** The per-query CLI log shows the Limen context message in the request, whole and first, also for the largest
   role, and it does not start with `/` (E-14); after a manual `/compact` it is sent again (item 12; R-039); a `limen
   continue` of a job whose files changed since its parent shows the parent's message and one notice of those files
@@ -5430,3 +5448,23 @@ in this order:
 4. At gate 5.4: the session's reading of D-105 (2) (`evidence/check-test-files/outcome.md` → Deviations) and the open
    points above.
 The handover after it is `limen-rebuild-38`.
+
+`limen-rebuild-37` (2026-11-26, by day, Adrian at the terminal): `close-previous` printed `handover: closed tmux session
+limen-rebuild-36` and one `handover: stopped claude …` line and exited 0; the takeover push was skipped as redundant,
+the terminal being active; context 9 % at the start; `HEAD` = `origin/adrian-rebuild` = `3c2ac1d`, the tree clean.
+- `mkdir -p adrian-rebuild/input/vendor/pi-claude-bridge` was refused by the permissions again, although
+  `.claude/settings.local.json` holds a rule `Bash(mkdir -p adrian-rebuild/input/vendor*)`; it was not worked around,
+  so R-038 relies on `evidence/engine-sources/bridge-5.0.3.md` (D-115 (2)).
+- D-119 (Adrian: "zgodnie z rekomendacją", one question in the conversation): the seat contract of T-31 (2) reads the
+  `user` records of the Claude Code session file instead of the bridge log, fails closed on a line it cannot read, and
+  step 4.1 first shows that file's format; `taste.md` T-31 and `## Deployment` 0.5 and 4.1 follow it.
+- R-038 `ready`: its `ticket.md` written at `3c2ac1d` from `evidence/inventories/R-038.md`, D-115 and D-119 (the one
+  declaration `src/runtime/bridge-view.ts`, `fake-view.jsonl` per model call, E-1–E-14 in the fake, Pi-shaped
+  transcript entries, the `agent_settled` case, `seat/bridge-contract.ts` with its synthetic test); every inventory
+  question settled by the documents (its `## Decisions`, the main session's reading). Grep criteria run at HEAD
+  (D-025): AC-6 exits 0 and expects 1; AC-7–AC-9 exit 1 and expect 0.
+- Open for gate 5.4 from this session: R-038 Decision 3 (the contract compares the Claude Code session with the
+  declaration applied to the same run's Pi session, so no rule for ids, times or paths is needed) and Decision 4 (the
+  fake has one mode, the bridge, departing from the inventory's recommendation of a mode by route).
+- Next: R-039's `ticket.md` from `evidence/inventories/R-039.md` and D-114, `ready` behind R-038; R-110 stays
+  `planned` until R-039's `ticket.md` sets the line between them.
