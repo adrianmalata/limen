@@ -5,7 +5,8 @@
    tryb recenzji); w indeksie wyłącznie usunięcia i przeniesienia ścieżek z `## Change`
    ticketu; żadna zmieniona ścieżka z listy zakazanej (pliki sesji głównej, `.claude/agents/`, `tools/` poza ścieżkami
    z `## Change`). `diff` wypisuje diff ticketu dla recenzenta. Wyniki zapisuje atomowo przez `--out <plik>` (D-018).
-   Stan: działa; test w tools/test-review-guard.mjs. */
+   Swój odczyt ścieżek `## Change` (`changePaths`, `covered`) udostępnia ticket-rules.mjs (D-105). Stan: działa;
+   test w tools/test-review-guard.mjs. */
 // Usage (from the repository root; keep the files in the ignored node_modules/.rebuild-review/):
 //   node adrian-rebuild/tools/review-guard.mjs snapshot --out <file>             before the review
 //   node adrian-rebuild/tools/review-guard.mjs compare <file>                    after it; exit 1 when anything changed
@@ -155,7 +156,8 @@ export function changePaths(ticket) {
 	return [...section.matchAll(/`([^`\s]+)`/g)].map(([, path]) => path).filter((path) => /\/|\.\w+$/.test(path));
 }
 
-function covered(path, allowed) {
+/** Whether `## Change` names `path`, itself or through a directory that holds it. */
+export function covered(path, allowed) {
 	return allowed.some((entry) => path === entry || path.startsWith(entry.endsWith("/") ? entry : `${entry}/`));
 }
 

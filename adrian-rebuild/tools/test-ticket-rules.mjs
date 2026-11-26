@@ -3,7 +3,10 @@
    wyciąganie poleceń kryteriów (tylko „`polecenie` → exit”) i dopasowanie poleceń do allow-listy Claude Code
    według faktów z nocnych logów: goły program pasuje do reguły z „ *”, każda część złożonego polecenia osobno,
    `$`, przekierowanie i reguła deny odrzucają; ścieżka w jednym spanie z `git rm` albo `git mv` w `## Change`
-   ticketu `ready` lub `active` jest błędem (D-099). Stan: działa. */
+   ticketu `ready` lub `active` jest błędem (D-099), tak jak plik testu albo pathspec `git grep` z kryterium, który
+   nie istnieje i nie stoi sam w spanie `## Change` (D-105); wzorzec grepa, magia pathspeca, opcje i globy nie są
+   sprawdzane.
+   Stan: działa. */
 // Usage: node --test adrian-rebuild/tools/test-ticket-rules.mjs
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -205,10 +208,64 @@ test("D-099 (2): a ready or active ticket names each deleted or moved path of ##
 	assert.deepEqual(checkReady([row({ Status: "done" })], { files: file(joined), decisions }), []);
 });
 
+test("D-105: a file that a ready or active criterion names must exist", () => {
+	const text = ticketText("- AC-6: `node --test test/cli/prune.test.ts` → exit 0");
+	for (const status of ["ready", "active"]) {
+		const errors = checkReady([row({ Status: status })], { files: file(text), decisions, exists: () => false });
+		assert.deepEqual(errors.length, 1);
+		assert.match(errors[0], /R-017-x\/ticket\.md: AC-6: names the file test\/cli\/prune\.test\.ts, which does not/);
+	}
+	assert.deepEqual(checkReady([row({ Status: "ready" })], { files: file(text), decisions, exists: () => true }), []);
+});
+
+test("A test file the ticket creates counts once ## Change names it alone in backticks", () => {
+	const check = (change) => {
+		const text = ticketText("- AC-1: `node --test test/cli/stats.test.ts` → exit 0").replace(
+			"## Change\n",
+			`## Change\n${change}\n`,
+		);
+		return checkReady([row({ Status: "ready" })], { files: file(text), decisions, exists: () => false });
+	};
+	assert.deepEqual(check("(d) Tests, in the new `test/cli/stats.test.ts`."), []);
+	assert.deepEqual(check("(d) A new folder `test/cli/` of scenario tests."), []);
+	assert.equal(check("(d) The fixture of `test/cli/stats.test.ts:12` moves.").length, 1);
+	assert.equal(check("(d) Tests, in the new ` test/cli/stats.test.ts `.").length, 1);
+});
+
+test("Only the files of a criterion's test runs and grep pathspecs are looked up, not a pattern, magic, option or glob", () => {
+	const text = ticketText(
+		"- AC-1: `node --test 'test/**/*.test.ts'` → exit 0; " +
+			"`git grep -q land.test.ts -- src/a.ts ':!test/b.test.ts' 'seat/*.sh'` → exit 1; " +
+			"`git grep -q -e '--json' -- test/f.test.ts` → exit 1\n" +
+			"- AC-2: `sh adrian-rebuild/tools/test-pre-push.sh` → exit 0; " +
+			"`node --test --test-concurrency=1 adrian-rebuild/tools/test-gate.mjs test/c.test.ts` → exit 0\n" +
+			"- AC-3: `node --test test/d.test.ts&& git status` → exit 0; " +
+			"`node adrian-rebuild/tools/fails-before.mjs test/e.test.ts` → exit 0",
+	);
+	const asked = [];
+	const exists = (path) => {
+		asked.push(path);
+		return true;
+	};
+	assert.deepEqual(checkReady([row({ Status: "active" })], { files: file(text), decisions, exists }), []);
+	assert.deepEqual(asked, [
+		"src/a.ts",
+		"test/f.test.ts",
+		"adrian-rebuild/tools/test-pre-push.sh",
+		"adrian-rebuild/tools/test-gate.mjs",
+		"test/c.test.ts",
+		"test/d.test.ts",
+		"test/e.test.ts",
+	]);
+});
+
 test("Tickets of other statuses keep their criteria unchecked", () => {
-	const text = ticketText("- AC-1: `node seat/deploy.ts` → exit 2\n- AC-2: no command here.");
+	const text = ticketText(
+		"- AC-1: `node seat/deploy.ts` → exit 2; `node --test test/gone.test.ts` → exit 0\n- AC-2: no command here.",
+	);
 	for (const status of ["planned", "blocked", "done", "dropped (by Adrian)"]) {
-		assert.deepEqual(checkReady([row({ Status: status })], { files: file(text), decisions, permissions: listed }), []);
+		const context = { files: file(text), decisions, permissions: listed, exists: () => false };
+		assert.deepEqual(checkReady([row({ Status: status })], context), []);
 	}
 });
 

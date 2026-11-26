@@ -7,7 +7,8 @@
    i wpisy changes.md według D-009 (changes-entries.mjs); status ticketu może być też `blocked` z trybu nocnego.
    Reguły D-054 bierze z ticket-rules.mjs: status `ready` z ticket.md albo wpisem decyzji, `Run` = `night` ticketu
    pair z zapisanymi wyborami i polecenia kryteriów ticketów `ready` i `active` dopasowane do allow-listy
-   `.claude/settings.local.json`, gdy ten plik istnieje. Stan: działa; kończy się kodem 1 i listą błędów. */
+   `.claude/settings.local.json`, gdy ten plik istnieje, oraz istnienie plików, które testy tych kryteriów i ich
+   pathspece `git grep` nazywają (D-105). Stan: działa; kończy się kodem 1 i listą błędów. */
 // Usage: node adrian-rebuild/tools/check.mjs   (run from the repository root)
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -440,7 +441,8 @@ function checkPlan(planText, auditText, list, tasteIds, files) {
 	}
 	errors.push(...checkRuns(tickets, files));
 	const permissions = readPermissions();
-	errors.push(...checkReady(tickets, { files, decisions: section(planText, "Decisions"), permissions }));
+	const decisions = section(planText, "Decisions");
+	errors.push(...checkReady(tickets, { files, decisions, permissions, exists: existsSync }));
 	const ready = tickets.filter(({ Status }) => Status.startsWith("ready")).length;
 	checkCoverage(tickets, list, tasteIds, section(planText, "Tickets"));
 	checkGateCopy(planText, auditText);

@@ -143,8 +143,9 @@ prywatnych repo projektów, więc zamiast kroku 3.11 obserwator `main` R-106 w e
 korzysta z Limena najwcześniej od a1.0.0), D-112 (cztery znaleziska zamknięcia etapu 3: R-107–R-109 w etapie 4 i
 notatka do R-051); próbna trasa F012 na ledgerze i krok 3.9 zaliczone; D-113: projekty na seacie dalej stoją, a limity
 subskrypcji idą na przebudowę; artefakty prób usunięte z seata, zamknięcie etapu 3 na seacie (D-106) skończone,
-przekazanie do limen-rebuild-35 (dwa commity Tools: z D-105); tam pierwszy z nich: bramka pada na nowym pliku
-ignorowanym w checkoucie (D-105 (1)). -->
+przekazanie do limen-rebuild-35 (dwa commity Tools: z D-105); tam oba: bramka pada na nowym pliku ignorowanym
+w checkoucie (D-105 (1)), a check.mjs wymaga, żeby istniał każdy plik, który uruchamia test kryterium albo nazywa
+pathspec `git grep` (D-105 (2)); następny jest etap 4 w nowej sesji. -->
 
 
 
@@ -2676,7 +2677,8 @@ Protocol per ticket (rebuild stage 5):
    the main session runs every grep and scan criterion at HEAD and confines it to the paths of `## Change` unless
    every match is one the ticket removes; a global property that a subsequent ticket makes true is that ticket's criterion
    (D-025). A criterion names only commands on the list of `## Commands`; a script that runs only on the seat is
-   checked through its tests (D-036).
+   checked through its tests (D-036). Every file a criterion's test run or `git grep` pathspec names exists, or
+   `## Change` names it alone in backticks as one the ticket creates; `check.mjs` checks it (D-105 (2)).
 3. `delegated`: the main session runs `node adrian-rebuild/tools/review-guard.mjs snapshot --git --out
    node_modules/.rebuild-review/R-NNN.git`, starts
    `rebuild-implementer` by its name (not a fork) with the ticket folder's path, changes nothing in the working tree
@@ -5279,5 +5281,13 @@ the terminal being active; context 7 % at the start; `HEAD` = `origin/adrian-reb
 - D-105 (1) done: `gate.mjs` fails on a new ignored file in the checkout outside `node_modules/` and editor swap files,
   naming each (`evidence/gate-new-ignored/`, the commit `Tools: gate.mjs fails on a new ignored file …`); review PASS
   in rounds 1–3. The full gate leaves none in this checkout (exit 0, 1237/1237).
-- Next: D-105 (2), `check.mjs`'s check of the test files that `ready` and `active` criteria name
-  (`evidence/check-test-files/`); then handover item 3 above (stage 4 in a new session).
+- D-105 (2) done: `check.mjs` (through `ticket-rules.mjs`) requires every file that a `ready` or `active`
+  criterion's test run (`node --test`, `fails-before.mjs`, `sh`) or `git grep` pathspec names to exist or to be named
+  by `## Change` as `review-guard.mjs` reads it (`evidence/check-test-files/`, the commit `Tools: check.mjs checks the
+  files …`); review PASS, FAIL (a grep pathspec of a removed test passed silently; fixed), PASS. The session's reading,
+  for Adrian at the next gate: the check covers every such file, not only test files (`outcome.md` → Deviations).
+  Both D-105 commits are done: `git log --grep='^Tools:'` lists them.
+- Next: handover item 3 above: stage 4 starts in a new session (D-106, D-081's pattern), which writes stage 4's
+  `ticket.md` files: R-038–R-047 and R-104–R-109, with the notes of `## Tickets` for each; the projects stay paused
+  (D-113). From now on each such `ticket.md` names in `## Change` every new file its criteria's test runs or grep
+  pathspecs name, or `check.mjs` fails (D-105 (2)).

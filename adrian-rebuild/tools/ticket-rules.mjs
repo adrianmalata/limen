@@ -2,8 +2,11 @@
    dało się je testować na napisach (D-054). Status `ready` wymaga ticket.md albo, gdy zależności nie są `done`,
    wpisu decyzji wskazanego w statusie; ticket pair może mieć `Run` = `night` dopiero z datowanym wpisem w swoim
    `## Decisions`; polecenia kryteriów ticketów `ready` i `active` są dopasowywane do allow-listy Claude Code, a ich
-   `## Change` nie może trzymać ścieżki w jednym spanie z `git rm` albo `git mv` (D-099). Stan: działa; test w
-   tools/test-ticket-rules.mjs. */
+   `## Change` nie może trzymać ścieżki w jednym spanie z `git rm` albo `git mv` (D-099); każdy plik, który uruchamia
+   test ich kryterium albo nazywa pathspec `git grep`, istnieje albo stoi sam w spanie `## Change` (D-105).
+   Stan: działa; test w tools/test-ticket-rules.mjs. */
+
+import { changePaths, covered } from "./review-guard.mjs";
 
 const PLAN = "adrian-rebuild/plan.md";
 
@@ -14,6 +17,10 @@ const DATED_ENTRY = /^- \d{4}-\d{2}-\d{2} /m;
 // The night logs show that a `|` inside single quotes does not split a command, so the split follows the shell's quotes.
 const OPERATORS = ["&&", "||", ";", "|", "&", "\n"];
 const EXPANSION = "holds a variable or command expansion ($ or `) outside single quotes";
+// D-105 (2): the commands of a criterion that name files, each up to where its files start: the test runs, and the
+// pathspecs after a `git grep`'s `--`, since a pathspec that matches no file makes the grep exit 1 whatever the text,
+// so a criterion `→ exit 1` on a removed file would pass without checking anything. A grep's pattern is no file.
+const FILE_LISTS = [/^node --test\s+/, /^node \S*fails-before\.mjs\s+/, /^sh\s+/, /^git grep\s.*?\s--\s+/];
 
 /** The body of the level-2 section `## <name>`, up to the next level-2 heading. */
 export function section(text, name) {
@@ -287,11 +294,47 @@ function changeFormErrors({ path, text }) {
 }
 
 /**
+ * The files that the lists of FILE_LISTS in a command name, read from the parts the allow-list reads. A word that
+ * starts with `-` is an option (one whose value stands as its own word is not told apart: criteria write `--name=value`),
+ * one that starts with `:` is a pathspec's magic, and a glob is a pattern the runner or git expands. A command the
+ * allow-list rule refuses names none.
+ */
+function namedFiles(command) {
+	return (splitCommand(command).parts ?? []).flatMap((part) => {
+		const list = FILE_LISTS.find((start) => start.test(part));
+		const words = list === undefined ? [] : part.replace(list, "").split(/\s+/);
+		return words.map((word) => word.replace(/^['"]|['"]$/g, "")).filter((word) => !/^[-:]|[*?[]/.test(word));
+	});
+}
+
+/**
+ * D-105 (2): every file a criterion's test runs and grep pathspecs name exists, or `## Change` names it alone in
+ * backticks as one the ticket creates or removes (D-089), so a criterion cannot name a test an earlier ticket removed
+ * (R-103 Decision 24).
+ */
+function namedFileErrors({ path, text }, exists) {
+	// The reading of `## Change` that the implementer's run is held to (D-015), so both agree on what a ticket names.
+	const named = changePaths(text);
+	const errors = [];
+	for (const { id, commands } of criteria(text)) {
+		for (const file of new Set(commands.flatMap(namedFiles))) {
+			if (!exists(file) && !covered(file, named)) {
+				errors.push(
+					`${path}: ${id}: names the file ${file}, which does not exist; a file the ticket creates is named in ## Change in its own backticks (D-105)`,
+				);
+			}
+		}
+	}
+	return errors;
+}
+
+/**
  * D-054 (1): the record a ready ticket needs, and the criteria and the `## Change` form of every ready or active
  * ticket. Other statuses are not checked, so a blocked ticket keeps the criterion that blocked it, and a done one its
- * history. `permissions` is absent without a settings file.
+ * history. `permissions` is absent without a settings file; `exists` (whether a path of the checkout exists) is absent
+ * in the string tests of the other rules.
  */
-export function checkReady(tickets, { files, decisions, permissions }) {
+export function checkReady(tickets, { files, decisions, permissions, exists }) {
 	const done = new Set(tickets.filter(({ Status }) => Status === "done").map(({ ID }) => ID));
 	const errors = [];
 	for (const ticket of tickets) {
@@ -301,6 +344,7 @@ export function checkReady(tickets, { files, decisions, permissions }) {
 		}
 		if (file !== undefined && /^(ready|active)\b/.test(ticket.Status)) {
 			errors.push(...criterionErrors(file, permissions), ...changeFormErrors(file));
+			errors.push(...(exists === undefined ? [] : namedFileErrors(file, exists)));
 		}
 	}
 	return errors;
