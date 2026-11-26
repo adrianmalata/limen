@@ -5788,3 +5788,21 @@ the terminal being active; context 8 % at the start; `HEAD` = `origin/adrian-reb
   night, never during one (`relog.ps1` switches only the Windows install, not WSL's `~/.claude/`).
 - Next: the night (preflight of D-024, then `night.mjs --until 08:00` by D-102 (2)); gate 5.4 also gets R-111
   Decisions 2–8 and its Open points.
+
+Night of 2026-11-26/27 (D-102's pattern, until 08:00; Adrian: "zgodnie z rekomendacją", to start once R-111 is
+committed). Preflight at `9d0e4fb` (D-024): `node --test adrian-rebuild/tools/test-night.mjs` → exit 0 (29/29); `node
+--test adrian-rebuild/tools/test-handover.mjs` → exit 0 (24/24); `night.mjs` unchanged since `ddce57b`, whose review
+was PASS (`evidence/handover-night-lock/review.md`); `node adrian-rebuild/tools/check.mjs` → exit 0 (14 `ready`
+tickets, their criteria against the allow-list); `HEAD` equal to `origin/adrian-rebuild`, clean tree; a new `claude -p`
+session listed `rebuild-implementer` and `rebuild-reviewer`; no `.night/lock`. Use at 17:47: five-hour window 2 %,
+weekly 82 % (the current account; a weekly limit ends the runs, at most three, and a cut ticket resumes by D-102 (4)).
+The old `.night/status.json` (`no-ticket`) predates this night's runs, so the runner ignores it.
+- The night's queue, in protocol order (`## Agents`, step 1: the lowest `ready` ID whose dependencies are `done`):
+  R-039, R-040, R-042, R-043, R-044, R-045, R-047, R-104, R-105, R-106, R-107, R-108, R-109, R-110. If R-039 stops,
+  R-040–R-047 and R-110 wait, and R-104–R-109 go on. Each ticket's `ticket.md` is checked again at `HEAD` first
+  (protocol step 2, D-025). R-041 and R-046 are `pair` and wait for the day.
+- Since R-111, a hang of `test/s3-finish-wake.test.ts` in a gate is a finding again, never a re-run (D-029): a
+  `.night/questions.md` entry, and the ticket waits.
+- `limen-rebuild-41` starts the runner by D-102 (2) right after the commit of this entry, as a background task, and then
+  changes nothing in the repository until the runner's end wakes it (D-102 (1), (3)); at that wake: a push to Adrian,
+  `## State` and `.night/status.json` read, then the day's work or a handover by D-047.
