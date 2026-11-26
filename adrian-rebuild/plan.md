@@ -157,7 +157,9 @@ w commicie, reguła lidera A-082 do R-077, wpis koordynatora z R-045 stosuje R-0
 R-047 gotowe na noc za R-039; przekazanie do limen-rebuild-39 na ticket.md R-044, R-045 i R-110; tam ticket.md R-044
 (przełączniki modułów, zestaw hooków według roli, tekst modułów w osobnych plikach) i krok 4.9 z nową sesją
 koordynatora; D-124: R-044 zależy też od R-040 i jest gotowy na noc; przekazanie do limen-rebuild-40 na ticket.md
-R-045 i R-110. -->
+R-045 i R-110; tam oba ticket.md napisane (R-045: narzędzia i skille z tabeli ról, sprawdzenie efektu roli tylko do
+odczytu w finalizeJob; R-110: powiadomienia o zmianach i skrót tablicy z biegiem, golden kontynuacji), kroki 4.2 i 4.3
+oraz M-04 uzupełnione, a pytania Q-86 i Q-87 o zależności od R-042, R-043 i R-044 czekają na Adriana. -->
 
 
 
@@ -2600,9 +2602,12 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
 - **4.2** The per-query CLI log shows the Limen context message in the request, whole and first, also for the largest
   role, and it does not start with `/` (E-14); after a manual `/compact` it is sent again (item 12; R-039); a `limen
   continue` of a job whose files changed since its parent shows the parent's message and one notice of those files
-  (R-110, D-114).
+  (R-110, D-114); the coordinator's request after a `limen land` ends with the board digest, and the next one with an
+  unchanged board has none; after a hand edit of the project's `spec/vision.md` (undone after the step) the next
+  coordinator request holds one `changed spec/vision.md` notice and the one after it none (R-110, D-120).
 - **4.3** A review job sees only its declared tools and skills, and the seat's Claude Code lists no tool it would load
-  on demand (item 12; E-5; R-045).
+  on demand (item 12; E-5; R-045); the trial route's review ends `done`, so the projects' checks leave no file outside
+  `.gitignore` in a reviewer's worktree (R-045 `ticket.md` → Risk).
 - **4.4** A Polish message to the coordinator gets a Polish answer, and a ticket written from that conversation is in
   English (item 12; T-13; R-041).
 - **4.5** An edit of a ticket in `spec/features/planned/` brings the vision reminder inside that tool result (R-043).
@@ -2734,7 +2739,7 @@ because every attempt is a whole ticket on the shared Max window (z. 17).
 | M-01 | Fixed context per role, bytes and ≈tokens | `node adrian-rebuild/tools/context-size.mjs <ref>` on the laptop; `--project` on the seat | `rebuild-base` (`evidence/context-size-rebuild-base.md`): system-prompt text the bridge drops, plus the cue that reaches the model | at the close of every stage from stage 4: the context message and the cue | R-039–R-047, R-086 |
 | M-02 | One raw request per role (coordinator turn, job turn) | per-query CLI log with `CLAUDE_BRIDGE_DEBUG=1` | B.1, done 2026-11-17 (`## Engine facts`) | 4.8, 9.1 | R-039 |
 | M-03 | Coordinator cache-read tokens per landed ticket (A-078) | `limen stats` | B.3, M1 history; reference from B.1: about 297k–313k cache-read tokens per coordinator request | 9.1, the next ten landed tickets | R-051 |
-| M-04 | Coordinator cache-write tokens in the turn after a land (A-037) | `limen stats` | B.3 | 9.1 | R-039 |
+| M-04 | Coordinator cache-write tokens in the turn after a land (A-037) | `limen stats` | B.3 | 9.1 | R-039, R-110 |
 | M-05 | Same-task pass^k, with per run: owner commands outside owner-channel actions (T-41, target 0), `sleep` calls and repeated `status` reads by the coordinator (T-34), share of model replies with their own Done / In progress / Waiting for you lines (T-15, target 0 from a0.7.0), reply language equal to the owner's (T-13), metaphors from the T-14 list in replies | same-task runner (R-011) and its transcript counts | B.2, `rebuild-base` | 4.8 (a0.4.0), 9.1 (a1.0.0) | R-011, R-039–R-047, R-067, R-073 |
 | M-06 | Lead time per ticket, split into queue, job runs, checks, review and waiting for the owner | `limen stats` | B.3 | 9.1 | R-024, R-076 |
 | M-07 | Tokens per landed ticket by class (input, cache write, cache read, output) | `limen stats` | B.3 | 9.1 | R-024 |
@@ -5648,3 +5653,32 @@ and no night running): `limen-rebuild-39` starts `limen-rebuild-40` with `node a
    module and part, a departure from the inventory), R-110's digest text until R-073, and the open points of
    `limen-rebuild-36`.
 The handover after it is `limen-rebuild-41`.
+
+`limen-rebuild-40` (2026-11-26, by day, Adrian at the terminal): `close-previous` printed `handover: closed tmux session
+limen-rebuild-39` and one `handover: stopped claude …` line and exited 0; the takeover push was skipped as redundant,
+the terminal being active; context 9 % at the start; `HEAD` = `origin/adrian-rebuild` = `8b3cc59`, the tree clean.
+- R-045's `ticket.md` written at `8b3cc59` from `evidence/inventories/R-045.md` and D-123: the role table of R-044 gains
+  `tools`, `skills` and `readOnly` (`reviewer`, `judge`, `researcher` get `read,bash,finish`, the writers
+  `read,bash,edit,write,finish`), every job gets `--no-skills`; `COORDINATOR_SESSION` beside the table (D-123; the
+  table's `coordinator` is the group team, R-044 Decision 9); the effect check `src/job/read-only.ts` (the worktree's
+  `HEAD`, the job's own branch, `git status --porcelain`), taken after setup into the job folder's `start-state.json`,
+  carried by a continuation, applied in `finalizeJob` to both `done` paths, failing closed (`unproven:`). Inventory
+  questions 1–9 and A settled by the documents (its `## Decisions` 1–14); Q8 departs from the inventory, since R-040
+  makes roles package-only (the table is the one list of job roles). Grep criteria at HEAD: AC-8–AC-10 exit 1 and
+  expect 0, AC-11 exits 0 and expects 1 (a line the ticket removes). `## Deployment` 4.3 gains "the trial route's
+  review ends `done`" (inventory section 6). Status `planned` until Q-86.
+- R-110's `ticket.md` written at `8b3cc59` from `evidence/inventories/R-110.md` and D-120: the comparison of a frozen
+  message with the parts built now in `src/runtime/context-message.ts`; two `before_agent_start` handlers after the
+  cue's in `hook/communication.ts`, `limen-notice` (coordinator and jobs) and `limen-board` (coordinator only), each
+  reading what was delivered from `buildContextEntries()`; the continuation's notice from the child's first run; the
+  continuation goldens. S1–S7, Q1–Q7, O1 (D-120), O2 (T-37 (3)) and O3 (A-037, T-18) settled (its `## Decisions`
+  1–18). Grep criteria at HEAD: AC-6–AC-8 exit 1 and expect 0. Its plan gaps fixed: `## Deployment` 4.2 checks the
+  digest and an in-session notice, and M-04's Tickets column names R-110. Status `planned` until Q-87.
+- Q-86 and Q-87 asked with a push (searched first: `input/gate-2-decisions.md`, `taste.md`,
+  `input/zasady-budowy-harnessu.md`, `## Decisions`; no general rule on a dependency through a shared file, and D-094
+  (3), D-116 (3) and D-124 each decided one case): Q-86 whether R-045 depends on R-042 (both change `finalizeJob`'s
+  `done` path in `src/job/finalize.ts`); Q-87 whether R-110 depends on R-042, R-043 and R-044 (each changes
+  `hook/communication.ts` or `src/runtime/context-message.ts`, R-044 after R-040). Recommended: yes for both.
+- Night-ready in stage 4 unchanged (13): R-038, then R-039, then R-040, R-042, R-043 and R-047, and R-044 after R-040;
+  R-104, then R-105; R-106; R-107; R-108; R-109. `planned`: R-045 (Q-86), R-110 (Q-87), and the pair tickets R-041 and
+  R-046 (`day-after`).
