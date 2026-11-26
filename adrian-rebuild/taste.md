@@ -8,7 +8,8 @@ dostała zasady helpu na czas przejściowy (pytania R-014, D-039–D-041), a T-3
 są wartością albo `null`, a `next` zawsze jest poleceniem (D-045, D-046); 23.11 z listy poleceń odczytu T-04
 wypadł `diff`, bo `diff` i `open` otwierają kartę Herdra i ją zapisują (D-096); 25.11 T-04 dopuszcza
 odczyt z limitem czasu i wymienia te limity (D-107); 26.11 kontrakt mostu z T-31 (2) czyta plik sesji Claude Code
-zamiast logu mostu, dopóki formatu logu nie ma w repo (D-119). -->
+zamiast logu mostu, dopóki formatu logu nie ma w repo (D-119), a T-16 mówi, że wiadomość kontekstowa, skrót tablicy
+i powiadomienia nie dodają tury (D-114 (1), D-120). -->
 
 # Taste
 
@@ -976,6 +977,11 @@ the author's choice. Taste decisions taken after this interview are added here w
   rest as in T-15.
 - Source: interview round 4, AU-123, and Adrian's correction of the same day (the "Done" line content, the owner
   message definition; gate 2 revision 4); departs from the author.
+  2026-11-26 (`plan.md` D-114 (1) and D-120, the questions of R-039 and R-110): the delivery options above stay for the
+  wakes only. The context message is sent with no trigger while the session is idle at session start, so it starts no
+  turn, and again after a compaction by E-13's rule; the board digest and the change notices ride the run as the cue
+  does, as messages a `before_agent_start` handler returns, so neither adds a request or a turn. Each is still a
+  `limen-*` custom message, never `sendUserMessage`.
 
 ### T-17 No parking list: "not now" is a final rejection with a revisit signal
 - Rule: The rebuild keeps no list of parked ideas and no postponed status (gate 2 §0.6). An idea that is not done now

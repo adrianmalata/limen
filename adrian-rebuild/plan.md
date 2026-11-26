@@ -1485,6 +1485,27 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   The system part is checked in the repository by the fake's bridge view and its negative test, and on the seat by 4.1
   and 4.2 from the per-query CLI log. `taste.md` T-31 carries the change. Check: R-038 `ticket.md`; `## Deployment` 0.5
   and 4.1.
+- 2026-11-26 D-120 (Adrian: "zgodnie z rekomendacjami"; Q-80, option 1, from `evidence/inventories/R-110.md`): the
+  board digest and the change notices of R-110 ride the run as the cue does: each is a `limen-*` custom message that a
+  `before_agent_start` handler returns, so it ends that run's prompt and adds no request and no turn; this departs from
+  T-16's `followUp` with `triggerTurn: true` for them too, as D-114 (1) did for the context message, and the wakes keep
+  A-034's options. `taste.md` T-16 carries D-114 (1) and this decision. Check: R-110 `ticket.md`; `taste.md` T-16.
+- 2026-11-26 D-121 (Adrian, the same message; Q-81, option 1, from `evidence/inventories/R-042.md`): the 80 % steer
+  says per role only what is true at its commit: reviewer and judge "write your verdict now"; researcher "give your
+  report in your final message now"; worker, keeper, quality and group member "commit your work now"; each after "<N>
+  min left before the timeout: ". R-063 adds A-059's "Limen runs the checks" and "the judgments" once its checks run.
+  Check: R-042 `ticket.md`; the note of R-063 in `## Tickets`.
+- 2026-11-26 D-122 (Adrian, the same message; Q-82 and Q-83, option 1 each, from `evidence/inventories/R-044.md`): (1)
+  Q-82: at R-044's commit the modules header of `limen --help` reads "Modules: off by default; the owner switches them on
+  in limits.json", which is true then; R-055 adds the owner channel and R-062 adds `limen init`, until the header is
+  T-19 (5)'s text; this amends D-040's criterion for R-044 by D-040's own rule (the help "says only what is true now").
+  (2) Q-83: R-044 loads `group-peer` in a coordinator only with groups on; A-082's "only in a session that leads a
+  group", with the 1-second timer's end, is R-077's (its `group start` lead rule changes anyway). Check: R-044
+  `ticket.md`; the notes of R-055, R-062 and R-077 in `## Tickets`.
+- 2026-11-26 D-123 (Adrian, the same message; Q-84, option 1, from `evidence/inventories/R-045.md`): R-045 declares the
+  coordinator's entry in the role table (its four tools, no skills), and R-050's coordinator start script applies it in
+  stage 5; until then the coordinator, started by hand, keeps Pi's defaults. Check: R-045 `ticket.md`; the note of
+  R-050 in `## Tickets`.
 
 ### Gate 2 §2, copied
 
@@ -1892,10 +1913,10 @@ Columns:
 | R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16, D-114 | R-021, R-038 | L | delegated | night | yes | pi, bridge | 4.2 | ready |
 | R-040 | Role texts come from the package, in three registers | 4 | A-038, A-039, A-042, D-005 | R-001, R-039 | M | delegated | night | yes | — | — | planned |
 | R-041 | The turn cue holds only variable parts and the audience line | 4 | A-077, T-13 | R-039 | S | pair | day-after | — | pi | 4.4 | planned |
-| R-042 | The task-note mechanism is cut | 4 | A-044, A-059 | R-039 | M | delegated | night | yes | — | — | planned |
+| R-042 | The task-note mechanism is cut | 4 | A-044, A-059, D-121 | R-039 | M | delegated | night | yes | — | — | planned |
 | R-043 | Just-in-time reminders arrive in the triggering tool result | 4 | A-041, H-12 | R-039 | M | delegated | night | — | pi | 4.5 | ready |
-| R-044 | Module switches; hooks load by role and module | 4 | G1.10, G1.1, G1.2, G1.9, A-082, A-040 | R-015, R-039 | M | delegated | night | yes | pi | 4.7, 4.9 | planned |
-| R-045 | Tools and skills per role; a read-only role that writes fails | 4 | A-081, E-5 | R-044 | M | delegated | night | — | pi, bridge | 4.3 | planned |
+| R-044 | Module switches; hooks load by role and module | 4 | G1.10, G1.1, G1.2, G1.9, A-082, A-040, D-122 | R-015, R-039 | M | delegated | night | yes | pi | 4.7, 4.9 | planned |
+| R-045 | Tools and skills per role; a read-only role that writes fails | 4 | A-081, E-5, D-123 | R-044 | M | delegated | night | — | pi, bridge | 4.3 | planned |
 | R-046 | Role prompts are literal, sourced and budgeted | 4 | T-09, T-14, T-15, T-08, T-10, T-21, A-043, A-085, A-040 | R-040, R-041, R-042, R-044 | L | pair | day-after | — | — | — | planned |
 | R-047 | The coordinator never waits | 4 | T-34 | R-039 | S | delegated | night | — | pi | 4.6 | ready |
 | R-104 | The sweep's daily prune archives every unregistered folder and waits on no job's lock; a queue entry is live only for a project's job | 4 | A-002, A-024, T-25, D-107 | R-101 | M | delegated | night | — | — | — | ready |
@@ -1904,7 +1925,7 @@ Columns:
 | R-107 | The exit 4 of systemd 259's `is-active` reads as not active | 4 | A-029, E-18, D-112 | R-026 | S | delegated | night | — | systemd | 4.13 | ready |
 | R-108 | The stall rule follows every pending tool of a message | 4 | A-059, E-19, D-112 | R-036 | S | delegated | night | — | pi | 4.12 | ready |
 | R-109 | The alerts' unit sends over IPv4 first | 4 | A-066, D-108, D-112 | R-033 | S | delegated | night | — | systemd | 4.11 | ready |
-| R-110 | A continuation reuses its parent's context message; change notices and the board digest come only on a change | 4 | A-079, A-037, A-051, D-114 | R-039 | M | delegated | night | — | pi | 4.2 | planned |
+| R-110 | A continuation reuses its parent's context message; change notices and the board digest come only on a change | 4 | A-079, A-037, A-051, D-114, D-120 | R-039 | M | delegated | night | — | pi | 4.2 | planned |
 | R-048 | Jobs run the bridge isolated: no `--approve`, `--offline`, a private `TMPDIR`, an explicit Claude Code path | 5 | A-025, E-3, E-4, E-15, D-005, D-017 | R-040, R-087 | M | delegated | night | — | pi, bridge | 5.8, 5.9 | planned |
 | R-049 | Agents run only root-owned code; Pi, bridge and Claude Code versions are declared | 5 | A-025, T-32, T-36, D-017 | R-017, R-020, R-048 | L | delegated | night | yes | pi | 5.3, 5.5, 5.6, 5.10, 5.20 | planned |
 | R-050 | The registered coordinator and its start script | 5 | A-033, A-061, A-029, §2, D-017 | R-026, R-033, R-034, R-049 | L | delegated | night | yes | pi, herdr, systemd | 5.4, 5.11, 5.20 | planned |
@@ -1934,7 +1955,7 @@ Columns:
 | R-074 | An answered question opens the ticket that records it in `docs/` | 7 | T-05 | R-065, R-068 | S | delegated | night | — | — | — | planned |
 | R-075 | `needs-adam` keys become open request records | 7 | T-21 | R-068 | S | delegated | night | yes | — | — | planned |
 | R-076 | Owner touchpoints and questions in `limen stats` | 7 | T-40, T-05 | R-024, R-068 | S | delegated | night | — | — | — | planned |
-| R-077 | Groups: state conditions, data batches, one final result, a model-free group land | 8 | G1.2, A-029, A-069, A-080, A-075, A-045, T-35 | R-044, R-071 | L | delegated | night | yes | pi | 8.1 | planned |
+| R-077 | Groups: state conditions, data batches, one final result, a model-free group land | 8 | G1.2, A-029, A-069, A-080, A-075, A-045, A-082, T-35, D-122 | R-044, R-071 | L | delegated | night | yes | pi | 8.1 | planned |
 | R-078 | Research on its own account, with a queue scanner and quote-checked synthesis | 8 | G1.11, A-004, A-046, T-35, T-18, §6 | R-044, R-059, R-070 | L | delegated | night | — | systemd | 8.2 | planned |
 | R-079 | The quality pass is a module triggered by code | 8 | G1.13, A-071 | R-044, R-071 | S | delegated | night | — | — | — | planned |
 | R-080 | Picture serves record data only; `touches:` is optional | 8 | G1.4, A-048 | R-044, R-061 | M | delegated | night | yes | — | — | planned |
@@ -2292,6 +2313,15 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
 - R-081 (the session, 2026-11-25; `## State`, "`limen-rebuild-34`"): `limen diff` opens a Herdr tab only when Hunk's
   binary is on `PATH` and prints the git command otherwise (`showJobDiff`, `src/integrations/hunk.ts` line 44 at
   `a0.3.0`), and no doc names Hunk; the docs name it as optional, with what `limen diff` does without it.
+- R-063 (D-121): the 80 % steer gains A-059's "Limen runs the checks" for the writing roles and "the judgments" for the
+  reviewer once Limen runs the job's checks, in the module R-042 leaves for the steer's text, with its test.
+- R-055, R-062 (D-122 (1)): the modules header of `limen --help` names the owner channel (R-055) and `limen init`
+  (R-062) in the ticket that brings each, until it reads T-19 (5)'s text; each updates the golden help.
+- R-077 (D-122 (2)): `group-peer` registers a coordinator as lead and runs its 1-second timer only while the session
+  leads an open group run (A-082), with `group start`'s lead rule as a state condition; criterion: with groups on and no
+  run led, the coordinator registers no lead and starts no timer.
+- R-050 (D-123): the coordinator start script starts the coordinator with the role table's coordinator entry (R-045):
+  its tools by `--tools` and no skills, with a test of the argv.
 
 ## Deployment
 
