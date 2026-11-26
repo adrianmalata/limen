@@ -154,7 +154,9 @@ seacie czyta plik sesji Claude Code, bo formatu logu mostu nie ma w repo) oraz t
 tablicy); przekazanie do limen-rebuild-38, która pisze pozostałe ticket.md etapu 4; tam sześć inwentarzy, decyzje
 D-120–D-123 (skrót tablicy i powiadomienia jadą z biegiem jak cue, steer 80 % według roli, nagłówek modułów prawdziwy
 w commicie, reguła lidera A-082 do R-077, wpis koordynatora z R-045 stosuje R-050) i ticket.md R-040, R-042, R-043 i
-R-047 gotowe na noc za R-039; przekazanie do limen-rebuild-39 na ticket.md R-044, R-045 i R-110. -->
+R-047 gotowe na noc za R-039; przekazanie do limen-rebuild-39 na ticket.md R-044, R-045 i R-110; tam ticket.md R-044
+(przełączniki modułów, zestaw hooków według roli, tekst modułów w osobnych plikach) i krok 4.9 z nową sesją
+koordynatora; R-044 czeka na odpowiedź Q-85 (zależność od R-040). -->
 
 
 
@@ -2055,8 +2057,8 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   twice. Neither project has an `AGENTS.md` today (gate 2 §1).
 - R-044: the switches go into the existing `limits.json`; its migration lists the modules each project uses (the
   GitHub module when connected, groups when a group record exists), and Adrian switches those on in step 4.9. Its
-  criteria include (D-040): the modules header of `limen --help` has the text of T-19, and each module line's `[on]` or
-  `[off]` is built from that module's switch (a golden test with one module on and the rest off).
+  criteria include (D-040, D-122 (1)): the modules header of `limen --help` has the text of D-122 (1), and each module
+  line's `[on]` or `[off]` is built from that module's switch (a golden test with one module on and the rest off).
 - R-032, R-034, R-037, R-101, R-102, R-066 (D-039, D-096, D-097): each one's criteria include "the command registry
   holds no entry with `movedBy` naming this ticket" (R-032: `sweep`, and it moves `prune` to R-101; R-034 moves `rule`
   to R-102; R-037 moves `close` to R-101; R-101: `prune`, `close`; R-102: `rule`; R-066: `keeper`). The ticket that
@@ -2605,7 +2607,8 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
   the stage). Before it, the main session proposes a name-independent evaluator and a way to keep the attempts out of
   the production checkout, each leaving B.2's result unchanged (D-050).
 - **4.9** Switch on, in each project's `.agents/limen/limits.json`, the modules its migration report lists as in use;
-  until a0.5.0 Adrian edits the file directly, from then on only through the owner channel (R-044).
+  until a0.5.0 Adrian edits the file directly, from then on only through the owner channel; then open a new coordinator
+  session in each project, since the context message is fixed per session and a `/reload` keeps it (R-039, R-044).
 - **4.10** The `main` watcher (R-106, D-110, D-117): in each project's GitHub settings a read-only deploy key whose
   private half only the alerts account can read; as root, one root-owned watch entry per project (its base name, its
   SSH address, its key) where R-106's install reads them; then the install that R-106 names. Its first runs fetch
@@ -2916,7 +2919,7 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-26 by day (`limen-rebuild-36`–`limen-rebuild-38`: stage 4's `ticket.md` files, D-114–D-123, in their entries at the end of this section; before them `limen-rebuild-35`: D-105's `Tools:` commits, in "`limen-rebuild-35`" at the end of this
+Updated 2026-11-26 by day (`limen-rebuild-36`–`limen-rebuild-39`: stage 4's `ticket.md` files, D-114–D-123, Q-85, in their entries at the end of this section; before them `limen-rebuild-35`: D-105's `Tools:` commits, in "`limen-rebuild-35`" at the end of this
 section; before it `limen-rebuild-34`: the close of stage 3 on the seat goes on, D-109–D-111, in
 "`limen-rebuild-34`" at the end of this section; before it `limen-rebuild-33`: the close of stage 3 on the seat with
 Adrian, D-106, step by step in "`limen-rebuild-33`"; before it `limen-rebuild-32`: gate 5.3 decided, D-107; R-103 `done`,
@@ -5590,3 +5593,25 @@ start 39` and ends its turn. By day, Adrian at the terminal. The next session's 
    Decisions 3 and 4, R-039 Decision 5, R-040 Decisions 7 and 9, R-042 Decision 1, R-110's digest text until R-073, and
    the open points of `limen-rebuild-36`.
 The handover after it is `limen-rebuild-40`.
+
+`limen-rebuild-39` (2026-11-26, by day, Adrian at the terminal): `close-previous` printed `handover: closed tmux session
+limen-rebuild-38` and one `handover: stopped claude …` line and exited 0; the takeover push was skipped as redundant,
+the terminal being active; `HEAD` = `origin/adrian-rebuild` = `6e5f5ca`, the tree clean.
+- R-044's `ticket.md` written at `6e5f5ca` from the inventory and D-122: the `modules` field of `limits.json` (six
+  modules by their command word, absent = off); `src/project/modules.ts` with `MODULE_OFF` (one shared step before a
+  module command's handler, and the job start of a module's role; `github poll` skips a project that is off);
+  `src/runtime/roles.ts` (each job role's module; R-045 extends it); `src/runtime/hook-set.ts` (the coordinator's and a
+  job's hooks; `steering` and `group-peer` factories register nothing outside their set, the stub byte-identical); the
+  module text in `templates/modules/<module>/<part file name>`, appended after its part; the help header of D-122 (1)
+  with `[on]`/`[off]`; `limen migrate`'s module report (all six, with evidence). Inventory questions 1–7 and 9–12
+  settled by the documents (its `## Decisions` 1–14); Q9 departs from the inventory's one file per module (no heading
+  parser). Grep criteria at HEAD: AC-9, AC-11, AC-12 and both of AC-13 exit 0 and expect 1, every match one the
+  ticket removes; AC-10 names `templates/manual.md` (R-040's), exit 0 on `templates/agents.md` today. `check.mjs`
+  exit 0. Status `planned` until Q-85.
+- `## Deployment` 4.9 gains "then open a new coordinator session" (inventory Q12); the R-044 note in `## Tickets` names
+  D-122 (1)'s header text.
+- Q-85 asked (searched first: `input/gate-2-decisions.md`, `taste.md`, `input/zasady-budowy-harnessu.md`, `##
+  Decisions`; no source settles it): R-044 depends on R-040 as well as R-015 and R-039, since both change
+  `src/runtime/context-message.ts`, the manual and the `## Specs` register, and R-044's module files extend R-040's part
+  files (Q-71's precedent: R-105 on R-104). Recommended: yes; R-040 runs first in a night anyway (lower ID), so only an
+  R-040 block would hold R-044 and R-045.
