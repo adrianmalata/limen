@@ -5291,3 +5291,16 @@ the terminal being active; context 7 % at the start; `HEAD` = `origin/adrian-reb
   `ticket.md` files: R-038–R-047 and R-104–R-109, with the notes of `## Tickets` for each; the projects stay paused
   (D-113). From now on each such `ticket.md` names in `## Change` every new file its criteria's test runs or grep
   pathspecs name, or `check.mjs` fails (D-105 (2)).
+
+Handover of 2026-11-26 (D-047 and D-081, at 30 % context, after the commit `Tools: check.mjs checks the files …`
+(`e287a1c`), with the tree clean and pushed and no night running): `limen-rebuild-35` starts `limen-rebuild-36` with
+`node adrian-rebuild/tools/handover.mjs start 36` and ends its turn. By day, Adrian at the terminal. The next session's
+acts, in this order:
+1. A push notification to Adrian (one line in Polish) that it takes over at the start of stage 4; then `node
+   adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into this section.
+2. Stage 4 (D-106): the `ticket.md` files of R-038–R-047 and R-104–R-109 with the notes of `## Tickets` for each
+   (R-104, R-105, R-107–R-109, and R-051's for stage 5), by protocol step 1, so that the night tickets become `ready`;
+   the projects stay paused (D-113), so the Max window is the rebuild's, by day and by night.
+3. At gate 5.4, the session's reading of D-105 (2) for Adrian to confirm: the check covers every file a criterion's
+   test run or `git grep` pathspec names, not only test files (`evidence/check-test-files/outcome.md` → Deviations).
+The handover after it is `limen-rebuild-37`.
