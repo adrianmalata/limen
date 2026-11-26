@@ -212,6 +212,24 @@ test("compact threshold outside the task's run compacts when the next run ends, 
 	assert.deepEqual(lines(dir, "seen.jsonl"), names);
 });
 
+// R-039: a hook reads which messages the model's context still holds through Pi's `buildContextEntries`
+// (`core/session-manager.js:201-229`): the latest compaction, the entries it kept, then every entry after it.
+test("the context's buildContextEntries gives Pi's compaction-aware entries: a custom message from before a compact is gone after it, one sent after it is there", async (t) => {
+	const kinds =
+		"const kinds = (context) => context.sessionManager.buildContextEntries().map((entry) => entry.customType ?? entry.type);";
+	const dir = await fake(
+		t,
+		"compact manual\nsay done",
+		[
+			kinds,
+			'pi.on("session_start", (_event, context) => { pi.sendMessage({ customType: "early", content: "early", display: false }); note(kinds(context)); });',
+			'pi.on("session_compact", (_event, context) => { note(kinds(context)); pi.sendMessage({ customType: "late", content: "late", display: false }); });',
+			'pi.on("agent_settled", (_event, context) => note(kinds(context)));',
+		].join("\n"),
+	);
+	assert.deepEqual(lines(dir, "seen.jsonl"), [["early"], ["compaction"], ["compaction", "late", "message", "message"]]);
+});
+
 test("the AGENTS* file of Pi's agent directory that the test sets enters the view, and none of the account's", async (t) => {
 	const dir = await fake(t, "say done", "", { [`${AGENT_DIR}/AGENTS.md`]: "agent-dir-marker\n" });
 	assert.deepEqual(views(dir)[0]?.system.append, ["# CLAUDE.md\n\nagent-dir-marker\n"]);

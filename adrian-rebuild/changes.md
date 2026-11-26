@@ -4,7 +4,7 @@ wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: 
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
 R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025, R-097, R-099, R-026, R-030, R-033,
 R-027, R-028, R-031, R-035, R-100, R-029, R-032, R-034, R-036, R-037, R-087, R-098, R-101, R-102, R-103, R-038,
-R-111. -->
+R-111, R-039. -->
 
 # Changes
 
@@ -472,3 +472,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-08, a blocked wake claim being an owner touchpoint; `## Deployment` 4.14 checks the wakes on the seat's Pi)
 - Commit: R-111
 - Rollback: git revert $(git log --format=%H --grep='^R-111:' adrian-rebuild --)
+
+## 2026-11-26 R-039 The Limen context message: one per session, frozen, saved, sent again after compaction
+- What: `src/runtime/context-message.ts` (new: the one builder of a role's context message from today's parts, with the `<limen-context role="…">` marker, no digest, path, id or date, no process); `src/job/spawning.ts`, `src/job/publication.ts`, `src/job/continuation.ts` (a job's `context.md` published with the record; a continuation carries the parent's bytes or builds one for an older parent); `src/runtime/wrapper.ts` (no engine without `context.md`: kind `launch`); `src/runtime/engine.ts`, `src/config.ts` (`--append-system-prompt` and `LIMEN_PREAMBLE` gone); `hook/communication.ts` (one `limen-context` custom message, `display: false`, sent idle with no options at `session_start` unless the context holds one, again after a compaction that removed it, with E-13's options; no `systemPrompt`); `src/runtime/pi-api.ts` (send options, `session_start` and `session_compact` payloads, `agent_start`, `agent_end`, `buildContextEntries()`, each guarded); `test/fake-engine.mjs`, `test/fake-session.mjs` (`buildContextEntries()`); references `test/runtime/context-message/*.md`; tests in `test/runtime/context-message.test.ts` (new), `test/hook/communication.test.ts`, `test/fake-engine.test.ts`, `test/cli/spawn.test.ts`, `test/cli/continue.test.ts`, `test/runtime/wrapper.test.ts`, `test/s4-steering.test.ts`, `test/u5-engine-stream.test.ts`, `test/config.test.ts`, `test/runtime/pi-api.test.ts`, `test/runtime/pi-contract.test.ts`, `test/runtime/pi-contract.ts`, `test/hook/wake.test.ts`, `test/u13-guidance-reminder.test.ts`; `adrian-rebuild/tools/context-size.mjs`, `role-context.mjs`, `test-context-size.mjs` (new; M-01 measures the context message and the cue); `docs/setup.md`, `docs/jobs.md`, `CONTRIBUTING.md`, `templates/agents.md`, `templates/communication.md`, `templates/.history/`
+- Why: A-086, A-037, A-079, A-051, T-36, E-13, E-16, D-114, D-005, T-16, T-25, T-29, T-30, T-32, T-38
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (1333/1333); `node adrian-rebuild/tools/fails-before.mjs test/runtime/context-message.test.ts test/hook/communication.test.ts test/fake-engine.test.ts test/cli/spawn.test.ts test/cli/continue.test.ts test/runtime/wrapper.test.ts test/s4-steering.test.ts` → exit 0; `node --test adrian-rebuild/tools/test-context-size.mjs` → exit 0; `node adrian-rebuild/tools/context-size.mjs a0.3.0 --out node_modules/.rebuild-review/context-size-a0.3.0.md` → exit 0; `node adrian-rebuild/tools/check.mjs` → exit 0
+- Measurement: unmeasured (plan.md → Measurement: M-01 at the close of stage 4, M-02, M-04, M-05; `## Deployment` 4.2 checks the message whole and first on the seat)
+- Commit: R-039
+- Rollback: git revert $(git log --format=%H --grep='^R-039:' adrian-rebuild --)

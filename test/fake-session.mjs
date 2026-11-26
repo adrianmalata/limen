@@ -1,7 +1,7 @@
 // The Pi session of the fake engine (test/fake-engine.mjs): its entries as Pi 1.5.1's session manager writes them, one
 // JSON line each in the transcript below --session-dir (`core/session-manager.d.ts`: a `session` header when the file
 // is new, then `message`, `custom_message` and `compaction` entries), and the conversation they hold, compaction-aware
-// as Pi's `buildContextEntries` gives it (`core/session-manager.js:196-225`). A continuation opens the copied file and
+// as Pi's `buildContextEntries` gives it (`core/session-manager.js:201-229`). A continuation opens the copied file and
 // reads its entries back, so its first call holds the parent's conversation, as Pi's `--continue` does.
 import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
@@ -39,8 +39,16 @@ export class FakeSession {
 
 	/** The conversation of the next model call in Pi's form: the latest compaction's summary, its kept entries, then the rest. */
 	messages() {
+		return this.buildContextEntries().flatMap(messageOf);
+	}
+
+	/**
+	 * The active, compaction-aware entries, as Pi's `buildContextEntries` gives them (`core/session-manager.js:201-229`):
+	 * the latest compaction, the entries it kept, then every entry after it; every entry when there is none.
+	 */
+	buildContextEntries() {
 		const compaction = this.entries.findLast((entry) => entry.type === "compaction");
-		return [...(compaction ? [compaction] : []), ...this.contextEntries()].flatMap(messageOf);
+		return [...(compaction ? [compaction] : []), ...this.contextEntries()];
 	}
 
 	/** Appends `message` as Pi persists it at its `message_end`: a custom message as its own entry type. */

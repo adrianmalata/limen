@@ -1,6 +1,7 @@
 // S4 · Steering and context injection. A running worker gets each steer once, in order, and an ended one refuses a
-// late steer; every prompt carries the project's guidance once, also after a second `limen init` over old hook copies
-// (236b8e7); `limen continue` resumes the old session with the parent's extensions or a replacement.
+// late steer; the model gets the project's guidance once, in the session's context message and never in the system
+// prompt, also after a second `limen init` over old hook copies; `limen continue` resumes the old session with the
+// parent's extensions or a replacement.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -9,6 +10,7 @@ import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
 	engineEvents,
+	engineViews,
 	git,
 	jobDir,
 	jobFile,
@@ -34,6 +36,8 @@ const [, FRAME = "", CUE = ""] = readFileSync(`${PACKAGE}templates/capability.md
 
 let p: Plant;
 let parent = "";
+// The fake engine's folder of the coordinator session that the first test runs.
+let coord = "";
 let first = "";
 let second = "";
 before(async () => {
@@ -60,16 +64,20 @@ before(async () => {
 after(() => p.cleanup());
 
 const count = (text: string, marker: string) => text.split(marker).length - 1;
+/** The text of every record of the model's first call in the fake engine's folder `dir`, under the bridge (T-31 (1)). */
+const firstView = (dir: string) => (engineViews(dir)[0]?.messages ?? []).flatMap((record) => record.text).join("\n");
 const steers = (dir: string) => engineEvents(dir).flatMap((entry) => (entry.event === "steer" ? [entry.text] : []));
 const argv = (id: string): string[] => JSON.parse(jobFile(p, id, "fake-argv.json"));
 const extensions = (id: string) =>
 	argv(id).flatMap((value, index, all) => (value === "--extension" ? [all[index + 1] ?? ""] : []));
 
-test("a second init removes old hook copies, so a coordinator gets each guidance source once", async () => {
+// A-086: under the bridge the system prompt reaches no model, so the guidance rides the context message; the board
+// digest is out of it until R-110 sends it after a change (A-037).
+test("a second init removes old hook copies, so a coordinator's model gets each guidance source once", async () => {
 	const init = limen(p, ["init"]);
 	assert.equal(init.status, 0, init.stderr);
 	// A coordinator Pi in the project loads every .ts in .pi/extensions; the stub then loads the package hooks.
-	const coord = join(p.parent, "coord");
+	coord = join(p.parent, "coord");
 	mkdirSync(coord);
 	writeFileSync(join(coord, "task.md"), "say hi\n");
 	const loaded = readdirSync(join(p.root, ".pi/extensions")).flatMap((name) => [
@@ -84,10 +92,21 @@ test("a second init removes old hook copies, so a coordinator gets each guidance
 	const { promise, resolve } = Promise.withResolvers<number | null>();
 	child.once("exit", resolve);
 	assert.equal(await promise, 0);
-	const system = readFileSync(join(coord, "fake-system.txt"), "utf8");
-	const seen = [STYLE, REGISTER, VISION, BOARD, FRAME].map((marker) => count(system, marker));
-	assert.deepEqual(seen, [1, 1, 1, 1, 1], "styleguide, register, vision, board, capability frame");
+	assert.deepEqual(
+		[STYLE, REGISTER, VISION, BOARD, FRAME].map((marker) => count(firstView(coord), marker)),
+		[1, 1, 1, 0, 1],
+		"styleguide, register, vision, board, capability frame",
+	);
 	assert.deepEqual(readdirSync(join(p.root, ".pi/extensions")), ["limen.ts"]);
+});
+
+test("A-086: the system prompt a coordinator's hooks return holds none of the guidance sources", () => {
+	const system = readFileSync(join(coord, "fake-system.txt"), "utf8");
+	assert.deepEqual(
+		[STYLE, REGISTER, VISION, BOARD, FRAME].map((marker) => count(system, marker)),
+		[0, 0, 0, 0, 0],
+		"styleguide, register, vision, board, capability frame",
+	);
 });
 
 test("a running worker gets each steer once and in order; an ended one refuses a late steer and writes nothing", async () => {
@@ -111,15 +130,23 @@ test("a running worker gets each steer once and in order; an ended one refuses a
 	assert.deepEqual(readdirSync(join(dir, "steer"), { recursive: true }).sort(), before);
 });
 
-test("a worker prompt carries register and styleguide once, vision and board pointers, and no board body", () => {
-	const system = jobFile(p, parent, "fake-system.txt");
-	const context = jobFile(p, parent, "fake-context.txt");
-	const seen = [STYLE, REGISTER, FRAME].map((marker) => count(system, marker));
-	assert.deepEqual([...seen, count(context, CUE)], [1, 1, 1, 1], "styleguide, register, capability frame and cue");
-	assert.ok(context.includes("`spec/vision.md`"), "vision pointer");
-	assert.ok(context.includes("`spec/build.md`"), "board pointer");
-	const absent = [VISION, BOARD].map((marker) => count(system + context, marker));
+test("a worker's first model call carries register, styleguide, frame and cue once, vision and board pointers, and no board body", () => {
+	const viewed = firstView(jobDir(p, parent));
+	const seen = [STYLE, REGISTER, FRAME, CUE].map((marker) => count(viewed, marker));
+	assert.deepEqual(seen, [1, 1, 1, 1], "styleguide, register, capability frame and cue");
+	assert.ok(viewed.includes("`spec/vision.md`"), "vision pointer");
+	assert.ok(viewed.includes("`spec/build.md`"), "board pointer");
+	const absent = [VISION, BOARD].map((marker) => count(viewed, marker));
 	assert.deepEqual(absent, [0, 0], "a worker reads the vision itself, never gets the board body");
+});
+
+test("A-086: the system prompt a worker's hooks return holds none of its guidance sources", () => {
+	const system = jobFile(p, parent, "fake-system.txt");
+	assert.deepEqual(
+		[STYLE, REGISTER, FRAME].map((marker) => count(system, marker)),
+		[0, 0, 0],
+		"styleguide, register, capability frame",
+	);
 });
 
 test("continue resumes the parent's session, linked, with its extensions or a replacement", () => {

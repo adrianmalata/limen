@@ -37,9 +37,11 @@ export type AgentMessage = Message | CustomAgentMessages[keyof CustomAgentMessag
 /** Pi's extension API in the shape of Pi 1.5.1, reduced to the members, events and fields that the adapter declares. */
 const PI_CODING_AGENT = `import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
-export interface SessionStartEvent { type: "session_start"; reason: "startup" | "reload" }
+export interface SessionStartEvent { type: "session_start"; reason: "startup" | "reload" | "new" | "resume" | "fork" }
 export interface SessionShutdownEvent { type: "session_shutdown"; reason: "quit" | "reload" }
-export interface SessionCompactEvent { type: "session_compact"; willRetry: boolean }
+export interface SessionCompactEvent { type: "session_compact"; reason: "manual" | "threshold" | "overflow"; willRetry: boolean }
+export interface AgentStartEvent { type: "agent_start" }
+export interface AgentEndEvent { type: "agent_end"; messages: AgentMessage[] }
 export interface BeforeAgentStartUserEvent { type: "before_agent_start"; systemPrompt: string; prompt: string }
 export interface BeforeAgentStartCustomEvent { type: "before_agent_start"; systemPrompt: string; message: { customType: string } }
 export interface MessageStartEvent { type: "message_start"; message: AgentMessage }
@@ -72,7 +74,16 @@ export interface AgentBeforeSettleEvent {
 export interface AgentSettledEvent { type: "agent_settled"; aborted: boolean }
 export type ExtensionEvent = SessionStartEvent | SessionShutdownEvent | SessionCompactEvent | BeforeAgentStartUserEvent
 	| BeforeAgentStartCustomEvent | MessageStartEvent | MessageEndEvent | ContextEvent | ToolCallEvent | ToolResultEvent
-	| AgentBeforeSettleEvent | AgentSettledEvent;
+	| AgentBeforeSettleEvent | AgentStartEvent | AgentEndEvent | AgentSettledEvent;
+export interface SessionMessageEntry { type: "message"; id: string; message: AgentMessage }
+export interface CustomMessageEntry {
+	type: "custom_message";
+	id: string;
+	customType: string;
+	content: string | (TextContent | ImageContent)[];
+	display: boolean;
+}
+export type SessionEntry = SessionMessageEntry | CustomMessageEntry;
 export interface ExtensionUIContext {
 	notify(message: string, type?: "info" | "warning" | "error"): void;
 	setStatus(key: string, text: string | undefined): void;
@@ -80,7 +91,7 @@ export interface ExtensionUIContext {
 export interface ExtensionContext {
 	ui: ExtensionUIContext;
 	cwd: string;
-	sessionManager: { getSessionId(): string; getSessionFile(): string | undefined };
+	sessionManager: { getSessionId(): string; getSessionFile(): string | undefined; buildContextEntries(): SessionEntry[] };
 	isIdle(): boolean;
 	shutdown(): void;
 	abort(): void;
@@ -102,6 +113,8 @@ export interface ExtensionAPI {
 	on(event: "tool_call", handler: ExtensionHandler<ToolCallEvent, { block?: boolean; reason?: string }>): () => void;
 	on(event: "tool_result", handler: ExtensionHandler<ToolResultEvent, { content?: (TextContent | ImageContent)[]; isError?: boolean }>): () => void;
 	on(event: "agent_before_settle", handler: ExtensionHandler<AgentBeforeSettleEvent, { entries?: SessionBoundaryDraft[]; continue?: boolean }>): () => void;
+	on(event: "agent_start", handler: ExtensionHandler<AgentStartEvent>): () => void;
+	on(event: "agent_end", handler: ExtensionHandler<AgentEndEvent>): () => void;
 	on(event: "agent_settled", handler: ExtensionHandler<AgentSettledEvent>): () => void;
 	registerTool(tool: {
 		name: string;
@@ -176,6 +189,40 @@ test("the contract fails Pi types that lack a context field the adapter reads, a
 	const diagnostics = await piContract(types);
 	assert.ok(
 		diagnostics.some((line) => line.includes("ExtensionContext.shutdown checks nothing")),
+		diagnostics.join("\n\n"),
+	);
+});
+
+// R-039: the communication hook tells by these entries whether a compaction removed the context message.
+test("the contract fails Pi types whose session manager lacks buildContextEntries, and names it", async (t) => {
+	const types = await fixture(t, { change: (text) => text.replace("; buildContextEntries(): SessionEntry[]", "") });
+	const diagnostics = await piContract(types);
+	assert.ok(
+		diagnostics.some((line) => line.includes("buildContextEntries")),
+		diagnostics.join("\n\n"),
+	);
+});
+
+test("the contract fails Pi types whose custom message entry lacks its custom type, and names the field", async (t) => {
+	const types = await fixture(t, {
+		change: (text) =>
+			text.replace('"custom_message";\n\tid: string;\n\tcustomType: string;', '"custom_message";\n\tid: string;'),
+	});
+	const diagnostics = await piContract(types);
+	assert.ok(
+		diagnostics.some((line) => line.includes("custom_message.customType checks nothing")),
+		diagnostics.join("\n\n"),
+	);
+});
+
+// E-13: the option of the context message's send after a compaction depends on whether Pi retries the turn.
+test("the contract fails Pi types whose session_compact lacks willRetry, and names the field", async (t) => {
+	const types = await fixture(t, {
+		change: (text) => text.replace('"overflow"; willRetry: boolean }', '"overflow" }'),
+	});
+	const diagnostics = await piContract(types);
+	assert.ok(
+		diagnostics.some((line) => line.includes("session_compact.willRetry checks nothing")),
 		diagnostics.join("\n\n"),
 	);
 });

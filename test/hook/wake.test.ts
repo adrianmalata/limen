@@ -89,7 +89,7 @@ test("in a project whose job folder holds an older state file, session start doe
 	const context = {
 		cwd: root,
 		isIdle: () => true,
-		sessionManager: { getSessionId: () => "wake-old-session" },
+		sessionManager: { getSessionId: () => "wake-old-session", buildContextEntries: () => [] },
 		ui: { notify: (text: string) => notes.push(text), setStatus() {} },
 	};
 	start({}, context);
@@ -171,7 +171,7 @@ function startCoordinator(t: TestContext, root: string, session: string): Coordi
 			{
 				cwd: root,
 				isIdle: () => true,
-				sessionManager: { getSessionId: () => id },
+				sessionManager: { getSessionId: () => id, buildContextEntries: () => [] },
 				ui: {
 					notify: (text: string) => notes.push(text),
 					setStatus: (_key: string, value: string | undefined) => statuses.push(value),

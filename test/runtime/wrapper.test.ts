@@ -3,8 +3,9 @@
 // start, a wrapper outside its job's systemd user scope ends the job before it runs anything, each end has the kind its
 // detector sets (A-016 (1)), the stall rule over the scope's CPU time and its uncertainty note, the peak CPU share of
 // the scope, an exhaustion whose scope cannot be ended still kills its process group, a TERM or a signal without a
-// stop request ends a job failed, a TERM after the engine ended changes nothing, and the tests' end gate holds a
-// wrapper only in test mode.
+// stop request ends a job failed, a TERM after the engine ended changes nothing, the tests' end gate holds a wrapper
+// only in test mode, the engine's argv appends nothing to Pi's system prompt, and a job folder without its context
+// message starts no engine.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -208,12 +209,49 @@ test("an error the job's wrapper throws ends its job failed, kind internal, with
 	const job = join(folder, "2026-11-24-internal-1a2b3c4d");
 	withEnvironment(t, { ...(await fakeSystemd(folder)), LIMEN_JOB_DIR: job });
 	await writeRecord(job, { state: "running", identity: { pid: 4242, born: "123", bootId: null } });
-	await failInternalJob(new Error("internal job wrapper is missing LIMEN_PREAMBLE"));
+	await failInternalJob(new Error("internal job wrapper is missing LIMEN_TASK_FILE"));
 	assert.deepEqual(readRecordSync(job)?.failure, {
 		kind: "internal",
-		detail: "internal job wrapper is missing LIMEN_PREAMBLE",
+		detail: "internal job wrapper is missing LIMEN_TASK_FILE",
 		resetAt: null,
 	});
+});
+
+// A-086, E-1: the bridge drops Pi's system prompt, so the role's text rides the job's context message instead.
+test("A-086: a job's engine starts with no --append-system-prompt in its argv", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = spawnJob(p, "say done");
+	assert.equal(waitJob(p, id), "done");
+	const argv: string[] = JSON.parse(jobFile(p, id, "fake-argv.json"));
+	assert.equal(argv.includes("--append-system-prompt"), false, argv.join(" "));
+});
+
+// R-039 Decision 13: an engine with no standing instructions would end as a false success. The job waits in the start
+// queue while its context.md goes, so the file is gone before the wrapper looks, by the order of events (T-31 (4)).
+test("a job whose folder holds no context.md when its engine would start ends failed, kind launch, naming the file, and starts no engine", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const reading = join(p.parent, "start-reading.json");
+	// Below the start gate's 25% CPU idle, so the job waits in the queue and starts no engine yet.
+	writeFileSync(reading, '{"cpuIdle":10,"memoryFree":80}');
+	const id = spawnJob(p, "say never");
+	await until(jobDir(p, id), () => jobFile(p, id, "log").includes("] queued: CPU 10% idle"));
+	const file = join(jobDir(p, id), "context.md");
+	rmSync(file);
+	writeFileSync(reading, '{"cpuIdle":90,"memoryFree":80}');
+	assert.equal(waitJob(p, id), "failed");
+	assert.deepEqual(
+		[jobRecord(p, id)?.failure, jobFile(p, id, "fake-argv.json")],
+		[
+			{
+				kind: "launch",
+				detail: `${file} is missing, so the engine did not start without its context message`,
+				resetAt: null,
+			},
+			"",
+		],
+	);
 });
 
 /** The 5-hour limit's text as the provider gives it: a synthetic copy of the format of audit.md, gate 2 §1, Q1. */

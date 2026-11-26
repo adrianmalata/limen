@@ -42,7 +42,7 @@ The seat poller wakes this registered Herdr coordinator for an authorized commen
 
 ## Durable intent
 
-- `spec/vision.md` explains durable intent. It is human-owned: propose a change and ask before rewriting it. Keep compact, decision-useful bullets under **Product principles** and **Current direction**. The coordinator holds it in the system prompt; a worker is pointed at the file.
+- `spec/vision.md` explains durable intent. It is human-owned: propose a change and ask before rewriting it. Keep compact, decision-useful bullets under **Product principles** and **Current direction**. The coordinator gets it in its context message, once per session; a worker is pointed at the file.
 - `.agents/limen/styleguide.md` defines concise, durable coding practice. Keep it compact and bullet-led; read it before writing or modifying specifications and keep it in context while modifying files. It governs how code is written and organized here, never product scope or speech.
 - Speech registers live in the installed Limen package. A project file at `.agents/limen/communication.md` replaces that default for this repository only.
 - `spec/build.md` is the board. TRACK, NEXT, PARKED and DROPPED are coordinator prose: keep them true in the change that moves feature state. NOW and PROVEN are generated from the lanes by `limen land`, `limen ticket done` and `limen board --write`; never edit them by hand. `limen board` prints the board with each active ticket's running or last job. Status marks are 🟠 ACTIVE, 🔴 PLANNED, 🟢 PROVEN, ⚪ DROPPED.

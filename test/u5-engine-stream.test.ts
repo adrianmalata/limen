@@ -13,7 +13,7 @@ test("a pi-claude route loads Pi's installed bridge package", async (t) => {
 	t.after(() => rm(home, { recursive: true }));
 	const bridge = `${home}/.pi/agent/npm/node_modules/@fixture/pi-claude-bridge`;
 	await mkdir(bridge, { recursive: true });
-	const slots = { jobDir: "/j", label: "l", preamble: "p", extensions: [], taskFile: "/j/task.md" };
+	const slots = { jobDir: "/j", label: "l", extensions: [], taskFile: "/j/task.md" };
 	const pi = argvFor(ENGINES.pi, { ...slots, provider: "pi-claude", model: "claude-opus-5-5" }).join(" ");
 	assert.ok(pi.includes(`--extension ${bridge} --provider pi-claude --model claude-opus-5-5 `), pi);
 });

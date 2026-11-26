@@ -1,12 +1,14 @@
 /* PL: Skrypt pomiaru rozmiarów Limena przy dowolnym refie gita (bez checkoutu): linie i bajty na moduł oraz bajty
-   i ≈tokeny (bajty/4) kontekstu każdej roli na każdy request, na prompt i raz na sesję (moduł role-context.mjs).
-   Służy do mapy w etapie 1 i do porównań przed/po w etapach 4–5; z --project mierzy też pliki prawdziwego projektu
-   (np. na seacie), niczego w nim nie zapisując. Wynik zapisuje atomowo (atomic-write.mjs, D-018). Stan: działa. */
+   i ≈tokeny (bajty/4) kontekstu każdej roli z szablonów refa (moduł role-context.mjs). Dla refa z wiadomością
+   kontekstową (od R-039) kolumny to "Context message" i "Cue" (M-01 po etapie 4); dla starszego refa zostają kolumny
+   promptu systemowego: na każdy request, na prompt i raz na sesję. Służy do mapy w etapie 1 i do porównań przed/po
+   w etapach 4–5; z --project mierzy też pliki prawdziwego projektu (np. na seacie), niczego w nim nie zapisując. Wynik
+   zapisuje atomowo (atomic-write.mjs, D-018). Stan: działa; test w tools/test-context-size.mjs. */
 // Usage: node adrian-rebuild/tools/context-size.mjs [ref] [--project <path>] [--out <file>]   (from the repo root)
 import { spawnSync } from "node:child_process";
 import { parseArgs } from "node:util";
 import { writeAtomic } from "./atomic-write.mjs";
-import { GROUP_ROLES, JOB_ROLES, measureRoles, sections } from "./role-context.mjs";
+import { GROUP_ROLES, measureRoles, sections } from "./role-context.mjs";
 
 const { values, positionals } = parseArgs({
 	allowPositionals: true,
@@ -99,22 +101,35 @@ const bytes = (text) => (text === undefined ? undefined : Buffer.byteLength(text
 const cell = (size) => (size === undefined ? "absent" : `${size} B ≈${tokens(size)}`);
 const sum = (...sizes) => sizes.reduce((total, size) => total + (size ?? 0), 0);
 
-function roleRows(context) {
+/** A job role's name in a row: a group team by its template, since its role is `coordinator`. */
+const roleName = (role) => (GROUP_ROLES.includes(role) ? `group team (\`${role}.md\`)` : role);
+/** The coordinator's cue and, after it, the cue of a wake. */
+const ownerCue = (context) => `${cell(bytes(context.coordinator.cue))}; wake ${cell(bytes(context.wake.cue))}`;
+
+/** The rows of a ref before R-039: what Limen added to Pi's system prompt, and the cue. */
+function systemRows(context) {
 	const block = bytes(context.job.system);
 	const tool = bytes(context.tool);
 	const cue = bytes(context.job.cue);
 	const once = bytes(context.job.once);
-	const rows = [...JOB_ROLES, ...GROUP_ROLES].map((role) => {
+	const rows = context.roles.map((role) => {
 		const own = bytes(context.preambles[role]);
-		const name = GROUP_ROLES.includes(role) ? `group team (\`${role}.md\`)` : role;
-		return `| ${name} | ${cell(own)} | ${cell(block)} | ${cell(tool)} | ${cell(sum(own, block, tool))} | ${cell(cue)} | ${cell(once)} |`;
+		return `| ${roleName(role)} | ${cell(own)} | ${cell(block)} | ${cell(tool)} | ${cell(sum(own, block, tool))} | ${cell(cue)} | ${cell(once)} |`;
 	});
-	const owner = context.coordinator;
-	const ownerFixed = bytes(owner.system);
-	const ownerCue = `${cell(bytes(owner.cue))}; wake ${cell(bytes(context.wake.cue))}`;
+	const ownerFixed = bytes(context.coordinator.system);
 	rows.unshift(
-		`| coordinator (owner-facing) | none | ${cell(ownerFixed)} | none | ${cell(ownerFixed)} | ${ownerCue} | none |`,
+		`| coordinator (owner-facing) | none | ${cell(ownerFixed)} | none | ${cell(ownerFixed)} | ${ownerCue(context)} | none |`,
 	);
+	return rows;
+}
+
+/** The rows of a ref from R-039 on: each role's context message, and the cue. */
+function messageRows(context) {
+	const cue = cell(bytes(context.job.cue));
+	const rows = context.roles.map(
+		(role) => `| ${roleName(role)} | ${cell(bytes(context.messages[`job ${role}`]))} | ${cue} |`,
+	);
+	rows.unshift(`| coordinator (owner-facing) | ${cell(bytes(context.messages.coordinator))} | ${ownerCue(context)} |`);
 	return rows;
 }
 
@@ -137,14 +152,9 @@ function breakdown(title, system) {
 	return [...lines, ""];
 }
 
-function roleSection(context, project) {
-	const fixture = project
-		? "a `limen init` fixture overlaid with the guidance files of `--project`"
-		: "a fresh `limen init` fixture";
-	const { noteCheck, noteSteer } = context.events;
+/** The section of a ref before R-039, whose hooks appended Limen's text to Pi's system prompt. */
+function systemSection(context, fixture) {
 	return [
-		"## Context per role",
-		"",
 		`Measured on ${fixture} by calling the ref's own \`hook/communication.ts\` and \`hook/finish.ts\` with a stub engine`,
 		"API (as `test/fake-engine.mjs` does). Only text Limen adds is counted. Not measured, because it lives outside the",
 		"repo: the engine's base prompt and built-in tool schemas, skills, the engine's own `AGENTS.md` loading, the bridge.",
@@ -159,15 +169,55 @@ function roleSection(context, project) {
 		"",
 		"| Role | Preamble | Limen block | Limen tools | Fixed per request | Per prompt | Once per session |",
 		"|---|---|---|---|---|---|---|",
-		...roleRows(context),
+		...systemRows(context),
 		"",
-		`Per event (job roles): note check ${cell(bytes(noteCheck))}, steer suffix ${cell(bytes(noteSteer))}.`,
-		"",
+		...eventLine(context),
 		"### Limen block by part",
 		"",
 		...breakdown("Coordinator (owner-facing)", context.coordinator.system),
 		...breakdown("Job roles", context.job.system),
 	];
+}
+
+/** The section of a ref from R-039 on, whose standing text is each session's context message (M-01). */
+function messageSection(context, fixture) {
+	const [first] = context.roles;
+	return [
+		`Measured on ${fixture} by calling the ref's own \`src/runtime/context-message.ts\` for each role, with the`,
+		"preamble its spawn resolves, and its `hook/communication.ts` and `hook/finish.ts` with a stub engine API (as",
+		"`test/fake-engine.mjs` does). Only text Limen adds is counted. Not measured, because it lives outside the repo:",
+		"the engine's base prompt and built-in tool schemas, skills, the engine's own `AGENTS.md` loading, the bridge.",
+		"",
+		"- **Context message**: the hidden `limen-context` message a session opens with, sent once at its start and again",
+		"  after a compaction removed it; a job's is the `context.md` its spawn publishes.",
+		"- **Cue**: the hidden `limen-project-context` message added before each prompt; it stays in history.",
+		"",
+		"| Role | Context message | Cue |",
+		"|---|---|---|",
+		...messageRows(context),
+		"",
+		`The \`finish\` tool schema of a job (name, description, parameters as JSON): ${cell(bytes(context.tool))}. The job's`,
+		`note start, added to its first cue only: ${cell(bytes(context.job.once))}.`,
+		"",
+		...eventLine(context),
+		"### Context message by part",
+		"",
+		...breakdown("Coordinator (owner-facing)", context.messages.coordinator),
+		...(first === undefined ? [] : breakdown(`Job role ${roleName(first)}`, context.messages[`job ${first}`])),
+	];
+}
+
+/** The sizes of the job's per-event texts. */
+function eventLine({ events: { noteCheck, noteSteer } }) {
+	return [`Per event (job roles): note check ${cell(bytes(noteCheck))}, steer suffix ${cell(bytes(noteSteer))}.`, ""];
+}
+
+function roleSection(context, project) {
+	const fixture = project
+		? "a `limen init` fixture overlaid with the guidance files of `--project`"
+		: "a fresh `limen init` fixture";
+	const body = context.form === "message" ? messageSection(context, fixture) : systemSection(context, fixture);
+	return ["## Context per role", "", ...body];
 }
 
 const commit = git(["rev-parse", "--short", ref]).toString("utf8").trim();
@@ -176,7 +226,9 @@ const context = await measureRoles(ref, values.project);
 const command = `node adrian-rebuild/tools/context-size.mjs ${ref}${values.project ? " --project <path>" : ""}`;
 const text = [
 	`<!-- PL: Rozmiary Limena przy refie ${ref} (${commit}), wygenerowane przez tools/context-size.mjs: kontekst każdej`,
-	"roli (preambuła, blok Limena, narzędzia, cue na prompt, dodatki raz na sesję) oraz linie i bajty na moduł i plik",
+	context.form === "message"
+		? "roli (wiadomość kontekstowa, cue na prompt) oraz linie i bajty na moduł i plik"
+		: "roli (preambuła, blok Limena, narzędzia, cue na prompt, dodatki raz na sesję) oraz linie i bajty na moduł i plik",
 	"dla kodu, hooków, promptów ról, testów i rozszerzeń seata. Tokeny liczone jako bajty/4.",
 	"Stan: wygenerowany; nie edytować ręcznie. -->",
 	"",

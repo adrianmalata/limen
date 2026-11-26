@@ -1,18 +1,23 @@
 /* PL: Moduł pomiaru kontekstu ról Limena, używany przez context-size.mjs. Rozpakowuje drzewo danego refa do katalogu
-   tymczasowego, tworzy fiksturę projektu prawdziwym `limen init` (opcjonalnie z plikami prawdziwego projektu,
-   kopiowanymi tylko do odczytu) i wywołuje hooki `communication` oraz `finish` z atrapą API silnika, tak jak robi to
-   test/fake-engine.mjs. Zwraca bajty promptu systemowego, ukrytego cue na prompt i dodatków raz na sesję. Fikstura
-   działa w trybie testowym (`LIMEN_TEST_MODE=1` obok `LIMEN_HOME` i `LIMEN_HERDR`), bo od R-087 tylko w nim Limen
-   czyta pokrętła testowe. Stan: działa. */
+   tymczasowego, tworzy fiksturę projektu prawdziwym `limen init` (z atrapą `pi` na PATH, bo od R-020 init jej wymaga;
+   opcjonalnie z plikami prawdziwego projektu, kopiowanymi tylko do odczytu) i bierze listę ról z szablonów refa. Dla
+   refa z `src/runtime/context-message.ts` (od R-039) mierzy wiadomość kontekstową każdej roli z tego modułu i cue
+   z hooka `communication`; dla starszego refa, jak dotąd, prompt systemowy, cue i dodatki raz na sesję z hooków
+   z atrapą API silnika. Fikstura działa w trybie testowym (`LIMEN_TEST_MODE=1`). Stan: działa; test
+   w tools/test-context-size.mjs. */
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-export const JOB_ROLES = ["worker", "reviewer", "judge", "keeper", "scout", "researcher", "quality", "picture"];
 // `templates/coordinator.md` is the preamble of a group team, titled "# Group team".
 export const GROUP_ROLES = ["coordinator"];
+// The templates of a ref that are no role's preamble: the manual, the frame, the register, the project copies' sources,
+// a group member's packet, and the Linear mirror of `rebuild-base`.
+const NOT_ROLES = new Set(["agents", "capability", "communication", "styleguide", "group-member", "linear"]);
+// The module that builds a role's context message, from R-039 on; an older ref has none.
+const CONTEXT_MODULE = "src/runtime/context-message.ts";
 const JOB_ID = "2026-01-01-size-probe-00000000";
 const TICKET = "spec/features/active/F001-probe/ticket.md";
 // Project files the hooks read; copied from --project into the fixture, never written back.
@@ -36,6 +41,27 @@ function extract(ref, dir) {
 	return pkg;
 }
 
+/** The job roles the ref's templates hold, sorted, a group team's last: every `templates/<role>.md` but `NOT_ROLES`. */
+function rolesOf(pkg) {
+	const names = readdirSync(join(pkg, "templates"))
+		.filter((name) => name.endsWith(".md"))
+		.map((name) => name.slice(0, -".md".length))
+		.filter((name) => !NOT_ROLES.has(name));
+	const jobs = names.filter((name) => !GROUP_ROLES.includes(name)).sort();
+	return [...jobs, ...GROUP_ROLES.filter((name) => names.includes(name))];
+}
+
+/**
+ * A folder with a stub `pi`: since R-020 `limen init` refuses a host without `pi` on PATH, and the fixture runs no
+ * job, so the stub only answers that it is there.
+ */
+function stubPi(dir) {
+	const bin = join(dir, "bin");
+	mkdirSync(bin);
+	writeFileSync(join(bin, "pi"), "#!/bin/sh\necho 1.5.1\n", { mode: 0o755 });
+	return bin;
+}
+
 /** A fresh project made by the ref's own `limen init`, overlaid with copies of a real project's guidance files. */
 function fixture(pkg, dir, project) {
 	const root = join(dir, "project");
@@ -46,7 +72,9 @@ function fixture(pkg, dir, project) {
 	// Test mode, in which alone Limen reads LIMEN_HOME and LIMEN_HERDR (R-087); an older ref reads them without it.
 	const env = {
 		...process.env,
+		PATH: `${stubPi(dir)}:${process.env.PATH ?? ""}`,
 		HOME: home,
+		HERDR_ENV: "",
 		LIMEN_TEST_MODE: "1",
 		LIMEN_HOME: home,
 		LIMEN_HERDR: "0",
@@ -92,7 +120,8 @@ async function install(pkg, hook) {
 
 /**
  * One session of the communication hook: the first prompt and a second ordinary prompt. The difference between the
- * two cues is what enters once per session (the job's note start).
+ * two cues is what enters once per session (the job's note start); `system` is the system prompt the first returned,
+ * which a ref from R-039 on never returns.
  */
 async function session(pkg, root, prompt) {
 	const { handlers } = await install(pkg, "communication.ts");
@@ -108,7 +137,10 @@ async function session(pkg, root, prompt) {
 	};
 }
 
-/** The Limen block split at its `## Label (path)` headings; text before the first heading is "(unlabelled)". */
+/**
+ * The Limen block or a context message split at its `## Label (path)` headings; text before the first is
+ * "(unlabelled)".
+ */
 export function sections(system) {
 	return system
 		.split(/\n\n(?=## )/)
@@ -138,25 +170,43 @@ function preamble(pkg, root, role) {
 	return undefined;
 }
 
-/** Measures every role at `ref`; `project` optionally points at a real project to copy guidance files from. */
+/**
+ * The context message of the coordinator and of each role, from the ref's own module, each job role's preamble chosen
+ * as its spawn chooses it (`resolvePreamble`).
+ */
+async function contextMessages(pkg, root, roles) {
+	const { contextMessage } = await import(pathToFileURL(join(pkg, CONTEXT_MODULE)).href);
+	const { resolvePreamble } = await import(pathToFileURL(join(pkg, "src/job/spawning.ts")).href);
+	const messages = { coordinator: contextMessage(root, { session: "coordinator" }) };
+	for (const role of roles) {
+		messages[`job ${role}`] = contextMessage(root, { session: "job", role, preamble: resolvePreamble(root, role) });
+	}
+	return messages;
+}
+
+/**
+ * Measures every role at `ref`; `project` optionally points at a real project to copy guidance files from. The form
+ * is `message` for a ref with the context message module and `system` for an older one.
+ */
 export async function measureRoles(ref, project) {
 	const dir = mkdtempSync(join(tmpdir(), "limen-size-"));
 	try {
 		const pkg = extract(ref, dir);
+		const roles = rolesOf(pkg);
 		const { root, home, jobDir } = fixture(pkg, dir, project);
 		const base = { HOME: home, LIMEN_TEST_MODE: "1", LIMEN_HOME: home, LIMEN_HERDR: "0", LIMEN_PACKAGE: pkg };
 		setEnv({ ...base, ...Object.fromEntries(JOB_ENV.map((name) => [name, undefined])) });
+		const form = existsSync(join(pkg, CONTEXT_MODULE)) ? "message" : "system";
+		const messages = form === "message" ? await contextMessages(pkg, root, roles) : undefined;
 		const coordinator = await session(pkg, root, "Hello.");
 		const wake = await session(pkg, root, 'Limen job "probe" finished.');
 		setEnv({ LIMEN_JOB: "1", LIMEN_JOB_ID: JOB_ID, LIMEN_CONTEXT_ROOT: root });
 		const job = await session(pkg, root, "Implement the ticket.");
 		const tool = await finishTool(pkg);
 		const events = await noteEvents(pkg, jobDir);
-		const preambles = Object.fromEntries(
-			[...JOB_ROLES, ...GROUP_ROLES].map((role) => [role, preamble(pkg, root, role)]),
-		);
+		const preambles = Object.fromEntries(roles.map((role) => [role, preamble(pkg, root, role)]));
 		const search = spawnSync("jg", ["--help"]).status === 0;
-		return { coordinator, wake, job, tool, events, preambles, search };
+		return { form, roles, messages, coordinator, wake, job, tool, events, preambles, search };
 	} finally {
 		setEnv({ ...Object.fromEntries(JOB_ENV.map((name) => [name, undefined])) });
 		rmSync(dir, { recursive: true, force: true });

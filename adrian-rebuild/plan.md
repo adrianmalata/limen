@@ -165,7 +165,8 @@ transkrypt atrapy; trzy rundy recenzji PASS), a zawieszenie testu s3-finish-wake
 wysłane w trakcie settle liczone jako niepotwierdzone) i nowy ticket R-111; przekazanie do limen-rebuild-41 na
 ticket.md R-111 i R-039; tam inwentarz R-111 i D-129 (nowe znalezisko A-090: dwa budzenia z jednego sweepa przy
 bezczynnej sesji ścigają się w Pi, naprawiane w R-111, rozmiar L), fakty E-20 i E-21, krok 4.14 przepisany; R-111
-zamknięty w dzień (dwie rundy recenzji PASS), potem noc do 8:00. -->
+zamknięty w dzień (dwie rundy recenzji PASS), potem noc do 8:00; w niej R-039 zamknięty (wiadomość kontekstowa
+`limen-context` i `context.md` joba, trzy rundy recenzji PASS, uwagi rundy 3 do R-110 i R-083). -->
 
 
 
@@ -1955,7 +1956,7 @@ Columns:
 | R-102 | Seat rules are cut | 3 | A-010, T-42, D-094, D-097 | R-034 | M | delegated | night | yes | systemd | 3.5 | done |
 | R-103 | Land runs as recorded steps; its `cleaned` step closes the job's Herdr tabs | 3 | A-021, T-04, T-18, T-28, T-38, D-092, D-094, D-096 | R-037 | L | delegated | night | yes | herdr | 3.9 | done |
 | R-038 | The fake engine shows the model's view under the bridge | 4 | T-31, A-051, D-115, D-119 | R-017 | L | delegated | night | — | bridge | 4.1 | done |
-| R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16, D-114 | R-021, R-038 | L | delegated | night | yes | pi, bridge | 4.2 | ready |
+| R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16, D-114 | R-021, R-038 | L | delegated | night | yes | pi, bridge | 4.2 | done |
 | R-040 | Role texts come from the package, in three registers | 4 | A-038, A-039, A-042, D-005 | R-001, R-039 | M | delegated | night | yes | — | — | ready |
 | R-041 | The turn cue holds only variable parts and the audience line | 4 | A-077, T-13 | R-039 | S | pair | day-after | — | pi | 4.4 | planned |
 | R-042 | The task-note mechanism is cut | 4 | A-044, A-059, D-121 | R-039 | M | delegated | night | yes | — | — | ready |
@@ -2093,6 +2094,15 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   continuation, so the child holds one context message; R-110 adds the one notice of the files changed since the
   parent's message was built (A-079), the in-session `changed <file>` notices (A-037), the board digest at the end of
   the context only when it changed (A-037, A-051's second test), and the golden of the continuation mode (A-051).
+- R-110 (R-039 review round 3, note 1; D-092): the doc comment of `deliverContext` in `hook/communication.ts` says
+  "Each handler calls `forget` first", which holds only for its `session_start` and `session_compact` handlers; R-110,
+  which adds handlers to that file, makes the comment true (R-039 `outcome.md` → Open points 7).
+- R-083 (R-039 review round 3, note 2): the paired tests of `test/s4-steering.test.ts` share a run folder through a
+  file-level variable (`coord`, `parent`), so the second of a pair fails on a missing file when run alone; the rewrite
+  gives each test its own run (R-039 `outcome.md` → Open points 8).
+- R-040 (R-039 `outcome.md` → Open points 4): the literal `"templates/agents.md"` is now in
+  `src/runtime/context-message.ts` (`MANUAL_FILE`), so R-040's criterion over `src` meets it there; its protocol step 2
+  checks the criterion at its `HEAD` (D-025).
 - R-040, R-048: the project's `AGENTS.md` goes into the context message exactly when the job runs the bridge isolated
   (E-15, D-005); R-040 builds the rule from a launcher flag, and R-048 turns isolation on, so the file never arrives
   twice. Neither project has an `AGENTS.md` today (gate 2 §1).
@@ -5806,3 +5816,30 @@ The old `.night/status.json` (`no-ticket`) predates this night's runs, so the ru
 - `limen-rebuild-41` starts the runner by D-102 (2) right after the commit of this entry, as a background task, and then
   changes nothing in the repository until the runner's end wakes it (D-102 (1), (3)); at that wake: a push to Adrian,
   `## State` and `.night/status.json` read, then the day's work or a handover by D-047.
+- Run 1 (started 17:48:23, `.night/launcher.log`): `HEAD` = `7265f02`, the tree clean, no ticket `active`. R-039
+  `active` (protocol step 2): its `ticket.md`, written at `445c254`, checked at `HEAD`; since then only R-038's and
+  R-111's files changed (`hook/wake.ts`, `src/job/usage.ts`, `src/runtime/bridge-view.ts`, the fake and their tests),
+  none of the places its facts cite; AC-9 and AC-10 exit 0 at `HEAD` and expect 1, AC-11 exits 1 and expects 0; every
+  test file its criteria name exists except the two its `## Change` creates. Next: the implementer (protocol step 3).
+- R-039: the implementer's `DONE` (`compare --git` exit 0); the main session's gate 1329/1329 (306.7 s),
+  `fails-before.mjs` exit 0, AC-7, AC-8, AC-9–AC-11, Biome and `check.mjs` as expected. Review round 1 PASS with eight
+  notes → F1–F4 (`ticket.md` → `## Decisions` 15: three tests split by T-29 (3), the module's header by T-30 (1)), four
+  without change (`review.md`). Next: a fresh implementer for F1–F4 (D-026), then the gate and round 2.
+- R-039 fix round 1: a fresh implementer (`compare --git` exit 0); gate 1330/1330 (307.0 s); `fails-before.mjs` on the
+  three changed test files exit 0. Review round 2 PASS with three notes → G1–G3 (`ticket.md` → `## Decisions` 16: the
+  s4 tests split, `deliverContext`'s comment, the `session_compact` guard first), the last round of fixes. Next: a fresh
+  implementer for G1–G3, the gate, round 3; its notes go to the open points (D-092).
+- R-039 `done` (delegated): one builder `src/runtime/context-message.ts`; a job's `context.md` published with its
+  record, carried byte for byte by a continuation; the wrapper fails a job without it (kind `launch`); one
+  `limen-context` custom message at `session_start` with no turn, again only after a compaction removed it (E-13);
+  `--append-system-prompt`, `LIMEN_PREAMBLE` and the hook's `systemPrompt` gone; `context-size.mjs` measures the message
+  (M-01's "before" at `a0.3.0` runs without `pi`). Fix round 2 (G1–G3) also changed `test/u13-guidance-reminder.test.ts`.
+  The main session's gates 1329, 1330 and 1333 of as many tests, each exit 0; `fails-before.mjs` exit 0 each time.
+  Reviews 1–3 PASS: round 1 → F1–F4, round 2 → G1–G3, round 3's three notes → the notes of R-110 and R-083 in
+  `## Tickets` and `outcome.md` → Open points 6–8. Night defaults for Adrian: `outcome.md` → Deviations 1–12 (above
+  all 1, the coordinator's marker `role="owner-facing coordinator"`; 3, a missing golden reference is written by its
+  test, which then fails). For Adrian: fix round 2's first gate run (the implementer's, exit 1 on u13's payload) left
+  the ignored `.limen/refusals/641201-56581511.json.641201.07e0eca95172d3f4.tmp` in the checkout; `rm` is denied to the
+  sessions, so he deletes the checkout's `.limen/` folder (it fails no gate: the gate counts only files new in its run).
+  Next: R-040 (protocol step 2; its criterion over `src` now meets the literal `"templates/agents.md"` in the new
+  module, the note of `## Tickets`).

@@ -183,6 +183,8 @@ const context = {
 		getSessionId: () => sessionId,
 		getSessionFile: () => session.file ?? join(dir, "session.jsonl"),
 		getSessionName: () => "fake",
+		// Pi's `ReadonlySessionManager.buildContextEntries` (`core/session-manager.d.ts:323`), of the session open now.
+		buildContextEntries: () => session.buildContextEntries(),
 	},
 };
 

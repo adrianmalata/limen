@@ -4,7 +4,7 @@ styleguide; bez skrótu tablicy), job dostaje ją jako `context.md` w folderze p
 wiadomość rodzica, a hook wysyła ją jako wiadomość własną `limen-context` bez wyzwalania tury na starcie sesji i ponownie
 po kompakcji; Limen przestaje dopisywać do system promptu Pi, a `context-size.mjs` mierzy wiadomość (M-01). Powiadomienie
 o zmienionych plikach przy kontynuacji, powiadomienia w trakcie sesji i skrót tablicy idą do R-110. Stan: napisany 26.11
-przy `445c254` z inwentarza `evidence/inventories/R-039.md`; `ready` za R-038. -->
+przy `445c254` z inwentarza `evidence/inventories/R-039.md`; sprawdzony przy `7265f02` i zrobiony w nocy 26/27.11, z poprawkami recenzji F1–F4 i G1–G3 w `## Decisions` 15–16. -->
 
 # R-039 The Limen context message: one per session, frozen, saved, sent again after compaction
 
@@ -263,3 +263,27 @@ inventory's questions in `evidence/inventories/R-039.md` → section 14):
 12. `display: false` (Q13 (a)), as the cue: the model gets it (E-11), and the owner's chat stays clear.
 13. A job folder without `context.md` fails at launch with the kind `launch` (D-095) instead of starting an engine with
     no standing instructions: a silent start would be a false success.
+14. Checked at `7265f02` (2026-11-26, night run 1, protocol step 2): since `445c254` only R-038's and R-111's files
+    changed, none of the places of the facts above; AC-9 and AC-10 exit 0 at `HEAD` (expected 1 after the change), AC-11
+    exits 1 (expected 0); every file the criteria name exists except `test/runtime/context-message.test.ts` and
+    `adrian-rebuild/tools/test-context-size.mjs`, which `## Change` creates.
+15. Review round 1 (2026-11-26, night; `review.md` → Round 1), the findings to fix, each without a change of behaviour:
+    - F1: `test/hook/communication.test.ts`, the test "A-086: no handler of the hook returns a systemPrompt" checks only
+      that no handler returns a `systemPrompt`; the exact set of handled events, if kept, is its own test (T-29 (3)).
+    - F2: `test/cli/spawn.test.ts`, the A-086 test checks one mechanism: the context message whole and first in the
+      model's view, then the task; the empty system prompt is a test of its own or left to the wrapper's argv test and
+      the hook's test that already cover it (T-29 (3)).
+    - F3: `test/cli/continue.test.ts`, the A-079 test is split in two: the child's `context.md` equal to the parent's
+      byte for byte at publication, and the continued session sending no second context message (T-29 (3)).
+    - F4: the header comment of `src/runtime/context-message.ts` is the local reason in one or two sentences and a
+      pointer (A-086, D-114), not a copy of the decisions (T-30 (1)).
+    Each split test fails at HEAD as its parent did (`fails-before.mjs` on the changed files).
+16. Review round 2 (2026-11-26, night; `review.md` → Round 2), the findings to fix, the last round of fixes:
+    - G1: `test/s4-steering.test.ts`, the coordinator test and the worker test each check one mechanism: the guidance
+      in the model's view is one test, and the system prompt the hooks return holding none of it is another (T-29 (3)).
+    - G2: the doc comment of `deliverContext` in `hook/communication.ts` is the local reason in one or two sentences
+      and a pointer to E-13, not a copy of its rule (T-30 (1)).
+    - G3: the `session_compact` handler of `hook/communication.ts` guards its payload before any early return, so a
+      wrongly shaped payload is refused even before a `session_start` (T-32 (4)); a test in
+      `test/hook/communication.test.ts` shows the refusal.
+    The tests of G1 and G3 fail at HEAD (`fails-before.mjs` on the changed files).

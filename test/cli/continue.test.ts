@@ -1,10 +1,11 @@
-// `limen continue`: its start, the transcript it copies with the same mode, its engine's environment, its refusals, and
-// the unlanded work of its parent that it takes (A-001).
+// `limen continue`: its start, the transcript it copies with the same mode, the context message it carries, its
+// engine's environment, its refusals, and the unlanded work of its parent that it takes (A-001).
 import assert from "node:assert/strict";
 import { chmodSync, existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { isTerminal } from "../../src/job/job.ts";
 import { processIdentity } from "../../src/runtime/reap.ts";
 import { outputText, readOutcome } from "../final-line.ts";
@@ -77,6 +78,63 @@ test("limen continue copies the parent's session transcript with the transcript'
 	const id = startedJob(limen(p, ["continue", parent, "say continued"]));
 	await ended(p, id);
 	assert.equal(statSync(join(jobDir(p, id), "session", name)).mode & 0o777, 0o600);
+});
+
+/** The entries of type `limen-context` in the job `id`'s session transcript: the context messages its session holds. */
+function contextEntries(p: Plant, id: string): number {
+	const lines = readFileSync(join(jobDir(p, id), "session", "fake.jsonl"), "utf8")
+		.split("\n")
+		.filter(Boolean);
+	return lines.filter((line) => JSON.parse(line).customType === "limen-context").length;
+}
+
+// A-079: the child carries the message its parent's session holds, not one built again from files that changed since.
+test("A-079: a continuation publishes its parent's context.md byte for byte, also after the project's register changed", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const parent = spawnJob(p, "say first");
+	await ended(p, parent);
+	// A changed register shows that the child carries its parent's bytes instead of building its own.
+	await writeFile(join(p.root, ".agents/limen/communication.md"), "# Communication\n\nchanged-register-marker\n");
+	const child = startedJob(limen(p, ["continue", parent, "say next"]));
+	const saved = (id: string) => readFileSync(join(jobDir(p, id), "context.md"));
+	const published = saved(child);
+	await ended(p, child);
+	assert.deepEqual(published, saved(parent));
+});
+
+// A second message beside the copied transcript would give the child two, and its parent's cached prefix would be lost
+// (A-079).
+test("a continued job's session holds the one context message its parent's transcript brings, and sends no second one", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const parent = spawnJob(p, "say first");
+	await ended(p, parent);
+	const child = startedJob(limen(p, ["continue", parent, "say next"]));
+	await ended(p, child);
+	assert.equal(contextEntries(p, child), 1);
+});
+
+/** The reference of the worker's context message for a project as `limen init` leaves it, as the plant's is (A-051). */
+const WORKER_CONTEXT = fileURLToPath(new URL("../runtime/context-message/worker.md", import.meta.url));
+
+// R-039's migration: a job folder published before context.md existed holds none, and its session's transcript no
+// context message, so its continuation gets one built at its publication.
+test("a continuation of a parent folder without context.md publishes one built for its role", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const parent = spawnJob(p, "say first");
+	assert.equal(waitJob(p, parent), "done");
+	const dir = jobDir(p, parent);
+	rmSync(join(dir, "context.md"));
+	const transcript = join(dir, "session", "fake.jsonl");
+	const kept = readFileSync(transcript, "utf8")
+		.split("\n")
+		.filter((line) => line && JSON.parse(line).customType !== "limen-context");
+	await writeFile(transcript, `${kept.join("\n")}\n`);
+	const child = startedJob(limen(p, ["continue", parent, "say next"]));
+	await ended(p, child);
+	assert.equal(readFileSync(join(jobDir(p, child), "context.md"), "utf8"), readFileSync(WORKER_CONTEXT, "utf8"));
 });
 
 test("a job continued with limen continue starts an engine whose environment holds no LIMEN_CONTINUE", async (t) => {

@@ -19,7 +19,6 @@ export type EngineProfile = {
 export type EngineArgv = {
 	readonly jobDir: string;
 	readonly label: string;
-	readonly preamble: string;
 	readonly extensions: readonly string[];
 	readonly provider?: string;
 	readonly model?: string;
@@ -100,7 +99,7 @@ export function argvFor(profile: EngineProfile, slots: EngineArgv): string[] {
 	if (profile.noTitle) {
 		args.push("--no-title");
 	}
-	args.push("--append-system-prompt", slots.preamble);
+	// The role's text rides the job's context message, never Pi's system prompt, which the bridge drops (A-086, E-1).
 	const route = engineRoute(slots.provider, slots.model);
 	const bridge = route.bridged ? bridgePath() : undefined;
 	const named = [...slots.extensions, ...(bridge ? [bridge] : [])];

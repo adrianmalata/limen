@@ -1,4 +1,7 @@
-// The communication hook builds a session's start from declarations only: a `jg` on PATH changes nothing (T-36).
+// The communication hook: the context message it sends at a session's start and after a compaction, which bytes it
+// holds, the options of each send (D-114 (1), E-13), a compaction's payload of the wrong shape refused (T-32 (4)), no
+// system prompt from any handler (A-086), and a session's start built from declarations only: a `jg` on PATH changes
+// nothing (T-36).
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -6,6 +9,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import limenCommunication from "../../hook/communication.ts";
+import { LimenError } from "../../src/outcome.ts";
+import { contextMessage } from "../../src/runtime/context-message.ts";
+import { inTemporaryProject } from "../environment.ts";
 
 const JOB_ID = "2026-11-19-context-tools-1a2b3c4d";
 
@@ -21,6 +27,31 @@ function assign(values: Env): void {
 		}
 	}
 }
+
+/** Sets or removes each variable of `values` for the test `t`, and gives each its earlier value after it. */
+function environment(t: TestContext, values: Env): void {
+	const old: Env = Object.fromEntries(Object.keys(values).map((name) => [name, process.env[name]]));
+	t.after(() => assign(old));
+	assign(values);
+}
+
+/** The variables of a coordinator's session: no job, in test mode, with the seat folder at `home`. */
+const coordinatorSession = (home: string): Env => ({
+	LIMEN_JOB: undefined,
+	LIMEN_JOB_ID: undefined,
+	LIMEN_CONTEXT_ROOT: undefined,
+	LIMEN_TEST_MODE: "1",
+	LIMEN_HOME: home,
+});
+
+/** The variables of the session of the job `JOB_ID` of the project `project`. */
+const jobSession = (project: string, home: string): Env => ({
+	LIMEN_JOB: "1",
+	LIMEN_JOB_ID: JOB_ID,
+	LIMEN_CONTEXT_ROOT: project,
+	LIMEN_TEST_MODE: "1",
+	LIMEN_HOME: home,
+});
 
 /**
  * A temporary project with one job folder, an empty home, and a folder that holds a `jg` which names itself Jevgrep,
@@ -38,16 +69,228 @@ async function fixture(t: TestContext) {
 	await writeFile(join(job, "task.md"), "Implement the ticket.\n");
 	const jg = `#!/bin/sh\n: > ${JSON.stringify(marker)}\necho "Jevgrep: search source by question"\nexit 0\n`;
 	await writeFile(join(bin, "jg"), jg, { mode: 0o755 });
-	return { project, bin, home, marker };
+	return { project, bin, home, marker, job };
 }
+
+/** One message the hook sent, with the options of its send. */
+type Sent = {
+	readonly customType: string;
+	readonly content: string;
+	readonly display: boolean;
+	readonly options: unknown;
+};
+
+/** A fresh copy of the hook on a fake `pi`: the messages it sent, and a call of its handler of an event, as Pi's. */
+function loadHook() {
+	const handlers = new Map<string, unknown>();
+	const sent: Sent[] = [];
+	limenCommunication({
+		on: (name: string, handler: unknown) => handlers.set(name, handler),
+		sendMessage: (message, options) => {
+			sent.push({ ...message, options });
+		},
+	});
+	const fire = (name: string, event: unknown, context: unknown): unknown => {
+		const handler = handlers.get(name);
+		assert.ok(typeof handler === "function", `the hook handles ${name}`);
+		return handler(event, context);
+	};
+	return { handlers, sent, fire };
+}
+
+/** A session's context in `cwd` whose compaction-aware entries are those `entries` holds when Pi asks. */
+function sessionContext(cwd: string, entries: () => readonly object[]) {
+	return { cwd, sessionManager: { getSessionId: () => "session-1", buildContextEntries: entries } };
+}
+
+/** The entry of a context message as Pi's session holds it (E-16). */
+const held = (content: string) => ({ type: "custom_message", customType: "limen-context", content, display: false });
+/** The entry that replaced the summarised part of a session in its compaction-aware context. */
+const COMPACTION = { type: "compaction", summary: "The summary.", firstKeptEntryId: "a1", tokensBefore: 0 };
+const START = { type: "session_start", reason: "startup" };
+/** A compaction's payload; `willRetry` true only for an overflow whose turn Pi retries. */
+const compact = (reason: string, willRetry = false) => ({
+	type: "session_compact",
+	compactionEntry: COMPACTION,
+	fromExtension: false,
+	reason,
+	willRetry,
+});
+
+// D-114 (1): appended while the session is idle, before its first prompt, the message starts no turn.
+test("D-114 (1): a coordinator's session_start sends one hidden limen-context message, its context message, with no options", async (t) => {
+	const { project, home } = await fixture(t);
+	environment(t, coordinatorSession(home));
+	const hook = loadHook();
+	hook.fire(
+		"session_start",
+		START,
+		sessionContext(project, () => []),
+	);
+	assert.deepEqual(hook.sent, [
+		{
+			customType: "limen-context",
+			content: contextMessage(project, { session: "coordinator" }),
+			display: false,
+			options: undefined,
+		},
+	]);
+});
+
+// A-079: a job's message is the one its publication saved, not one built again from files that may have changed.
+test("a job's session_start sends the context.md of its folder byte for byte", async (t) => {
+	const { project, home, job } = await fixture(t);
+	environment(t, jobSession(project, home));
+	await writeFile(join(job, "context.md"), '<limen-context role="worker">\n\nsaved bytes\n\n</limen-context>');
+	const hook = loadHook();
+	hook.fire(
+		"session_start",
+		START,
+		sessionContext(project, () => []),
+	);
+	assert.deepEqual(
+		hook.sent.map(({ content, options }) => [content, options]),
+		[['<limen-context role="worker">\n\nsaved bytes\n\n</limen-context>', undefined]],
+	);
+});
+
+/** A payload of each event the hook handles, as Pi gives it. */
+const PAYLOADS: Readonly<Record<string, unknown>> = {
+	before_agent_start: { type: "before_agent_start", prompt: "Hello.", systemPrompt: "Base prompt." },
+	message_end: { type: "message_end", message: { role: "assistant", content: [], stopReason: "stop" } },
+	session_start: START,
+	session_compact: compact("manual"),
+	tool_result: { type: "tool_result", toolName: "read", input: {}, content: [], isError: false },
+	agent_start: { type: "agent_start" },
+	agent_end: { type: "agent_end", messages: [] },
+	agent_settled: { type: "agent_settled", aborted: false },
+};
+
+// A-086, E-1: the bridge drops Pi's system prompt, so a text the hook put there would reach no model.
+test("A-086: no handler of the hook returns a systemPrompt", async (t) => {
+	const { project, home } = await fixture(t);
+	environment(t, coordinatorSession(home));
+	const hook = loadHook();
+	const context = sessionContext(project, () => []);
+	const results = await Promise.all(
+		[...hook.handlers.keys()].map(async (name) => {
+			assert.ok(Object.hasOwn(PAYLOADS, name), `a payload of ${name}`);
+			return [name, await hook.fire(name, PAYLOADS[name], context)] as const;
+		}),
+	);
+	assert.deepEqual(
+		results.filter(([, result]) => typeof result === "object" && result !== null && "systemPrompt" in result),
+		[],
+	);
+});
+
+// Step 0.3's /reload and a continued job: the session holds its message already, and those are its frozen bytes.
+test("a session_start whose context holds a context message sends none, and a compaction later sends that message's bytes", async (t) => {
+	const { project, home } = await fixture(t);
+	environment(t, coordinatorSession(home));
+	const hook = loadHook();
+	let entries: readonly object[] = [held("held bytes"), { type: "message" }];
+	const context = sessionContext(project, () => entries);
+	hook.fire("session_start", { type: "session_start", reason: "reload" }, context);
+	const atStart = hook.sent.length;
+	entries = [COMPACTION, { type: "message" }];
+	hook.fire("session_compact", compact("manual"), context);
+	assert.deepEqual([atStart, hook.sent.map(({ content }) => content)], [0, ["held bytes"]]);
+});
+
+/** A coordinator's hook that sent its context message at its start, and whose next compaction summarises it. */
+async function startedHook(t: TestContext) {
+	const { project, home } = await fixture(t);
+	environment(t, coordinatorSession(home));
+	const hook = loadHook();
+	let entries: readonly object[] = [];
+	const context = sessionContext(project, () => entries);
+	hook.fire("session_start", START, context);
+	const [sent] = hook.sent.splice(0);
+	entries = [COMPACTION, { type: "message" }];
+	return { hook, context, bytes: sent?.content, keep: (more: readonly object[]) => (entries = more) };
+}
+
+// E-13: after a run's agent_end Pi's default steer starts an extra turn; triggerTurn false holds it to the run's end.
+test("E-13: a session_compact between agent_end and agent_settled that summarised the message sends it again with triggerTurn false", async (t) => {
+	const { hook, context, bytes } = await startedHook(t);
+	hook.fire("agent_start", PAYLOADS.agent_start, context);
+	hook.fire("agent_end", PAYLOADS.agent_end, context);
+	hook.fire("session_compact", compact("threshold"), context);
+	assert.deepEqual(
+		hook.sent.map(({ content, options }) => [content, options]),
+		[[bytes, { triggerTurn: false }]],
+	);
+});
+
+// E-13: outside a run's end, the default steer lands in the next request, and while idle Pi appends it at once.
+test("E-13: a session_compact after the run settled, as a manual /compact, sends the message again with no options", async (t) => {
+	const { hook, context, bytes } = await startedHook(t);
+	hook.fire("agent_start", PAYLOADS.agent_start, context);
+	hook.fire("agent_end", PAYLOADS.agent_end, context);
+	hook.fire("agent_settled", PAYLOADS.agent_settled, context);
+	hook.fire("session_compact", compact("manual"), context);
+	assert.deepEqual(
+		hook.sent.map(({ content, options }) => [content, options]),
+		[[bytes, undefined]],
+	);
+});
+
+// E-13, bridge-5.0.3.md §9: Pi retries the turn an overflow ended, so the default steer joins that retried request.
+test("E-13: a session_compact after agent_end that Pi retries sends the message again with no options", async (t) => {
+	const { hook, context, bytes } = await startedHook(t);
+	hook.fire("agent_start", PAYLOADS.agent_start, context);
+	hook.fire("agent_end", PAYLOADS.agent_end, context);
+	hook.fire("session_compact", compact("overflow", true), context);
+	assert.deepEqual(
+		hook.sent.map(({ content, options }) => [content, options]),
+		[[bytes, undefined]],
+	);
+});
+
+// Pi continues a run with its queued messages in a new agent loop (core/agent-session.js `_startRun`), whose own
+// compaction before a turn lands its steer in that turn's request.
+test("E-13: a session_compact in a later agent loop of the run, after its agent_start, sends the message again with no options", async (t) => {
+	const { hook, context, bytes } = await startedHook(t);
+	hook.fire("agent_start", PAYLOADS.agent_start, context);
+	hook.fire("agent_end", PAYLOADS.agent_end, context);
+	hook.fire("agent_start", PAYLOADS.agent_start, context);
+	hook.fire("session_compact", compact("threshold"), context);
+	assert.deepEqual(
+		hook.sent.map(({ content, options }) => [content, options]),
+		[[bytes, undefined]],
+	);
+});
+
+// Pi keeps the entries after the cut, so a message sent again after an earlier compaction can still be in the context.
+test("a session_compact whose compacted context still holds the context message sends none", async (t) => {
+	const { hook, context, bytes, keep } = await startedHook(t);
+	keep([COMPACTION, held(bytes ?? ""), { type: "message" }]);
+	hook.fire("session_compact", compact("threshold"), context);
+	assert.deepEqual(
+		{ startedWith: typeof bytes, afterCompaction: hook.sent },
+		{ startedWith: "string", afterCompaction: [] },
+	);
+});
+
+// T-32 (4): a guard refuses a payload of the wrong shape instead of skipping it, also while the hook has no message to
+// send yet. Outside a job the refusal is kept in the working directory's project, so the test runs in one of its own.
+test("BAD_DATA: a session_compact without willRetry before any session_start is refused, naming the field", async (t) => {
+	const { home } = await fixture(t);
+	environment(t, coordinatorSession(home));
+	const project = await inTemporaryProject(t, "limen-context-compact-");
+	const hook = loadHook();
+	const payload = { type: "session_compact", compactionEntry: COMPACTION, fromExtension: false, reason: "manual" };
+	const context = sessionContext(project, () => []);
+	await assert.rejects(
+		async () => hook.fire("session_compact", payload, context),
+		(error) => error instanceof LimenError && error.code === "BAD_DATA" && error.message.includes("willRetry"),
+	);
+});
 
 /** The `before_agent_start` result of a fresh copy of the hook: what a new session's first prompt gets. */
 function sessionStart(project: string): unknown {
-	const handlers = new Map<string, unknown>();
-	limenCommunication({ on: (name: string, handler: unknown) => handlers.set(name, handler) });
-	const start = handlers.get("before_agent_start");
-	assert.ok(typeof start === "function", "the hook handles before_agent_start");
-	return start({ prompt: "Hello.", systemPrompt: "Base prompt." }, { cwd: project });
+	return loadHook().fire("before_agent_start", PAYLOADS.before_agent_start, { cwd: project });
 }
 
 /**
@@ -56,18 +299,7 @@ function sessionStart(project: string): unknown {
  */
 async function startWithAndWithoutJg(t: TestContext, job: boolean) {
 	const { project, bin, home, marker } = await fixture(t);
-	const values: Env = {
-		LIMEN_JOB: job ? "1" : undefined,
-		LIMEN_JOB_ID: job ? JOB_ID : undefined,
-		LIMEN_CONTEXT_ROOT: job ? project : undefined,
-		// Test mode, in which alone the seat folder is read from LIMEN_HOME (src/config.ts).
-		LIMEN_TEST_MODE: "1",
-		LIMEN_HOME: home,
-		PATH: process.env.PATH,
-	};
-	const old: Env = Object.fromEntries(Object.keys(values).map((name) => [name, process.env[name]]));
-	t.after(() => assign(old));
-	assign(values);
+	environment(t, { ...(job ? jobSession(project, home) : coordinatorSession(home)), PATH: process.env.PATH });
 	const plain = sessionStart(project);
 	process.env.PATH = `${bin}:${process.env.PATH ?? ""}`;
 	const withJg = sessionStart(project);
@@ -98,16 +330,7 @@ test("a coordinator's turn cue holds no seat-rules block when the seat folder ho
 	};
 	await mkdir(join(home, ".limen", "rules", rule.name), { recursive: true });
 	await writeFile(join(home, ".limen", "rules", rule.name, "rule.json"), JSON.stringify(rule));
-	const values: Env = {
-		LIMEN_JOB: undefined,
-		LIMEN_JOB_ID: undefined,
-		LIMEN_CONTEXT_ROOT: undefined,
-		LIMEN_TEST_MODE: "1",
-		LIMEN_HOME: home,
-	};
-	const old: Env = Object.fromEntries(Object.keys(values).map((name) => [name, process.env[name]]));
-	t.after(() => assign(old));
-	assign(values);
+	environment(t, coordinatorSession(home));
 	const start = sessionStart(project);
 	const cue = typeof start === "object" && start !== null ? JSON.stringify(Reflect.get(start, "message")) : "";
 	assert.deepEqual(

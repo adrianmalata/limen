@@ -14,7 +14,7 @@ test("guidance reminders name the unread lines for the edited area, once until r
 	await writeFile(join(dir, "styleguide.md"), "# S\n\n## `core/`\n\n1\n\n## `web/`\n\n2\n\n## Rust\n\n3\n");
 	delete process.env.LIMEN_CONTEXT_ROOT;
 	const handlers = new Map<string, unknown>();
-	limenCommunication({ on: (name: string, handler: unknown) => handlers.set(name, handler) });
+	limenCommunication({ on: (name: string, handler: unknown) => handlers.set(name, handler), sendMessage() {} });
 	const call = (name: string, ...args: unknown[]) => {
 		const handler = handlers.get(name);
 		return typeof handler === "function" ? handler(...args) : undefined;
@@ -27,7 +27,8 @@ test("guidance reminders name the unread lines for the edited area, once until r
 	tool("read", { path: ".agents/limen/styleguide.md", offset: 1, limit: 10 });
 	tool("read", { path: ".agents/limen/styleguide.md", offset: 11, limit: 3 });
 	assert.equal(tool("edit", { path: "io/c.rs" }), "", "every line that applies was read");
-	call("session_compact");
+	// A manual /compact with the fields of Pi's payload that the hook's guard checks, which refuses any other shape.
+	call("session_compact", { type: "session_compact", reason: "manual", willRetry: false });
 	assert.equal(tool("edit", { path: "web/y.ts" }, true), "", "a failed edit asks nothing");
 	assert.match(tool("edit", { path: "web/y.ts" }), /lines 1-2, 7-10\./);
 	assert.match(tool("write", { path: "spec/features/planned/F1-x/ticket.md" }), /Specs: .* lines \d+-\d+\. They hold/);

@@ -26,7 +26,7 @@ Where code lives:
 - Capability — start, wait, stop, observe — belongs in `src/`
 - Operating advice belongs in `templates/`
 - Behavior incidents should normally change templates, not add guards
-- Project context belongs in the package communication hook: stable guidance (capability frame, shop manual, speech register, vision, styleguide, board digest) rides the system prompt; a short per-turn cue recalls the capability frame and names the audience; tool results recall the rule that applies; inherit package defaults when project files are absent; bound injected text; leftover-copy drift stays an advisory
+- Project context belongs in the package: stable guidance (capability frame, shop manual or role prompt, speech register, vision, styleguide) rides the context message that `src/runtime/context-message.ts` builds and the communication hook sends once per session, never Pi's system prompt, which the Claude bridge drops; a short per-turn cue recalls the capability frame and names the audience; tool results recall the rule that applies; inherit package defaults when project files are absent; bound injected text; leftover-copy drift stays an advisory
 
 Only impossible mechanics should error. Everything else informs. Migration is the exception where safety requires a complete read-only preflight: any legacy live job, handshake, type mismatch, or old/new path conflict must fail before the first write.
 

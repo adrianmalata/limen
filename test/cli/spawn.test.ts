@@ -1,12 +1,15 @@
-// `limen spawn`: the job it starts, each refusal with the snapshot unchanged, and what the job's model gets (A-086).
+// `limen spawn`: the job it starts, each refusal with the snapshot unchanged, the context message it publishes, and
+// what the job's model gets (A-086).
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { isTerminal } from "../../src/job/job.ts";
 import { platform } from "../../src/platform/platform.ts";
+import { type BridgeView, SUMMARY_PREFIX } from "../../src/runtime/bridge-view.ts";
 import { outputText, readOutcome } from "../final-line.ts";
 import {
 	engineViews,
@@ -364,23 +367,93 @@ test("a reviewer spawn beside a done job whose branch holds an unlanded commit s
 	assert.equal(waitJob(p, review), "done");
 });
 
-// A-086: until R-039 moves Limen's standing text out of Pi's system prompt, the model under the bridge never gets it.
-test("A-086: a spawned worker's first model call holds its task, then the cue, as one prompt, and none of the system prompt the hooks return", async (t) => {
+/** The reference of the worker's context message for a project as `limen init` leaves it, as the plant's is (A-051). */
+const WORKER_CONTEXT = fileURLToPath(new URL("../runtime/context-message/worker.md", import.meta.url));
+
+// A-079: the job's session opens with the message its publication saved, not one built again later.
+test("a spawn publishes the job's context.md, the reference context message of its role for a project as limen init leaves it", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = spawnJob(p, "say done");
+	assert.equal(waitJob(p, id), "done");
+	assert.equal(readFileSync(join(jobDir(p, id), "context.md"), "utf8"), readFileSync(WORKER_CONTEXT, "utf8"));
+});
+
+/** The files named `context.md` below the plant's `.limen/`, by their path there. */
+const contextFiles = (p: Plant) =>
+	readdirSync(join(p.root, ".limen"), { recursive: true }).filter((path) => basename(String(path)) === "context.md");
+
+// T-38: spawn builds the message in its validate, so a check after it that refuses leaves no copy of it behind.
+test("T-38: a spawn refused after its context message was built leaves no context.md", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const { run } = refusedSpawn(p, ["--review", "--branch", "missing-candidate"]);
+	assert.deepEqual([readOutcome(run).code, contextFiles(p)], ["BRANCH_MISSING", []]);
+});
+
+// A-086, E-14: the bridge drops Pi's system prompt, so Limen's text reaches the model as the first user message.
+test("A-086: a spawned worker's first model call holds its context message whole and first, then its task and the cue, as one prompt", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const id = spawnJob(p, "say viewed");
 	assert.equal(waitJob(p, id), "done");
 	const dir = jobDir(p, id);
-	const [task, cue, system] = ["fake-task.txt", "fake-context.txt", "fake-system.txt"].map((name) =>
+	const [context, task, cue] = ["context.md", "fake-task.txt", "fake-context.txt"].map((name) =>
 		readFileSync(join(dir, name), "utf8"),
 	);
 	const [first] = engineViews(dir);
-	const seen = JSON.stringify(first ?? null);
-	const reached = (system ?? "")
-		.split("\n")
-		.filter((line) => line.trim().length >= 20 && seen.includes(JSON.stringify(line).slice(1, -1)));
 	assert.deepEqual(
-		{ prompt: first?.messages, path: first?.path, system: Boolean(system?.trim()), reached },
-		{ prompt: [{ role: "user", text: [`${task}\n\n${cue}`] }], path: "fresh", system: true, reached: [] },
+		{ prompt: first?.messages, path: first?.path },
+		{ prompt: [{ role: "user", text: [`${context}\n\n${task}\n\n${cue}`] }], path: "fresh" },
+	);
+});
+
+/** How many times the text of `view`'s records holds `text`. */
+function held(view: BridgeView | undefined, text: string): number {
+	return (
+		(view?.messages ?? [])
+			.flatMap((record) => record.text)
+			.join("\n")
+			.split(text).length - 1
+	);
+}
+
+/**
+ * A worker of `p` on `script`, which starts with `block`, steered while it waits, so its session has two runs: the
+ * steer's, while the job's task waits, then the task's, once the test releases it.
+ */
+async function twoRuns(p: Plant, script: string): Promise<string> {
+	const id = spawnJob(p, script);
+	const dir = jobDir(p, id);
+	await until(dir, () => existsSync(join(dir, "fake-blocked-1")));
+	assert.equal(limen(p, ["steer", id, "steered"]).status, 0);
+	await until(dir, () => engineViews(dir).length === 1);
+	await release(dir);
+	assert.equal(waitJob(p, id), "done");
+	return dir;
+}
+
+// A-051, z. 3: the message is the session's frozen prefix, so a later run's call holds the same bytes, and only once.
+test("A-051: each model call of a job's two runs holds its context message once, the bytes of its context.md", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const dir = await twoRuns(p, "block\nsay done");
+	const context = readFileSync(join(dir, "context.md"), "utf8");
+	assert.deepEqual(
+		engineViews(dir).map((view) => held(view, context)),
+		[1, 1],
+	);
+});
+
+// z. 4, E-13: a compaction summarises the message the session started with, so the hook sends it again.
+test("after compact manual the job's next model call holds its context message again, once, after the summary", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const dir = await twoRuns(p, "block\ncompact manual\nsay done");
+	const context = readFileSync(join(dir, "context.md"), "utf8");
+	const after = engineViews(dir)[1];
+	assert.deepEqual(
+		{ summary: after?.messages[0]?.text[0]?.startsWith(SUMMARY_PREFIX), held: held(after, context) },
+		{ summary: true, held: 1 },
 	);
 });

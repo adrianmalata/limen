@@ -1,27 +1,40 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { transport } from "../src/config.ts";
 import { noteStart, recordNote } from "../src/job/task-note.ts";
 import { formatDrift, inheritFile, listDrift, packageRoot, readOptional } from "../src/project/inherit.ts";
 import { ticketPointers } from "../src/project/planning.ts";
 import {
+	CONTEXT_FILE,
+	capabilitySection,
+	contextMessage,
+	MAX_CONTEXT_LINES,
+	markdownSection,
+	PACKAGED_REGISTER,
+	REGISTER_FILE,
+	STYLE_FILE,
+	trimmedLines,
+	VISION_FILE,
+} from "../src/runtime/context-message.ts";
+import {
 	type PiApi,
+	type PiContext,
+	type PiContextEntry,
+	type PiCustomMessage,
 	type PiPart,
 	type PiToolResultEvent,
 	piContext,
+	piContextEntries,
 	piEvent,
 	recorded,
 } from "../src/runtime/pi-api.ts";
 import { assistantStopReason } from "../src/runtime/stream.ts";
 
-const CONTEXT_TYPE = "limen-project-context";
-const CAPABILITY_FILE = "templates/capability.md";
-const MAX_CONTEXT_LINES = 1000;
+/** The custom type of the context message (D-114 (1), T-16): a `limen-*` custom message, never a user message. */
+const CONTEXT_TYPE = "limen-context";
+/** The custom type of the turn cue, which R-041 changes. */
+const CUE_TYPE = "limen-project-context";
 const BOARD_ADVISORY_LINES = 120;
-const STYLE_FILE = ".agents/limen/styleguide.md";
-const VISION_FILE = "spec/vision.md";
-const REGISTER_FILE = ".agents/limen/communication.md";
-const PACKAGED_REGISTER = "templates/communication.md";
 // A styleguide heading that names one of these words applies only to files with the listed extensions.
 const LANGUAGES: Readonly<Record<string, readonly string[]>> = {
 	rust: ["rs"],
@@ -49,10 +62,13 @@ const GUIDANCE: Readonly<Record<ReminderKind, { readonly file: string; readonly 
 };
 
 /**
- * Stable guidance rides the system prompt once per call. The per-turn note is a short cue. After an edit, a spawn or a
- * merge, the tool result asks the agent to read the guidance lines that apply, once per context, until it has read them.
+ * Limen's standing text is the session's context message (A-086), which Pi's system prompt cannot carry under the
+ * bridge (E-1): the hook sends it once, at the session's start, and again only after a compaction removed it from the
+ * model's context, always the bytes the session holds (A-037). The per-turn note is a short cue. After an edit, a spawn
+ * or a merge, the tool result asks the agent to read the guidance lines that apply, once per context, until it has
+ * read them.
  */
-export default function limenCommunication(pi: Pick<PiApi, "on">): void {
+export default function limenCommunication(pi: Pick<PiApi, "on" | "sendMessage">): void {
 	let lastTouch: string | undefined;
 	let lastFailure: string | undefined;
 	// The job folder once the first prompt showed the task note, and the note text this hook saw last.
@@ -69,25 +85,14 @@ export default function limenCommunication(pi: Pick<PiApi, "on">): void {
 			const failed = lastFailure;
 			lastTouch = undefined;
 			lastFailure = undefined;
-			const extra = guidancePrompt(root, job);
 			const cue = turnCue(root, job, isWakePrompt(event.prompt), touched, failed);
 			const firstNote = job && !noteDir ? jobFolder(root) : undefined;
 			if (firstNote) {
 				noteDir = firstNote;
 				noteSeen = readOptional(join(firstNote, "note.md"));
 			}
-			const message = {
-				customType: CONTEXT_TYPE,
-				content: firstNote ? `${cue}\n\n${noteStart(firstNote)}` : cue,
-				display: false,
-			};
-			if (!extra) {
-				return { message };
-			}
-			return {
-				message,
-				systemPrompt: event.systemPrompt ? `${event.systemPrompt}\n\n${extra}` : extra,
-			};
+			const content = firstNote ? `${cue}\n\n${noteStart(firstNote)}` : cue;
+			return { message: { customType: CUE_TYPE, content, display: false } };
 		}),
 	);
 	pi.on(
@@ -101,12 +106,11 @@ export default function limenCommunication(pi: Pick<PiApi, "on">): void {
 		}),
 	);
 	const recall: Recall = { read: new Map(), named: new Set() };
-	const forget = () => {
+	// A session's start and a compaction give a new context, so the reminders start over with it.
+	deliverContext(pi, () => {
 		recall.read.clear();
 		recall.named.clear();
-	};
-	pi.on("session_start", recorded(forget));
-	pi.on("session_compact", recorded(forget));
+	});
 	pi.on(
 		"tool_result",
 		recorded((raw: unknown, rawContext: unknown) => {
@@ -134,6 +138,71 @@ export default function limenCommunication(pi: Pick<PiApi, "on">): void {
 	);
 }
 
+/**
+ * The model keeps Limen's standing text only while the session's context holds the context message, so the hook sends
+ * the bytes the session holds once at its start and again after a compaction removed them, with no turn of its own; the
+ * options of each send follow D-114 (1) and E-13. Each handler calls `forget` first.
+ */
+function deliverContext(pi: Pick<PiApi, "on" | "sendMessage">, forget: () => void): void {
+	// The context message this session holds.
+	let frozen: PiCustomMessage | undefined;
+	// Between a run's agent_end and its agent_settled.
+	let ending = false;
+	pi.on(
+		"session_start",
+		recorded((raw: unknown, rawContext: unknown) => {
+			forget();
+			piEvent("session_start", raw);
+			const context = piContext("session_start", rawContext, ["cwd", "sessionManager"]);
+			const held = heldContext(piContextEntries("session_start", context));
+			if (held !== undefined) {
+				frozen = contextOf(held);
+				return;
+			}
+			frozen = contextOf(startingContext(context));
+			pi.sendMessage(frozen);
+		}),
+	);
+	pi.on(
+		"session_compact",
+		recorded((raw: unknown, rawContext: unknown) => {
+			forget();
+			const { willRetry } = piEvent("session_compact", raw);
+			if (frozen === undefined) {
+				return;
+			}
+			const context = piContext("session_compact", rawContext, ["sessionManager"]);
+			if (heldContext(piContextEntries("session_compact", context)) !== undefined) {
+				return;
+			}
+			if (ending && !willRetry) {
+				pi.sendMessage(frozen, { triggerTurn: false });
+			} else {
+				pi.sendMessage(frozen);
+			}
+		}),
+	);
+	// Pi continues a run with its queued messages in a new agent loop, so a loop's start ends the window of its agent_end.
+	pi.on(
+		"agent_start",
+		recorded(() => {
+			ending = false;
+		}),
+	);
+	pi.on(
+		"agent_end",
+		recorded(() => {
+			ending = true;
+		}),
+	);
+	pi.on(
+		"agent_settled",
+		recorded(() => {
+			ending = false;
+		}),
+	);
+}
+
 function isWakePrompt(prompt: string | undefined): boolean {
 	return typeof prompt === "string" && prompt.startsWith("Limen job ");
 }
@@ -143,39 +212,33 @@ function jobFolder(root: string): string | undefined {
 	return transport("LIMEN_JOB_ID") && existsSync(dir) ? dir : undefined;
 }
 
-function guidancePrompt(cwd: string, job: boolean): string {
-	const parts: string[] = [];
-	const frame = capabilitySection("Frame");
-	if (frame) {
-		parts.push(boundText(frame, `limen/${CAPABILITY_FILE}`, "Capability"));
+/** The context message as the hook sends it: hidden from the owner's chat, which the model still gets (E-11). */
+function contextOf(content: string): PiCustomMessage {
+	return { customType: CONTEXT_TYPE, content, display: false };
+}
+
+/** The content of the context message the session's compaction-aware context holds; undefined when it holds none. */
+function heldContext(entries: readonly PiContextEntry[]): string | undefined {
+	const entry = entries.find((one) => one.type === "custom_message" && one.customType === CONTEXT_TYPE);
+	if (entry === undefined) {
+		return undefined;
 	}
-	if (!job) {
-		const shop = readInheritedAgents(cwd);
-		if (shop) {
-			parts.push(shop);
-		}
+	const content = entry.content ?? "";
+	return typeof content === "string"
+		? content
+		: content.flatMap((part) => (part.type === "text" ? [part.text ?? ""] : [])).join("\n");
+}
+
+/**
+ * The message a session without one starts with: the coordinator's, built from the package and the project's files,
+ * or a job's, which its publication saved in the job's folder (A-079); the wrapper starts no engine without that file.
+ */
+function startingContext(context: Pick<PiContext, "cwd">): string {
+	const root = transport("LIMEN_CONTEXT_ROOT") ?? context.cwd;
+	if (transport("LIMEN_JOB") !== "1") {
+		return contextMessage(root, { session: "coordinator" });
 	}
-	const register = readRegister(cwd);
-	if (register) {
-		parts.push(register);
-	}
-	if (!job) {
-		const vision = boundFile(cwd, VISION_FILE, "Vision");
-		if (vision) {
-			parts.push(vision);
-		}
-	}
-	const style = boundFile(cwd, STYLE_FILE, "Styleguide");
-	if (style) {
-		parts.push(style);
-	}
-	if (!job) {
-		const digest = boardDigest(cwd);
-		if (digest) {
-			parts.push(digest);
-		}
-	}
-	return parts.join("\n\n");
+	return readFileSync(join(root, ".limen", "jobs", transport("LIMEN_JOB_ID") ?? "", CONTEXT_FILE), "utf8");
 }
 
 function turnCue(
@@ -224,16 +287,6 @@ function turnCue(
 	return ["<limen-project-context>", ...lines, "</limen-project-context>"].join("\n\n");
 }
 
-function readRegister(cwd: string): string {
-	const inherited = inheritFile(cwd, REGISTER_FILE, PACKAGED_REGISTER);
-	if (!inherited) {
-		return "";
-	}
-	const cueStart = inherited.text.search(/^## Cue: /m);
-	const text = cueStart < 0 ? inherited.text : inherited.text.slice(0, cueStart);
-	return boundText(text, inherited.path, "Communication");
-}
-
 /** Cue sections belong to the selected register; absent sections have no package fallback. */
 function registerCue(cwd: string, heading: string): string {
 	const inherited = inheritFile(cwd, REGISTER_FILE, PACKAGED_REGISTER);
@@ -247,38 +300,6 @@ function registerCue(cwd: string, heading: string): string {
 	return section.split("\n").slice(1).join("\n").trim();
 }
 
-/** The capability frame describes Limen itself, not project speech, so a project register never replaces it. */
-function capabilitySection(heading: string): string {
-	const text = readOptional(join(packageRoot(), CAPABILITY_FILE)) ?? "";
-	return markdownSection(text, heading).split("\n").slice(1).join("\n").trim();
-}
-
-function readInheritedAgents(cwd: string): string {
-	if (readOptional(join(cwd, "AGENTS.md")) !== undefined) {
-		return "";
-	}
-	const inherited = inheritFile(cwd, "AGENTS.md", "templates/agents.md");
-	return inherited ? boundText(inherited.text, inherited.path, "Shop manual") : "";
-}
-
-function boundFile(cwd: string, relative: string, label: string): string {
-	const text = readOptional(join(cwd, relative));
-	return text === undefined ? "" : boundText(text, relative, label);
-}
-
-function boundText(text: string, path: string, label: string): string {
-	const lines = trimmedLines(text);
-	if (!lines.length) {
-		return "";
-	}
-	const content = lines.slice(0, MAX_CONTEXT_LINES).join("\n");
-	const notice =
-		lines.length > MAX_CONTEXT_LINES
-			? `\n\n[${path} truncated to ${MAX_CONTEXT_LINES} of ${lines.length} lines; read the file for remaining context.]`
-			: "";
-	return `## ${label} (${path})\n${content}${notice}`;
-}
-
 function boardAdvisory(cwd: string): string {
 	const board = readOptional(join(cwd, "spec/build.md"));
 	if (board === undefined) {
@@ -289,34 +310,6 @@ function boardAdvisory(cwd: string): string {
 		return "";
 	}
 	return `spec/build.md is ${count} lines; trim TRACK and NEXT, and close landed tickets (limen board lists them).`;
-}
-
-function boardDigest(cwd: string): string {
-	const board = readOptional(join(cwd, "spec/build.md"));
-	if (board === undefined) {
-		return "";
-	}
-	const body = ["NOW", "NEXT"]
-		.map((heading) => markdownSection(board, heading))
-		.filter(Boolean)
-		.join("\n\n");
-	return body ? boundText(body, "spec/build.md", "Board digest") : "";
-}
-
-function markdownSection(text: string, heading: string): string {
-	const lines = text.replaceAll("\r\n", "\n").split("\n");
-	const start = lines.findIndex((line) => /^##\s+/.test(line) && line.replace(/^##\s+/, "").trim() === heading);
-	if (start < 0) {
-		return "";
-	}
-	let end = lines.length;
-	for (let index = start + 1; index < lines.length; index++) {
-		if (/^##\s+/.test(lines[index] ?? "")) {
-			end = index;
-			break;
-		}
-	}
-	return lines.slice(start, end).join("\n").trim();
 }
 
 function jobTicket(cwd: string): string {
@@ -587,15 +580,4 @@ function appendText(content: readonly PiPart[], text: string): PiPart[] {
 	}
 	parts.push({ type: "text", text });
 	return parts;
-}
-
-function trimmedLines(text: string): readonly string[] {
-	const lines = text.replaceAll("\r\n", "\n").split("\n");
-	while (lines[0]?.trim() === "") {
-		lines.shift();
-	}
-	while (lines.at(-1)?.trim() === "") {
-		lines.pop();
-	}
-	return lines;
 }

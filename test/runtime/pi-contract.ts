@@ -19,7 +19,7 @@ const TYPE_ROOTS = fileURLToPath(new URL("../../node_modules/@types", import.met
 
 /** The contract file. Its diagnostics name the line, so each check is one statement. */
 const CONTRACT = `import type { ExtensionAPI, ExtensionContext, ExtensionEvent } from "@earendil-works/pi-coding-agent";
-import type { PiApi, PiContext, PiEvents, PiMessage } from "ADAPTER";
+import type { PiApi, PiContext, PiContextEntry, PiEvents, PiMessage } from "ADAPTER";
 
 declare const unrelated: unique symbol;
 /** True when T checks nothing: any (also a type whose package did not resolve) or never. */
@@ -45,15 +45,21 @@ declare const api: ExtensionAPI;
 declare const context: ExtensionContext;
 declare const payloads: { readonly [K in keyof PiEvents]: Payload<K> };
 declare const message: Field<Payload<"message_end">, "message">;
+/** The custom message entry among the entries of the context's compaction-aware session (R-039). */
+declare const customEntry: Extract<
+	Element<ReturnType<Field<Field<ExtensionContext, "sessionManager">, "buildContextEntries">>>,
+	{ type: "custom_message" }
+>;
 
 // Each type the contract compares checks something: Pi's API and context, each event the adapter reads, each field
-// of them that the adapter declares, and the fields of a message.
+// of them that the adapter declares, the fields of a message, and those of a custom message entry.
 export const piTypes: None<(Vacuous<ExtensionAPI> extends true ? "ExtensionAPI" : never) | (Vacuous<ExtensionContext> extends true ? "ExtensionContext" : never)> = "none";
 export const apiMembers: None<Unchecked<PiApi, ExtensionAPI, "ExtensionAPI.">> = "none";
 export const contextFields: None<Unchecked<PiContext, ExtensionContext, "ExtensionContext.">> = "none";
 export const events: None<{ [K in keyof PiEvents & string]: Vacuous<Payload<K>> extends true ? K : never }[keyof PiEvents & string]> = "none";
 export const eventFields: None<{ [K in keyof PiEvents & string]: Unchecked<PiEvents[K], Payload<K>, \`\${K}.\`> }[keyof PiEvents & string]> = "none";
 export const messageFields: None<Unchecked<PiMessage, typeof message, "message.">> = "none";
+export const entryFields: None<Unchecked<PiContextEntry, typeof customEntry, "custom_message.">> = "none";
 
 // Pi's own values fit the adapter's declarations.
 export const apiFits: PiApi = api;

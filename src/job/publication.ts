@@ -4,6 +4,7 @@ import { basename, dirname } from "node:path";
 import { atomicRename, atomicWrite } from "../atomic-write.ts";
 import { exception, transport } from "../config.ts";
 import { platform } from "../platform/platform.ts";
+import { CONTEXT_FILE } from "../runtime/context-message.ts";
 import type { EngineId } from "../runtime/engine.ts";
 import { groupLock } from "./group-cabinet.ts";
 import { SESSION_ID } from "./job.ts";
@@ -54,6 +55,12 @@ export function spawnerLine(): string {
 
 type NewJob = {
 	readonly task: string | Uint8Array;
+	/**
+	 * The Limen context message the job's session opens with (src/runtime/context-message.ts), saved as `context.md` in
+	 * the same rename as the record, so a spawn that never publishes leaves none (T-38) and a continuation can carry it
+	 * byte for byte (A-079).
+	 */
+	readonly context: string | Uint8Array;
 	readonly label: string;
 	readonly branch: string;
 	readonly worktree: string;
@@ -91,8 +98,8 @@ export const PUBLISHING = ".publishing-";
 
 /**
  * Publish a complete starting record before creating or restoring its protected worktree: the record (state
- * `starting`, src/job/record.ts), the progress file and the content files, all in a hidden folder that one rename
- * makes the job's.
+ * `starting`, src/job/record.ts), the progress file and the content files, the context message among them, all in a
+ * hidden folder that one rename makes the job's.
  */
 export async function publishJob(jobDir: string, job: NewJob): Promise<void> {
 	const jobsRoot = dirname(jobDir);
@@ -101,7 +108,12 @@ export async function publishJob(jobDir: string, job: NewJob): Promise<void> {
 	await mkdir(publishing);
 	try {
 		const startedAt = new Date().toISOString();
-		const files: Record<string, string | Uint8Array> = { "task.md": job.task, log: "", ...job.carried };
+		const files: Record<string, string | Uint8Array> = {
+			"task.md": job.task,
+			[CONTEXT_FILE]: job.context,
+			log: "",
+			...job.carried,
+		};
 		if (job.notificationSession) {
 			files[`notify/subscribers/${job.notificationSession}`] = `${startedAt}\n`;
 		}

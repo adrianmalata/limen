@@ -104,7 +104,8 @@ test("the configuration scan finds each read form and an unregistered name, but 
  * LIMEN_STALL_TICK_MS, the tick of a wrapper's samples of its scope's CPU time (R-036), and LIMEN_TEST_MODE, the
  * marker of test mode, in which alone the knobs are read (R-087). LIMEN_SETUP, the mark of a spawn's start that owes its
  * setup, replaced LIMEN_SETUP_KEEP when the setup prune went (R-101, Decision 7). LIMEN_LEFTOVER_TABS_MS, the bound of
- * the seat sweep's daily close of leftover Herdr tabs (R-103, Decision 23).
+ * the seat sweep's daily close of leftover Herdr tabs (R-103, Decision 23). LIMEN_PREAMBLE, the file of the role's
+ * preamble, went when the role's text moved into the job's context message (R-039).
  */
 const INVENTORY = {
 	"transport wrapper": [
@@ -112,7 +113,6 @@ const INVENTORY = {
 		"LIMEN_JOB_DIR",
 		"LIMEN_WORKTREE",
 		"LIMEN_TASK_FILE",
-		"LIMEN_PREAMBLE",
 		"LIMEN_TIMEOUT_MS",
 		"LIMEN_MODEL",
 		"LIMEN_PROVIDER",

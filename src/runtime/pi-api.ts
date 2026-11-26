@@ -33,6 +33,15 @@ export type PiMessage = {
 
 /** `before_agent_start`: a run starts from a prompt, which has `prompt`, or from a custom message, which has none. */
 export type PiStartEvent = { readonly prompt?: string; readonly systemPrompt: string };
+const SESSION_STARTS = ["startup", "reload", "new", "resume", "fork"] as const;
+/**
+ * `session_start`: why the session started: Pi's start, a continued session's too, `/reload`, `/new`, a resume, a
+ * fork.
+ */
+export type PiSessionStartEvent = { readonly reason: (typeof SESSION_STARTS)[number] };
+const COMPACTIONS = ["manual", "threshold", "overflow"] as const;
+/** `session_compact`: what compacted the context, and whether Pi retries the turn an overflow ended (E-13). */
+export type PiCompactEvent = { readonly reason: (typeof COMPACTIONS)[number]; readonly willRetry: boolean };
 /** `message_start` and `message_end`. */
 export type PiMessageEvent = { readonly message: PiMessage };
 /** `context`: the messages of the next model call. */
@@ -57,6 +66,8 @@ export type PiSettleEvent<Entry> = { readonly outcome: PiOutcome; readonly entri
 
 /** The payload of each event whose fields a hook reads, by the event's name. */
 export type PiEvents = {
+	readonly session_start: PiSessionStartEvent;
+	readonly session_compact: PiCompactEvent;
 	readonly before_agent_start: PiStartEvent;
 	readonly message_start: PiMessageEvent;
 	readonly message_end: PiMessageEvent;
@@ -67,12 +78,30 @@ export type PiEvents = {
 };
 
 /** The events a hook handles, those whose payload it does not read included. */
-export type PiEventName = keyof PiEvents | "session_start" | "session_shutdown" | "session_compact" | "agent_settled";
+export type PiEventName = keyof PiEvents | "session_shutdown" | "agent_start" | "agent_end" | "agent_settled";
 
-/** A custom message that a hook sends or returns: the turn cue, a group's progress. */
+/** A custom message that a hook sends or returns: the context message, the turn cue, a group's progress. */
 export type PiCustomMessage = { readonly customType: string; readonly content: string; readonly display: boolean };
-/** What a `before_agent_start` handler returns: a message for this run, and a system prompt in place of Pi's. */
-export type PiStartResult = { readonly message: PiCustomMessage; readonly systemPrompt?: string };
+/**
+ * How `sendMessage` delivers a custom message (`core/extensions/types.d.ts:350-353`): with none, Pi appends it at once
+ * while the session is idle and steers it into the next request while a run is active; `triggerTurn: false` holds it to
+ * the end of the active turn; `triggerTurn: true` starts a run when idle; `deliverAs` picks the queue of an active run.
+ */
+export type PiSendOptions = {
+	readonly triggerTurn?: boolean;
+	readonly deliverAs?: "steer" | "followUp" | "nextTurn";
+};
+/** What a `before_agent_start` handler returns: a message for this run. */
+export type PiStartResult = { readonly message: PiCustomMessage };
+/**
+ * An entry of the session's compaction-aware context (`core/session-manager.d.ts:109-128`): of a custom message entry,
+ * a message a hook sent, a hook reads its `customType` and `content`; of any other entry only its `type`.
+ */
+export type PiContextEntry = {
+	readonly type: string;
+	readonly customType?: string;
+	readonly content?: string | readonly PiMessagePart[];
+};
 /** What a `tool_call` handler returns to block the call. */
 export type PiBlock = { readonly block: boolean; readonly reason: string };
 /** What a `tool_result` handler returns to change the result's content. */
@@ -87,11 +116,16 @@ export type PiUi = {
 	notify(message: string, level: "info" | "warning"): void;
 	setStatus(key: string, text: string | undefined): void;
 };
+/**
+ * The members of the context's session manager that a hook calls: the session's id, and the active, compaction-aware
+ * entries, by which a hook tells whether a message it sent is still in the model's context.
+ */
+export type PiSessionManager = { getSessionId(): string; buildContextEntries(): readonly PiContextEntry[] };
 /** The fields of the context that a hook reads, in a handler, a command or a tool. */
 export type PiContext = {
 	readonly cwd: string;
 	isIdle(): boolean;
-	readonly sessionManager: { getSessionId(): string };
+	readonly sessionManager: PiSessionManager;
 	readonly ui: PiUi;
 	shutdown(): void;
 };
@@ -150,11 +184,10 @@ export interface PiApi {
 			context: unknown,
 		) => PiSettleResult<Entry> | undefined | Promise<PiSettleResult<Entry> | undefined>,
 	): void;
+	on(event: "agent_start", handler: PiHandler): void;
+	on(event: "agent_end", handler: PiHandler): void;
 	on(event: "agent_settled", handler: PiHandler): void;
-	sendMessage(
-		message: PiCustomMessage,
-		options: { readonly deliverAs: "followUp"; readonly triggerTurn: boolean },
-	): void;
+	sendMessage(message: PiCustomMessage, options?: PiSendOptions): void;
 	sendUserMessage(content: string, options?: { readonly deliverAs: "steer" | "followUp" }): void;
 	registerTool(tool: PiTool): void;
 	registerCommand(name: string, command: PiCommand): void;
@@ -256,7 +289,7 @@ function textOrList(check: Check): Check {
 	};
 }
 
-/** The `type` of a part, when the part is an object. */
+/** The `type` of a part or of a session entry, when it is an object. */
 function partType(value: unknown): unknown {
 	return isObject(value) ? Reflect.get(value, "type") : undefined;
 }
@@ -286,8 +319,16 @@ const message = shape<PiMessage>({
 	errorMessage: maybe(text),
 });
 
+/** A custom message entry carries its type and content, as Pi stores a hook's message; another entry its type alone. */
+const contextEntry: Check = (value, field) =>
+	partType(value) === "custom_message"
+		? shape<Required<PiContextEntry>>({ type: text, customType: text, content: textOrList(messagePart) })(value, field)
+		: shape<Pick<PiContextEntry, "type">>({ type: text })(value, field);
+
 /** The check of each event's payload. */
 const EVENTS: { readonly [K in keyof PiEvents]: Check } = {
+	session_start: shape<PiSessionStartEvent>({ reason: literal(SESSION_STARTS) }),
+	session_compact: shape<PiCompactEvent>({ reason: literal(COMPACTIONS), willRetry: flag }),
 	before_agent_start: shape<PiStartEvent>({ prompt: maybe(text), systemPrompt: text }),
 	message_start: shape<PiMessageEvent>({ message }),
 	message_end: shape<PiMessageEvent>({ message }),
@@ -301,7 +342,7 @@ const EVENTS: { readonly [K in keyof PiEvents]: Check } = {
 const CONTEXT: { readonly [K in keyof PiContext]-?: Check } = {
 	cwd: text,
 	isIdle: callable,
-	sessionManager: shape<PiContext["sessionManager"]>({ getSessionId: callable }),
+	sessionManager: shape<PiSessionManager>({ getSessionId: callable, buildContextEntries: callable }),
 	ui: shape<PiUi>({ notify: callable, setStatus: callable }),
 	shutdown: callable,
 };
@@ -379,6 +420,23 @@ export function piContext<const K extends keyof PiContext>(
 ): Pick<PiContext, K> {
 	assertContext(place, value, fields);
 	return value;
+}
+
+function assertEntries(place: PiPlace, value: unknown): asserts value is readonly PiContextEntry[] {
+	refuse(place, listOf(contextEntry)(value, "context.sessionManager.buildContextEntries()"));
+}
+
+/**
+ * The entries of the session's compaction-aware context, which `context.sessionManager.buildContextEntries()` gives,
+ * when each has its shape; otherwise BAD_DATA names the entry by its index and the field.
+ */
+export function piContextEntries(
+	place: PiPlace,
+	context: Pick<PiContext, "sessionManager">,
+): readonly PiContextEntry[] {
+	const entries: unknown = context.sessionManager.buildContextEntries();
+	assertEntries(place, entries);
+	return entries;
 }
 
 /** The parameters of a call of the tool `tool` itself, when they are an object; otherwise BAD_DATA. */

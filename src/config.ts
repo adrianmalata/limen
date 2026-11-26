@@ -36,7 +36,6 @@ export const ENVIRONMENT = {
 	LIMEN_JOB_DIR: { kind: "transport", reader: "wrapper", carries: "the job's folder under .limen/jobs" },
 	LIMEN_WORKTREE: { kind: "transport", reader: "wrapper", carries: "the worktree the engine runs in" },
 	LIMEN_TASK_FILE: { kind: "transport", reader: "wrapper", carries: "the job's task file" },
-	LIMEN_PREAMBLE: { kind: "transport", reader: "wrapper", carries: "the file of the role's preamble" },
 	LIMEN_TIMEOUT_MS: {
 		kind: "transport",
 		reader: "wrapper",

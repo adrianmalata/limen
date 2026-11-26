@@ -3,8 +3,9 @@
 // `startContinue`. It is an operation of T-38 (src/operation.ts), as a spawn is: its validate makes every check, its
 // apply names and publishes the job under the jobs lock after the re-check, and the restored worktree and the wrapper
 // follow. Its text goes to `out`, which the shared wrapper prints at the end.
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { readdir, rm } from "node:fs/promises";
+import { join } from "node:path";
 import type { WrapperValues } from "../config.ts";
 import { openWatchTab } from "../integrations/herdr.ts";
 import { type Checked, cleanedUp, type StateView, stepFailure, validated } from "../operation.ts";
@@ -21,6 +22,7 @@ import {
 } from "../project/git.ts";
 import { readOptional } from "../project/inherit.ts";
 import { inheritedPlanning } from "../project/planning.ts";
+import { CONTEXT_FILE, contextMessage } from "../runtime/context-message.ts";
 import {
 	defaultModel,
 	type EngineId,
@@ -183,6 +185,7 @@ type ContinuationRecord = {
 	readonly parent: ParentJob;
 	readonly repository: string;
 	readonly task: string;
+	readonly context: string | Uint8Array;
 	readonly label: string;
 	readonly role: string;
 	readonly engine: EngineId;
@@ -203,7 +206,6 @@ type Continuation = {
 	readonly root: string;
 	readonly worktree: string;
 	readonly label: string;
-	readonly preamble: string;
 	readonly role: string;
 	readonly parentId: string;
 	readonly model: string | undefined;
@@ -226,7 +228,8 @@ type ContinuePlan = {
 	readonly extensions: readonly string[];
 	readonly label: string;
 	readonly role: string;
-	readonly preamble: string;
+	/** The context message the continuation publishes: its parent's, or one built for a parent that has none. */
+	readonly context: string | Uint8Array;
 	readonly repository: string;
 	readonly route: WakeRouting;
 };
@@ -267,7 +270,8 @@ async function validateContinue(
 	preflightEngine(profile, chosenModel, provider);
 	const finalLabel = label ?? `${parent.record.label || parentId} · continue`;
 	const role = parent.record.role || "worker";
-	const preamble = resolvePreamble(root, role, "record");
+	// A role a cut removed refuses here, also for a parent whose context message the continuation carries.
+	const context = carriedContext(parentDir, root, role, resolvePreamble(root, role, "record"));
 	const repository = parent.repo ? workspaceRepository(root, parent.repo) : root;
 	await view.hold(`the worktree ${parent.worktree} or branch ${parent.branch} of job ${parentId}`, () => {
 		if (!existsSync(parent.worktree) && !branchExists(repository, parent.branch)) {
@@ -301,10 +305,19 @@ async function validateContinue(
 		extensions,
 		label: finalLabel,
 		role,
-		preamble,
+		context,
 		repository,
 		route: wakeRouting(parent, membership),
 	};
+}
+/**
+ * The context message a continuation carries: its parent's `context.md` byte for byte, beside the transcript it copies,
+ * so the continued session holds one message and its hook sends no second one (A-079); a parent folder published
+ * before the file existed holds none, so the continuation builds one from the role's preamble (R-039's migration).
+ */
+function carriedContext(parentDir: string, root: string, role: string, preamble: string): string | Uint8Array {
+	const saved = join(parentDir, CONTEXT_FILE);
+	return existsSync(saved) ? readFileSync(saved) : contextMessage(root, { session: "job", role, preamble });
 }
 /**
  * The continuation's wake route. A continuation started from a shell with no wake route (a remote executor, a plain
@@ -340,6 +353,7 @@ async function publishContinue(plan: ContinuePlan): Promise<ContinuedRecord> {
 		parent,
 		repository: plan.repository,
 		task: plan.options.instruction,
+		context: plan.context,
 		label: plan.label,
 		role: plan.role,
 		engine: plan.profile.id,
@@ -375,7 +389,6 @@ async function startContinued(plan: ContinuePlan, { id, jobDir, group }: Continu
 		root: plan.root,
 		worktree: plan.parent.worktree,
 		label: plan.label,
-		preamble: plan.preamble,
 		role: plan.role,
 		parentId: plan.parent.id,
 		model: plan.model,
@@ -554,6 +567,7 @@ async function publishContinuation(record: ContinuationRecord): Promise<void> {
 	}
 	await publishJob(jobDir, {
 		task: `${record.task}\n`,
+		context: record.context,
 		label: record.label,
 		branch: parent.branch,
 		worktree: parent.worktree,
@@ -605,7 +619,6 @@ async function startDetachedContinuation(
 		LIMEN_JOB_DIR: jobDir,
 		LIMEN_WORKTREE: continuation.worktree,
 		LIMEN_TASK_FILE: `${jobDir}/task.md`,
-		LIMEN_PREAMBLE: continuation.preamble,
 		LIMEN_JOB_ID: id,
 		LIMEN_LABEL: label,
 		LIMEN_CONTEXT_ROOT: root,

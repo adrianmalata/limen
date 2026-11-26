@@ -1,7 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, watch } from "node:fs";
 import { appendFile, readFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { atomicWrite } from "../atomic-write.ts";
 import { engineEnvironment, type TransportName, testKnob, transport } from "../config.ts";
@@ -24,6 +24,7 @@ import {
 import { enqueueSteer } from "../job/steer-inbox.ts";
 import { platform, type SignalResult } from "../platform/platform.ts";
 import { limitCount } from "../project/limits.ts";
+import { CONTEXT_FILE } from "./context-message.ts";
 import { argvFor, jobProfile } from "./engine.ts";
 import { setUpJob, worktreeMissing } from "./job-setup.ts";
 import { jobScope } from "./launcher.ts";
@@ -48,7 +49,6 @@ export async function runInternalJob(): Promise<void> {
 	const jobDir = requiredEnvironment("LIMEN_JOB_DIR");
 	const worktree = requiredEnvironment("LIMEN_WORKTREE");
 	const taskFile = requiredEnvironment("LIMEN_TASK_FILE");
-	const preambleFile = requiredEnvironment("LIMEN_PREAMBLE");
 	const jobId = requiredEnvironment("LIMEN_JOB_ID");
 	const label = transport("LIMEN_LABEL") || jobId;
 	const membership = await jobMembership(jobDir);
@@ -70,7 +70,6 @@ export async function runInternalJob(): Promise<void> {
 		await finalizeJob(jobDir, { state: "failed", failure: { kind: "launch", detail } });
 		return;
 	}
-	const preamble = await readFile(preambleFile, "utf8");
 	const failLog = (error: unknown) =>
 		appendLimenLog(jobDir, `log write failed: ${error instanceof Error ? error.message : String(error)}`).catch(
 			() => {},
@@ -173,7 +172,7 @@ export async function runInternalJob(): Promise<void> {
 	if (transport("LIMEN_SETUP") === "1") {
 		await setUpJob(jobDir, worktree, childEnvironment);
 	}
-	const missing = worktreeMissing(worktree);
+	const missing = worktreeMissing(worktree) ?? contextMissing(jobDir);
 	if (missing) {
 		const options = { shutdownDeadline };
 		await finalizeJob(jobDir, { state: "failed", failure: { kind: "launch", detail: missing } }, options);
@@ -228,7 +227,6 @@ export async function runInternalJob(): Promise<void> {
 	const args = argvFor(profile, {
 		jobDir,
 		label,
-		preamble,
 		extensions: [
 			`${HOOK}/finish.ts`,
 			`${HOOK}/steering.ts`,
@@ -371,6 +369,14 @@ export async function runInternalJob(): Promise<void> {
 		await atomicWrite(`${jobDir}/result`, `${seen.assistant}\n`).catch(() => {});
 	}
 	await finalizeJob(jobDir, engineEnding(result, seen, current, profile.id), options);
+}
+/**
+ * Why the engine cannot start without its context message (A-086): the job's folder holds no `context.md`, as a folder
+ * published before R-039 holds none; a session with no standing instructions would end as a false success.
+ */
+function contextMissing(jobDir: string): string | undefined {
+	const file = join(jobDir, CONTEXT_FILE);
+	return existsSync(file) ? undefined : `${file} is missing, so the engine did not start without its context message`;
 }
 export async function failInternalJob(error: unknown): Promise<void> {
 	const jobDir = transport("LIMEN_JOB_DIR");

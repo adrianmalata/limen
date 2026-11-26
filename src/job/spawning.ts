@@ -1,10 +1,10 @@
 // The spawn of a job (T-26 (2)): `limen spawn`, keeper, group start and the GitHub jobs start one through
-// `startSpawn`, and continue shares its preamble, handshake and versions. A spawn is an operation of T-38
-// (src/operation.ts): its validate makes every check and writes nothing, its apply names and publishes the job under
-// the jobs lock after reading again what the checks relied on, and only then are the GitHub review's branch and the
-// worktree made and the wrapper started, a failure of which ends the published job `failed`, so its record names what
-// happened (T-38 (3)). The text a spawn reports goes to `out`, and the shared wrapper prints it when the command ends
-// (D-061 (3)).
+// `startSpawn`, and continue shares its role's preamble, handshake and versions. A spawn is an operation of T-38
+// (src/operation.ts): its validate makes every check, builds the job's context message (src/runtime/context-message.ts)
+// and writes nothing, its apply names and publishes the job, its context message with it, under the jobs lock after
+// reading again what the checks relied on, and only then are the GitHub review's branch and the worktree made and the
+// wrapper started, a failure of which ends the published job `failed`, so its record names what happened (T-38 (3)).
+// The text a spawn reports goes to `out`, and the shared wrapper prints it when the command ends (D-061 (3)).
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
@@ -35,6 +35,7 @@ import {
 } from "../project/git.ts";
 import { readOptional } from "../project/inherit.ts";
 import { inheritedPlanning, ticketPointers } from "../project/planning.ts";
+import { contextMessage } from "../runtime/context-message.ts";
 import { type EngineProfile, preflightEngine, resolveSpawnEngine } from "../runtime/engine.ts";
 import { launchWrapper } from "../runtime/launcher.ts";
 import { holdsProcesses, KILL_WAIT_MS, waitForProcessGroup } from "../runtime/reap.ts";
@@ -231,7 +232,8 @@ export type SpawnPlan = {
 	readonly place: SpawnPlace;
 	readonly task: string;
 	readonly role: string;
-	readonly preamble: string;
+	/** The job's context message, which apply publishes as `context.md` with the job. */
+	readonly context: string;
 	readonly jobsRoot: string;
 	readonly worktree: WorktreeChoice;
 	/** The commit the job's work starts from, which the ticket check read and a new worktree is made at. */
@@ -266,7 +268,6 @@ type SpawnedJob = {
 	readonly id: string;
 	readonly root: string;
 	readonly worktree: string;
-	readonly preamble: string;
 	readonly role: string;
 	readonly memberDeadline: number | undefined;
 	/** The mark that the wrapper sets up after its handshake, which only a spawn gives, and its --prepare (R-101). */
@@ -312,7 +313,7 @@ async function validateSpawn(
 	const role = options.review ? "reviewer" : (group?.role ?? options.role ?? "worker");
 	const pinnedBase = options.base ? resolveCommit(repository, options.base, "--base") : undefined;
 	const pinnedHead = options.head ? resolveCommit(repository, options.head, "--head") : undefined;
-	const preamble = resolvePreamble(root, role, "argument");
+	const context = contextMessage(root, { session: "job", role, preamble: resolvePreamble(root, role, "argument") });
 	const jobsRoot = `${root}/.limen/jobs`;
 	// A project an older Limen recorded refuses here, before any write (T-38).
 	await view.jobs(jobsRoot);
@@ -358,7 +359,7 @@ async function validateSpawn(
 		place,
 		task,
 		role,
-		preamble,
+		context,
 		jobsRoot,
 		worktree,
 		baseCommit,
@@ -484,7 +485,6 @@ async function launchChecked(checked: Checked<SpawnPlan, SpawnedRecord>): Promis
 			id,
 			root: place.root,
 			worktree,
-			preamble: plan.preamble,
 			role: plan.role,
 			memberDeadline,
 			setup,
@@ -655,6 +655,7 @@ async function publishSpawnedJob(plan: SpawnPlan, record: SpawnRecord): Promise<
 	const { member, candidate } = record;
 	await publishJob(record.jobDir, {
 		task: record.taskBody,
+		context: plan.context,
 		label: plan.options.label,
 		branch: record.branch,
 		worktree: record.worktree,
@@ -694,7 +695,6 @@ async function startDetachedJob(plan: SpawnPlan, job: SpawnedJob, versions: Prom
 		LIMEN_JOB_DIR: jobDir,
 		LIMEN_WORKTREE: job.worktree,
 		LIMEN_TASK_FILE: `${jobDir}/task.md`,
-		LIMEN_PREAMBLE: job.preamble,
 		LIMEN_JOB_ID: id,
 		LIMEN_LABEL: options.label,
 		LIMEN_CONTEXT_ROOT: root,

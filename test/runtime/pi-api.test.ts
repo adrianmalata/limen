@@ -12,9 +12,11 @@ import { readRecordSync } from "../../src/job/record.ts";
 import { LimenError } from "../../src/outcome.ts";
 import {
 	isRecorded,
+	type PiContext,
 	type PiSettleEvent,
 	piCommandArgs,
 	piContext,
+	piContextEntries,
 	piEvent,
 	piRateLimit,
 	piSettleEvent,
@@ -62,6 +64,29 @@ test("piEvent returns a before_agent_start of a prompt or of a custom message, a
 	const error = refusal(() => piEvent("before_agent_start", { prompt: "Hello." }));
 	assert.deepEqual(where(error), ["Pi event before_agent_start", "systemPrompt"]);
 	assert.equal(error.message, "Pi event before_agent_start: systemPrompt: expected a string, got nothing");
+});
+
+test("piEvent returns a session_start with each of Pi's reasons and refuses another reason", () => {
+	for (const reason of ["startup", "reload", "new", "resume", "fork"]) {
+		const event = { type: "session_start", reason };
+		assert.equal(piEvent("session_start", event), event);
+	}
+	const error = refusal(() => piEvent("session_start", { type: "session_start", reason: "restart" }));
+	assert.deepEqual(where(error), ["Pi event session_start", "reason"]);
+	assert.match(error.message, /expected one of "startup", "reload", "new", "resume" or "fork", got "restart"$/);
+});
+
+// E-13: what compacted the context and whether Pi retries the turn decide the option of the context message's send.
+test("piEvent returns a session_compact with its reason and willRetry, and refuses one without willRetry", () => {
+	const event = { type: "session_compact", reason: "overflow", willRetry: true, fromExtension: false };
+	assert.equal(piEvent("session_compact", event), event);
+	const error = refusal(() => piEvent("session_compact", { type: "session_compact", reason: "manual" }));
+	assert.deepEqual(where(error), ["Pi event session_compact", "willRetry"]);
+});
+
+test("piEvent refuses a session_compact whose reason is none of Pi's", () => {
+	const error = refusal(() => piEvent("session_compact", { reason: "idle", willRetry: false }));
+	assert.equal(error.field, "reason");
 });
 
 test("piEvent returns a message_start with a string or a list of parts, and refuses a message without a role", () => {
@@ -175,6 +200,9 @@ test("piContext returns the context itself, so a method keeps its owner, and che
 		getSessionId(): string {
 			return this.id;
 		}
+		buildContextEntries(): readonly object[] {
+			return [];
+		}
 	}
 	const context = { cwd: "/project", sessionManager: new Session() };
 	const checked = piContext("session_start", context, ["cwd", "sessionManager"]);
@@ -195,6 +223,45 @@ test("piContext refuses a context whose isIdle is not a function", () => {
 test("piContext refuses a session manager without getSessionId", () => {
 	const error = refusal(() => piContext("session_start", { sessionManager: {} }, ["sessionManager"]));
 	assert.equal(error.field, "context.sessionManager.getSessionId");
+});
+
+test("piContext refuses a session manager without buildContextEntries", () => {
+	const error = refusal(() =>
+		piContext("session_start", { sessionManager: { getSessionId() {} } }, ["sessionManager"]),
+	);
+	assert.equal(error.field, "context.sessionManager.buildContextEntries");
+});
+
+/**
+ * A context whose session manager's compaction-aware entries are `entries` as Pi's runtime hands them over, whatever
+ * their declared type says: a copy through JSON, which is `any`.
+ */
+function holding(entries: unknown): Pick<PiContext, "sessionManager"> {
+	const handed = JSON.stringify(entries);
+	return { sessionManager: { getSessionId: () => "s-1", buildContextEntries: () => JSON.parse(handed) } };
+}
+
+// D-114 (1): the hook sends the context message again only when the compaction-aware context no longer holds it.
+test("piContextEntries returns the context's entries, a custom message entry with its custom type and content", () => {
+	const custom = { type: "custom_message", customType: "limen-context", content: "bytes", display: false, id: "a" };
+	const parts = { type: "custom_message", customType: "limen-cue", content: [{ type: "text", text: "cue" }] };
+	const entries = [{ type: "compaction", summary: "s" }, custom, parts, { type: "message", message: {} }];
+	assert.deepEqual(piContextEntries("session_compact", holding(entries)), entries);
+});
+
+test("piContextEntries refuses a custom message entry without its custom type, naming the entry by its index", () => {
+	const error = refusal(() =>
+		piContextEntries("session_start", holding([{ type: "message" }, { type: "custom_message", content: "x" }])),
+	);
+	assert.deepEqual(where(error), [
+		"Pi event session_start",
+		"context.sessionManager.buildContextEntries().1.customType",
+	]);
+});
+
+test("piContextEntries refuses entries that are not a list", () => {
+	const error = refusal(() => piContextEntries("session_compact", holding({})));
+	assert.equal(error.field, "context.sessionManager.buildContextEntries()");
 });
 
 test("piContext refuses a ui without setStatus, also in the context of a command", () => {
