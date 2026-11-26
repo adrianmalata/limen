@@ -145,7 +145,10 @@ notatka do R-051); próbna trasa F012 na ledgerze i krok 3.9 zaliczone; D-113: p
 subskrypcji idą na przebudowę; artefakty prób usunięte z seata, zamknięcie etapu 3 na seacie (D-106) skończone,
 przekazanie do limen-rebuild-35 (dwa commity Tools: z D-105); tam oba: bramka pada na nowym pliku ignorowanym
 w checkoucie (D-105 (1)), a check.mjs wymaga, żeby istniał każdy plik, który uruchamia test kryterium albo nazywa
-pathspec `git grep` (D-105 (2)); następny jest etap 4 w nowej sesji. -->
+pathspec `git grep` (D-105 (2)); limen-rebuild-36 zaczęła etap 4: siedem inwentarzy, pytania Q-63–Q-79 i decyzje
+D-114–D-118 (komunikat kontekstowy bez dodatkowej tury i podział R-039 na R-039 i nowy R-110, pełny fake engine R-038
+w rozmiarze L, skan „never wait” w R-105, projekt obserwatora `main` R-106, poprawione kroki 4.11 i 4.13); następne są
+pliki ticket.md etapu 4. -->
 
 
 
@@ -1420,6 +1423,53 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   with no date; until then no coordinator or job runs on the seat, so D-012's accepted risk is not live and D-013's
   yield has nothing to yield. The trial leftovers of the close are cleaned by Adrian first (a job's record is deleted
   only by a person, R-031 Decision 6). Check: `## State`, the resumption's entry when it comes.
+- 2026-11-26 D-114 (Adrian: "wszystko zgodnie z rekomendacjami"; Q-63–Q-65, asked in the conversation from
+  `evidence/inventories/R-039.md`): (1) Q-63: the Limen context message is a Pi custom message with a `limen-*` type,
+  never a user message; at session start it is sent with no trigger while the session is idle, so it is appended before
+  the first prompt and starts no turn, and after a compaction it is sent again with no extra turn (E-13); this departs
+  from A-034 revision 4's `followUp` with `triggerTurn: true` for the context message only, and the wakes keep A-034's
+  options. (2) Q-64: R-039 is the core (one module, the frozen and saved message, its sending at session start and
+  after a compaction, the goldens); a new ticket R-110 (M, delegated, night, stage 4, after R-039) takes the
+  continuation's reuse of the parent's message with one notice of the files changed since (A-079), the in-session
+  `changed <file>` notices (A-037), and the board digest at the end of the context only when it changed (A-037, A-051).
+  (3) Q-65: the message starts with a neutral fixed marker (a tag pair, as the cue's, with the role name); R-046 sets
+  its words. Check: `## Tickets`, the rows R-039 and R-110.
+- 2026-11-26 D-115 (Adrian: "wszystko zgodnie z rekomendacjami"; Q-66–Q-68, from `evidence/inventories/R-038.md`): (1)
+  Q-66: R-038's fake reproduces in its bridge mode the engine facts E-1–E-14 that T-31 (1) names, among them the
+  compaction, `agent_end`, `triggerTurn` and `nextTurn`, tool results, `before_agent_start` per run and the reasons of
+  `session_start`, with one declaration of the bridge mapping (T-25); its size is L (was M). (2) Q-67: the bridge 5.0.3
+  sources are read from `adrian-rebuild/input/vendor/pi-claude-bridge/` (the rebuild prompt's exception, nothing
+  installed or run); the session fetched the tarball on 2026-11-26 and the permissions refused the `mkdir` of that
+  folder, so until it is extracted R-038 relies on `evidence/engine-sources/bridge-5.0.3.md`, and seat step 4.1 shows
+  the bridge log's format. (3) Q-68: T-31 (4), the scan for real waiting in tests, is R-083's (its definition over the
+  whole of `test/` and its count at zero); until then the reviewer's question of T-31 covers new tests. Check:
+  `## Tickets`, the rows R-038 and R-083 and R-083's note.
+- 2026-11-26 D-116 (Adrian: "wszystko zgodnie z rekomendacjami"; Q-69–Q-71, from `evidence/inventories/R-105.md`): (1)
+  Q-69: R-105's transitive scan also covers T-04's "never wait": no wait primitive (a lock taken with a wait, a
+  `sleep`, a loop over `setTimeout`) is reachable from a read command, except the bounded readings that T-04 names by
+  D-107 (3), each a named exception; no wall-clock test. (2) Q-70: R-105's ratchet names R-058 as the end of
+  `src/commands/github.ts` and R-065 as the end of `src/commands/ticket.ts`, and each of those tickets has the
+  criterion that its entry is gone. (3) Q-71: R-105 depends on R-104, since both change `src/runtime/start-queue.ts`.
+  Check: `## Tickets`, the row R-105 and the notes of R-058 and R-065.
+- 2026-11-26 D-117 (Adrian: "wszystko zgodnie z rekomendacjami"; Q-72–Q-77, from `evidence/inventories/R-106.md`): (1)
+  Q-72: R-106's watcher runs on the alerts account. (2) Q-73: it is a step of the alerts' run, with the alerts' one
+  sender, list of events and record of what was sent (T-25), so R-106 stays S; a network failure of the watcher does
+  not fail the alerts' run: it is counted, and it alerts once 15 runs in a row failed (D-100's grace). (3) Q-74: the
+  watch list and each repository's address and key are root-owned entries that Adrian writes at step 4.10, read as
+  credentials; the agents' registry serves only a check that names a registered project with no entry, since a job
+  could otherwise drop a project or redirect its address (A-006, z. 14). (4) Q-75: after a forced update the old tip
+  goes to a kept ref with its time, the watch follows the new `main`, and each further forced update alerts again. (5)
+  Q-76: the lines are `<project> main:forced <tip>`, `<project> main:deleted <tip>` and `<project> main:unwatched`, the
+  tip as 12 hex characters (D-084's shape). (6) Q-77: step 4.10 proves the alert on a scratch private repository with
+  its own read-only key, added to the watch for the trial (a forced push, then the deletion of `main`), then removed.
+  Check: R-106 `ticket.md`; `## Deployment` 4.10.
+- 2026-11-26 D-118 (Adrian: "wszystko zgodnie z rekomendacjami"; Q-78 and Q-79, from `evidence/inventories/R-107.md`
+  and `R-109.md`): (1) Q-78: step 4.13 reads the job logs of each project for `not ended: exit code 4` dated after the
+  deployment, since both lines go to the job's own log and never to the sweep's journal, and keeps its `stuck` half. (2)
+  Q-79: step 4.11 drops the second install (4.0's deployment writes the alerts' units again), removes the drop-in,
+  reloads, and checks that `systemctl show -p Environment limen-alerts.service` names
+  `NODE_OPTIONS=--dns-result-order=ipv4first`, then no HTTP 429 and an alert on the phone. Check: `## Deployment` 4.11
+  and 4.13.
 
 ### Gate 2 §2, copied
 
@@ -1650,7 +1700,7 @@ questions; their number cannot be known in advance.
 | 1 | a0.1.0 | 17: 6 / 4 / 7 | 2: R-014, R-088 (day-after) | 4: gate 5.1; the golden help of R-014 (the wording is set by T-19, Adrian confirms the output); the same-task ticket before B.2 (R-011); the leftover list before `--drop-leftovers` (1.1) | 4 (1.0 bootstrap), plus B.1 and B.2 before it |
 | 2 | a0.2.0 | 12: 0 / 10 / 2 | 0 | 3: gate 5.2; id collisions in the record migration report (2.1); the `LIMEN_*` variables to remove (2.4) | 5, plus B.3 |
 | 3 | a0.3.0 | 13: 0 / 9 / 4 | 0 | 3, plus one per unlanded job: gate 5.3; the account names (3.3); `continue` or `abandon` for each finished job with unlanded work (3.6) | 12 |
-| 4 | a0.4.0 | 16: 6 / 8 / 2 | 2: R-041, R-046 (day-after) | 4: gate 5.4; the cue wording (R-041); the role prompt texts and their glossary of terms (T-14, R-046); the modules to switch on (4.9) | 14 |
+| 4 | a0.4.0 | 17: 6 / 8 / 3 | 2: R-041, R-046 (day-after) | 4: gate 5.4; the cue wording (R-041); the role prompt texts and their glossary of terms (T-14, R-046); the modules to switch on (4.9) | 14 |
 | 5 | a0.5.0 | 13: 0 / 9 / 4 | 0 | 3: gate 5.5; the owner channel's key, forced command and tokens (5.1); the domains added to the egress list (5.16) | 21 |
 | 6 | a0.6.0 | 7: 0 / 1 / 6 | 3: R-065, R-066, R-068 (day-after) | 5: gate 5.6; the refusal and message texts of the ticket commands (R-065); the board, and which old prose sections go to `docs/` (R-066, 6.4); the question blocks (R-068); the `limen init` values (6.1) | 5 |
 | 7 | a0.7.0 | 9: 3 / 4 / 2 | 1: R-073 (day-after) | 2: gate 5.7; the footer wording (R-073) | 6 |
@@ -1705,7 +1755,8 @@ Closes A-086: one Limen context message per session, frozen, saved and sent agai
 engine that shows the model's view under the bridge; the turn cue keeps only variable parts; role texts come from the
 package and are literal, sourced and budgeted per role. Tickets R-038–R-047, and from gate 5.3 (D-107) the fixes
 R-104 (the daily prune and the start queue) and R-105 (the T-04 and T-26 scans), from D-110 R-106 (the `main` watcher,
-§7 D1 per project), and from D-112 the fixes R-107–R-109 of the close of stage 3 on the seat.
+§7 D1 per project), from D-112 the fixes R-107–R-109 of the close of stage 3 on the seat, and from D-114 R-110 (the
+continuation's reuse of the context message, the change notices and the digest, split from R-039).
 
 ### Stage 5 — The trust boundary (a0.5.0)
 
@@ -1822,8 +1873,8 @@ Columns:
 | R-101 | Prune, retire and leftover Herdr tabs are steps of the sweep; nothing is deleted | 3 | A-024, A-002, T-18, T-28, D-092, D-094, D-096, D-097 | R-032 | M | delegated | night | yes | herdr | 3.9 | done |
 | R-102 | Seat rules are cut | 3 | A-010, T-42, D-094, D-097 | R-034 | M | delegated | night | yes | systemd | 3.5 | done |
 | R-103 | Land runs as recorded steps; its `cleaned` step closes the job's Herdr tabs | 3 | A-021, T-04, T-18, T-28, T-38, D-092, D-094, D-096 | R-037 | L | delegated | night | yes | herdr | 3.9 | done |
-| R-038 | The fake engine shows the model's view under the bridge | 4 | T-31, A-051 | R-017 | M | delegated | night | — | bridge | 4.1 | planned |
-| R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16 | R-021, R-038 | L | delegated | night | yes | pi, bridge | 4.2 | planned |
+| R-038 | The fake engine shows the model's view under the bridge | 4 | T-31, A-051, D-115 | R-017 | L | delegated | night | — | bridge | 4.1 | planned |
+| R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16, D-114 | R-021, R-038 | L | delegated | night | yes | pi, bridge | 4.2 | planned |
 | R-040 | Role texts come from the package, in three registers | 4 | A-038, A-039, A-042, D-005 | R-001, R-039 | M | delegated | night | yes | — | — | planned |
 | R-041 | The turn cue holds only variable parts and the audience line | 4 | A-077, T-13 | R-039 | S | pair | day-after | — | pi | 4.4 | planned |
 | R-042 | The task-note mechanism is cut | 4 | A-044, A-059 | R-039 | M | delegated | night | yes | — | — | planned |
@@ -1833,11 +1884,12 @@ Columns:
 | R-046 | Role prompts are literal, sourced and budgeted | 4 | T-09, T-14, T-15, T-08, T-10, T-21, A-043, A-085, A-040 | R-040, R-041, R-042, R-044 | L | pair | day-after | — | — | — | planned |
 | R-047 | The coordinator never waits | 4 | T-34 | R-039 | S | delegated | night | — | pi | 4.6 | planned |
 | R-104 | The sweep's daily prune archives every unregistered folder and waits on no job's lock; a queue entry is live only for a project's job | 4 | A-002, A-024, T-25, D-107 | R-101 | M | delegated | night | — | — | — | planned |
-| R-105 | The T-04 and T-26 scans follow what their rules name | 4 | T-04, T-26, D-107 | R-032 | M | delegated | night | — | — | — | planned |
-| R-106 | A watcher outside the agents' account keeps a copy of `main` and alerts on its forced update or deletion | 4 | A-006, §7, D-110 | R-033 | S | delegated | night | — | systemd | 4.10 | planned |
+| R-105 | The T-04 and T-26 scans follow what their rules name | 4 | T-04, T-26, D-107, D-116 | R-032, R-104 | M | delegated | night | — | — | — | planned |
+| R-106 | A watcher outside the agents' account keeps a copy of `main` and alerts on its forced update or deletion | 4 | A-006, §7, D-110, D-117 | R-033 | S | delegated | night | — | systemd | 4.10 | planned |
 | R-107 | The exit 4 of systemd 259's `is-active` reads as not active | 4 | A-029, E-18, D-112 | R-026 | S | delegated | night | — | systemd | 4.13 | planned |
 | R-108 | The stall rule follows every pending tool of a message | 4 | A-059, E-19, D-112 | R-036 | S | delegated | night | — | pi | 4.12 | planned |
 | R-109 | The alerts' unit sends over IPv4 first | 4 | A-066, D-108, D-112 | R-033 | S | delegated | night | — | systemd | 4.11 | planned |
+| R-110 | A continuation reuses its parent's context message; change notices and the board digest come only on a change | 4 | A-079, A-037, A-051, D-114 | R-039 | M | delegated | night | — | pi | 4.2 | planned |
 | R-048 | Jobs run the bridge isolated: no `--approve`, `--offline`, a private `TMPDIR`, an explicit Claude Code path | 5 | A-025, E-3, E-4, E-15, D-005, D-017 | R-040, R-087 | M | delegated | night | — | pi, bridge | 5.8, 5.9 | planned |
 | R-049 | Agents run only root-owned code; Pi, bridge and Claude Code versions are declared | 5 | A-025, T-32, T-36, D-017 | R-017, R-020, R-048 | L | delegated | night | yes | pi | 5.3, 5.5, 5.6, 5.10, 5.20 | planned |
 | R-050 | The registered coordinator and its start script | 5 | A-033, A-061, A-029, §2, D-017 | R-026, R-033, R-034, R-049 | L | delegated | night | yes | pi, herdr, systemd | 5.4, 5.11, 5.20 | planned |
@@ -2091,6 +2143,12 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
 - R-058 (D-080; R-099 Open point 9): `limen github status` (`doorbellStatus`, `src/integrations/github-claims.ts`)
   prints the newest claim copy's `job` field as the copy holds it; a job can write that copy, so the field is printed
   only in the form of a job id, as R-099's G1 does for the refusal.
+- R-058, R-065 (D-116 (2)): R-105's read-command ratchet lists `src/commands/github.ts` with R-058 and
+  `src/commands/ticket.ts` with R-065, each a command file that holds read and change commands; each ticket's criteria
+  include that its entry is gone from that ratchet, which then fails on a stale entry.
+- R-083 (D-115 (3)): T-31 (4)'s scan for real waiting in tests is R-083's: it defines real waiting over the whole of
+  `test/` (the author's `waitJob`, `within` and `until` wait on real processes by design, which T-31 keeps) and brings
+  its count to zero.
 - R-082 (D-080; R-025 `outcome.md` → Open points): scan (b)3 holds a test by the command it runs, not by its code, so
   the unit tests that run no command (the parser's, the lock's, the runner's, the resolver's) leave
   `WITHOUT_SNAPSHOT` and their codes are proved by a command's refusal test that compares the snapshot.
@@ -2476,7 +2534,9 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
 - **4.1** The bridge contract (T-31): the bridge log of one coordinator turn and one job turn against the fake engine's
   model view of the same scenario (R-038; item 16).
 - **4.2** The per-query CLI log shows the Limen context message in the request, whole and first, also for the largest
-  role, and it does not start with `/` (E-14); after a manual `/compact` it is sent again (item 12; R-039).
+  role, and it does not start with `/` (E-14); after a manual `/compact` it is sent again (item 12; R-039); a `limen
+  continue` of a job whose files changed since its parent shows the parent's message and one notice of those files
+  (R-110, D-114).
 - **4.3** A review job sees only its declared tools and skills, and the seat's Claude Code lists no tool it would load
   on demand (item 12; E-5; R-045).
 - **4.4** A Polish message to the coordinator gets a Polish answer, and a ticket written from that conversation is in
@@ -2489,18 +2549,24 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
   the production checkout, each leaving B.2's result unchanged (D-050).
 - **4.9** Switch on, in each project's `.agents/limen/limits.json`, the modules its migration report lists as in use;
   until a0.5.0 Adrian edits the file directly, from then on only through the owner channel (R-044).
-- **4.10** The `main` watcher (R-106, D-110): in each project's GitHub settings a read-only deploy key whose private
-  half only the watcher's account can read; then the install that R-106 names. Its first runs fetch `main` of both
-  projects and record no event, and the check of an alert that R-106's ticket names reaches the phone.
-- **4.11** The alerts' unit with IPv4 first (R-109, D-108): as root, the alerts' install again as in 3.3, from
-  `/opt/limen`; then remove the temporary drop-in `ipv4first.conf` of `limen-alerts.service.d/` and run `systemctl
-  daemon-reload`. The next runs of the alerts' timer log no HTTP 429, and the next alert reaches the phone.
+- **4.10** The `main` watcher (R-106, D-110, D-117): in each project's GitHub settings a read-only deploy key whose
+  private half only the alerts account can read; as root, one root-owned watch entry per project (its base name, its
+  SSH address, its key) where R-106's install reads them; then the install that R-106 names. Its first runs fetch
+  `main` of both projects and record no event. The alert check runs on a scratch private repository with its own
+  read-only key, added as an entry for the trial: a forced push to its `main` brings `<scratch> main:forced <tip>` to
+  the phone and the deletion of its `main` brings `<scratch> main:deleted <tip>`; then its entry, key and repository
+  are removed (D-109 accepts such trial artefacts during the rebuild).
+- **4.11** The alerts' unit with IPv4 first (R-109, D-108, D-118): 4.0's deployment has written the alerts' units
+  again, so no install runs here; as root, remove the temporary drop-in `ipv4first.conf` of `limen-alerts.service.d/`,
+  run `systemctl daemon-reload`, and check that `systemctl show -p Environment limen-alerts.service` names
+  `NODE_OPTIONS=--dns-result-order=ipv4first`. The next runs of the alerts' timer log no HTTP 429, and the next alert
+  reaches the phone.
 - **4.12** A trial job whose task puts a file write and `sleep 300` in one message is ended by the stall rule after 180 s
   of idle scope CPU: its log holds `stalled tool bash sleep 300` (R-108; the first stall trial of a0.3.0, `## State`,
   "`limen-rebuild-33`", was not).
-- **4.13** The sweep's journal since the deployment holds no `was not ended: exit code 4` (`journalctl --user -u
-  limen-sweep.service --since <deployment time> | grep -c 'exit code 4'` prints 0), and no `stuck` alert came for a
-  job whose record has no cgroup (R-107).
+- **4.13** No job log of either project holds a line `not ended: exit code 4` stamped after the deployment time (both
+  the end's `was not ended` and the sweep's `reap: … not ended` go to the job's own `log`, never to the sweep's
+  journal, D-118), and no `stuck` alert came for a job whose record has no cgroup (R-107).
 
 ### After stage 5 (a0.5.0)
 
@@ -5304,3 +5370,25 @@ acts, in this order:
 3. At gate 5.4, the session's reading of D-105 (2) for Adrian to confirm: the check covers every file a criterion's
    test run or `git grep` pathspec names, not only test files (`evidence/check-test-files/outcome.md` → Deviations).
 The handover after it is `limen-rebuild-37`.
+
+`limen-rebuild-36` (2026-11-26, by day, Adrian at the terminal): `close-previous` printed `handover: closed tmux session
+limen-rebuild-35` and one `handover: stopped claude …` line and exited 0; the takeover push was skipped as redundant,
+the terminal being active; context 8 % at the start; `HEAD` = `origin/adrian-rebuild` = `c3bbc5c`, the tree clean.
+- Seven read-only inventories at `c3bbc5c` (`general-purpose` agents, in parallel, each writing only its file):
+  `evidence/inventories/R-038.md`, `R-039.md`, `R-104.md`, `R-105.md`, `R-106.md`, `R-107.md` (with R-109's in
+  `R-109.md`) and `R-108.md`. R-104, R-107, R-108 and R-109 raise no question the documents leave open; their scope
+  questions that D-112 settles (R-108: the progress file's display and a tool's own output as progress stay out of
+  scope) are recorded in their `ticket.md`.
+- Q-63–Q-79 asked in one message (searched first: `input/gate-2-decisions.md`, `taste.md`,
+  `input/zasady-budowy-harnessu.md`, `## Decisions`); Adrian: "wszystko zgodnie z rekomendacjami" → D-114 (R-039's
+  delivery, its split into R-039 and the new R-110, the neutral marker), D-115 (R-038 in full, size L; the bridge
+  sources; T-31 (4) in R-083), D-116 (R-105's "never wait" scan, its ratchet's end tickets R-058 and R-065, R-105 after
+  R-104), D-117 (R-106's design), D-118 (seat steps 4.11 and 4.13). `## Tickets`, `## Stages` and `## Deployment` 4.2,
+  4.10, 4.11 and 4.13 follow them; stage 4 has 17 tickets (6 / 8 / 3).
+- D-115 (2): the session fetched `vanillagreen-pi-claude-bridge-5.0.3.tgz` into `adrian-rebuild/input/vendor/` (`npm
+  pack`, exit 0); the permissions refused `mkdir -p adrian-rebuild/input/vendor/pi-claude-bridge`, so the tarball is
+  not extracted, and the session did not work around the refusal. Until the folder exists, R-038 reads the bridge from
+  `evidence/engine-sources/bridge-5.0.3.md`; the folder needs an allow rule or Adrian's own `mkdir`, his call.
+- `context-size.mjs HEAD` fails on this laptop (exit 1, `MISSING_TOOL`: no `pi` on `PATH` for its fixture's `limen
+  init`; `evidence/inventories/R-039.md` → section 8), so M-01's "before" of stage 4 needs R-039's change of the tool
+  (the note of `## Tickets`: "`context-size.mjs` learns to measure the context message in this ticket").
