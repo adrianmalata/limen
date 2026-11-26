@@ -5,7 +5,8 @@ trafiają do sekcji To verify. Stan: bramka 2 zamknięta w rewizji 4 decyzji Adr
 ról, które nie docierają przez bridge); 18.11 doszło A-087 (znikające rejestracje seata przy przejęciu martwej blokady,
 decyzja fix w R-019) i A-088 (helper testów `waitJob` wraca przed końcem wrappera joba; luka w kodzie, nie zaobserwowana, decyzja fix
 w R-007); 26.11 doszło A-089 (budzenie wysłane w trakcie settle liczone jako niepotwierdzone przed własnym biegiem
-i wysyłane ponownie; decyzja fix w R-111); razem fix 79, rejected 9, rejected / fix 1; pole Final dojdzie w etapie 6. -->
+i wysyłane ponownie; decyzja fix w R-111) oraz A-090 (dwa budzenia z jednego sweepa przy bezczynnej sesji ścigają się
+w Pi, drugie ginie; decyzja fix w R-111); razem fix 80, rejected 9, rejected / fix 1; pole Final dojdzie w etapie 6. -->
 
 # Audit of Limen at `rebuild-base`
 
@@ -462,6 +463,7 @@ intents: `evidence/audit-pass2/history.md`.
 | A-087 | high | reliability | non-compliant | Seat registrations vanish when processes take over an abandoned registry lock together | none (rebuild stage 5) | new | fix |
 | A-088 | low | cross-cutting | non-compliant | The test helper `waitJob` returns before the job's wrapper has exited, so a test that acts on the finished job races it | none (rebuild stage 5) | new | fix |
 | A-089 | high | reliability | non-compliant | A wake sent during a settle is counted unconfirmed before its own run, re-sent, and can stop automatic delivery | none (rebuild stage 5) | new | fix |
+| A-090 | high | reliability | non-compliant | Two wakes sent in one sweep while the coordinator is idle race in Pi: the second is dropped and its settle lands inside the first run | none (rebuild stage 5) | new | fix |
 
 ### A-001 Prune deletes the uncommitted work of every finished job, automatically
 - Area: reliability
@@ -1758,6 +1760,21 @@ intents: `evidence/audit-pass2/history.md`.
 - History: Related: A-033 (lost wakes) and R-038, whose fake reproduces Pi's settle deferral; the old fake ran every queued message in one turn, so no test could reach this order.
 - Note: Added in rebuild stage 5 (2026-11-26, `plan.md` D-128) from one hang and a read-only diagnosis of Pi's sources.
 - Decision: fix — High: the wake is the coordinator's only news of a finished job on the critical path, and a blocked claim waits for a person (A-033). The fix is a new ticket R-111 in stage 4 after R-038, with the deterministic test above; the gate's test stays (D-029). Check: that test (fails before, passes after); `## Deployment` 4.14 (Adrian, 2026-11-26, D-128).
+
+### A-090 Two wakes sent in one sweep while the coordinator is idle race in Pi: the second is dropped and its settle lands inside the first run
+- Area: reliability
+- Severity: high
+- Location: `hook/wake.ts:441-446`, `hook/wake.ts:1001-1009`
+- Evidence: the hook sends the first wake of a sweep while idle with no option and every later one with `deliverAs: "followUp"` (`hook/wake.ts:441-446`), in one synchronous stretch. In Pi 1.5.1 a hook's send is fire and forget and `prompt` marks the session busy only in `_startRun`, after awaiting `_preparePrompt`, so both sends read `isStreaming` false before either run starts and the `followUp` option is never read; the second run's `agent.prompt` throws "Agent is already processing a prompt", and its `finally` emits `agent_settled` inside the first run and marks the session idle (Pi's agent-session.js, lines 1696-1760, 1487-1537 and 738-760, and pi-agent-core's agent.js, lines 246-248, traced from the sources in `evidence/inventories/R-111.md` → section 2, not run). The hook's settle handler then settles both deliveries, neither of them entered and answered (`hook/wake.ts:1001-1009`), so both are counted unconfirmed and re-sent inside that settle, and the re-sends race the same way.
+- Rule: z. 14, z. 17, z. 21
+- Verdict: non-compliant
+- Direction: the hook makes at most one send per sweep while the session is idle, and the other due wakes go as follow-ups once that run has begun (a sweep from `before_agent_start`); a wake that never enters a run is counted unconfirmed after a bound instead of waiting silently (T-01); the fake engine reproduces Pi's gap between a send and the run's start and the failed second start with its own settle (T-28 (5)), and a test on it fails before the fix every time.
+- Scenario: Two jobs end within the hook's sweep interval while the coordinator idles. One sweep sends both wakes; Pi starts only the first, drops the second with an error on the extension error channel, and emits a settle inside the first run. The hook counts both unconfirmed, re-sends both, and the second count blocks both claims ("automatic delivery stopped"), so a finished job's wake waits for Adrian while only one of the two reached the model.
+- Candidates: none (found in rebuild stage 5, R-111's inventory, 2026-11-26)
+- Status: new
+- History: Related: A-089 (the same handler's settle of deliveries that have not entered) and A-033 (lost wakes); R-038's fake reserves the session at the send, so no test could reach this order.
+- Note: Added in rebuild stage 5 (2026-11-26, `plan.md` D-129) from R-111's read-only inventory of Pi 1.5.1's sources; not seen on the seat (no seat logs in the repository).
+- Decision: fix — High, as A-089: the wake is the coordinator's only news of a finished job, and a blocked claim waits for a person. Fixed in R-111 with A-089 (size L), since both rules change the same settle handler and sweep. Check: R-111's test on the fake (fails before, passes after); `## Deployment` 4.14 (Adrian, 2026-11-26, D-129).
 
 ## Pass 2: hypotheses from the owner's analysis
 

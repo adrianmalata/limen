@@ -163,7 +163,9 @@ oraz M-04 uzupełnione; D-125 i D-126: R-045 zależy też od R-042, a R-110 od R
 każdy nocny ticket etapu 4 ma ticket.md (15 gotowych); potem w dzień R-038 zamknięty (D-127: test s1-spawn usuwa
 transkrypt atrapy; trzy rundy recenzji PASS), a zawieszenie testu s3-finish-wake dało D-128, znalezisko A-089 (budzenie
 wysłane w trakcie settle liczone jako niepotwierdzone) i nowy ticket R-111; przekazanie do limen-rebuild-41 na
-ticket.md R-111 i R-039. -->
+ticket.md R-111 i R-039; tam inwentarz R-111 i D-129 (nowe znalezisko A-090: dwa budzenia z jednego sweepa przy
+bezczynnej sesji ścigają się w Pi, naprawiane w R-111, rozmiar L), fakty E-20 i E-21, krok 4.14 przepisany, R-111
+gotowy. -->
 
 
 
@@ -1540,6 +1542,12 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   (A-089) with a new stage-4 ticket (R-111, delegated, night, after R-038) and a deterministic test of the
   interleaving; if it is not, the fake's deferral is fixed in R-038 only after Adrian's yes, as a round beyond the two.
   Check: R-038 `ticket.md` → Decision 13; `review.md`.
+- 2026-11-26 D-129 (Adrian: "rekomendacja"; Q-90, option 1, from `evidence/inventories/R-111.md` → section 2): two
+  wakes sent in one sweep while the coordinator is idle race in Pi 1.5.1 (E-21): the second is dropped and its settle
+  lands inside the first run. This is a new finding, A-090 (high, `fix`), fixed in R-111 together with A-089, so R-111's
+  size is L (was M). The hook makes at most one send per idle sweep, and the other due wakes go as follow-ups from the
+  run's `before_agent_start`. R-038's fake reproduces E-21 (T-28 (5)), and a test on it fails before the fix. Check:
+  R-111 `ticket.md` → Decision 1; `audit.md` → A-090.
 
 ### Gate 2 §2, copied
 
@@ -1661,6 +1669,8 @@ the sources itself.
 | E-17 | What Pi does on SIGTERM and SIGHUP in the mode Limen runs (R-028; the main session, 2026-11-22) | Limen runs Pi with `--mode json`, its print mode, which handles SIGTERM and SIGHUP (`pi-coding-agent@1.5.1/dist/modes/print-mode.js#L34-L54`): each signal first kills Pi's tracked detached children; the first one then disposes the runtime and exits 143 (TERM) or 129 (HUP), and a second one exits at once. Print mode has no SIGINT handler. The bash tool starts each command detached on Linux (`pi-coding-agent@1.5.1/dist/core/tools/bash.js#L77`), so a TERM to Pi's process group does not reach a tool's group, and Pi's handler kills it. The wrapper therefore sees the engine end with code 143 and no signal after a TERM, while a SIGKILL (an OOM kill) arrives as the signal. | A-020, A-052 | yes (code) |
 | E-18 | What `systemctl --user is-active` exits with for a unit that is not loaded (R-026; the seat, 2026-11-25) | On the seat's systemd 259 (259.9-0ubuntu0.1), `is-active` of a name that never existed, and of a transient scope that ended and was collected, prints `inactive` and exits 4, not 3 as `src/platform/linux.ts` (`NOT_ACTIVE = 3`, line 52 at `a0.3.0`) assumes. | A-029, A-005 | yes (seat steps 3.1 and 3.2, `## State`, "`limen-rebuild-33`") |
 | E-19 | How Pi runs the tool calls of one assistant message (R-036; the seat and the package source, 2026-11-25) | In parallel by default (`toolExecution ?? "parallel"`, `pi-agent-core@1.5.1/dist/agent.js#L147`): `executeToolCallsParallel` (`dist/agent-loop.js`) emits every `tool_execution_start` first, then each `tool_execution_end` as its tool finishes, so a tool can end while another of its message still runs. | A-059 | yes (code; the seat's first stall trial, `## State`, "`limen-rebuild-33`") |
+| E-20 | What Pi does with a message sent while `agent_settled` is emitted (A-089; the package source, 2026-11-26) | Run after the event: `prompt` and an idle `sendCustomMessage` with `triggerTurn` push themselves onto `_deferredSettledActions` while `_isEmittingAgentSettled` is set (`pi-coding-agent@1.5.1/dist/core/agent-session.js#L1696-L1699`, `#L1967-L1971`); `_emitAgentSettled` marks the session idle, awaits every handler, then runs the held actions one by one, each as a run of its own that ends with its own `agent_settled` (`#L738-L760`, `#L1528-L1536`), depth first, with no `catch`, so a throwing action drops the rest. No event carries a run or message id; `agent_settled` carries only `aborted`; `pi.sendUserMessage` returns nothing (`extensions/loader.js#L315-L318`). | A-089 | yes (code; `evidence/wake-settle-deferral.md`, `evidence/inventories/R-111.md` → section 1) |
+| E-21 | What Pi does with two hook sends made in one synchronous stretch while the session is idle (A-090; the package source, 2026-11-26) | Both start runs: `prompt` awaits `_preparePrompt` before it reads `isStreaming` (`agent-session.js#L1720`, `#L1749`), and only `_startRun` marks the session busy (`#L1488`), so neither send sees the other and `deliverAs` is not read. The second run's `agent.prompt` throws "Agent is already processing a prompt" (`pi-agent-core@1.5.1/dist/agent.js#L246-L248`) before any `message_start`; its `finally` emits `agent_settled` inside the first run and marks the session idle (`agent-session.js#L740`); the message is dropped and the error goes only to the extension error channel. Deterministic when no extension has an `input` handler and the auth check is synchronous. | A-090 | yes (code, traced and not run; `evidence/inventories/R-111.md` → section 2) |
 
 **Consequences (main session, 2026-11-17).**
 - **A-086 (critical, `fix`; Adrian, gate 2 revision 2):** E-1 means that on the seat's only route Limen's role
@@ -1827,7 +1837,7 @@ package and are literal, sourced and budgeted per role. Tickets R-038–R-047, a
 R-104 (the daily prune and the start queue) and R-105 (the T-04 and T-26 scans), from D-110 R-106 (the `main` watcher,
 §7 D1 per project), from D-112 the fixes R-107–R-109 of the close of stage 3 on the seat, from D-114 R-110 (the
 continuation's reuse of the context message, the change notices and the digest, split from R-039), and from D-128 R-111
-(a wake sent during a settle, A-089, found with R-038's fake).
+(a wake sent during a settle, A-089, found with R-038's fake; from D-129 also two idle sends of one sweep, A-090).
 
 ### Stage 5 — The trust boundary (a0.5.0)
 
@@ -1961,7 +1971,7 @@ Columns:
 | R-108 | The stall rule follows every pending tool of a message | 4 | A-059, E-19, D-112 | R-036 | S | delegated | night | — | pi | 4.12 | ready |
 | R-109 | The alerts' unit sends over IPv4 first | 4 | A-066, D-108, D-112 | R-033 | S | delegated | night | — | systemd | 4.11 | ready |
 | R-110 | A continuation reuses its parent's context message; change notices and the board digest come only on a change | 4 | A-079, A-037, A-051, D-114, D-120, D-126 | R-039, R-042, R-043, R-044 | M | delegated | night | — | pi | 4.2 | ready |
-| R-111 | A wake is settled only by the run it entered | 4 | A-089, D-128 | R-038 | M | delegated | night | — | pi | 4.14 | planned |
+| R-111 | A wake is settled only by the run it entered; an idle sweep starts one run | 4 | A-089, A-090, D-128, D-129 | R-038 | L | delegated | night | — | pi | 4.14 | ready |
 | R-048 | Jobs run the bridge isolated: no `--approve`, `--offline`, a private `TMPDIR`, an explicit Claude Code path | 5 | A-025, E-3, E-4, E-15, D-005, D-017 | R-040, R-087 | M | delegated | night | — | pi, bridge | 5.8, 5.9 | planned |
 | R-049 | Agents run only root-owned code; Pi, bridge and Claude Code versions are declared | 5 | A-025, T-32, T-36, D-017 | R-017, R-020, R-048 | L | delegated | night | yes | pi | 5.3, 5.5, 5.6, 5.10, 5.20 | planned |
 | R-050 | The registered coordinator and its start script | 5 | A-033, A-061, A-029, §2, D-017 | R-026, R-033, R-034, R-049 | L | delegated | night | yes | pi, herdr, systemd | 5.4, 5.11, 5.20 | planned |
@@ -2661,8 +2671,11 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
 - **4.13** No job log of either project holds a line `not ended: exit code 4` stamped after the deployment time (both
   the end's `was not ended` and the sweep's `reap: … not ended` go to the job's own `log`, never to the sweep's
   journal, D-118), and no `stuck` alert came for a job whose record has no cgroup (R-107).
-- **4.14** Two trial jobs that finish within a few seconds of each other while the coordinator is in a turn each bring
-  one wake, in the order they finished, and the coordinator's log holds no "unconfirmed" line for them (R-111, A-089).
+- **4.14** Two trial jobs whose tasks wait for the same clock second and then finish end within one second of each
+  other, once while the coordinator is idle and once while it is in a turn. Each time the coordinator's Pi session
+  file holds each wake's text exactly once, neither job's own `log` holds `unsuccessful wake attempt` (the hook writes
+  that line there, not to a coordinator log), and no toast says `automatic delivery stopped`. The order of the two
+  wakes is not checked: one sweep visits jobs by id, not by the time they finished (R-111, A-089, A-090).
 
 ### After stage 5 (a0.5.0)
 
@@ -5748,3 +5761,21 @@ ends its turn. By day, Adrian at the terminal. The next session's acts, in this 
    Decision 9, R-045 Decisions 9 (the role table as the one list of job roles) and 13 (`COORDINATOR_SESSION`), R-110
    Decisions 16 and 17, and the open points of `limen-rebuild-36`.
 The handover after it is `limen-rebuild-42`.
+
+`limen-rebuild-41` (2026-11-26, by day, Adrian at the terminal): `close-previous` printed `handover: closed tmux session
+limen-rebuild-40` and one `handover: stopped claude …` line and exited 0; the takeover push was skipped as redundant,
+the terminal being active; context 8 % at the start; `HEAD` = `origin/adrian-rebuild` = `aae86b7`, the tree clean.
+- R-111's read-only inventory at `aae86b7`: `evidence/inventories/R-111.md` (a `general-purpose` agent; `review-guard.mjs
+  compare` named only that file). It confirms A-089 at HEAD and settles the diagnosis's Related part: two wakes of one
+  idle sweep race in Pi 1.5.1 (E-21), the second is dropped and its settle lands inside the first run.
+- Q-90 asked with a push (searched first: `input/gate-2-decisions.md`, `taste.md`, `input/zasady-budowy-harnessu.md`,
+  `## Decisions`): whether that race is a new finding fixed in R-111. Adrian: "rekomendacja" → D-129: A-090 (high, fix)
+  in `audit.md`, fixed in R-111 (size L, was M; its title gains "an idle sweep starts one run").
+- E-20 (the settle deferral) and E-21 (the race) in `## Engine facts`; step 4.14 reworded (the "unconfirmed" line is in
+  each job's `log`, the finish order is not kept, the idle case added).
+- R-111's `ticket.md` written at `aae86b7` (`R-111-wake-settled-by-own-run/`): settle by entry, a backstop after
+  `CLAIM_STALE_MS` of quiet, one starter per idle sweep with the rest as follow-ups from `before_agent_start`, the fake
+  reproducing E-21; its `## Decisions` 2–8 are the main session's readings of the documents, for gate 5.4. Grep criteria
+  at HEAD: AC-7 and AC-9 exit 1 and expect 0, AC-8 and AC-10 exit 0 and expect 1. Status `ready`; `check.mjs` exit 0 (15
+  ready).
+- Next: R-111 by day (delegated), then R-039 by protocol step 1; gate 5.4 also gets R-111 Decisions 2–8.
