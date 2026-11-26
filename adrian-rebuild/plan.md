@@ -1911,7 +1911,7 @@ Columns:
 | R-103 | Land runs as recorded steps; its `cleaned` step closes the job's Herdr tabs | 3 | A-021, T-04, T-18, T-28, T-38, D-092, D-094, D-096 | R-037 | L | delegated | night | yes | herdr | 3.9 | done |
 | R-038 | The fake engine shows the model's view under the bridge | 4 | T-31, A-051, D-115, D-119 | R-017 | L | delegated | night | — | bridge | 4.1 | ready |
 | R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16, D-114 | R-021, R-038 | L | delegated | night | yes | pi, bridge | 4.2 | ready |
-| R-040 | Role texts come from the package, in three registers | 4 | A-038, A-039, A-042, D-005 | R-001, R-039 | M | delegated | night | yes | — | — | planned |
+| R-040 | Role texts come from the package, in three registers | 4 | A-038, A-039, A-042, D-005 | R-001, R-039 | M | delegated | night | yes | — | — | ready |
 | R-041 | The turn cue holds only variable parts and the audience line | 4 | A-077, T-13 | R-039 | S | pair | day-after | — | pi | 4.4 | planned |
 | R-042 | The task-note mechanism is cut | 4 | A-044, A-059, D-121 | R-039 | M | delegated | night | yes | — | — | planned |
 | R-043 | Just-in-time reminders arrive in the triggering tool result | 4 | A-041, H-12 | R-039 | M | delegated | night | — | pi | 4.5 | ready |
@@ -5545,3 +5545,13 @@ the terminal being active; context 8 % at the start; `HEAD` = `origin/adrian-reb
   (D-040's T-19 text names `limen init` and the owner channel, neither of which switches a module at R-044's commit);
   Q-83 A-082's "only in a session that leads a group" to R-077; Q-84 R-045's coordinator entry applied by R-050's start
   script.
+- Adrian: "zgodnie z rekomendacjami" → D-120 (Q-80: the digest and notices ride the run as the cue; `taste.md` T-16
+  carries D-114 (1) and D-120), D-121 (Q-81: the 80 % steer per role, true at its commit; R-063's note), D-122 (Q-82:
+  the modules header true at R-044's commit, R-055 and R-062 extend it; Q-83: A-082's lead rule to R-077, its note),
+  D-123 (Q-84: the coordinator's role entry declared by R-045, applied by R-050, its note); commit `e26fac2`.
+- R-040 `ready` behind R-039: its `ticket.md` written at `e26fac2` from the inventory (the three register files under
+  `templates/registers/`, package-only texts, the drift cut with `templates/.history`, `templates/agents.md` renamed
+  `templates/manual.md` by T-18 so that D-025's grep holds, the isolation constant beside `engineRoute` off until R-048,
+  the leftovers of R-001's mechanism); every question settled by the documents. Grep criteria AC-6–AC-14 exit 0 at HEAD
+  and expect 1; every match is one the ticket removes. Open for gate 5.4: R-040 Decisions 7 (the `ROLE_UNKNOWN`
+  wording) and 9 (the rename).
