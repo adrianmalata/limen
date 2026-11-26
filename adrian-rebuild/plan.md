@@ -1885,7 +1885,7 @@ Columns:
 | R-047 | The coordinator never waits | 4 | T-34 | R-039 | S | delegated | night | — | pi | 4.6 | planned |
 | R-104 | The sweep's daily prune archives every unregistered folder and waits on no job's lock; a queue entry is live only for a project's job | 4 | A-002, A-024, T-25, D-107 | R-101 | M | delegated | night | — | — | — | ready |
 | R-105 | The T-04 and T-26 scans follow what their rules name | 4 | T-04, T-26, D-107, D-116 | R-032, R-104 | M | delegated | night | — | — | — | planned |
-| R-106 | A watcher outside the agents' account keeps a copy of `main` and alerts on its forced update or deletion | 4 | A-006, §7, D-110, D-117 | R-033 | S | delegated | night | — | systemd | 4.10 | planned |
+| R-106 | A watcher outside the agents' account keeps a copy of `main` and alerts on its forced update or deletion | 4 | A-006, §7, D-110, D-117 | R-033 | S | delegated | night | — | systemd | 4.10 | ready |
 | R-107 | The exit 4 of systemd 259's `is-active` reads as not active | 4 | A-029, E-18, D-112 | R-026 | S | delegated | night | — | systemd | 4.13 | ready |
 | R-108 | The stall rule follows every pending tool of a message | 4 | A-059, E-19, D-112 | R-036 | S | delegated | night | — | pi | 4.12 | ready |
 | R-109 | The alerts' unit sends over IPv4 first | 4 | A-066, D-108, D-112 | R-033 | S | delegated | night | — | systemd | 4.11 | ready |
@@ -5396,3 +5396,7 @@ the terminal being active; context 8 % at the start; `HEAD` = `origin/adrian-reb
   settled by the documents (each `## Decisions`, the main session's reading, not night defaults); every grep criterion
   run at HEAD (D-025): those the change makes true exit 1, R-104's AC-6 and AC-7 exit 0 and expect 1 after it.
   `check.mjs` exit 0 (4 ready). Four independent branches for the night (D-054 (1)).
+- R-106 `ready`: its `ticket.md` written at `87906e1` from the inventory and D-117 (the watcher a step of the alerts'
+  run on the alerts account, `seat/main-watch.ts` with its new test file, the entries in a root-owned credential folder
+  that the install and the deployment's `units` step make when absent, so 4.0's new unit never lacks its source); its
+  grep criteria exit 1 at HEAD. `check.mjs` exit 0 (5 ready).
