@@ -147,8 +147,9 @@ przekazanie do limen-rebuild-35 (dwa commity Tools: z D-105); tam oba: bramka pa
 w checkoucie (D-105 (1)), a check.mjs wymaga, żeby istniał każdy plik, który uruchamia test kryterium albo nazywa
 pathspec `git grep` (D-105 (2)); limen-rebuild-36 zaczęła etap 4: siedem inwentarzy, pytania Q-63–Q-79 i decyzje
 D-114–D-118 (komunikat kontekstowy bez dodatkowej tury i podział R-039 na R-039 i nowy R-110, pełny fake engine R-038
-w rozmiarze L, skan „never wait” w R-105, projekt obserwatora `main` R-106, poprawione kroki 4.11 i 4.13); następne są
-pliki ticket.md etapu 4. -->
+w rozmiarze L, skan „never wait” w R-105, projekt obserwatora `main` R-106, poprawione kroki 4.11 i 4.13) oraz
+ticket.md dla R-104–R-109, wszystkie `ready` na noc; przekazanie do limen-rebuild-37, która pisze ticket.md R-038
+i R-039. -->
 
 
 
@@ -5406,3 +5407,26 @@ the terminal being active; context 8 % at the start; `HEAD` = `origin/adrian-reb
   `github.ts` → R-058, T-26's `startInScope` and `startOutsideJob`); its line numbers are `c3bbc5c`'s, and the night
   re-reads those R-104 changes (D-025). Its grep criteria: AC-7–AC-9 exit 0 at HEAD and expect 1, AC-10 exit 1 and
   expects 0. `check.mjs` exit 0 (6 ready).
+- Open for gate 5.4 from this session: R-108's out-of-scope point (a tool's own output, `tool_execution_update`, is no
+  progress, so a tool that prints slowly with an idle scope can stall; R-036 Decision 2 kept the key); the stale R-102
+  note on the `rule` exception of the T-04 scan (R-105 corrects it in its commit); `ssh` for the alerts account in
+  `## System requirements` (R-106 Decision 6, in its commit).
+
+Handover of 2026-11-26 (D-047, at 34 % context, after the commit `State: ticket.md of R-105 …` (`d8e7e6f`), with the
+tree clean and pushed and no night running): `limen-rebuild-36` starts `limen-rebuild-37` with `node
+adrian-rebuild/tools/handover.mjs start 37` and ends its turn. By day, Adrian at the terminal. The next session's acts,
+in this order:
+1. A push notification to Adrian (one line in Polish) that it takes over at the `ticket.md` files of R-038 and R-039;
+   then `node adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into this section.
+2. R-038's `ticket.md` from `evidence/inventories/R-038.md` and D-115 (size L, E-1–E-14 in the fake's bridge mode, one
+   declaration of the bridge mapping, the `{"task": …}` line and the `agent_settled` case of its note); the bridge's
+   sources from `adrian-rebuild/input/vendor/pi-claude-bridge/` if that folder exists by then, else from
+   `evidence/engine-sources/bridge-5.0.3.md` (D-115 (2): the tarball is in `adrian-rebuild/input/vendor/`, its folder
+   was refused by the permissions). Then R-039's `ticket.md` from `evidence/inventories/R-039.md` and D-114 (the core;
+   R-110's three parts out of scope; `context-size.mjs` fixed to run without `pi` on `PATH` and to measure the message,
+   M-01), `ready` behind R-038. R-110 stays `planned` until R-039's `ticket.md` sets the line between them.
+3. Six tickets are `ready` for a night (R-104–R-109; R-105 behind R-104), in four independent branches; Adrian starts
+   a night himself (D-024: the session starts it when he asks in the conversation).
+4. At gate 5.4: the session's reading of D-105 (2) (`evidence/check-test-files/outcome.md` → Deviations) and the open
+   points above.
+The handover after it is `limen-rebuild-38`.
