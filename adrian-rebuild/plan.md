@@ -143,7 +143,8 @@ prywatnych repo projektów, więc zamiast kroku 3.11 obserwator `main` R-106 w e
 korzysta z Limena najwcześniej od a1.0.0), D-112 (cztery znaleziska zamknięcia etapu 3: R-107–R-109 w etapie 4 i
 notatka do R-051); próbna trasa F012 na ledgerze i krok 3.9 zaliczone; D-113: projekty na seacie dalej stoją, a limity
 subskrypcji idą na przebudowę; artefakty prób usunięte z seata, zamknięcie etapu 3 na seacie (D-106) skończone,
-przekazanie do limen-rebuild-35 (dwa commity Tools: z D-105). -->
+przekazanie do limen-rebuild-35 (dwa commity Tools: z D-105); tam pierwszy z nich: bramka pada na nowym pliku
+ignorowanym w checkoucie (D-105 (1)). -->
 
 
 
@@ -2769,7 +2770,7 @@ Every stage:
 |---|---|
 | everyone: reading | `git status`, `git diff`, `git log`, `git show`, `git ls-files`, `git rev-parse`, `git cat-file`, `git grep`, `git for-each-ref`, `ls`, `cat`, `head`, `tail`, `wc`, `grep`, `find` (without `-delete` and `-exec`), `sed -n`, `sort`, `uniq`, `cmp`, `diff`, `file`, `command -v` |
 | reviewer: checks | `node --test <test file>`, `node bin/limen <args>` on a test fixture (never the full gate, D-015) |
-| main session, implementer: checks | `node adrian-rebuild/tools/gate.mjs`, `npm run check`, `npm run typecheck`, `npx tsc --noEmit`, `npx biome check --error-on-warnings <path>`, `node --test <test file>`, `node adrian-rebuild/tools/check.mjs`, `node --test adrian-rebuild/tools/test-changes-entries.mjs`, `node --test adrian-rebuild/tools/test-review-guard.mjs`, `node --test adrian-rebuild/tools/test-fails-before.mjs`, `node --test adrian-rebuild/tools/test-review-verdict.mjs`, `node --test adrian-rebuild/tools/test-night.mjs`, `node --test adrian-rebuild/tools/test-tool-calls.mjs`, `node --test adrian-rebuild/tools/test-handover.mjs`, `node --test adrian-rebuild/tools/test-ticket-rules.mjs`, `node --test adrian-rebuild/tools/test-decision-guard.mjs`, `sh adrian-rebuild/tools/test-pre-push.sh`, `node bin/limen <args>` on a test fixture |
+| main session, implementer: checks | `node adrian-rebuild/tools/gate.mjs`, `npm run check`, `npm run typecheck`, `npx tsc --noEmit`, `npx biome check --error-on-warnings <path>`, `node --test <test file>`, `node adrian-rebuild/tools/check.mjs`, `node --test adrian-rebuild/tools/test-changes-entries.mjs`, `node --test adrian-rebuild/tools/test-review-guard.mjs`, `node --test adrian-rebuild/tools/test-fails-before.mjs`, `node --test adrian-rebuild/tools/test-review-verdict.mjs`, `node --test adrian-rebuild/tools/test-night.mjs`, `node --test adrian-rebuild/tools/test-tool-calls.mjs`, `node --test adrian-rebuild/tools/test-handover.mjs`, `node --test adrian-rebuild/tools/test-ticket-rules.mjs`, `node --test adrian-rebuild/tools/test-decision-guard.mjs`, `node --test adrian-rebuild/tools/test-gate.mjs`, `sh adrian-rebuild/tools/test-pre-push.sh`, `node bin/limen <args>` on a test fixture |
 | main session, implementer: changes | `npx biome format --write <path>`, `npm ci`; `git rm <path>`, `git rm -r <path>` and `git mv <old> <new>` on the paths a ticket's `## Change` names (the cuts of stage 1, R-042 and R-059 replace files, R-083 renames test files, and others); every deletion and move goes through them, so the list stays the same every night (D-014) |
 | main session only | `node adrian-rebuild/tools/review-guard.mjs snapshot --out <file>`, `snapshot --git --out <file>`, `diff --out <file>`, `compare <file>` and `compare --git <file> <ticket.md>`; `node adrian-rebuild/tools/fails-before.mjs`; `node adrian-rebuild/tools/review-verdict.mjs <reply> <ticket.md>`; `git restore --source=HEAD -- <path>` and `git apply --include=<path> <diff>` (after a void review); `git add <paths>` (`git add -A -- <paths>` for deletions and renames), `git commit`, `git push origin adrian-rebuild`; `sh adrian-rebuild/tools/install-hooks.sh` (after a move or a new clone); `node adrian-rebuild/tools/handover.mjs start <n>` and `node adrian-rebuild/tools/handover.mjs close-previous` (by day, D-047); at the close of a stage `git tag <tag> <sha>` (local), the gate-time tool of R-011 (`node adrian-rebuild/tools/gate-time.mjs --out <file>`) and, from stage 4, `node adrian-rebuild/tools/context-size.mjs <ref>` |
 
@@ -2790,7 +2791,8 @@ other ref, `git push --force` or `-f`, `git push --delete`, `git reset --hard`, 
 
 ## State
 
-Updated 2026-11-25 by day (`limen-rebuild-34`: the close of stage 3 on the seat goes on, D-109–D-111, in
+Updated 2026-11-26 by day (`limen-rebuild-35`: D-105's `Tools:` commits, in "`limen-rebuild-35`" at the end of this
+section; before it `limen-rebuild-34`: the close of stage 3 on the seat goes on, D-109–D-111, in
 "`limen-rebuild-34`" at the end of this section; before it `limen-rebuild-33`: the close of stage 3 on the seat with
 Adrian, D-106, step by step in "`limen-rebuild-33`"; before it `limen-rebuild-32`: gate 5.3 decided, D-107; R-103 `done`,
 stage 3 closed at `a0.3.0`, gate 5.3 open with Q-51–Q-55 in
@@ -5270,3 +5272,12 @@ and no night running): `limen-rebuild-34` starts `limen-rebuild-35` with `node a
    and R-104–R-109, with the notes of `## Tickets` for each (R-104, R-105, R-107–R-109, and R-051's for stage 5); the
    projects stay paused (D-113), so the Max window is the rebuild's, by day and by night.
 The handover after it is `limen-rebuild-36`.
+
+`limen-rebuild-35` (2026-11-26, by day, Adrian at the terminal): `close-previous` printed `handover: closed tmux session
+limen-rebuild-34` and one `handover: stopped claude …` line and exited 0; the takeover push was skipped as redundant,
+the terminal being active; context 7 % at the start; `HEAD` = `origin/adrian-rebuild` = `74d85dc`, the tree clean.
+- D-105 (1) done: `gate.mjs` fails on a new ignored file in the checkout outside `node_modules/` and editor swap files,
+  naming each (`evidence/gate-new-ignored/`, the commit `Tools: gate.mjs fails on a new ignored file …`); review PASS
+  in rounds 1–3. The full gate leaves none in this checkout (exit 0, 1237/1237).
+- Next: D-105 (2), `check.mjs`'s check of the test files that `ready` and `active` criteria name
+  (`evidence/check-test-files/`); then handover item 3 above (stage 4 in a new session).
