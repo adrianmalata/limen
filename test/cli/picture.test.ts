@@ -23,7 +23,7 @@ sources:
 `;
 
 test("PICTURE_INVALID: picture build --strict with an error diagnostic exits 1, lists it and names the build again in next", async (t) => {
-	const p = await plant();
+	const p = await plant({ modules: ["picture"] });
 	t.after(() => p.cleanup());
 	await writeFile(join(p.root, ".limen/picture/nodes/misnamed.md"), MISNAMED);
 	const before = snapshot(p.root);
@@ -38,7 +38,7 @@ test("PICTURE_INVALID: picture build --strict with an error diagnostic exits 1, 
 });
 
 test("PICTURE_INVALID: picture build --strict --dir names the same folder in next", async (t) => {
-	const p = await plant();
+	const p = await plant({ modules: ["picture"] });
 	t.after(() => p.cleanup());
 	await writeFile(join(p.root, ".limen/picture/nodes/misnamed.md"), MISNAMED);
 	const before = snapshot(p.root);
@@ -52,7 +52,7 @@ test("PICTURE_INVALID: picture build --strict --dir names the same folder in nex
 
 // D-045 (5.1): the fix is prose, so it leaves `next` for the stderr line after the refusal's own.
 test("PICTURE_INVALID: picture build --strict says on stderr to fix the errors listed above", async (t) => {
-	const p = await plant();
+	const p = await plant({ modules: ["picture"] });
 	t.after(() => p.cleanup());
 	await writeFile(join(p.root, ".limen/picture/nodes/misnamed.md"), MISNAMED);
 	const before = snapshot(p.root);
@@ -65,7 +65,7 @@ test("PICTURE_INVALID: picture build --strict says on stderr to fix the errors l
 
 // Before R-092 the build wrote the --json model before the strict check refused.
 test("PICTURE_INVALID: picture build --strict --json with an error diagnostic writes no model and leaves the snapshot identical", async (t) => {
-	const p = await plant();
+	const p = await plant({ modules: ["picture"] });
 	t.after(() => p.cleanup());
 	await writeFile(join(p.root, ".limen/picture/nodes/misnamed.md"), MISNAMED);
 	const before = snapshot(p.root);
@@ -75,7 +75,7 @@ test("PICTURE_INVALID: picture build --strict --json with an error diagnostic wr
 });
 
 test("limen picture build: --json of a map with no error writes the model and says where", async (t) => {
-	const p = await plant();
+	const p = await plant({ modules: ["picture"] });
 	t.after(() => p.cleanup());
 	const run = limen(p, ["picture", "build", "--strict", "--json", ".limen/model/picture.json"]);
 	assert.equal(run.status, 0, run.stderr);
@@ -86,7 +86,7 @@ test("limen picture build: --json of a map with no error writes the model and sa
 
 // Before R-092 a map path that is a file ended in a plain Error, UNTYPED.
 test("PICTURE_NOT_A_FOLDER: picture build where .limen/picture is a file exits 1 and leaves the snapshot identical", async (t) => {
-	const p = await plant();
+	const p = await plant({ modules: ["picture"] });
 	t.after(() => p.cleanup());
 	await rm(join(p.root, ".limen/picture"), { recursive: true });
 	await writeFile(join(p.root, ".limen/picture"), "no map\n");

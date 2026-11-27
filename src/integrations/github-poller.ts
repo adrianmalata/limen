@@ -8,6 +8,7 @@ import { exception } from "../config.ts";
 import { readJobFile } from "../job/record.ts";
 import { withLock } from "../lock.ts";
 import { type CommandText, EXIT_CODES, failureOf, LimenError } from "../outcome.ts";
+import { moduleOn } from "../project/modules.ts";
 import { runLimen } from "../runtime/launcher.ts";
 import {
 	claimId,
@@ -818,8 +819,9 @@ async function pollProject(root: string, state: string, binding: GithubBinding, 
 }
 
 /**
- * One polling pass over every registered project. A project's failure goes to `out` on its own line and the pass goes
- * on; then the most severe failure (the highest exit code) fails the poll, with its class, code and next (D-028).
+ * One polling pass over every registered project. A project whose github module is off is skipped with a line that
+ * names it (R-044). A project's failure goes to `out` on its own line and the pass goes on; then the most severe failure
+ * (the highest exit code) fails the poll, with its class, code and next (D-028).
  */
 export async function pollGithub(out: CommandText): Promise<void> {
 	const registry = exception("LIMEN_GITHUB_PROJECTS_FILE");
@@ -858,7 +860,12 @@ export async function pollGithub(out: CommandText): Promise<void> {
 	const failures: Array<{ readonly thrown: unknown; readonly failure: LimenError }> = [];
 	for (const root of projects) {
 		try {
-			if (resolve(root) === root) {
+			// One project's switch does not stop the others: the pass skips a project whose module is off (R-044
+			// Decision 5). A limits file it cannot read throws LIMITS_UNREADABLE (src/project/limits.ts), which the
+			// catch below names as that project's failure, never as a project switched off.
+			if (resolve(root) === root && !moduleOn(root, "github")) {
+				out.line(`${root}: skipped: the github module is off in this project`);
+			} else if (resolve(root) === root) {
 				await project(root, stateDir, jwt);
 			}
 		} catch (error) {

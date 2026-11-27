@@ -1,6 +1,7 @@
 // `limen group wait`: only a team member waits, and its time limit and its cap end the wait with a success that names
 // the same wait. `limen group start` and `limen group stop` refuse before they write (T-38 (1)); a start's team jobs are
 // recorded steps that the same start run again continues, and a stop's failure after its first write is no refusal.
+// With the group module off a group command refuses, and its help still prints (G1.10).
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
@@ -45,7 +46,7 @@ async function runningGroup(p: Plant) {
 }
 
 test("GROUP_WAIT_MEMBERS_ONLY: the lead's group wait exits 1, says the lead gets the result once and names group status", async (t) => {
-	const p = await plant();
+	const p = await plant({ modules: ["group"] });
 	t.after(() => p.cleanup());
 	const run = await runningGroup(p);
 	const waited = limen(p, ["group", "wait", run.id, "--timeout", "500ms"], { env: { PI_SESSION_ID: run.lead } });
@@ -62,7 +63,7 @@ test("GROUP_WAIT_MEMBERS_ONLY: the lead's group wait exits 1, says the lead gets
 });
 
 test("GROUP_WAIT_MEMBERS_ONLY: a group wait outside a team that gives no group id names group status without one", async (t) => {
-	const p = await plant();
+	const p = await plant({ modules: ["group"] });
 	t.after(() => p.cleanup());
 	const run = await runningGroup(p);
 	const waited = limen(p, ["group", "wait", "--timeout", "500ms"], { env: { PI_SESSION_ID: run.lead } });
@@ -76,7 +77,7 @@ test("GROUP_WAIT_MEMBERS_ONLY: a group wait outside a team that gives no group i
 
 // D-046 (5): a member waits again while its work is live, so its time limit is a success that names the same call.
 test("limen group wait: a member's wait past its --timeout exits 0, says so and names the same wait in its one final line", async (t) => {
-	const p = await plant();
+	const p = await plant({ modules: ["group"] });
 	t.after(() => p.cleanup());
 	const run = await runningGroup(p);
 	const member = { LIMEN_GROUP_ID: run.id, LIMEN_CONTEXT_ROOT: p.root, LIMEN_JOB_ID: MEMBER, LIMEN_TEAM_ID: "team-1" };
@@ -96,7 +97,7 @@ test("limen group wait: a member's wait past its --timeout exits 0, says so and 
 // D-046 (5): the CLI cap ends a wait as its --timeout does. The test runs `main` in-process with the cap of `group wait`
 // set to 50 ms, below the --timeout given, so it need not wait the 20 s of the real cap.
 test("a member's group wait past the CLI cap exits 0, says so and names the same wait in its one final line", async (t) => {
-	const p = await plant();
+	const p = await plant({ modules: ["group"] });
 	t.after(() => p.cleanup());
 	const run = await runningGroup(p);
 	// LIMEN_HERDR 0: this in-process run reaches no Herdr of the machine.
@@ -126,7 +127,7 @@ test("a member's group wait past the CLI cap exits 0, says so and names the same
 });
 
 test("BAD_ARGUMENT: group start without --team exits 2, names the missing flag and shows the usage line", async (t) => {
-	const p = await plant();
+	const p = await plant({ modules: ["group"] });
 	t.after(() => p.cleanup());
 	const run = limen(p, ["group", "start", dirname(TICKET)]);
 	assert.equal(run.status, 2, run.stderr);
@@ -202,8 +203,58 @@ async function runOf(p: Plant, id: string) {
 	return JSON.parse(await readFile(join(p.root, ".limen/groups", id, "run.json"), "utf8"));
 }
 
-test("GROUP_NO_LEAD: group start with no registered lead exits 1 and leaves the snapshot identical", async (t) => {
+// G1.10: a module is off by default and its commands refuse with the file and the field that switch it on.
+test("MODULE_OFF: group start with the group module off exits 1, names the file and the field, and leaves the snapshot identical", async (t) => {
 	const p = await plant();
+	t.after(() => p.cleanup());
+	const env = await registeredLead(p);
+	const before = snapshot(p.root);
+	const run = limen(p, ["group", "start", dirname(TICKET), "--team", ROUTE], { env });
+	assert.deepEqual(
+		[run.status, readOutcome(run), outputText(run), snapshot(p.root)],
+		[
+			1,
+			{ class: "refused", code: "MODULE_OFF", next: null },
+			'the group module is off in this project; the owner switches it on in .agents/limen/limits.json ("modules": {"group": true})\n',
+			before,
+		],
+		run.stderr,
+	);
+});
+
+// T-01 (R-044 Decision 19 F1): a limits file the shared step cannot read fails the command; it is no switch that is off.
+test("LIMITS_UNREADABLE: group start in a project whose limits file is a folder exits 4, names the file and leaves the snapshot identical", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const env = await registeredLead(p);
+	await mkdir(join(p.root, ".agents/limen/limits.json"), { recursive: true });
+	const before = snapshot(p.root);
+	const run = limen(p, ["group", "start", dirname(TICKET), "--team", ROUTE], { env });
+	assert.deepEqual(
+		[run.status, readOutcome(run), /^\.agents\/limen\/limits\.json cannot be read: EISDIR/.test(outputText(run))],
+		[4, { class: "environment", code: "LIMITS_UNREADABLE", next: null }, true],
+		run.stderr,
+	);
+	assert.deepEqual(snapshot(p.root), before);
+});
+
+// T-19: the shared step of a module comes after the help, so the help of a module that is off still prints.
+test("limen group --help and limen group start --help exit 0 with the group module off", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const runs = [limen(p, ["group", "--help"]), limen(p, ["group", "start", "--help"])];
+	assert.deepEqual(
+		runs.map((run) => [run.status, outputText(run).split("\n", 1)[0]]),
+		[
+			[0, "group: several agents on one ticket"],
+			[0, "limen group start <folder> --team <route> …"],
+		],
+		runs.map((run) => run.stderr).join("\n"),
+	);
+});
+
+test("GROUP_NO_LEAD: group start with no registered lead exits 1 and leaves the snapshot identical", async (t) => {
+	const p = await plant({ modules: ["group"] });
 	t.after(() => p.cleanup());
 	const before = snapshot(p.root);
 	const run = limen(p, ["group", "start", dirname(TICKET), "--team", ROUTE]);
@@ -214,7 +265,7 @@ test("GROUP_NO_LEAD: group start with no registered lead exits 1 and leaves the 
 // wrote activation-error.json; now each team's spawn is checked in the start's validate (D-061, NOT_MIGRATED is the
 // environment's failure of D-057 (6)).
 test("NOT_MIGRATED: group start whose team spawn finds a job folder of an older Limen exits 4 and leaves the snapshot identical", async (t) => {
-	const p = await plant();
+	const p = await plant({ modules: ["group"] });
 	t.after(() => p.cleanup());
 	const env = await registeredLead(p);
 	await mkdir(join(p.root, ".limen/jobs/2026-01-01-old-1a2b3c4d"));
@@ -227,7 +278,7 @@ test("NOT_MIGRATED: group start whose team spawn finds a job folder of an older 
 // T-38 (3): the team jobs after run.json are steps that run.json records (each team's member); before R-092 the same
 // start run again returned the open run and started no team (`group-control.ts:212-213`).
 test("limen group start: run again on a run that has a team with no job, it starts that team and leaves the started one alone", async (t) => {
-	const p = await plant();
+	const p = await plant({ modules: ["group"] });
 	t.after(() => p.cleanup());
 	const env = await registeredLead(p);
 	const run = await partialRun(p);
@@ -248,7 +299,7 @@ test("limen group start: run again on a run that has a team with no job, it star
 // T-38 (3): a team whose launch failed after its member was recorded has a job that never ran; the same start run
 // again gives its slot to a new job of that team, as its Start line says, and leaves the started team alone.
 test("group start run again on a run whose team's job never ran starts a new job for that team in its place", async (t) => {
-	const p = await plant();
+	const p = await plant({ modules: ["group"] });
 	t.after(() => p.cleanup());
 	const env = await registeredLead(p);
 	const failed = "2026-11-21-f001-team-2-9c8d7e6f";
@@ -274,7 +325,7 @@ test("group start run again on a run whose team's job never ran starts a new job
 
 // The step record is additive: a run.json written before R-092 has no startFailure and reads as it did.
 test("limen group status: a run written before R-092 shows the lines it showed before, with no Start line", async (t) => {
-	const p = await plant();
+	const p = await plant({ modules: ["group"] });
 	t.after(() => p.cleanup());
 	const old = await partialRun(p);
 	const lines = limen(p, ["group", "status", old.id], { env: { PI_SESSION_ID: LEAD_SESSION } }).stdout.split("\n");
@@ -285,7 +336,7 @@ test("limen group status: a run written before R-092 shows the lines it showed b
 });
 
 test("group status of a run whose start failed for a team names that team and the rerun on a Start line", async (t) => {
-	const p = await plant();
+	const p = await plant({ modules: ["group"] });
 	t.after(() => p.cleanup());
 	const run = await partialRun(p, { startFailure: { team: "team-2", message: "the base moved", at: Date.now() } });
 	const lines = limen(p, ["group", "status", run.id], { env: { PI_SESSION_ID: LEAD_SESSION } }).stdout.split("\n");
@@ -318,7 +369,7 @@ async function partialStart(p: Plant) {
 }
 
 test("GROUP_PARTIAL_START: a team whose spawn fails after run.json ends the start in exit 3 and is recorded as its startFailure", async (t) => {
-	const p = await plant();
+	const p = await plant({ modules: ["group"] });
 	t.after(() => p.cleanup());
 	const { first, id } = await partialStart(p);
 	const partial = await runOf(p, id);
@@ -345,7 +396,7 @@ test("GROUP_PARTIAL_START: a team whose spawn fails after run.json ends the star
 
 // The state a GROUP_PARTIAL_START leaves, written: team-1's job ran, team-2 has none, and the run records the step.
 test("group start run again after GROUP_PARTIAL_START starts the team it recorded and clears startFailure", async (t) => {
-	const p = await plant();
+	const p = await plant({ modules: ["group"] });
 	t.after(() => p.cleanup());
 	const env = await registeredLead(p);
 	const run = await partialRun(p, { startFailure: { team: "team-2", message: "the base moved", at: Date.now() } });
@@ -361,7 +412,7 @@ test("group start run again after GROUP_PARTIAL_START starts the team it recorde
 
 // Before R-092 the start read its lead's pane under the cabinet lock, whose folder .limen/groups/ then stayed.
 test("UNSAFE_HERDR_PANE_ID: group start from a Herdr pane whose id is not safe to route by exits 4 and leaves the snapshot identical", async (t) => {
-	const p = await plant();
+	const p = await plant({ modules: ["group"] });
 	t.after(() => p.cleanup());
 	const env = { ...(await registeredLead(p)), HERDR_ENV: "1", HERDR_PANE_ID: "pane; rm -rf" };
 	const before = snapshot(p.root);
@@ -374,7 +425,7 @@ test("UNSAFE_HERDR_PANE_ID: group start from a Herdr pane whose id is not safe t
 });
 
 test("GROUP_LEAD_ONLY: group stop by a team member exits 1 and leaves the snapshot identical", async (t) => {
-	const p = await plant();
+	const p = await plant({ modules: ["group"] });
 	t.after(() => p.cleanup());
 	const run = await partialRun(p);
 	const member = {
@@ -413,7 +464,7 @@ async function unstoppable(p: Plant) {
 // class was transient here too, so a timer retried a stop that every rerun ends the same way: a record that runs with
 // no pid names no process to signal, a state of the seat's files that the sweep ends (A-056).
 test("GROUP_STOP_INCOMPLETE: group stop of a member that runs with no pid exits 4, names limen seat sweep in next and reports the member", async (t) => {
-	const p = await plant();
+	const p = await plant({ modules: ["group"] });
 	t.after(() => p.cleanup());
 	const { run, stop, report } = await unstoppable(p);
 	const first = stop();
@@ -425,7 +476,7 @@ test("GROUP_STOP_INCOMPLETE: group stop of a member that runs with no pid exits 
 });
 
 test("group stop run again after GROUP_STOP_INCOMPLETE takes the same steps and ends the same way", async (t) => {
-	const p = await plant();
+	const p = await plant({ modules: ["group"] });
 	t.after(() => p.cleanup());
 	const { stop, report } = await unstoppable(p);
 	const first = stop();
@@ -466,7 +517,7 @@ async function lingering(p: Plant) {
 // T-02: a member that the stop signalled and that has not ended within the stop's wait may still end, and the same
 // stop run again stops or checks it again, so the stop exits 3, which a timer retries. The one wait is the stop's own.
 test("GROUP_STOP_INCOMPLETE: group stop of a member still live after the stop's wait exits 3 and names the same stop in next", async (t) => {
-	const p = await plant();
+	const p = await plant({ modules: ["group"] });
 	t.after(() => p.cleanup());
 	const run = await lingering(p);
 	const stop = limen(p, ["group", "stop", run.id], { env: { PI_SESSION_ID: LEAD_SESSION } });

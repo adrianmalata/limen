@@ -23,6 +23,7 @@ import {
 	routed,
 	spawnJob,
 	startedJob,
+	switchModules,
 	TICKET,
 	waitJob,
 } from "./plant.ts";
@@ -258,6 +259,7 @@ test("a spawn prints no early id line: its id is one line of text, after the sta
 test("a workspace job works in one child repository", async () => {
 	const workspace = join(p.parent, "workspace");
 	await Promise.all(["api", "web"].map((name) => repository(join(workspace, name))));
+	await switchModules(workspace, ["workspace"]);
 	assert.equal(limen(p, ["workspace", "init"], { cwd: workspace }).status, 0);
 	const id = spawnJob(p, "commit", ["--repo", "api", "--engine", "pi"], { cwd: workspace });
 	assert.equal(waitJob(p, id, { cwd: workspace }), "done");

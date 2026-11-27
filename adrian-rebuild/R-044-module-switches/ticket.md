@@ -275,3 +275,52 @@ inventory's questions in `evidence/inventories/R-044.md` → section 8):
     first line, so its counts line stays last; (5) the module parts' labels are "GitHub module", "Group module",
     "Picture module", "Workspace module", "Research module" and "Quality module", and `github poll`, which skips a
     project and never throws `MODULE_OFF`, does not declare it.
+19. 2026-11-27, review round 1 (`review.md`), the findings to fix, each with a test that fails before its fix (T-29):
+    - F1 (finding 1, blocking): `plantLimits` reads `.agents/limen/limits.json` with `ENOENT` and `ENOTDIR` as the one
+      explicit absence (T-01, `hasCode`); any other read error propagates as a typed error that names the file, so the
+      shared step of `src/main.ts` fails with it and `github poll` names that project as failed with its reason, not as
+      switched off. The poller's comment (`src/integrations/github-poller.ts:863-866`) and `outcome.md` (Done 4,
+      Unmeasured) describe that. A test: a `limits.json` that is a folder (`EISDIR`) fails the command and the poll's
+      project, and a missing file still reads as every module off.
+    - F2 (finding 2): the reminder after an edit under `spec/` appends, after the `## Specs` section, the specs file of
+      each module that is on (`templates/modules/<module>/specs.md`), once per context like the section (A-041); a
+      test with `picture` on (the front-matter rule present) and off (absent).
+    - F3 (findings 3 and 5): one function gives the hooks and the coordinator's context message the same root for the
+      switches, `LIMEN_CONTEXT_ROOT` else the session's cwd (`process.cwd()` in a factory, `context.cwd` in a handler),
+      with no git call; Decision 18 (3) reads accordingly. `hook/steering.ts` returns in a coordinator before it reads
+      any switch. Tests: a coordinator whose cwd holds `group` on loads group-peer and gets the Group module text from
+      the same root; the steering factory in a coordinator starts no process.
+    - F4 (finding 4): `docs/remote.md:133` and `:141` name the `github` switch before `limen github connect` (T-30).
+    - F5 (finding 7): with `workspace` off, `limen spawn --repo` refuses `MODULE_OFF`; with `group` off, `limen keeper
+      --group` refuses `MODULE_OFF`; each in its validate step, before any write (T-38), with its test and its entry's
+      `refuses` (G1.10, AC-16).
+    Not fixed: finding 6 (T-27 (1) suppressions: R-082's ratchet; `outcome.md` → Open point 1).
+20. 2026-11-27, review round 2 (`review.md`), the last round of fixes, each code fix with a test that fails before it
+    (T-29):
+    - G1 (note 1): `limen continue` of a job whose record names a workspace repository (`repo`) refuses `MODULE_OFF`
+      with `workspace` off, in its validate step; `limen keeper` checks every switch its job needs (`workspace` for a
+      workspace job, `group` for `--group`) before it creates its branch (T-38), so a refusal leaves no branch even
+      when the cleanup would fail. Its entry's `refuses` follow.
+    - G2 (note 2): a limits file that becomes unreadable while a job runs loses no event: the wrapper records the whole
+      batch (log lines, progress, assistant events), logs no "log write failed" line for it, and ends the job failed
+      with the kind `internal` (D-095) and a message that names the file. A test replaces the file with a folder
+      during a fake job.
+    - G3 (note 4): `docs/setup.md` says the specs reminder reads the switches at each tool result, so it follows a
+      switch at once, while the hook set and the context message follow it at `/reload` or a new session.
+    - G4 (note 5): the docs name F5's refusals (`spawn --repo` in a workspace with `workspace` off, `keeper --group`
+      with `group` off) and `LIMITS_UNREADABLE` (an unreadable limits file fails commands, a job and the poll's
+      project); `docs/setup.md:72`, `docs/jobs.md:219-221`, `docs/remote.md:122`, `:143` and
+      `docs/seat/agent-setup.md:211` say that `github poll` skips a project whose switch is off while the other
+      `limen github` commands refuse; the closing line of `docs/seat/github-setup.sh` names the switch before `limen
+      github doctor`.
+    - G5 (note 6): the migration's module report names the archived job records it could not read (one line with
+      their count) when there are any, and a module whose evidence is a job role then reads "unknown (<n> damaged
+      records)" instead of "not in use" (T-01); a test with one damaged archived record.
+    - G6 (note 7): `docs/remote.md` step 4 grants `limen-github` read on each project's `.agents/limen/limits.json`
+      and traverse on `.agents/` and `.agents/limen/`; the main session adds the check to `plan.md` → `## Deployment`
+      4.9.
+    - G7 (note 8): by `## Change` 6's rule, the picture clause of the progress rule (`templates/registers/specs.md:19`)
+      moves to `templates/modules/picture/specs.md`, and "or the group brief" (`templates/manual.md:119`) to
+      `templates/modules/group/manual.md`, each sentence left reading whole; the reference messages follow.
+    Not fixed: note 3 (the roots of commands and hooks in a coordinator started below the repository top): a
+    coordinator starts in its project root, and R-050's start script fixes its root; `outcome.md` → Open points.

@@ -13,8 +13,10 @@ import { startSpawn } from "../job/spawning.ts";
 import type { CommandText, Success } from "../outcome.ts";
 import type { Parsed } from "../parser.ts";
 import { branchCommit, branchExists, commitHasFile, limenRoot, workspaceRepository } from "../project/git.ts";
+import { moduleOn, requireModule } from "../project/modules.ts";
 import { landTicketCheck, TICKET_PATH } from "../project/ticket-check.ts";
 import { ownerState } from "../runtime/reap.ts";
+import { requireJobModules } from "../runtime/roles.ts";
 
 type Route = { readonly engine: string; readonly provider: string; readonly model: string; readonly thinking: string };
 type KeeperOptions = {
@@ -53,11 +55,18 @@ export async function keeperCommand(values: Parsed, cwd: string, out: CommandTex
 		throw new Error(`keeper needs a ticket path like spec/features/active/FNNN-slug/ticket.md, not ${options.ticket}`);
 	}
 	const root = limenRoot(cwd);
+	// A keeper of a group's jobs reads the group, so it refuses while the module is off (G1.10, R-044 Decision 19 F5).
+	if (options.group !== undefined) {
+		requireModule(root, "group");
+	}
 	const jobs = await finishedJobs(root, options);
 	const [first] = jobs;
 	if (!first) {
 		throw new Error("keeper requires --job ID or --group GROUP-ID");
 	}
+	// The keeper's own job needs the switches its jobs need, so each is checked before the branch, its first write (T-38,
+	// R-044 Decision 20 G1): the workspace module for a job in a workspace repository.
+	requireJobModules(root, { role: "keeper", repo: first.repo });
 	if (!options.candidate && jobs.length > 1) {
 		throw new Error("several jobs need one candidate; pass --candidate <integration branch>");
 	}
@@ -79,14 +88,16 @@ export async function keeperCommand(values: Parsed, cwd: string, out: CommandTex
 	const gate = await landTicketCheck(repository, root, candidate, "HEAD", first.id);
 	// The fix line names limen keeper; the keeper itself must not start another one.
 	const gateLines = gate.lines.filter((line) => !line.startsWith("fix: ")).map((line) => `  ${line}`);
+	// The Map line is prompt text, so it names the map only with the picture module on (G1.10, R-044 Decision 14).
 	const map = `${root}/.limen/picture`;
+	const named = existsSync(map) && moduleOn(root, "picture");
 	const blocks = await Promise.all(jobs.map((job) => jobBlock(repository, job)));
 	const packet = [
 		`Spec keeper for ${code}. Fix the ticket, board and map links for this work; commit on this branch.`,
 		"",
 		`Ticket: ${ticket}`,
 		"Board: spec/build.md",
-		`Map: ${existsSync(map) ? map : "none"}`,
+		`Map: ${named ? map : "none"}`,
 		`Group: ${options.group ?? "none"}`,
 		`Candidate: ${candidate} at ${tip}`,
 		`Changed tickets: ${gate.tickets.length > 0 ? gate.tickets.join(", ") : "none"}`,

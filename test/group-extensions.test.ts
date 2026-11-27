@@ -35,7 +35,7 @@ else if (args[0] === 'tab' && args[1] === 'create') { const id = randomUUID(); o
 else ok({});
 `;
 async function fixture() {
-	const p = await plant();
+	const p = await plant({ modules: ["group"] });
 	const feature = dirname(TICKET);
 	await mkdir(join(p.root, feature, "group/teams"), { recursive: true });
 	for (const path of ["group/brief.md", "group/teams/team-1.md", "group/teams/team-2.md"]) {

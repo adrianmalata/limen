@@ -24,8 +24,10 @@ import {
 import { enqueueSteer } from "../job/steer-inbox.ts";
 import { platform, type SignalResult } from "../platform/platform.ts";
 import { limitCount } from "../project/limits.ts";
+import { hasCode } from "../system-error.ts";
 import { CONTEXT_FILE } from "./context-message.ts";
 import { argvFor, jobProfile } from "./engine.ts";
+import { hookSet } from "./hook-set.ts";
 import { setUpJob, worktreeMissing } from "./job-setup.ts";
 import { jobScope } from "./launcher.ts";
 import { processIdentity, stopGraceMs } from "./reap.ts";
@@ -249,11 +251,7 @@ export async function runInternalJob(): Promise<void> {
 		jobDir,
 		label,
 		extensions: [
-			`${HOOK}/finish.ts`,
-			`${HOOK}/steering.ts`,
-			`${HOOK}/communication.ts`,
-			`${HOOK}/rate-limit.ts`,
-			...((await jobMembership(jobDir)) ? [`${HOOK}/group-peer.ts`] : []),
+			...hookSet({ session: "job", member: Boolean(await jobMembership(jobDir)) }).map((hook) => `${HOOK}/${hook}.ts`),
 			...(await readWorkerExtensions(jobDir, record)),
 		],
 		...(provider ? { provider } : {}),
@@ -283,7 +281,7 @@ export async function runInternalJob(): Promise<void> {
 					events,
 					() => {
 						tools += 1;
-						if (tools >= toolCallCap()) {
+						if (tools >= runningLimit(toolCallCap, exhaust)) {
 							exhaust({ kind: "tool-cap", detail: `tool-call cap reached after ${tools} calls` });
 						}
 						return tools;
@@ -334,6 +332,7 @@ export async function runInternalJob(): Promise<void> {
 			seen.activity === "tool" ? { tool: seen.tool, key: `${tools}:${seen.tool}:${seen.progress}` } : undefined,
 		ended: () => exhausted !== undefined || engineEnded,
 		stall: (detail) => exhaust({ kind: "stall", detail }),
+		windowMs: () => runningLimit(toolStallMs, exhaust),
 	};
 	void samples.tick(tickContext);
 	const stallTimer = setInterval(() => {
@@ -562,6 +561,23 @@ async function recordEvents(
 		}
 	}
 }
+/**
+ * A limit of the project's limits file that the wrapper reads while its job runs: its value; or, when the file cannot be
+ * read (LIMITS_UNREADABLE, src/project/limits.ts), no limit and the job's end through `end`, failed, kind `internal`,
+ * with the message that names the file (D-095, T-01). Any other error goes on. So the event whose limit was read is
+ * recorded whole, with the rest of its batch, and no "log write failed" line hides the cause (R-044 Decision 20 G2).
+ */
+function runningLimit(read: () => number, end: (failure: DetectedFailure) => void): number {
+	try {
+		return read();
+	} catch (error) {
+		if (!(error instanceof Error && hasCode(error, "LIMITS_UNREADABLE"))) {
+			throw error;
+		}
+		end({ kind: "internal", detail: error.message });
+		return Number.POSITIVE_INFINITY;
+	}
+}
 /** The stall's note on a failed read of the scope's CPU time, `detail` its reason; undefined for a read that worked. */
 function unreadLine(detail: string | undefined): string | undefined {
 	return detail === undefined ? undefined : `tool stall observation uncertain: scope CPU unavailable: ${detail}`;
@@ -575,6 +591,8 @@ type TickContext = {
 	readonly ended: () => boolean;
 	/** Ends the stalled job with the stall's detail. */
 	readonly stall: (detail: string) => void;
+	/** The stall's window from the project's limits file (`runningLimit`). */
+	readonly windowMs: () => number;
 };
 
 /**
@@ -634,7 +652,7 @@ function scopeSamples(jobDir: string, cgroup: string, failed: (error: unknown) =
 			return;
 		}
 		const pending = wrapper.pendingTool();
-		const windowMs = pending ? toolStallMs() : 0;
+		const windowMs = pending ? wrapper.windowMs() : 0;
 		const step = stallStep(watch, pending?.key, read.sample, windowMs);
 		watch = step.watch;
 		const unread = unreadLine(read.unread);

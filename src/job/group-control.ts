@@ -162,7 +162,7 @@ async function validateGroupStart(
 	if (transport("LIMEN_GROUP_ID") || transport("LIMEN_JOB") === "1") {
 		throw refused(
 			"GROUP_LEAD_ONLY",
-			"only the owner-facing lead may start a group: run limen group start from the plant's interactive Herdr coordinator pane (LIMEN_COORDINATOR=1) with hook/group-peer.ts loaded — a limen job (LIMEN_JOB=1) cannot register as lead or start groups",
+			"only the owner-facing lead may start a group: run limen group start from the plant's interactive Herdr coordinator pane (LIMEN_COORDINATOR=1) with hook/group-peer.ts loaded, which loads only with the group module on in .agents/limen/limits.json — a limen job (LIMEN_JOB=1) cannot register as lead or start groups",
 		);
 	}
 	const options = groupStartOptions(request);
@@ -266,13 +266,13 @@ async function liveGroupLead(root: string): Promise<string> {
 	if (!SESSION_ID.test(lead)) {
 		throw refused(
 			"GROUP_NO_LEAD",
-			"group start requires the interactive Herdr coordinator pane (LIMEN_COORDINATOR=1) with hook/group-peer.ts loaded and registered under .limen/group-leads — reload that pane after updating the package; a limen job never registers as lead",
+			"group start requires the interactive Herdr coordinator pane (LIMEN_COORDINATOR=1) with hook/group-peer.ts loaded and registered under .limen/group-leads; the hook loads only with the group module on in .agents/limen/limits.json, so reload that pane after switching it on or updating the package; a limen job never registers as lead",
 		);
 	}
 	if (!(await leadHookLive(root, lead))) {
 		throw refused(
 			"GROUP_LEAD_HOOK",
-			`group lead hook is not running in this pane: .limen/group-leads/${lead} names no live process refreshed by hook/group-peer.ts in the last 30 seconds. Reload this interactive Herdr coordinator (LIMEN_COORDINATOR=1) with the Limen package hooks, including hook/group-peer.ts, and retry. Do not write .limen/group-leads by hand: without the hook, team results never reach this pane — and do not spawn a job as lead`,
+			`group lead hook is not running in this pane: .limen/group-leads/${lead} names no live process refreshed by hook/group-peer.ts in the last 30 seconds. Reload this interactive Herdr coordinator (LIMEN_COORDINATOR=1) with the Limen package hooks, including hook/group-peer.ts, which loads only with the group module on in .agents/limen/limits.json, and retry. Do not write .limen/group-leads by hand: without the hook, team results never reach this pane — and do not spawn a job as lead`,
 		);
 	}
 	return lead;

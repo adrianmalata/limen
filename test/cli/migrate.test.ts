@@ -597,6 +597,83 @@ test("the marker step writes no abandoned marker when limen/abandon/<id> lacks t
 });
 
 // D-057 (7.6): the migration moves no record under a live job.
+/** The six module lines and the switch line that follow the report's first line, in the order of the modules. */
+function moduleLines(report: string): string[] {
+	return report.split("\n").slice(1, 8);
+}
+
+// R-044 Change 8, `## Deployment` 4.9: the report names each module a project uses, so the owner switches those on; it
+// writes no limits file, which is the owner's.
+test("the report names github, group, picture, research and quality in use by their evidence, workspace not in use, and writes no limits file", async (t) => {
+	const p = await project(t);
+	await mkdir(join(p.root, ".limen/github"), { recursive: true });
+	await writeFile(join(p.root, ".limen/github/binding.json"), '{"repo":"acme/widget"}\n');
+	await mkdir(join(p.root, ".limen/groups/g1"), { recursive: true });
+	await writeFile(join(p.root, ".limen/groups/g1/run.json"), '{"id":"g1"}\n');
+	const quality = "2026-11-12-quality-1a2b3c4d";
+	await writeRecord(join(p.root, ".limen/jobs", quality), { state: "done", role: "quality" });
+	const judge = "2026-10-30-judge-2b3c4d5e";
+	await writeRecord(join(p.root, ".limen/archive/2026-10", judge), { state: "done", role: "judge" });
+	const expected = [
+		"module github: in use (.limen/github/binding.json)",
+		"module group: in use (.limen/groups/g1/run.json)",
+		"module picture: in use (.limen/picture/)",
+		"module workspace: not in use",
+		`module research: in use (job ${judge}, role judge)`,
+		`module quality: in use (job ${quality}, role quality)`,
+		'modules: the owner switches each on in .agents/limen/limits.json ("modules": {"<name>": true})',
+	];
+	const runs = [limen(p, ["migrate", "--dry-run"]), limen(p, ["migrate"])];
+	assert.deepEqual(
+		runs.map((run) => [run.status, moduleLines(outputText(run))]),
+		[
+			[0, expected],
+			[0, expected],
+		],
+		runs.map((run) => run.stderr).join("\n"),
+	);
+	assert.equal(existsSync(join(p.root, ".agents/limen/limits.json")), false);
+});
+
+test("the report names every module not in use in a project with no evidence of any, and writes no limits file", async (t) => {
+	const p = await project(t);
+	await rm(join(p.root, ".limen/picture"), { recursive: true });
+	const run = limen(p, ["migrate"]);
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(moduleLines(outputText(run)), [
+		"module github: not in use",
+		"module group: not in use",
+		"module picture: not in use",
+		"module workspace: not in use",
+		"module research: not in use",
+		"module quality: not in use",
+		'modules: the owner switches each on in .agents/limen/limits.json ("modules": {"<name>": true})',
+	]);
+	assert.equal(existsSync(join(p.root, ".agents/limen/limits.json")), false);
+});
+
+// T-01 (R-044 Decision 20 G5): a record the report cannot read hides whether a job role used a module, so the report
+// names the damaged records and calls those modules unknown, never "not in use".
+test("the report names a damaged archived record it could not read and calls the modules a job role shows unknown", async (t) => {
+	const p = await project(t);
+	await rm(join(p.root, ".limen/picture"), { recursive: true });
+	const damaged = join(p.root, ".limen/archive/2026-10/2026-10-30-broken-3c4d5e6f");
+	await mkdir(damaged, { recursive: true });
+	await writeFile(join(damaged, "record.json"), "{ not json\n");
+	const run = limen(p, ["migrate", "--dry-run"]);
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(outputText(run).split("\n").slice(1, 9), [
+		"module github: not in use",
+		"module group: not in use",
+		"module picture: not in use",
+		"module workspace: not in use",
+		"module research: unknown (1 damaged record)",
+		"module quality: unknown (1 damaged record)",
+		"job archive: 1 damaged record not read",
+		'modules: the owner switches each on in .agents/limen/limits.json ("modules": {"<name>": true})',
+	]);
+});
+
 test("MIGRATE_JOBS_RUNNING: the migration refuses with exit 4 while a job of the older record runs, and changes nothing", async (t) => {
 	const p = await project(t);
 	const id = "2026-11-10-live-1a2b3c4d";

@@ -21,7 +21,7 @@ import {
 	piToolInput,
 	recorded,
 } from "../../src/runtime/pi-api.ts";
-import { withEnvironment } from "../environment.ts";
+import { inTemporaryProject, withEnvironment } from "../environment.ts";
 import { knownFilesBelow } from "../known-files.ts";
 import { plant, writeRecord } from "../plant.ts";
 
@@ -393,6 +393,17 @@ test("T-32: every handler, tool, command and event-bus listener a hook registers
 		[...inJob.keys(), ...inCoordinator.keys()].join("\n"),
 	);
 	assert.deepEqual(unrecorded, []);
+});
+
+// A-082: steering delivers a job's steers and does nothing in a coordinator, so there it registers no handler at all.
+test("in a coordinator's session hook/steering.ts registers no handler, and in a job it registers its own", async (t) => {
+	const steering = [join(HOOK_FOLDER, "steering.ts")];
+	await runningJob(t);
+	const inJob = [...(await registeredHandlers(steering)).keys()];
+	withEnvironment(t, { LIMEN_JOB: "", LIMEN_GROUP_ID: "" });
+	await inTemporaryProject(t, "limen-steering-");
+	const inCoordinator = [...(await registeredHandlers(steering)).keys()];
+	assert.deepEqual([inJob.length > 0, inCoordinator], [true, []], inJob.join(", "));
 });
 
 const SESSION = "coord-refusal";

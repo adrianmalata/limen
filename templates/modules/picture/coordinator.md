@@ -1,0 +1,3 @@
+- Front matter: `opened: YYYY-MM-DD`; optional `touches` ids, paired `needs-adam`/`needs-adam-on`, paired `wrong`/`wrong-on`, `landed` only when done (source: `templates/picture/CONTRACT.md#ticket-front-matter`).
+- Place ids: the `id:` lines of the `kind: module` and `kind: plant` files in `$LIMEN_CONTEXT_ROOT/.limen/picture/nodes/`; do not guess (source: `templates/picture/CONTRACT.md#ticket-front-matter`).
+- Check: `limen picture build --dir "$LIMEN_CONTEXT_ROOT/.limen/picture" --strict` checks every ticket against the map. Each diagnostic names the file, the line and the fix (source: `templates/picture/CONTRACT.md#ticket-front-matter`).

@@ -38,8 +38,11 @@ function moduleRow(registry: readonly Entry[], object: string): string {
 	return `${object} ${subcommands.join("|")}${takesWords ? " …" : ""}`;
 }
 
-/** The command lines of the general help: each group with its header, then the modules, one line each. */
-function commandLines(registry: readonly Entry[]): string[] {
+/**
+ * The command lines of the general help: each group with its header, then the modules, one line each, whose summary
+ * opens with `[on]` for a module of `on` and `[off]` for every other (T-19 (5), G1.10).
+ */
+function commandLines(registry: readonly Entry[], on: ReadonlySet<string>): string[] {
 	const out: string[] = [];
 	const modules: Array<readonly [string, string]> = [];
 	for (const group of GROUPS) {
@@ -48,7 +51,7 @@ function commandLines(registry: readonly Entry[]): string[] {
 			continue;
 		}
 		if ("module" in group) {
-			modules.push([moduleRow(registry, group.object), group.summary]);
+			modules.push([moduleRow(registry, group.object), `[${on.has(group.object) ? "on" : "off"}] ${group.summary}`]);
 			continue;
 		}
 		out.push(group.header, ...rows(entries.map((entry) => [usage(entry), entry.summary] as const)), "");
@@ -63,9 +66,12 @@ function closingLines(): string[] {
 	return [`Exit codes: ${codes.join(" · ")}.`, `The last output line is JSON {${keys.join(", ")}}.`];
 }
 
-/** `limen --help`: the public commands by group, then the exit codes; internal commands stay out (T-19). */
-export function generalHelp(registry: readonly Entry[] = REGISTRY): string {
-	return [TAGLINE, "", ...commandLines(registry), "", ...closingLines()].join("\n");
+/**
+ * `limen --help`: the public commands by group, the modules with those of `on`, the ones the project's limits file
+ * switches on, marked `[on]`, then the exit codes; internal commands stay out (T-19).
+ */
+export function generalHelp(registry: readonly Entry[] = REGISTRY, on: ReadonlySet<string> = new Set()): string {
+	return [TAGLINE, "", ...commandLines(registry, on), "", ...closingLines()].join("\n");
 }
 
 /** The words of an example, a quoted text as one word and a flag with its value as one unit. */
@@ -151,8 +157,9 @@ const fenced = (text: readonly string[]) => `\`\`\`text\n${text.join("\n")}\n\`\
 
 /**
  * The two sections of docs/commands.md that the registry generates (A-084), by the name of their markers: the
- * general help's command lines, and every internal entry.
+ * general help's command lines, with every module off so that the section is the same for every project, and every
+ * internal entry.
  */
 export function docsSections(registry: readonly Entry[] = REGISTRY): Readonly<Record<"public" | "internal", string>> {
-	return { public: fenced(commandLines(registry)), internal: fenced(internalLines(registry)) };
+	return { public: fenced(commandLines(registry, new Set())), internal: fenced(internalLines(registry)) };
 }

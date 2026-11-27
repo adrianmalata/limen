@@ -1,10 +1,13 @@
 // Builds a role's Limen context message in one place, because under the bridge Pi's system prompt never reaches the
 // model, so Limen's standing text rides this message instead (A-086, D-114). Every Limen text comes from the package,
 // never from a project copy (A-039, A-042), and a missing one is a broken install, so its read throws (T-01). It reads
-// files only and starts no process, so the same files give the same bytes on any host (T-36).
-import { readFileSync } from "node:fs";
+// files only and starts no process, so the same files give the same bytes on any host (T-36). A module's text for a
+// part is the package file `templates/modules/<module>/<the part's file name>`, a part of its own right after that
+// part, only while the module is on in the project (G1.10, A-040): the file's existence is its declaration (R-044).
+import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { packageRoot, readOptional } from "../project/inherit.ts";
+import { MODULES, type Module, modulesOn, moduleTitle } from "../project/modules.ts";
 
 /** The file of a job's folder that holds the context message its session opens with (A-079). */
 export const CONTEXT_FILE = "context.md";
@@ -58,23 +61,56 @@ export function holdsSpecs(audience: SpecsAudience): boolean {
  * never starts with `/` (E-14), then each part apart by a blank line, then the closing tag. The parts that never change
  * come first and the project's files last (z. 3): the frame, the manual or the role's preamble, the registers of the
  * role's audience, then the vision, the styleguide and, for a job whose bridge forwards none, the project's AGENTS.md.
+ * Right after each part come the parts of the modules on in the project, in the order of the modules (`moduleFiles`).
  */
 export function contextMessage(root: string, audience: ContextAudience): string {
 	const coordinator = audience.session === "coordinator";
 	const specs = holdsSpecs(audience);
 	const agents = !coordinator && audience.bridgeIsolated;
-	const parts = [
-		boundText(capabilitySection("Frame"), packageName(CAPABILITY_FILE), "Capability"),
-		coordinator ? packagePart(MANUAL_FILE, "Coordinator manual") : rolePreamble(audience.preamble),
-		packagePart(AGENT_REGISTER, "Agent register"),
-		specs ? packagePart(SPECS_REGISTER, "Specs register") : "",
-		coordinator ? packagePart(OWNER_REGISTER, "Owner register") : "",
-		coordinator ? boundFile(root, VISION_FILE, "Vision") : "",
-		boundFile(root, STYLE_FILE, "Styleguide"),
-		agents ? boundFile(root, AGENTS_FILE, "Project context") : "",
-	].filter(Boolean);
+	const modules = enabledModules(root);
+	// Each part with the file it comes from, whose name names the module files that follow it.
+	const parts: ReadonlyArray<readonly [string, string]> = [
+		[boundText(capabilitySection("Frame"), packageName(CAPABILITY_FILE), "Capability"), CAPABILITY_FILE],
+		coordinator
+			? [packagePart(MANUAL_FILE, "Coordinator manual"), MANUAL_FILE]
+			: [rolePreamble(audience.preamble), audience.preamble],
+		[packagePart(AGENT_REGISTER, "Agent register"), AGENT_REGISTER],
+		[specs ? packagePart(SPECS_REGISTER, "Specs register") : "", SPECS_REGISTER],
+		[coordinator ? packagePart(OWNER_REGISTER, "Owner register") : "", OWNER_REGISTER],
+		[coordinator ? boundFile(root, VISION_FILE, "Vision") : "", VISION_FILE],
+		[boundFile(root, STYLE_FILE, "Styleguide"), STYLE_FILE],
+		[agents ? boundFile(root, AGENTS_FILE, "Project context") : "", AGENTS_FILE],
+	];
+	const texts = parts
+		.filter(([text]) => text)
+		.flatMap(([text, file]) => [
+			text,
+			...moduleFiles(basename(file), modules).map(({ module, path }) => packagePart(path, moduleTitle(module))),
+		]);
 	const role = coordinator ? OWNER_FACING : audience.role;
-	return [`<limen-context role="${role}">`, ...parts, "</limen-context>"].join("\n\n");
+	return [`<limen-context role="${role}">`, ...texts, "</limen-context>"].join("\n\n");
+}
+
+/** The modules on in the project at `root`, in the order of the modules (src/project/modules.ts). */
+export function enabledModules(root: string): readonly Module[] {
+	const on = modulesOn(root);
+	return MODULES.filter((module) => on.has(module));
+}
+
+/**
+ * The package files of `modules` that follow a part from a file named `file`: for each module, in its order, the file
+ * `templates/modules/<module>/<file>` when it exists, which the message heads "<Title> module" (A-040, R-044). A module
+ * with no such file adds nothing to that part. The communication hook's specs reminder appends the same files after
+ * the register's section (R-044 Decision 19 F2).
+ */
+export function moduleFiles(
+	file: string,
+	modules: readonly Module[],
+): ReadonlyArray<{ readonly module: Module; readonly path: string }> {
+	return modules.flatMap((module) => {
+		const path = `templates/modules/${module}/${file}`;
+		return existsSync(join(packageRoot(), path)) ? [{ module, path }] : [];
+	});
 }
 
 /** The text of the package file at `path`; a missing one is a broken install, so the read throws (T-01). */

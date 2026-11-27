@@ -33,6 +33,7 @@ import {
 	runsBridgeIsolated,
 } from "../runtime/engine.ts";
 import { launchWrapper } from "../runtime/launcher.ts";
+import { requireJobModules } from "../runtime/roles.ts";
 import { jobPriority, parsePriority, queuedLine } from "../runtime/start-queue.ts";
 import { normalizeWorkerExtensions, readWorkerExtensions } from "../runtime/worker-extensions.ts";
 import { finalizeJob } from "./finalize.ts";
@@ -271,6 +272,9 @@ async function validateContinue(
 	preflightEngine(profile, chosenModel, provider);
 	const finalLabel = label ?? `${parent.record.label || parentId} · continue`;
 	const role = parent.record.role || "worker";
+	// A module's role, and a job in a workspace repository, continue only while the module is on, as they spawn (G1.10,
+	// R-044 Decisions 6 and 20 G1).
+	requireJobModules(root, { role, repo: parent.repo });
 	// A role a cut removed refuses here, also for a parent whose context message the continuation carries.
 	const context = carriedContext(parentDir, root, {
 		session: "job",

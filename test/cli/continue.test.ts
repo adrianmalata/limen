@@ -1,6 +1,6 @@
 // `limen continue`: its start, the transcript it copies with the same mode, the context message it carries and the
 // note files it does not, its engine's environment, its refusals, and the unlanded work of its parent that it takes
-// (A-001).
+// (A-001), and the module check of its role (G1.10).
 import assert from "node:assert/strict";
 import { chmodSync, existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -20,9 +20,11 @@ import {
 	type Plant,
 	plant,
 	release,
+	repository,
 	routed,
 	spawnJob,
 	startedJob,
+	switchModules,
 	TICKET,
 	until,
 	waitJob,
@@ -341,6 +343,45 @@ test("GROUP_EXTENSIONS_PARENT: the continuation of a group worker whose extensio
 	assert.deepEqual(
 		[continued.status, readOutcome(continued).code, snapshot(p.root)],
 		[1, "GROUP_EXTENSIONS_PARENT", before],
+		continued.stderr,
+	);
+});
+
+// G1.10, R-044 Decision 6: every job start passes the module check of its role, a continuation as a spawn does.
+test("MODULE_OFF: a continuation of a researcher job after the research module went off exits 1 and leaves the snapshot identical", async (t) => {
+	const p = await plant({ modules: ["research"] });
+	t.after(() => p.cleanup());
+	const parent = spawnJob(p, "say first", ["--role", "researcher"]);
+	assert.equal(waitJob(p, parent), "done");
+	await switchModules(p.root, []);
+	const before = snapshot(p.root);
+	const continued = limen(p, ["continue", parent, "say second"]);
+	assert.deepEqual(
+		[continued.status, readOutcome(continued), snapshot(p.root)],
+		[1, { class: "refused", code: "MODULE_OFF", next: null }, before],
+		continued.stderr,
+	);
+});
+
+// G1.10, AC-16 (R-044 Decision 20 G1): a job in a workspace repository is the workspace module's, so its continuation
+// refuses while the module is off, as its spawn does. The snapshot is the child repository's, with the workspace's
+// `.limen/` and `spec/` beside it.
+test("MODULE_OFF: a continuation of a workspace job after the workspace module went off exits 1 and leaves the snapshot identical", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const workspace = join(p.parent, "workspace");
+	const api = join(workspace, "api");
+	await repository(api);
+	await switchModules(workspace, ["workspace"]);
+	assert.equal(limen(p, ["workspace", "init"], { cwd: workspace }).status, 0);
+	const parent = spawnJob(p, "commit", ["--repo", "api"], { cwd: workspace });
+	assert.equal(waitJob(p, parent, { cwd: workspace }), "done");
+	await switchModules(workspace, []);
+	const before = snapshot(api, ["../.limen", "../spec"]);
+	const continued = limen(p, ["continue", parent, "say second"], { cwd: workspace });
+	assert.deepEqual(
+		[continued.status, readOutcome(continued), snapshot(api, ["../.limen", "../spec"])],
+		[1, { class: "refused", code: "MODULE_OFF", next: null }, before],
 		continued.stderr,
 	);
 });

@@ -15,14 +15,18 @@ import { atomicRename, atomicWrite } from "../atomic-write.ts";
 import { arrayOf, isIsoTime, nullOr, numberIn, object, parseJson, string } from "../boundary.ts";
 import { LimenError, type Success } from "../outcome.ts";
 import { platform } from "../platform/platform.ts";
-import { branchTip, committerTime, limenRoot } from "../project/git.ts";
+import { branchTip, committerTime, isGitRepository, limenRoot } from "../project/git.ts";
 import { landClosingCommits } from "../project/lanes.ts";
+import { PLANT_LIMITS } from "../project/limits.ts";
+import { MODULES, type Module } from "../project/modules.ts";
 import { holdsProcesses, STARTUP_GRACE_MS, startingJob } from "../runtime/reap.ts";
+import { JOB_ROLES } from "../runtime/roles.ts";
 import { hasCode } from "../system-error.ts";
 import { hexEndOf, TOKEN, tokenOf } from "./id.ts";
 import { isTerminal, SESSION_ID } from "./job.ts";
 import {
 	type Abandoned,
+	archivedJobs,
 	checkedRecord,
 	emptyRecord,
 	type Facts,
@@ -140,6 +144,10 @@ export type MigrationReport = {
 	readonly dryRun: boolean;
 	readonly steps: readonly FolderStep[];
 	readonly markers: readonly MarkerStep[];
+	/** Each module with whether the project uses it and the evidence (R-044 Change 8). */
+	readonly modules: readonly ModuleUse[];
+	/** The records of the job archive the module report could not read (R-044 Decision 20 G5). */
+	readonly damagedRecords: number;
 	readonly olderIds: readonly string[];
 	readonly collisions: ReadonlyArray<{ readonly token: string; readonly ids: readonly string[] }>;
 	readonly unmigratedShares: ReadonlyArray<{
@@ -201,7 +209,8 @@ export async function migrateProject(root: string, dryRun: boolean): Promise<Mig
 	const jobs = (await jobFolderNames(jobsRoot)).filter((id) => !moved.includes(id));
 	const unmigrated = [...new Set([...(await jobFolderNames(join(root, ".limen", "unmigrated"))), ...moved])];
 	const markers = await markerSteps(root, records, dryRun);
-	return { jobsRoot, dryRun, steps, markers, ...tokenReport(jobs, unmigrated) };
+	const { modules, damagedRecords } = await moduleUses(root, records);
+	return { jobsRoot, dryRun, steps, markers, modules, damagedRecords, ...tokenReport(jobs, unmigrated) };
 }
 
 /**
@@ -229,6 +238,79 @@ function markersOf(step: MarkerStep): Array<{ landed: Landed } | { abandoned: Ab
 	return [
 		...(step.landed ? [{ landed: step.landed }] : []),
 		...(step.abandoned ? [{ abandoned: step.abandoned }] : []),
+	];
+}
+
+/**
+ * A module and its use: `in use (<evidence>)`, with a path from the project's root or a job; `not in use`; or `unknown
+ * (<n> damaged records)` where only a job record could show its use and some could not be read (T-01).
+ */
+type ModuleUse = { readonly module: Module; readonly use: string };
+/** The modules whose use a job record of one of their roles shows (src/runtime/roles.ts): research and quality. */
+const ROLE_EVIDENCE: readonly Module[] = ["research", "quality"];
+
+/**
+ * Each module, in the order of the modules, with the first evidence that the project at `root` uses it, so that the
+ * owner switches on the modules in use at `## Deployment` 4.9 (R-044 Change 8): a GitHub binding, a group's run record,
+ * a map folder, a `spec/workspace.md` in a root that is no Git repository, and a job of a module's role among `records`,
+ * the records the folder steps leave, and those of the job archive, as `limen stats` reads them. An archived record it
+ * cannot read (BAD_DATA) is counted, and a module that only a job record could show is then unknown, not "not in use"
+ * (T-01, R-044 Decision 20 G5). It writes nothing, the limits file least of all, which is the owner's.
+ */
+async function moduleUses(
+	root: string,
+	records: readonly JobRecord[],
+): Promise<{ readonly modules: ModuleUse[]; readonly damagedRecords: number }> {
+	const archive = await archivedRecords(root);
+	const jobs = [...records, ...archive.records];
+	// The groups' folders are listed as the job folders are, by the record module's lister (T-25 (1)).
+	const runs = (await jobFolderNames(join(root, ".limen/groups"))).sort();
+	const run = runs.find((id) => existsSync(join(root, ".limen/groups", id, "run.json")));
+	const found: Partial<Record<Module, string | undefined>> = {
+		github: existsSync(join(root, ".limen/github/binding.json")) ? ".limen/github/binding.json" : undefined,
+		group: run === undefined ? undefined : `.limen/groups/${run}/run.json`,
+		picture: existsSync(join(root, ".limen/picture")) ? ".limen/picture/" : undefined,
+		workspace: existsSync(join(root, "spec/workspace.md")) && !isGitRepository(root) ? "spec/workspace.md" : undefined,
+	};
+	const damaged = archive.damaged;
+	const unknown = `unknown (${damaged} damaged record${damaged === 1 ? "" : "s"})`;
+	const modules = MODULES.map((module) => {
+		const byRole = ROLE_EVIDENCE.includes(module);
+		const roles = JOB_ROLES.filter((role) => role.module === module && byRole);
+		const job = jobs.find((record) => roles.some((role) => role.name === record.role));
+		const evidence = found[module] ?? (job ? `job ${job.id}, role ${job.role}` : undefined);
+		if (evidence !== undefined) {
+			return { module, use: `in use (${evidence})` };
+		}
+		return { module, use: byRole && damaged > 0 ? unknown : "not in use" };
+	});
+	return { modules, damagedRecords: damaged };
+}
+/** The records of the job archive, and how many it could not read: a damaged one (BAD_DATA), as `limen stats` counts. */
+async function archivedRecords(root: string): Promise<{ readonly records: JobRecord[]; readonly damaged: number }> {
+	const records: JobRecord[] = [];
+	let damaged = 0;
+	for (const { jobDir } of await archivedJobs(root)) {
+		const record = await readRecord(jobDir).catch((error: unknown) => {
+			if (hasCode(error, "BAD_DATA")) {
+				damaged += 1;
+				return undefined;
+			}
+			throw error;
+		});
+		records.push(...(record ? [record] : []));
+	}
+	return { records, damaged };
+}
+/**
+ * The report's line of each module, the line of the archived records it could not read when there are any, then where
+ * the owner switches a module on.
+ */
+function moduleLines(modules: readonly ModuleUse[], damaged: number): string[] {
+	return [
+		...modules.map(({ module, use }) => `module ${module}: ${use}`),
+		...(damaged > 0 ? [`job archive: ${damaged} damaged record${damaged === 1 ? "" : "s"} not read`] : []),
+		`modules: the owner switches each on in ${PLANT_LIMITS} ("modules": {"<name>": true})`,
 	];
 }
 /**
@@ -646,7 +728,10 @@ function tokenReport(
 
 /** The report as lines for the owner: each folder, each removed file, each older id and each shared token. */
 export function reportLines(report: MigrationReport): string[] {
-	const lines = [`limen migrate${report.dryRun ? " --dry-run (nothing written)" : ""}: ${report.jobsRoot}`];
+	const lines = [
+		`limen migrate${report.dryRun ? " --dry-run (nothing written)" : ""}: ${report.jobsRoot}`,
+		...moduleLines(report.modules, report.damagedRecords),
+	];
 	const would = report.dryRun ? "would " : "";
 	for (const step of report.steps) {
 		lines.push(stepLine(step, would));

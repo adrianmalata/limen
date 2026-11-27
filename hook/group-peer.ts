@@ -6,11 +6,20 @@ import { groupIdentity, runs } from "../src/job/group-cabinet.ts";
 import { acceptBatch, acceptTransport, observeBatch, releaseBatch } from "../src/job/group-events.ts";
 import { SESSION_ID } from "../src/job/job.ts";
 import { repoRoot } from "../src/project/git.ts";
+import { ownHooks } from "../src/runtime/hook-set.ts";
 import { type PiApi, type PiContext, type PiPart, piContext, piEvent, recorded } from "../src/runtime/pi-api.ts";
 
-/** Peer data stays in tool/custom messages. Never use owner steering for group delivery. */
+/**
+ * Peer data stays in tool/custom messages. Never use owner steering for group delivery. A session whose set excludes
+ * the hook (src/runtime/hook-set.ts: a coordinator with the group module off, a job that is no group's member) gets
+ * nothing from it: the factory returns before it registers a handler, so it writes no lead file and starts no timer
+ * (A-082, seat step 4.7).
+ */
 // biome-ignore lint/complexity/noExcessiveLinesPerFunction: split pending: hook factory, handlers share its state
 export default function groupPeer(pi: Pick<PiApi, "on" | "sendMessage">): void {
+	if (!ownHooks(process.cwd()).includes("group-peer")) {
+		return;
+	}
 	let leadRoot: string | undefined;
 	let leadSession: string | undefined;
 	let timer: NodeJS.Timeout | undefined;

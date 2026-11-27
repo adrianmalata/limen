@@ -183,22 +183,25 @@ export function checkValue<T>(
 }
 
 /**
- * The fields of an object from `file`, each optional and read on its own by its validator in `readers`: the value of
- * each valid field, and the typed error of each invalid or unknown one, so that one bad field does not discard the
- * others. `limits.json` and `start-gate.json` keep this policy.
+ * The fields of an object from `file`, found at `field` (the whole value by default), each optional and read on its own
+ * by its validator in `readers`: the value of each valid field, and the typed error of each invalid or unknown one,
+ * named by its path, so that one bad field does not discard the others. `limits.json` and `start-gate.json` keep this
+ * policy, and so do the module switches inside `limits.json` (`modules.group`, src/project/limits.ts).
  */
-export function eachField<K extends string, T>(
+export function eachField<R extends Readonly<Record<string, unknown>>>(
 	file: string,
 	fields: ReadonlyMap<string, unknown>,
-	readers: Readonly<Record<K, Validator<T>>>,
-): { readonly values: Partial<Record<K, T>>; readonly ignored: readonly BadData[] } {
-	const values: Partial<Record<K, T>> = {};
+	readers: { readonly [K in keyof R]: Validator<R[K]> },
+	field = "",
+): { readonly values: Partial<R>; readonly ignored: readonly BadData[] } {
+	const values: Partial<R> = {};
 	const ignored: BadData[] = [];
 	for (const [key, value] of fields) {
+		const path = at(field, key);
 		if (!isField(readers, key)) {
-			ignored.push(badData(file, { field: key, expected: knownFields(Object.keys(readers)), got: value }, {}));
+			ignored.push(badData(file, { field: path, expected: knownFields(Object.keys(readers)), got: value }, {}));
 		} else {
-			const read = checkValue(file, value, readers[key], { field: key });
+			const read = checkValue(file, value, readers[key], { field: path });
 			if (read instanceof LimenError) {
 				ignored.push(read);
 			} else {
@@ -209,7 +212,7 @@ export function eachField<K extends string, T>(
 	return { values, ignored };
 }
 
-function isField<K extends string>(readers: Readonly<Record<K, unknown>>, key: string): key is K {
+function isField<T extends object>(readers: T, key: string): key is Extract<keyof T, string> {
 	return Object.hasOwn(readers, key);
 }
 

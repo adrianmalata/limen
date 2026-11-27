@@ -17,6 +17,8 @@ import { atomicWrite } from "../src/atomic-write.ts";
 import { TERMINAL_STATES } from "../src/job/job.ts";
 import { emptyRecord, type JobRecord, readRecordSync, serialized } from "../src/job/record.ts";
 import { platform } from "../src/platform/platform.ts";
+import { PLANT_LIMITS } from "../src/project/limits.ts";
+import type { Module } from "../src/project/modules.ts";
 import type { BridgeView } from "../src/runtime/bridge-view.ts";
 import { hasCode } from "../src/system-error.ts";
 import { readOutcome } from "./final-line.ts";
@@ -368,8 +370,22 @@ async function runnerGit(parent: string, nodeFolder: string): Promise<string[]> 
 	return [folder];
 }
 
-/** A fresh plant. `root` is the real path: macOS tmpdir is a /var symlink and Git reports /private/var. */
-export async function plant(): Promise<Plant> {
+/**
+ * Writes the limits file of the project at `root` with `modules` switched on and every other module off (G1.10,
+ * src/project/modules.ts), replacing the file it held.
+ */
+export async function switchModules(root: string, modules: readonly Module[]): Promise<void> {
+	const switches = Object.fromEntries(modules.map((name) => [name, true]));
+	await mkdir(join(root, ".agents/limen"), { recursive: true });
+	await writeFile(join(root, PLANT_LIMITS), `${JSON.stringify({ modules: switches })}\n`);
+}
+
+/**
+ * A fresh plant. `root` is the real path: macOS tmpdir is a /var symlink and Git reports /private/var. Every module is
+ * off, as `limen init` leaves a project; a test that runs a module's command or role switches it on with `modules`,
+ * in the limits file of the plant's first commit.
+ */
+export async function plant(options: { readonly modules?: readonly Module[] } = {}): Promise<Plant> {
 	const parent = await realpath(await mkdtemp(join(tmpdir(), "limen-plant-")));
 	const root = join(parent, "repo");
 	const bin = join(parent, "bin");
@@ -434,6 +450,9 @@ export async function plant(): Promise<Plant> {
 	await writeFile(join(root, TICKET), ticket);
 	await writeFile(join(root, ".limen/picture/nodes/demo.md"), node("plant", "demo", "null"));
 	await writeFile(join(root, ".limen/picture/nodes/demo.place.md"), node("module", "demo.place", "demo"));
+	if (options.modules?.length) {
+		await switchModules(root, options.modules);
+	}
 	git(root, "add", "-A");
 	git(root, "commit", "-q", "-m", "limen init");
 	return made;

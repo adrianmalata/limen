@@ -1,5 +1,6 @@
 // `limen spawn`: the job it starts, each refusal with the snapshot unchanged, the context message it publishes, and
-// what the job's model gets (A-086), a reminder in a tool result included (A-041).
+// what the job's model gets (A-086), a reminder in a tool result included (A-041); a module role's job only with its
+// module on (G1.10).
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -23,9 +24,11 @@ import {
 	pathWithFailingScope,
 	plant,
 	release,
+	repository,
 	routed,
 	spawnJob,
 	startedJob,
+	switchModules,
 	TICKET,
 	until,
 	waitJob,
@@ -78,6 +81,60 @@ function refusedSpawn(p: Plant, flags: readonly string[]) {
 	const run = limen(p, ["spawn", ...routed(flags), "work"]);
 	return { run, before, after: snapshot(p.root) };
 }
+
+/** The job folders of the plant's project. */
+const jobFolders = (p: Plant) =>
+	existsSync(join(p.root, ".limen/jobs")) ? readdirSync(join(p.root, ".limen/jobs")) : [];
+
+// G1.10, R-044 Decision 6: a module's role is a way into the module, so its job refuses as its commands do.
+test("MODULE_OFF: a researcher spawn with the research module off exits 1, names the file and the field, and leaves no job folder", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const { run, before, after } = refusedSpawn(p, ["--role", "researcher"]);
+	assert.deepEqual(
+		[run.status, readOutcome(run), outputText(run), after, jobFolders(p)],
+		[
+			1,
+			{ class: "refused", code: "MODULE_OFF", next: null },
+			'the research module is off in this project; the owner switches it on in .agents/limen/limits.json ("modules": {"research": true})\n',
+			before,
+			[],
+		],
+		run.stderr,
+	);
+});
+
+test("a researcher spawn with the research module on starts its job, which ends done", async (t) => {
+	const p = await plant({ modules: ["research"] });
+	t.after(() => p.cleanup());
+	const id = spawnJob(p, "say done", ["--role", "researcher"]);
+	assert.deepEqual([waitJob(p, id), jobRecord(p, id)?.role], ["done", "researcher"]);
+});
+
+// G1.10, AC-16 (R-044 Decision 19 F5): a job in a workspace repository is the workspace module's, so it refuses while
+// the module is off. The snapshot is the child repository's, with the workspace's `.limen/` and `spec/` beside it.
+test("MODULE_OFF: a workspace spawn with --repo and the workspace module off exits 1, names the field and leaves the snapshot identical", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const workspace = join(p.parent, "workspace");
+	await repository(join(workspace, "api"));
+	await switchModules(workspace, ["workspace"]);
+	assert.equal(limen(p, ["workspace", "init"], { cwd: workspace }).status, 0);
+	await switchModules(workspace, []);
+	const api = join(workspace, "api");
+	const before = snapshot(api, ["../.limen", "../spec"]);
+	const run = limen(p, ["spawn", ...routed(["--repo", "api"]), "work"], { cwd: workspace });
+	assert.deepEqual(
+		[
+			run.status,
+			readOutcome(run),
+			outputText(run).includes('("modules": {"workspace": true})'),
+			snapshot(api, ["../.limen", "../spec"]),
+		],
+		[1, { class: "refused", code: "MODULE_OFF", next: null }, true, before],
+		run.stderr,
+	);
+});
 
 // Before R-092 these refusals came after spawn had made the folder of job worktrees.
 test("REVIEW_HEAD_MOVED: a review pinned to a head its branch has left exits 1 and leaves the snapshot identical", async (t) => {

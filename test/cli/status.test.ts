@@ -22,6 +22,7 @@ import {
 	release,
 	repository,
 	spawnJob,
+	switchModules,
 	until,
 	waitJob,
 	writeRecord,
@@ -323,6 +324,7 @@ test("limen status in a workspace lists the abandon branch of a workspace reposi
 	t.after(() => p.cleanup());
 	const workspace = join(p.parent, "workspace");
 	await repository(join(workspace, "api"));
+	await switchModules(workspace, ["workspace"]);
 	assert.equal(limen(p, ["workspace", "init"], { cwd: workspace }).status, 0);
 	const id = spawnJob(p, "commit", ["--repo", "api"], { cwd: workspace });
 	assert.equal(waitJob(p, id, { cwd: workspace }), "done");

@@ -4,6 +4,8 @@
 
 Picture keeps a project's code structure, and the places its specified features and journeys name, as data: a Markdown dataset, the model that `limen picture build` reads from it, and the job activity that `limen picture serve` serves. It draws no page.
 
+Picture is a module, off by default: the project's `.agents/limen/limits.json` switches it on with `"modules": {"picture": true}` ([Modules](setup.md#modules)). While it is off, `limen picture` refuses with `MODULE_OFF`, no context message holds the picture's text (the place ids, the map check), and the keeper's task names `Map: none`.
+
 ## The dataset
 
 The architecture map is a Markdown dataset that Git ignores (default `.limen/picture/`).

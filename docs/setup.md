@@ -57,9 +57,28 @@ You can also ask the agent to help define the vision and styleguide before it ch
 ### What `limen init` does
 
 - **Project files:** It creates the files that the project owns: the vision, the board, the feature lanes, and the styleguide (see [Project files](#project-files)). It does not overwrite existing project files.
-- **Hook stub:** It creates the package-hook stub `.pi/extensions/limen.ts`. A Herdr coordinator needs that stub for communication, wake, and steering, so in an existing project, run `limen init` again before you start one.
+- **Hook stub:** It creates the package-hook stub `.pi/extensions/limen.ts`. A Herdr coordinator needs that stub for communication and wake, and for the group hook when the group module is on (see [Modules](#modules)), so in an existing project, run `limen init` again before you start one. Steering no longer loads in a coordinator: it acts only in a job.
 - **Old hook copies:** It deletes old `limen-*.ts` hook copies, so that they cannot load next to the stub.
 - **Leftover files:** `limen status` lists the files that cut features left in the project, among them the project's own copies of the speech register and the role prompts, which nothing reads, and an `AGENTS.md` that is still the same as the package's coordinator manual. `limen init --drop-leftovers` deletes the files in that list. It keeps a changed `AGENTS.md`, which is the project's own context.
+
+### Modules
+
+Six optional modules are off by default: `github` (answers `@limen` mentions on GitHub pull requests), `group` (several agents on one ticket), `picture` (the architecture map check and the job activity feed), `workspace` (a folder outside Git with several Git repositories), `research` (researcher and judge jobs) and `quality` (the quality pass). The owner switches a module on in the project's `.agents/limen/limits.json`, with one boolean per module in the field `modules`:
+
+```json
+{ "modules": { "group": true } }
+```
+
+A module that is off adds no text to the context messages and loads no hook. Its commands, and a spawn or continuation of its roles (`researcher` and `judge` for research, `quality` for the quality pass, a group's team for groups), refuse with `MODULE_OFF`, which names this file and field. So do a spawn with `--repo` in a workspace, and a continuation or a keeper of a job in a workspace repository, while `workspace` is off, and `limen keeper --group` while `group` is off; each refuses before it writes anything. The seat's `github poll` does not refuse: it skips a project whose `github` switch is off and names it, while every other `limen github` command refuses. A name that is no module, or a value that is not `true` or `false`, is ignored, and the module stays off. A limits file that is there but cannot be read, such as a folder at its path or a file the account may not read, is no missing file: a command ends with `LIMITS_UNREADABLE` (exit 4) naming the file, a running job ends failed, kind `internal`, and `github poll` names that project as failed. `limen --help` marks each module `[on]` or `[off]` for the project at the working directory, and `limen migrate --dry-run` lists the modules a project uses.
+
+When a switch takes effect:
+
+- A command reads the file at each use, so it follows a switch at once.
+- The specs reminder after an edit under `spec/` reads the switches at each tool result, so it follows a switch at once too.
+- The set of hooks follows it at the coordinator's next `/reload` or new session.
+- The context message is fixed for a session, so its module text changes only in a new session.
+
+Switch `group` off only while no group run is open: the commands of an open run refuse once the module is off, and its members keep their hooks.
 
 ### The coordinator session
 
@@ -141,9 +160,10 @@ This job is detached, also in Herdr: a log-tail tab, a 90-minute timeout (change
 
 A parent directory that is not a Git repository can hold several independent Git repositories as children.
 
-1. Run `limen workspace init` one time in the parent.
-2. List the children in `spec/workspace.md`.
-3. Tell the coordinator which repository the work is for.
+1. Switch the workspace module on in the parent: write `.agents/limen/limits.json` there with `{ "modules": { "workspace": true } }` ([Modules](#modules)). Until then `limen workspace init` refuses with `MODULE_OFF`.
+2. Run `limen workspace init` one time in the parent.
+3. List the children in `spec/workspace.md`.
+4. Tell the coordinator which repository the work is for.
 
 The coordinator gives exactly one `--repo` to each job. Tickets stay in the parent. Branches, worktrees, diffs, and review stay in the selected child.
 

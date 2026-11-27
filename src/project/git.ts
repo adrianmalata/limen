@@ -13,17 +13,38 @@ export type GitWorktree = {
 };
 type GitResult = { readonly stdout: string; readonly stderr: string; readonly status: number };
 export function repoRoot(cwd: string): string {
-	const result = git(cwd, ["rev-parse", "--show-toplevel"]);
-	if (result.status !== 0) {
-		if (result.stderr.includes("not a git repository")) {
-			throw refused(
-				"NOT_A_PROJECT",
-				`not inside a Limen project: ${cwd}; run this command from your project repository or Limen workspace.`,
-			);
-		}
-		throw environmentError("GIT_FAILED", result.stderr.trim() || result.stdout.trim() || "git rev-parse failed");
+	const root = gitToplevel(cwd);
+	if (root === undefined) {
+		throw refused(
+			"NOT_A_PROJECT",
+			`not inside a Limen project: ${cwd}; run this command from your project repository or Limen workspace.`,
+		);
 	}
-	return result.stdout.trim();
+	return root;
+}
+/** The top of the Git checkout around `cwd`; undefined outside every Git repository, and a git that fails throws. */
+function gitToplevel(cwd: string): string | undefined {
+	const result = git(cwd, ["rev-parse", "--show-toplevel"]);
+	if (result.status === 0) {
+		return result.stdout.trim();
+	}
+	if (result.stderr.includes("not a git repository")) {
+		return undefined;
+	}
+	throw environmentError("GIT_FAILED", result.stderr.trim() || result.stdout.trim() || "git rev-parse failed");
+}
+/**
+ * The root whose `.agents/limen/limits.json` a command or a hook at `cwd` reads for its module switches (R-044): a
+ * group member's project as `limenRoot` finds it; a job's project (`LIMEN_CONTEXT_ROOT`), whose file its limits come
+ * from too (src/project/limits.ts), not its worktree's copy; the workspace at `cwd`; the Git checkout around it; or else
+ * `cwd` itself, where no project is yet, so its file does not exist and every module is off there, as in a folder
+ * before `limen workspace init` (R-044 Decision 18 (1)).
+ */
+export function projectRootAt(cwd: string): string {
+	if (transport("LIMEN_GROUP_ID")) {
+		return limenRoot(cwd);
+	}
+	return transport("LIMEN_CONTEXT_ROOT") || workspaceRoot(cwd) || gitToplevel(cwd) || resolve(cwd);
 }
 export function workspaceRoot(cwd: string): string | undefined {
 	const root = resolve(cwd);

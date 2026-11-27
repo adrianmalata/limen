@@ -2022,7 +2022,7 @@ Columns:
 | R-041 | The turn cue holds only variable parts and the audience line | 4 | A-077, T-13 | R-039 | S | pair | day-after | — | pi | 4.4 | planned |
 | R-042 | The task-note mechanism is cut | 4 | A-044, A-059, D-121 | R-039 | M | delegated | night | yes | — | — | done |
 | R-043 | Just-in-time reminders arrive in the triggering tool result | 4 | A-041, H-12 | R-039 | M | delegated | night | — | pi | 4.5 | done |
-| R-044 | Module switches; hooks load by role and module | 4 | G1.10, G1.1, G1.2, G1.9, A-082, A-040, D-122, D-124 | R-015, R-039, R-040 | M | delegated | night | yes | pi | 4.7, 4.9 | active |
+| R-044 | Module switches; hooks load by role and module | 4 | G1.10, G1.1, G1.2, G1.9, A-082, A-040, D-122, D-124 | R-015, R-039, R-040 | M | delegated | night | yes | pi | 4.7, 4.9 | done |
 | R-045 | Tools and skills per role; a read-only role that writes fails | 4 | A-081, E-5, D-123, D-125 | R-042, R-044 | M | delegated | night | — | pi, bridge | 4.3 | ready |
 | R-046 | Role prompts are literal, sourced and budgeted | 4 | T-09, T-14, T-15, T-08, T-10, T-21, A-043, A-085, A-040 | R-040, R-041, R-042, R-044 | L | pair | day-after | — | — | — | planned |
 | R-047 | The coordinator never waits | 4 | T-34 | R-039 | S | delegated | night | — | pi | 4.6 | ready |
@@ -2733,6 +2733,9 @@ The stage's first deployment is its fix tag `a0.1.1` (D-046), which carries R-09
 - **4.9** Switch on, in each project's `.agents/limen/limits.json`, the modules its migration report lists as in use;
   until a0.5.0 Adrian edits the file directly, from then on only through the owner channel; then open a new coordinator
   session in each project, since the context message is fixed per session and a `/reload` keeps it (R-039, R-044).
+  For a project with `github` on, the poller's account reads the file: as root, `sudo -u limen-github cat
+  <project>/.agents/limen/limits.json` prints it (exit 0); otherwise grant the read as `docs/remote.md` step 4 says, since
+  an unreadable file fails that project in every poll with `LIMITS_UNREADABLE` (R-044 Decision 20, G6).
 - **4.10** The `main` watcher (R-106, D-110, D-117): in each project's GitHub settings a read-only deploy key whose
   private half only the alerts account can read; as root, one root-owned watch entry per project (its base name, its
   SSH address, its key) where R-106's install reads them; then the install that R-106 names. Its first runs fetch
@@ -6054,3 +6057,22 @@ and no night running): `limen-rebuild-42` starts `limen-rebuild-43` with `node a
    T-32 and `## Change`) and its Open points 1–7 (above all 6: a newline before `limen spawn` brings the vision);
    A-092 and R-112.
 The handover after it is `limen-rebuild-44`.
+
+`limen-rebuild-43` (2026-11-27, by day, Adrian at the terminal): `close-previous` printed `handover: closed tmux session
+limen-rebuild-42` and one `handover: stopped claude …` line and exited 0; the takeover push was skipped as redundant,
+the terminal being active; context 8 % at the start; `HEAD` = `origin/adrian-rebuild` = `1933e49`, the tree clean.
+- R-041's variants sheet (D-054 (3)), Q-94–Q-99 with a push (searched first: `input/gate-2-decisions.md`, `taste.md`,
+  `input/zasady-budowy-harnessu.md`, `## Decisions`) → Adrian: "rekomendacje" → D-134. R-041's `ticket.md` follows at
+  the `HEAD` after R-044 (both change `src/runtime/context-message.ts` and the reference messages); a draft waits in the
+  session's scratchpad.
+- R-044 `done` (delegated): `active` at `1933e49` with its facts' places (Decision 16); the implementer's `BLOCKED`
+  (which project's switch a `github … <root>` command reads) settled by G1.10 and Decision 5 as the session's reading,
+  not asked (Decision 17), its open points accepted (Decision 18). Review round 1 FAIL (one blocking: an unreadable
+  `limits.json` read as "every module off", against T-01) → F1–F5 (Decision 19); round 2 PASS → G1–G7, the last round
+  (Decision 20); round 3 PASS, its doc notes fixed by the main session (D-053 (2), with `## Deployment` 4.9's read check
+  of `limen-github`), its code notes in `outcome.md` → Open points 8–10 (D-092). The main session's gates 1417/1417
+  (374.9 s), 1425/1425 (343.6 s) and 1429/1429 (347.6 s), `fails-before.mjs` exit 0 after each.
+- Ready in stage 4 (9): R-045, R-047, R-104–R-110 (R-110 after R-044 is now free: its dependencies R-039, R-042, R-043,
+  R-044 are `done`). `planned`: R-041 (its `ticket.md` next), R-112 (its `ticket.md` from an inventory of
+  `test/hook/wake.test.ts`'s teardown), R-046 (`pair`, L, after R-041).
+- For gate 5.4: R-044 Decisions 17 and 18 (the session's readings) and its Deviations 1–10 and Open points 1–10.

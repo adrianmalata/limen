@@ -13,10 +13,10 @@ Every command ends with one line of JSON, its final line, after the text for peo
 | Exit code | `class` | Meaning |
 |---|---|---|
 | 0 | `ok` | success, also "nothing to do"; `group wait` at its time limit, with the same call in `next` |
-| 1 | `refused` | a condition that Limen checks is not met, each with its own code, such as `TICKET_NOT_AT_BASE`, `BRANCH_LIVE_JOB` or `NO_ACTIVE_TICKET`; a removed engine or role that a job record names (`REMOVED`) |
+| 1 | `refused` | a condition that Limen checks is not met, each with its own code, such as `TICKET_NOT_AT_BASE`, `BRANCH_LIVE_JOB` or `NO_ACTIVE_TICKET`; a removed engine or role that a job record names (`REMOVED`); a command of a module that is off in the project, or a spawn or continuation of its role (`MODULE_OFF`, [Modules](setup.md#modules)) |
 | 2 | `usage` | an unknown command (`UNKNOWN_COMMAND`); words that the shared parser refuses (`BAD_ARGUMENT`): an unknown flag, a flag without its value or given twice, a missing required flag, a missing or an extra argument; a removed command, flag, engine or role on the command line (`REMOVED`); a value a command cannot take, each with its own code, such as `BAD_ENGINE`, `BAD_DURATION` or `REVIEW_NEEDS_BRANCH` |
 | 3 | `transient` | safe to retry: `github poll` after a failed request, HTTP 429, a 5xx, or a 403 that is a rate limit (`x-ratelimit-remaining: 0` or a `retry-after` header), with `limen github poll` in `next` and, when GitHub gives one, the time of a retry on the project's line (from `retry-after`, else from `x-ratelimit-reset` when no request remains); a lock still held after its 60-second wait (`LOCK_TIMEOUT`), whose message names the lock file and its owner; a fact a command checked that another process changed before the command's first write (`STATE_CHANGED`); a group start that started only part of its roster (`GROUP_PARTIAL_START`) and a group stop that could not confirm every member stopped while running it again can still stop each one (`GROUP_STOP_INCOMPLETE`), each with the same command in `next` |
-| 4 | `environment` | `github poll` with a missing or invalid setting, projects file or credential, HTTP 401 or any other 403; a Node.js older than 24; an engine or its bridge package that spawn does not find (`ENGINE_MISSING`, `BRIDGE_MISSING`); a git call that fails (`GIT_FAILED`); a `PI_SESSION_ID` or `HERDR_PANE_ID` that is not safe to route a wake by (`UNSAFE_PI_SESSION_ID`, `UNSAFE_HERDR_PANE_ID`); a lock that something outside Limen removed or replaced while a command held it (`LOCK_LOST`); `limen seat sweep --install` on an account that does not linger (`NO_LINGER`) or from a process with no PATH (`NO_PATH`); a group stop with a member whose record runs with no recorded pid, which no rerun can stop (`GROUP_STOP_INCOMPLETE`, with `limen seat sweep` in `next`), or whose stop of a member failed in the environment (`GROUP_STOP_INCOMPLETE`, with the same stop in `next`) |
+| 4 | `environment` | `github poll` with a missing or invalid setting, projects file or credential, HTTP 401 or any other 403; a Node.js older than 24; an engine or its bridge package that spawn does not find (`ENGINE_MISSING`, `BRIDGE_MISSING`); a git call that fails (`GIT_FAILED`); a project's `.agents/limen/limits.json` that exists but cannot be read (`LIMITS_UNREADABLE`); a `PI_SESSION_ID` or `HERDR_PANE_ID` that is not safe to route a wake by (`UNSAFE_PI_SESSION_ID`, `UNSAFE_HERDR_PANE_ID`); a lock that something outside Limen removed or replaced while a command held it (`LOCK_LOST`); `limen seat sweep --install` on an account that does not linger (`NO_LINGER`) or from a process with no PATH (`NO_PATH`); a group stop with a member whose record runs with no recorded pid, which no rerun can stop (`GROUP_STOP_INCOMPLETE`, with `limen seat sweep` in `next`), or whose stop of a member failed in the environment (`GROUP_STOP_INCOMPLETE`, with the same stop in `next`) |
 | 5 | `internal` | an unexpected exception, whose stack comes before the final line; a command that returns an `ids` key its registry entry does not declare (`UNDECLARED_IDS`); a group stop whose stop of a member was refused after the stop's own checks (`GROUP_STOP_INCOMPLETE`, with the same stop in `next`) |
 
 A failure that has no class of its own exits 1 with the code `UNTYPED`.
@@ -78,14 +78,15 @@ Seat: all projects on this machine
   limen seat sweep [--install] [--uninstall] [--status]
       end dead jobs, resume quota jobs, prune and retire daily; --install runs it every minute
 
-Modules
+Modules: off by default; the owner switches them on in limits.json
   limen github connect|disconnect|status|doctor
-                                             answer @limen mentions on GitHub pull requests
+                                             [off] answer @limen mentions on GitHub pull requests
   limen group start|status|publish|stop|close …
-                                             several agents on one ticket
-  limen picture build|serve …                the architecture map check and the job activity feed
+                                             [off] several agents on one ticket
+  limen picture build|serve …
+      [off] the architecture map check and the job activity feed
   limen workspace init
-      a folder outside Git that holds several Git repositories; each job works in one (--repo)
+      [off] a folder outside Git with several Git repositories; each job works in one (--repo)
 ```
 <!-- registry:public:end -->
 

@@ -154,7 +154,7 @@ test("matchedGithubJob matches a GitHub job without a hosted file and an old hos
 });
 
 test("limen group status reads a run.json that a group start with --tab wrote", async (t) => {
-	const p = await plant();
+	const p = await plant({ modules: ["group"] });
 	t.after(() => p.cleanup());
 	const now = Date.now();
 	const run = {

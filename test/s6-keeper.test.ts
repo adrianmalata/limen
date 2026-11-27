@@ -18,11 +18,12 @@ import {
 	release,
 	spawnJob,
 	startedJob,
+	switchModules,
 	TICKET,
 	waitJob,
 } from "./plant.ts";
 
-const p = await plant();
+const p = await plant({ modules: ["picture"] });
 after(p.cleanup);
 const ROUTE = ["--engine", "pi", "--provider", "p", "--model", "m", "--thinking", "high"];
 const ARCHIVE =
@@ -46,7 +47,9 @@ test("ticket new refuses an unknown place id before any file exists, then takes 
 	assert.ok(existsSync(join(p.root, "spec/features/planned/F010-x/ticket.md")));
 });
 
-test("picture build --strict --dir takes a plant root from any folder, prints the place count and writes nothing in the map folder", () => {
+// The command reads the picture switch of the folder it runs in (R-044 Decision 17), so that folder switches it on too.
+test("picture build --strict --dir takes a plant root from any folder, prints the place count and writes nothing in the map folder", async () => {
+	await switchModules(p.parent, ["picture"]);
 	const map = join(p.root, ".limen/picture");
 	const before = readdirSync(map);
 	const built = limen(p, ["picture", "build", "--strict", "--dir", p.root], { cwd: p.parent });

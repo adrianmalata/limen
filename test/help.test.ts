@@ -1,26 +1,34 @@
 // The help Limen generates from its command registry: the general help, one command's help and the docs sections.
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { docsSections, entryHelp, generalHelp } from "../src/help.ts";
 import { EXIT_CODES, FINAL_LINE_KEYS } from "../src/outcome.ts";
+import { PLANT_LIMITS } from "../src/project/limits.ts";
 import { REGISTRY } from "../src/registry.ts";
 import { outputText, readOutcome } from "./final-line.ts";
 import { LIMEN } from "./plant.ts";
 
-// `--help` reads no project, so a folder outside every repository serves.
+// `--help` reads only the module switches of the project at the cwd, so a folder outside every repository serves, and
+// every module is off there (G1.10).
 const outside = mkdtempSync(join(tmpdir(), "limen-help-"));
 after(() => rmSync(outside, { recursive: true, force: true }));
+/** A Git repository whose limits file switches the group module on and no other (T-19 (5)'s fixture). */
+const groupOn = mkdtempSync(join(tmpdir(), "limen-help-group-"));
+after(() => rmSync(groupOn, { recursive: true, force: true }));
+execFileSync("git", ["init", "-q", groupOn]);
+mkdirSync(join(groupOn, ".agents/limen"), { recursive: true });
+writeFileSync(join(groupOn, PLANT_LIMITS), '{ "modules": { "group": true } }\n');
 const ENV = { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: outside, NODE_NO_WARNINGS: "1" };
 const DOCS = fileURLToPath(new URL("../docs/commands.md", import.meta.url));
 const WIDTH = 100;
 
-function limen(args: readonly string[]) {
-	const run = spawnSync(process.execPath, [LIMEN, ...args], { cwd: outside, encoding: "utf8", env: ENV });
+function limen(args: readonly string[], cwd = outside) {
+	const run = spawnSync(process.execPath, [LIMEN, ...args], { cwd, encoding: "utf8", env: ENV });
 	return { stdout: run.stdout, stderr: run.stderr, status: run.status ?? 1 };
 }
 
@@ -30,8 +38,8 @@ function status(args: readonly string[]): Promise<number | null> {
 	return new Promise((resolve) => child.on("close", resolve));
 }
 
-// Change 4 of R-014, written out so that a change of wording or layout fails here.
-const GENERAL = [
+// Change 4 of R-014, written out so that a change of wording or layout fails here: the lines above the modules.
+const COMMAND_LINES = [
 	"limen: coding jobs, each in its own git worktree",
 	"",
 	"Jobs: spawn starts a job; the others act on one job, or on several with --running or --all",
@@ -75,14 +83,34 @@ const GENERAL = [
 	"  limen seat sweep [--install] [--uninstall] [--status]",
 	"      end dead jobs, resume quota jobs, prune and retire daily; --install runs it every minute",
 	"",
-	"Modules",
+];
+// D-122 (1), T-19 (5): the modules header says only what is true at R-044's commit, and each module line its switch.
+const MODULES_HEADER = "Modules: off by default; the owner switches them on in limits.json";
+/** The module lines outside every project, where no file switches a module on (G1.10). */
+const MODULES_OFF = [
+	MODULES_HEADER,
 	"  limen github connect|disconnect|status|doctor",
-	"                                             answer @limen mentions on GitHub pull requests",
+	"                                             [off] answer @limen mentions on GitHub pull requests",
 	"  limen group start|status|publish|stop|close …",
-	"                                             several agents on one ticket",
-	"  limen picture build|serve …                the architecture map check and the job activity feed",
+	"                                             [off] several agents on one ticket",
+	"  limen picture build|serve …",
+	"      [off] the architecture map check and the job activity feed",
 	"  limen workspace init",
-	"      a folder outside Git that holds several Git repositories; each job works in one (--repo)",
+	"      [off] a folder outside Git with several Git repositories; each job works in one (--repo)",
+];
+/** The module lines in a project whose limits file switches the group module on and no other. */
+const MODULES_GROUP_ON = [
+	MODULES_HEADER,
+	"  limen github connect|disconnect|status|doctor",
+	"                                             [off] answer @limen mentions on GitHub pull requests",
+	"  limen group start|status|publish|stop|close …",
+	"                                             [on] several agents on one ticket",
+	"  limen picture build|serve …",
+	"      [off] the architecture map check and the job activity feed",
+	"  limen workspace init",
+	"      [off] a folder outside Git with several Git repositories; each job works in one (--repo)",
+];
+const CLOSING = [
 	"",
 	"Exit codes: 0 ok · 1 refused · 2 usage · 3 transient · 4 environment · 5 internal.",
 	"The last output line is JSON {class, code, next, ids?}.",
@@ -110,11 +138,25 @@ const STATS = [
 	"Example: limen stats --sessions ../coordinator-sessions",
 ];
 
-test("T-19: limen --help prints the general help of Change 4 and ends with the success line", () => {
+test("T-19: limen --help outside every project prints the general help of Change 4, each module [off], and ends with the success line", () => {
 	const run = limen(["--help"]);
 	assert.equal(run.status, 0, run.stderr);
 	assert.deepEqual(readOutcome(run), { class: "ok", code: null, next: null });
-	assert.deepEqual(outputText(run).split("\n"), [...GENERAL, ""]);
+	assert.deepEqual(outputText(run).split("\n"), [...COMMAND_LINES, ...MODULES_OFF, ...CLOSING, ""]);
+});
+
+// T-19 (5): the golden of the whole help in a project with one module on and the rest off.
+test("T-19: limen --help in a project whose limits file switches the group module on marks it [on] and every other module [off]", () => {
+	const run = limen(["--help"], groupOn);
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(outputText(run).split("\n"), [...COMMAND_LINES, ...MODULES_GROUP_ON, ...CLOSING, ""]);
+});
+
+// A-084: the generated section of docs/commands.md stays the same in every project, so it shows every module off.
+test("A-084: the docs section of the public commands shows the modules header and every module [off]", () => {
+	const lines = docsSections().public.split("\n");
+	const header = lines.indexOf(MODULES_HEADER);
+	assert.deepEqual(lines.slice(header, header + MODULES_OFF.length), MODULES_OFF);
 });
 
 test("T-19: limen land --help prints its usage line, its summary, its kind, one line per part and its example", () => {

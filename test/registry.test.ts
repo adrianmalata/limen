@@ -14,6 +14,7 @@ import { SHARED_CODES } from "../src/operation.ts";
 import { LimenError } from "../src/outcome.ts";
 import { parse } from "../src/parser.ts";
 import { platform } from "../src/platform/platform.ts";
+import { MODULES } from "../src/project/modules.ts";
 import { type Entry, GROUPS, REGISTRY } from "../src/registry.ts";
 import {
 	type Case,
@@ -502,6 +503,24 @@ test("the success reader names a command whose name starts only a longer command
 	assert.deepEqual(commandsWithoutSuccessTest(["group status", "group", "status"], CASES), ["group", "status"]);
 });
 
+// G1.10, R-044 Decision 4: the shared step refuses every module command while its module is off, so each declares the
+// code; the one that acts on every registered project checks each project's switch itself and never throws it.
+test("every entry of a module declares MODULE_OFF, except github poll, which skips each project whose switch is off", () => {
+	const modules = new Set(GROUPS.flatMap((group) => ("module" in group ? [group.object] : [])));
+	const entries = REGISTRY.filter((entry) => modules.has(entry.object));
+	assert.ok(entries.length > 10, `${entries.length} module entries`);
+	assert.deepEqual(
+		entries
+			.filter((entry) => entry.refuses.includes("MODULE_OFF") === Boolean(entry.eachProject))
+			.map(({ name }) => name),
+		[],
+	);
+	assert.deepEqual(
+		REGISTRY.filter((entry) => entry.eachProject).map(({ name }) => name),
+		["github poll"],
+	);
+});
+
 /** The refusal and usage codes of src/ and hook/, and the names of every test file. */
 async function coverage(): Promise<{ readonly thrown: ReturnType<typeof thrownCodes>; readonly cases: Case[] }> {
 	const [code, tests] = await Promise.all([codeBelow(["src", "hook"]), codeBelow(["test"], /\.test\.ts$/)]);
@@ -754,12 +773,12 @@ const SEAT = ["../.limen", SESSIONS] as const;
 const DEAD_JOB = "2026-11-24-dead-wrapper-5e6f7a8b";
 
 /**
- * A test project with one job that ran, committed and finished, with its transcript, and one running job whose wrapper
- * is dead, which a reap would end, with the start-queue entry it left, on an account with no sudo; removed after the
- * test.
+ * A test project with every module on, so each module's read command runs as it does in a project that uses it, with
+ * one job that ran, committed and finished, with its transcript, and one running job whose wrapper is dead, which a
+ * reap would end, with the start-queue entry it left, on an account with no sudo; removed after the test.
  */
 async function readProject(t: TestContext): Promise<{ p: Plant; jobs: Jobs }> {
-	const p = await plant();
+	const p = await plant({ modules: MODULES });
 	t.after(() => p.cleanup());
 	for (const [name, text] of Object.entries(UNPRIVILEGED)) {
 		await writeFile(join(p.bin, name), text, { mode: 0o755 });

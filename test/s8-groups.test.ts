@@ -43,7 +43,7 @@ let group = "";
 const roster = { coordinator1: "", coordinator2: "", worker1: "", worker2: "" };
 
 before(async () => {
-	p = await plant();
+	p = await plant({ modules: ["group"] });
 	for (const name of ["brief", "teams/team-1", "teams/team-2"]) {
 		await mkdir(dirname(join(p.root, FEATURE, "group", `${name}.md`)), { recursive: true });
 		await writeFile(join(p.root, FEATURE, "group", `${name}.md`), `# ${name}\n`);

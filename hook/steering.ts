@@ -12,11 +12,20 @@ import {
 import { join } from "node:path";
 import { atomicRenameSync, atomicWriteSync } from "../src/atomic-write.ts";
 import { transport } from "../src/config.ts";
+import { ownHooks } from "../src/runtime/hook-set.ts";
 import { type PiApi, recorded } from "../src/runtime/pi-api.ts";
 
 const CLAIM_STALE_MS = 30_000;
 
+/**
+ * Steering delivers a job's steers between its tool calls. Only a job's session holds it (src/runtime/hook-set.ts,
+ * A-082), whatever the switches say, so in a coordinator's the factory returns before it reads any switch or registers
+ * a handler (R-044 Decision 19 F3).
+ */
 export default function limenSteering(pi: Pick<PiApi, "on" | "sendUserMessage">): void {
+	if (transport("LIMEN_JOB") !== "1" || !ownHooks(process.cwd()).includes("steering")) {
+		return;
+	}
 	let watcher: FSWatcher | undefined;
 	let sweepTimer: NodeJS.Timeout | undefined;
 	let changeTimer: NodeJS.Timeout | undefined;
@@ -61,9 +70,6 @@ export default function limenSteering(pi: Pick<PiApi, "on" | "sendUserMessage">)
 	pi.on(
 		"session_start",
 		recorded(() => {
-			if (transport("LIMEN_JOB") !== "1") {
-				return;
-			}
 			stop();
 			const root = transport("LIMEN_CONTEXT_ROOT");
 			const id = transport("LIMEN_JOB_ID");

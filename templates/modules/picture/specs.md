@@ -1,0 +1,2 @@
+- **Front matter.** The picture fields only, before the title: `touches`, `opened`, a dated `needs-adam` ask, a dated `wrong` problem, and `landed`. The picture contract (`templates/picture/CONTRACT.md`) defines them. They feed the owner's picture; they are not a status line.
+- **Progress.** As a ticket's work goes on, only its picture front matter changes: when an ask is answered, a problem is fixed, or the work lands.

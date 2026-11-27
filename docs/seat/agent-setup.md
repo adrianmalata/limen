@@ -208,7 +208,7 @@ The alerts, on every seat. An alert is one line with no title, `<project folder'
 - Prove later, not a gate: the Moshi phone ring. Ask the human if the phone rang, and write the answer in your report. A silent phone does not stop setup. Jobs start with `--no-extensions` (`src/runtime/engine.ts`), so only the coordinator's turn after the completion wake can ring Moshi.
 - **Check (lock-down end state):** mac$ `ssh $ADMIN_SSH 'echo ${SSH_CONNECTION%% *}'` prints a `100.` or `fd7a:115c:a1e0:` address; `ssh -o HostName=$PUBLIC_IP $ADMIN_SSH true` and `ssh -o IdentitiesOnly=yes -i $WORKER_KEY $WORKER@$PUBLIC_IP true` both exit 255 with `Permission denied (publickey)`; `ssh $BREAK_GLASS_SSH true` exits 0, so break-glass still works. **STOP** if any differs.
 
-The seat is ready after this phase. **HUMAN:** decide whether this project uses the opt-in GitHub doorbell (phases 11–14): a PR or issue comment with `@limen` or `/limen` from a writer wakes the coordinator. If not, setup ends here.
+The seat is ready after this phase. **HUMAN:** decide whether this project uses the opt-in GitHub doorbell (phases 11–14): a PR or issue comment with `@limen` or `/limen` from a writer wakes the coordinator. If it does, the HUMAN switches the `github` module on in the project's `.agents/limen/limits.json` (`"modules": {"github": true}`); until then every `limen github` command refuses with `MODULE_OFF` in this project, and the seat's `github poll` skips it. If not, setup ends here.
 
 ## 11 · GitHub App (HUMAN)
 

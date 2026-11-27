@@ -10,22 +10,19 @@ You fix the spec links for finished work. Your task is a packet from `limen keep
 
 This is a short job with a short timeout. Do not explore the code. Read the land check, then each job's spec diff (`git diff <base>..<tip> -- spec`, from its `Branch:` line). Open a transcript only when the diff leaves a question, such as which lane the worker meant or which places it changed.
 
-Edit only `spec/features/**`, `spec/build.md`, and map files under the packet's `Map:` directory that cite one of these tickets. Fix structure and links, not product content: never rewrite an Outcome, Scope or Acceptance.
+Edit only `spec/features/**` and `spec/build.md`. Fix structure and links, not product content: never rewrite an Outcome, Scope or Acceptance.
 
-Check the packet's `Ticket:` and each changed ticket. A group's feature ticket is often committed before the work starts, so it is not in `Changed tickets:`; check it anyway.
+Check the packet's `Ticket:` and each changed ticket.
 
-- **Ticket.** Front matter is fenced with `---` on line 1 and uses only `touches`, `opened`, `landed` (done lane only), `needs-adam` with `needs-adam-on`, and `wrong` with `wrong-on`. `touches` is a block list of map place ids. The title is `# FNNN · what becomes true`.
+- **Ticket.** The title is `# FNNN · what becomes true`.
 - **Number.** No other folder in any lane uses the same number (`ls -d spec/features/*/FNNN-* spec/features/*/*/FNNN-*`). If one does, do not renumber: report it on the first line of your final message. The coordinator picks the new number.
-- **Place ids.** The ids are the `id:` lines of the `kind: module` and `kind: plant` files in `<Map>/nodes/`. Replace an unknown id with the place the job diff changed. If no place fits, remove the id and list it under the warnings left.
 - **Board.** NOW and PROVEN in `spec/build.md` are generated from the lanes; never add or edit a line there. A planned ticket has exactly one line under NEXT or PARKED with 🔴 PLANNED, and a dropped ticket one under DROPPED with ⚪ DROPPED, with the folder name in backticks: `` - `FNNN-slug` (🔴 PLANNED): … ``. Add or correct that one line. Change no other line. A per-turn project cue says the board is read-only; that rule is for workers, and this line is your exception.
-- **Map.** `grep -rln --include='*.md' 'FNNN-' <Map>` finds the map files that cite the ticket. Where a `sources:` path no longer exists in this worktree, change it to the ticket's current path. The map is outside Git: these edits apply at once and do not land, so list each one.
-- **Strict check.** From the worktree, run `limen picture build --dir <Map> --strict`. Fix every error, and every warning whose file is a changed ticket or a map file that cites one. Leave other warnings. With `Map: none`, skip place ids and the map step.
 
-The strict check does not report a missing board line, and a missing map source is only a warning. So a clean strict check does not mean you are done. Stop when the strict check has no error, a planned or dropped ticket's board line is right, and no map file cites a missing path for a changed ticket.
+Stop when a planned or dropped ticket's board line is right.
 
 Commit the spec changes in one commit, `spec keeper: FNNN links`. If nothing needed a fix, commit nothing and say so. Then run `limen ticket check` from the worktree as the last check. It is the check `limen land` runs, and it must not refuse, except for a taken number you reported.
 
-End with: the fixes (file and what changed), the map files edited outside Git, the warnings left, and the strict check exit code.
+End with: the fixes (file and what changed) and the warnings left.
 
 ## Agent register (limen/templates/registers/agent.md)
 ## Shared
@@ -76,14 +73,13 @@ An ordinary ticket is about three hundred words and fits on one screen; a hard o
 - **Out of scope.** Two to four bullets naming only the nearby work someone would plausibly do by mistake.
 - **Acceptance.** Three to six bullets, each one observable behavior or check a reviewer can verify with a command or a look. Not scope restated, not "tests pass". A line holding several checks is several lines. A line a reviewer cannot cite whole is two lines.
 - **Notes.** Optional. Decisions and open questions only.
-- **Front matter.** The picture fields only, before the title: `touches`, `opened`, a dated `needs-adam` ask, a dated `wrong` problem, and `landed`. The picture contract (`templates/picture/CONTRACT.md`) defines them. They feed the owner's picture; they are not a status line.
 
 What never goes in a ticket:
 
 - A status line, date, or author tag in the body. State lives in the lane and the board; a ticket that says ACTIVE lies the moment the folder moves.
 - Tag lines or keyword badges. If a vision principle governs this feature, say so in one plain clause inside the outcome.
 - Another feature by number alone. *Consumes F373's landed vocabulary* means nothing to a stranger; *builds on the shared transcript renderer that landed earlier (F373)* does. Mention another feature only when it gates or bounds this one, and say what it is.
-- Prerequisites, delivery paths, phases, or landed / remaining markers in the body. Progress lives in commits and the board; the end lives in `outcome.md`. A ticket body is never edited to track its own progress; only the picture front matter changes when an ask is answered, a problem is fixed, or the work lands.
+- Prerequisites, delivery paths, phases, or landed / remaining markers in the body. Progress lives in commits and the board; the end lives in `outcome.md`. A ticket body is never edited to track its own progress.
 - Implementation shape, branch names, diagrams of internals, or an essay on the rationale. A diagram that is itself the decision earns four lines; everything else belongs in the worker's notes file.
 - Anything the worker will learn faster by editing than by reading.
 

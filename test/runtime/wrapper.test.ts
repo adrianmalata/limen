@@ -11,12 +11,14 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
 import { isTerminal } from "../../src/job/job.ts";
-import { type Identity, readRecordSync, transition } from "../../src/job/record.ts";
+import { type Identity, readProgressSync, readRecordSync, transition } from "../../src/job/record.ts";
 import { platform } from "../../src/platform/platform.ts";
+import { hookSet } from "../../src/runtime/hook-set.ts";
 import { ownerState } from "../../src/runtime/reap.ts";
 import { deadlineSteerText, endGate, failInternalJob } from "../../src/runtime/wrapper.ts";
 import { withEnvironment } from "../environment.ts";
@@ -51,6 +53,8 @@ import {
  * machine.
  */
 const EXIT_BOUND_MS = 10_000;
+/** The package's hook folder, whose files a job's engine loads with --extension. */
+const HOOKS = fileURLToPath(new URL("../../hook", import.meta.url));
 /** How often the test reads the wrapper's process again: an exit raises no file event. */
 const EXIT_CHECK_MS = 20;
 /** The group's grace here: the test knob LIMEN_STOP_GRACE_MS shortens the 10 s, so no test waits it (T-31 (4)). */
@@ -225,6 +229,45 @@ test("A-086: a job's engine starts with no --append-system-prompt in its argv", 
 	assert.equal(waitJob(p, id), "done");
 	const argv: string[] = JSON.parse(jobFile(p, id, "fake-argv.json"));
 	assert.equal(argv.includes("--append-system-prompt"), false, argv.join(" "));
+});
+
+// T-01, D-095 (R-044 Decision 20 G2): a limits file that turns unreadable while the job runs is the wrapper's own
+// failure, so the job ends failed, kind internal, naming the file; the tool start whose cap read failed is still
+// recorded, its log line and its count, and no "log write failed" line hides the cause.
+test("a limits file that becomes unreadable while the job runs ends it failed, kind internal, naming the file, and loses no event", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = spawnJob(p, "block\ntool echo one\nsay done");
+	await blocked(p, id);
+	mkdirSync(join(p.root, ".agents/limen/limits.json"), { recursive: true });
+	await release(jobDir(p, id));
+	assert.equal(waitJob(p, id), "failed");
+	const log = jobFile(p, id, "log");
+	const failure = jobRecord(p, id)?.failure;
+	assert.deepEqual(
+		[
+			failure?.kind,
+			/^\.agents\/limen\/limits\.json cannot be read: EISDIR/.test(failure?.detail ?? ""),
+			log.includes("log write failed"),
+			log.split("\n").includes("bash echo one"),
+			readProgressSync(jobDir(p, id))?.toolCalls,
+		],
+		["internal", true, false, true, 1],
+		log,
+	);
+});
+
+// A-082: the wrapper names no hook of its own; a job that is no group's member loads the set of hookSet for a job.
+test("a job's engine argv names the hooks of its set, in its order, and no other file of hook/", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = spawnJob(p, "say done");
+	assert.equal(waitJob(p, id), "done");
+	const argv: string[] = JSON.parse(jobFile(p, id, "fake-argv.json"));
+	const hooks = argv.flatMap((word, index) =>
+		argv[index - 1] === "--extension" && dirname(word) === HOOKS ? [basename(word, ".ts")] : [],
+	);
+	assert.deepEqual(hooks, hookSet({ session: "job", member: false }));
 });
 
 // D-121: one text for every role asked a reviewer to commit and every role to mark checks for the cut task note (A-044);

@@ -21,6 +21,7 @@ import {
 	release,
 	spawnJob,
 	start,
+	switchModules,
 	until,
 	waitJob,
 	writeRecord,
@@ -303,6 +304,7 @@ test("seat registrations survive a dead-owner registry lock under contention", a
 		barrier = join(p.parent, "registry-barrier.mjs");
 	const projects = Array.from({ length: 40 }, (_, index) => join(p.parent, `seat-${index}`));
 	await Promise.all([...projects, ready].map((dir) => mkdir(dir)));
+	await Promise.all(projects.map((dir) => switchModules(dir, ["workspace"])));
 	await writeFile(registry, `${p.root}\n${join(p.parent, "gone-one")}\n${join(p.parent, "gone-two")}\n`);
 	// A lock whose owner died long ago: a pid no process holds, an mtime far past any freshness window, and the marker of
 	// a reclaimer that died mid-claim inside it.

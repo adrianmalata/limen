@@ -117,4 +117,4 @@ install -o root -g root -m 0644 "$(dirname "$0")/limen-github.timer" /etc/system
 systemctl daemon-reload
 runuser -u limen-github -- test -r /etc/limen-github/app.pem
 # Do not start a polling pass here: connect/doctor and binary ownership must be checked first.
-echo 'Setup installed with timer disabled and stopped. Re-login as worker, run limen github doctor; repair every finding except the disabled timer, then enable the timer and rerun doctor.'
+echo 'Setup installed with timer disabled and stopped. Re-login as worker, switch the github module on in the project'"'"'s .agents/limen/limits.json ("modules": {"github": true}), run limen github doctor; repair every finding except the disabled timer, then enable the timer and rerun doctor.'

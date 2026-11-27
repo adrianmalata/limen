@@ -540,6 +540,32 @@ test("A-041: the specs reminder holds the package's Specs section after its head
 	assert.deepEqual([text.startsWith(header), text.endsWith(end)], [true, true], text);
 });
 
+/** The reminder of the picture module's specs file: its header line, then its text (R-044 Decision 19 F2). */
+async function pictureSpecsReminder(): Promise<string> {
+	const text = (await readFile(join(PACKAGE, "templates/modules/picture/specs.md"), "utf8")).trim();
+	const header = `[limen] Picture module (limen/templates/modules/picture/specs.md lines 1-${text.split("\n").length})`;
+	return `${header}: check this edit against these rules.\n${text}`;
+}
+
+// A-040, A-041: the context message holds an enabled module's specs file right after the register, so the reminder
+// does too, once per context like the section; with the module off, as limen init leaves it, none.
+test("A-041: with the picture module on the specs reminder appends its specs file after the Specs section, once per context, and with it off none", async (t) => {
+	const { project, home } = await fixture(t);
+	environment(t, coordinatorSession(home));
+	const off = specsWrite(project);
+	await mkdir(join(project, ".agents/limen"), { recursive: true });
+	await writeFile(join(project, ".agents/limen/limits.json"), '{ "modules": { "picture": true } }\n');
+	const hook = loadHook();
+	const write = (path: string) => resultText(hook.fire("tool_result", toolResult("write", { path }), { cwd: project }));
+	const [first, second] = [write("spec/notes.md"), write("spec/other.md")];
+	const reminder = await pictureSpecsReminder();
+	assert.deepEqual(
+		[off.includes(reminder), first.endsWith(`${await specsSection()}\n\n${reminder}`), second.includes(reminder)],
+		[false, true, false],
+		first,
+	);
+});
+
 // A-038: only the roles that write tickets hold the specs register in their message, so only they get it again.
 test("A-038: the specs reminder reaches a coordinator and a keeper, whose context message holds the register, and no worker", async (t) => {
 	const { project, home, job } = await fixture(t);

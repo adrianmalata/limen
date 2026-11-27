@@ -45,6 +45,7 @@ import {
 } from "../runtime/engine.ts";
 import { launchWrapper } from "../runtime/launcher.ts";
 import { holdsProcesses, KILL_WAIT_MS, waitForProcessGroup } from "../runtime/reap.ts";
+import { requireJobModules } from "../runtime/roles.ts";
 import { DEFAULT_PRIORITY, parsePriority, queuedLine } from "../runtime/start-queue.ts";
 import { normalizeWorkerExtensions } from "../runtime/worker-extensions.ts";
 import { hasCode } from "../system-error.ts";
@@ -315,6 +316,8 @@ async function validateSpawn(
 	const place = resolveSpawnPlace(cwd, group, options.repo);
 	const { root, repository } = place;
 	const role = options.review ? "reviewer" : (group?.role ?? options.role ?? "worker");
+	// A module's role, and a workspace repository, are ways into their modules (G1.10, R-044 Decisions 6 and 19 F5).
+	requireJobModules(place.root, { role, repo: place.repo });
 	const pinnedBase = options.base ? resolveCommit(repository, options.base, "--base") : undefined;
 	const pinnedHead = options.head ? resolveCommit(repository, options.head, "--head") : undefined;
 	const context = contextMessage(root, {
@@ -831,7 +834,7 @@ function executeWorktree(root: string, plan: WorktreePlan): string {
 }
 function claimsOwnerFacingLead(role: string | undefined): string | undefined {
 	if (role === "coordinator" || role === "lead") {
-		return "refusing spawn --role coordinator/lead: managed team coordinators come only from limen group start; the owner-facing lead is the interactive Herdr coordinator pane (LIMEN_COORDINATOR=1) with hook/group-peer.ts loaded (export LIMEN_PACKAGE to a package that ships group-peer, then reload that pane) — never limen spawn a substitute lead job";
+		return 'refusing spawn --role coordinator/lead: managed team coordinators come only from limen group start; the owner-facing lead is the interactive Herdr coordinator pane (LIMEN_COORDINATOR=1) with hook/group-peer.ts loaded, which loads only with the group module on in .agents/limen/limits.json ("modules": {"group": true}; export LIMEN_PACKAGE to a package that ships group-peer, then reload that pane) — never limen spawn a substitute lead job';
 	}
 }
 

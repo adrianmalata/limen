@@ -1,8 +1,9 @@
 // src/runtime/context-message.ts: each role's exact message against its reference file, its marker, the registers of
 // its audience, the package as the only source of Limen's texts, the project's AGENTS.md only with an isolated bridge,
-// what it never holds, its line bound, and that it is built from files alone (T-36).
+// what it never holds, its line bound, that it is built from files alone (T-36), and the module parts it holds only for
+// the modules switched on (G1.10, A-040).
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { copyFile, cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -83,6 +84,69 @@ for (const { name, reference, role } of ROLES) {
 		assert.equal(message, await readFile(path, "utf8"));
 	});
 }
+
+/** Each module file of the package, `templates/modules/<module>/<part file>`, by its path in the package. */
+function moduleFiles(): string[] {
+	const folder = join(PACKAGE, "templates/modules");
+	return readdirSync(folder).flatMap((module) =>
+		readdirSync(join(folder, module)).map((file) => `templates/modules/${module}/${file}`),
+	);
+}
+
+/** The part of the package file `path` with its heading `label`, as the message holds it (src/runtime/context-message.ts). */
+async function packagePart(path: string, label: string): Promise<string> {
+	return `## ${label} (limen/${path})\n${(await readFile(join(PACKAGE, path), "utf8")).trim()}`;
+}
+
+// G1.10, A-038: a module that is off contributes no text, so no message of a project as limen init leaves it holds one.
+test("G1.10: with every module off no role's message holds a module part or the text of a module file", async (t) => {
+	const root = await initProject(t);
+	const texts = await Promise.all(
+		moduleFiles().map(async (path) => (await readFile(join(PACKAGE, path), "utf8")).trim()),
+	);
+	assert.ok(texts.length >= 6, `${texts.length} module files`);
+	const found = everyMessage(root).flatMap((message, index) => [
+		...(message.includes(" module (limen/templates/modules/") ? [`${ROLES[index]?.reference}: a module part`] : []),
+		...texts.flatMap((text, file) =>
+			message.includes(text) ? [`${ROLES[index]?.reference}: ${moduleFiles()[file]}`] : [],
+		),
+	]);
+	assert.deepEqual(found, []);
+});
+
+// A-040: an enabled module's text is always on, as its own part right after the part it adds to, in the module order.
+test("A-040: with the picture module on, the worker's, keeper's, group team's and coordinator's messages hold their picture file right after its part", async (t) => {
+	const root = await initProject(t);
+	await plantFile(root, ".agents/limen/limits.json", '{ "modules": { "picture": true } }\n');
+	const pairs: ReadonlyArray<readonly [string | undefined, string, string, string]> = [
+		["worker", "templates/worker.md", "Role", "templates/modules/picture/worker.md"],
+		["keeper", "templates/keeper.md", "Role", "templates/modules/picture/keeper.md"],
+		["coordinator", "templates/coordinator.md", "Role", "templates/modules/picture/coordinator.md"],
+		[undefined, "templates/manual.md", "Coordinator manual", "templates/modules/picture/manual.md"],
+		[undefined, "templates/registers/specs.md", "Specs register", "templates/modules/picture/specs.md"],
+	];
+	const missing: string[] = [];
+	for (const [role, part, label, module] of pairs) {
+		const expected = `${await packagePart(part, label)}\n\n${await packagePart(module, "Picture module")}\n\n`;
+		if (!contextMessage(root, audience(root, role)).includes(expected)) {
+			missing.push(`${role ?? "owner-facing coordinator"}: ${module} after ${part}`);
+		}
+	}
+	assert.deepEqual(missing, []);
+});
+
+// A-051: the whole message of one role with a module on, so a change of a module part's place or heading fails here.
+test("A-051: the worker's context message with the picture module on is its reference file, worker-picture.md", async (t) => {
+	const root = await initProject(t);
+	await plantFile(root, ".agents/limen/limits.json", '{ "modules": { "picture": true } }\n');
+	const message = contextMessage(root, audience(root, "worker"));
+	const path = join(REFERENCES, "worker-picture.md");
+	if (!existsSync(path)) {
+		await writeFile(path, message);
+		assert.fail(`wrote the missing reference ${path}; read it, then run the test again`);
+	}
+	assert.equal(message, await readFile(path, "utf8"));
+});
 
 // E-14: until the seat shows how Claude Code takes a leading slash, the message never starts with one.
 test("D-114 (3): every message opens with the marker that names its role and ends with the closing tag, so none starts with a slash", async (t) => {

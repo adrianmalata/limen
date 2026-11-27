@@ -12,7 +12,7 @@ import { type CommandText, LimenError, type Outcome, usageError } from "../../sr
 import { REGISTRY } from "../../src/registry.ts";
 import { withEnvironment } from "../environment.ts";
 import { readOutcome } from "../final-line.ts";
-import { writeRecord } from "../plant.ts";
+import { switchModules, writeRecord } from "../plant.ts";
 
 const RUN = { id: "stop-group", feature: "spec/features/active/F001-demo" };
 
@@ -85,12 +85,18 @@ test("a member whose stop fails with a plain Error is the environment's failure,
 });
 
 /**
- * The exit code and the final line that the shared wrapper (src/main.ts) gives `limen group stop` of `RUN` when the
- * stop fails with `failure`: the registry's entry, whose handler throws it.
+ * The exit code and the final line that the shared wrapper (src/main.ts) gives `limen group stop` of `RUN`, run in the
+ * project `root` with its group module on, when the stop fails with `failure`: the registry's entry, whose handler
+ * throws it.
  */
-async function stopExit(t: TestContext, failure: LimenError): Promise<{ status: number | null; outcome: Outcome }> {
+async function stopExit(
+	t: TestContext,
+	root: string,
+	failure: LimenError,
+): Promise<{ status: number | null; outcome: Outcome }> {
 	// LIMEN_HERDR 0: this in-process run reaches no Herdr of the machine.
 	withEnvironment(t, { LIMEN_HERDR: "0" });
+	await switchModules(root, ["group"]);
 	const registry = REGISTRY.map((entry) =>
 		entry.name === "group stop"
 			? {
@@ -104,7 +110,7 @@ async function stopExit(t: TestContext, failure: LimenError): Promise<{ status: 
 	const stderr: string[] = [];
 	t.mock.method(console, "log", () => {});
 	t.mock.method(console, "error", (line: unknown) => stderr.push(`${String(line)}\n`));
-	await main(["group", "stop", RUN.id], process.cwd(), registry);
+	await main(["group", "stop", RUN.id], root, registry);
 	const status = process.exitCode === undefined ? null : Number(process.exitCode);
 	process.exitCode = 0;
 	return { status, outcome: readOutcome({ status, stdout: "", stderr: stderr.join("") }) };
@@ -119,7 +125,7 @@ test("GROUP_STOP_INCOMPLETE: a member whose stop refuses after the group stop's 
 		throw usageError("JOB_NOT_FOUND", `no job ${id} in this project`);
 	});
 	assert.ok(failure, "the member's stop failed");
-	const exit = await stopExit(t, incompleteStop(RUN, [failure]));
+	const exit = await stopExit(t, root, incompleteStop(RUN, [failure]));
 	assert.deepEqual(
 		[failure.class, exit.status, exit.outcome],
 		["internal", 5, { class: "internal", code: "GROUP_STOP_INCOMPLETE", next: "limen group stop stop-group" }],

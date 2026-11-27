@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { transport } from "../src/config.ts";
 import { readRecordSync } from "../src/job/record.ts";
 import { readOptional } from "../src/project/inherit.ts";
+import { moduleTitle } from "../src/project/modules.ts";
 import { ticketPointers } from "../src/project/planning.ts";
 import {
 	boundLines,
@@ -10,9 +11,11 @@ import {
 	CUE_FILE,
 	capabilitySection,
 	contextMessage,
+	enabledModules,
 	holdsSpecs,
 	MAX_CONTEXT_LINES,
 	markdownSection,
+	moduleFiles,
 	packageName,
 	packageText,
 	projectText,
@@ -21,6 +24,7 @@ import {
 	trimmedLines,
 	VISION_FILE,
 } from "../src/runtime/context-message.ts";
+import { sessionRoot } from "../src/runtime/hook-set.ts";
 import {
 	type PiApi,
 	type PiContext,
@@ -69,7 +73,8 @@ const VISION_ASK: Ask = { kind: "vision", paths: [] };
  * model's context, always the bytes the session holds (A-037). The per-turn note is a short cue. A tool result, the one
  * message of a role of its own (E-1), carries the text of the guidance that applies to what the call wrote, each
  * section once until a compaction or a new session start (A-041): the styleguide after a code edit, the specs register
- * after an edit under spec/, and the vision once a planned ticket is written (H-12).
+ * after an edit under spec/, with the specs file of each module that is on, and the vision once a planned ticket is
+ * written (H-12).
  */
 export default function limenCommunication(pi: Pick<PiApi, "on" | "sendMessage">): void {
 	let lastTouch: string | undefined;
@@ -79,7 +84,7 @@ export default function limenCommunication(pi: Pick<PiApi, "on" | "sendMessage">
 		recorded((raw: unknown, rawContext: unknown) => {
 			const event = piEvent("before_agent_start", raw);
 			const context = piContext("before_agent_start", rawContext, ["cwd"]);
-			const root = transport("LIMEN_CONTEXT_ROOT") ?? context.cwd;
+			const root = sessionRoot(context.cwd);
 			const job = transport("LIMEN_JOB") === "1";
 			const touched = lastTouch;
 			const failed = lastFailure;
@@ -113,10 +118,13 @@ export default function limenCommunication(pi: Pick<PiApi, "on" | "sendMessage">
 			}
 			const asks = guidanceAsks(event);
 			lastTouch = touchLine(event, asks) ?? lastTouch;
-			const root = transport("LIMEN_CONTEXT_ROOT") ?? context.cwd;
+			const root = sessionRoot(context.cwd);
 			const reminders = asks
 				.filter((ask) => ask.kind !== "specs" || sessionHoldsSpecs(root))
-				.map((ask) => reminder(shown, ask, root, context.cwd))
+				.flatMap((ask) => [
+					reminder(shown, ask, root, context.cwd),
+					...(ask.kind === "specs" ? moduleSpecsReminders(shown, root) : []),
+				])
 				.filter(Boolean);
 			if (!reminders.length) {
 				return;
@@ -221,7 +229,7 @@ function heldContext(entries: readonly PiContextEntry[]): string | undefined {
  * or a job's, which its publication saved in the job's folder (A-079); the wrapper starts no engine without that file.
  */
 function startingContext(context: Pick<PiContext, "cwd">): string {
-	const root = transport("LIMEN_CONTEXT_ROOT") ?? context.cwd;
+	const root = sessionRoot(context.cwd);
 	if (transport("LIMEN_JOB") !== "1") {
 		return contextMessage(root, { session: "coordinator" });
 	}
@@ -397,6 +405,25 @@ function reminder(shown: Set<string>, ask: Ask, root: string, cwd: string): stri
 		shown.add(sectionKey(ask.kind, section));
 	}
 	return fresh.length ? reminderText(ask.kind, guide, fresh) : "";
+}
+
+/**
+ * The specs files of the modules on in the project at `root` that no reminder appended in this context yet, each after
+ * its header line, which it marks as appended: the files the context message holds right after the specs register
+ * (src/runtime/context-message.ts), so the reminder after an edit under spec/ is whole too (R-044 Decision 19 F2).
+ */
+function moduleSpecsReminders(shown: Set<string>, root: string): string[] {
+	return moduleFiles(basename(SPECS_REGISTER), enabledModules(root)).flatMap(({ module, path }) => {
+		const guide = guideOf(packageName(path), packageText(path));
+		const key = `specs:${path}`;
+		if (!guide || shown.has(key)) {
+			return [];
+		}
+		shown.add(key);
+		const lines = trimmedLines(guide.lines.join("\n"));
+		const header = `[limen] ${moduleTitle(module)} (${guide.shown} lines 1-${lines.length}): check this edit against these rules.`;
+		return [`${header}\n${boundLines(lines, guide.shown)}`];
+	});
 }
 
 /** A section by its guidance, its first line and its title: what one reminder appended. */
