@@ -2084,7 +2084,7 @@ Columns:
 | R-045 | Tools and skills per role; a read-only role that writes fails | 4 | A-081, E-5, D-123, D-125 | R-042, R-044 | M | delegated | night | — | pi, bridge | 4.3 | done |
 | R-046 | Role prompts are literal, sourced and budgeted | 4 | T-09, T-14, T-15, T-08, T-10, T-21, A-043, A-085, A-040 | R-040, R-041, R-042, R-044 | L | pair | day-after | — | — | — | planned |
 | R-047 | The coordinator never waits | 4 | T-34 | R-039 | S | delegated | night | — | pi | 4.6 | done |
-| R-104 | The sweep's daily prune archives every unregistered folder and waits on no job's lock; a queue entry is live only for a project's job | 4 | A-002, A-024, T-25, D-107 | R-101 | M | delegated | night | — | — | — | active |
+| R-104 | The sweep's daily prune archives every unregistered folder and waits on no job's lock; a queue entry is live only for a project's job | 4 | A-002, A-024, T-25, D-107 | R-101 | M | delegated | night | — | — | — | done |
 | R-105 | The T-04 and T-26 scans follow what their rules name | 4 | T-04, T-26, D-107, D-116 | R-032, R-104 | M | delegated | night | — | — | — | ready |
 | R-106 | A watcher outside the agents' account keeps a copy of `main` and alerts on its forced update or deletion | 4 | A-006, §7, D-110, D-117 | R-033 | S | delegated | night | — | systemd | 4.10 | ready |
 | R-107 | The exit 4 of systemd 259's `is-active` reads as not active | 4 | A-029, E-18, D-112 | R-026 | S | delegated | night | — | systemd | 4.13 | ready |
@@ -6284,3 +6284,13 @@ Night run of 2026-11-27/28 (until 08:00; `night.mjs` run 1 started at 21:47:25, 
 - R-104 `active` at `767ac6f` (protocol step 2): its facts' places in its Decision 8 (the prune, retire and queue
   modules unchanged since the ticket; `src/job/record.ts` shifted by R-042; the prune's doc bullet moved by four
   lines); AC-10 names the gate's `--out`.
+- R-104 `done` (delegated): the implementer's `BLOCKED` (on Git 2.56.1 a clone whose `.git` names a gone gitdir fails
+  the held checks with `GIT_FAILED`, since `worktreeChanges` knows only the older wording, so Change 5's archive of it
+  cannot hold within Change 1 and Decision 1) → Decision 9, a night default (D-054 (2) (a)): that test asserts the
+  `GIT_FAILED` and the folder byte for byte, as at `HEAD`; the case itself is Q-104 in `.night/questions.md` (searched
+  first: the four sources; recommended: archive such a folder in `src/runtime/pruning.ts` only, a new finding and a
+  small ticket), which stops no ticket. A fresh implementer finished (D-026). Review round 1 PASS → F1–F4 (Decision
+  10: a comment's wrap, `heldCandidates` → `keptCandidates` for T-18, the `QueueReader` doc, the test files' headers
+  as at `HEAD`), a fresh implementer; round 2 PASS, its two doc notes fixed by the main session (D-053 (2)). The main
+  session's gates 1498/1498 (347.6 s, 346.9 s), `fails-before.mjs` exit 0 after each. For the morning: Decision 9
+  (`outcome.md` → Night defaults) and Q-104; for gate 5.4: R-104's Deviations 1–4 and Open points 1–3.

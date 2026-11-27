@@ -3,10 +3,13 @@
 // line; a finished job's live scope keeps its worktree; and the gitlink rule.
 import assert from "node:assert/strict";
 import fs, { existsSync, readdirSync, readFileSync, renameSync } from "node:fs";
-import { mkdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
-import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { type TestContext, test } from "node:test";
+import { worktreeGuard } from "../../src/job/publication.ts";
+import { withLock } from "../../src/lock.ts";
 import { LimenError } from "../../src/outcome.ts";
 import { pruneFinishedWorktrees, pruneLine } from "../../src/runtime/pruning.ts";
 import { withEnvironment } from "../environment.ts";
@@ -39,6 +42,15 @@ const worktreeRoot = (p: Plant) => join(p.parent, ".repo-limen-worktrees");
 
 /** The month folder of the job archive for the UTC month of `at`. */
 const archiveOf = (p: Plant, at: string) => join(p.root, ".limen", "archive", at.slice(0, 7));
+
+/** The folder of the project's archive that takes the folders of the worktree root Git does not register. */
+const unregisteredOf = (p: Plant) => join(p.root, ".limen", "archive", "unregistered");
+
+/** The one reason of every folder of the worktree root that Git does not register (R-104 Decision 2). */
+const UNREGISTERED = "the directory is not a registered Git worktree";
+
+/** The lock wait of the tests of a held lock: 200 ms instead of 60 s, so a prune that still waits fails at once. */
+const SHORT_WAIT = { LIMEN_LOCK_WAIT_MS: "200" };
 
 // D-097 (4) (d), z. 29 (R-031 open point 1): before R-101 prune deleted the folder of such a record with all it held.
 test("prune moves a record that never started, its spawner gone, to the job archive of its start's month, every file byte for byte, and a second prune moves nothing", async (t) => {
@@ -160,14 +172,7 @@ test("prune moves a folder of the worktree root that Git does not register and t
 	assert.match(name, /^leftover-\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d-\d{3}Z$/);
 	assert.deepEqual(
 		[existsSync(leftover), tree(join(unregistered, name)), first.removed.map(pruneLine), second.removed],
-		[
-			false,
-			before,
-			[
-				`archived ${leftover} to ${join(unregistered, name)} (job none): the directory is not a registered Git worktree and holds no .git`,
-			],
-			[],
-		],
+		[false, before, [`archived ${leftover} to ${join(unregistered, name)} (job none): ${UNREGISTERED}`], []],
 	);
 });
 
@@ -181,8 +186,123 @@ test("the line of a folder prune moves names the folder and its archive folder e
 	const [to = ""] = removed.map((removal) => removal.to ?? "");
 	const escaped = (path: string) => path.replaceAll("\n", "\\n");
 	assert.deepEqual(removed.map(pruneLine), [
-		`archived ${escaped(join(worktreeRoot(p), name))} to ${escaped(to)} (job none): the directory is not a registered Git worktree and holds no .git`,
+		`archived ${escaped(join(worktreeRoot(p), name))} to ${escaped(to)} (job none): ${UNREGISTERED}`,
 	]);
+});
+
+/**
+ * Two prunes of the plant `p` and what they show of the folder `path` of its worktree root, which Git does not
+ * register: where the first moved it (`to`), whether it is still there, the folder that took it and what that holds,
+ * the first's lines, and what the second removed.
+ */
+async function prunedTwice(p: Plant, path: string) {
+	const first = await pruneFinishedWorktrees(p.root);
+	const second = await pruneFinishedWorktrees(p.root);
+	const [to = ""] = first.removed.map((removal) => removal.to ?? "");
+	const lines = first.removed.map(pruneLine);
+	return { to, shown: { left: existsSync(path), into: dirname(to), archived: tree(to), lines, again: second.removed } };
+}
+
+// D-107 (4), R-101 open point 3 (z. 29): before R-104 prune deleted a clean clone that Git does not register, and with
+// it the commit that only the clone's own `.git` held.
+test("prune moves a clean clone in the worktree root that Git does not register, its .git with it, into the project's archive, every file byte for byte, once", async (t) => {
+	const p = await fresh(t);
+	const clone = join(worktreeRoot(p), "clone");
+	await mkdir(worktreeRoot(p), { recursive: true });
+	git(p.parent, "clone", "-q", p.root, clone);
+	const identity = ["-c", "user.name=Limen Test", "-c", "user.email=limen@example.test"];
+	git(clone, ...identity, "commit", "-q", "--allow-empty", "-m", "a commit only the clone holds");
+	assert.equal(git(clone, "status", "--porcelain"), "", "the clone is clean");
+	const before = tree(clone);
+	const { to, shown } = await prunedTwice(p, clone);
+	assert.deepEqual(shown, {
+		left: false,
+		into: unregisteredOf(p),
+		archived: before,
+		lines: [`archived ${clone} to ${to} (job none): ${UNREGISTERED}`],
+		again: [],
+	});
+});
+
+// R-104 Decision 9 (z. 29): Git 2.56.1 reads such a `.git` as a failure, `gitfile does not point to a valid
+// repository`, not as no checkout, so the held checks, which come first (Decision 1), stop the prune before anything
+// moves; this guard keeps that stop from turning into a deletion of what the folder holds.
+test("a folder of the worktree root whose .git names a gitdir that is gone fails the prune with GIT_FAILED, the message names the folder, and the folder stays byte for byte", async (t) => {
+	const p = await fresh(t);
+	const stale = join(worktreeRoot(p), "stale");
+	await mkdir(stale, { recursive: true });
+	await writeFile(join(stale, ".git"), `gitdir: ${join(p.root, ".git", "worktrees", "gone")}\n`);
+	await writeFile(join(stale, "notes.txt"), "a note that no branch holds\n");
+	const before = tree(stale);
+	await assert.rejects(
+		pruneFinishedWorktrees(p.root),
+		(error: unknown) => error instanceof LimenError && error.code === "GIT_FAILED" && error.message.includes(stale),
+	);
+	assert.deepEqual(tree(stale), before);
+});
+
+// R-104, R-101 open point 6: prune waited up to 60 s for a folder's own lock while it held the jobs lock, which every
+// spawn's token draw takes, and a lock held past the wait failed the daily prune with LOCK_TIMEOUT.
+test("prune keeps a record that never started while another process holds its lock, names it as held, and moves it at the next prune", async (t) => {
+	const p = await fresh(t);
+	withEnvironment(t, SHORT_WAIT);
+	const id = "2026-10-03-locked-1a2b3c4d";
+	const dir = jobDir(p, id);
+	await writeRecord(dir, { state: "starting", startedAt: "2026-10-03T00:00:00.000Z", spawnerPid: null });
+	const whileHeld = await withLock({ folder: dir }, () => pruneFinishedWorktrees(p.root));
+	const next = await pruneFinishedWorktrees(p.root);
+	const target = join(archiveOf(p, "2026-10-03"), id);
+	assert.deepEqual(
+		{
+			held: whileHeld.held,
+			removed: whileHeld.removed,
+			moved: next.removed.map((removal) => removal.to),
+			record: existsSync(join(target, "record.json")),
+		},
+		{ held: [id], removed: [], moved: [target], record: true },
+	);
+});
+
+/** Plants a publication's folder `.limen/.publishing-<id>` below `root` that a spawn left in October 2026; its path. */
+async function leftPublication(root: string, id: string): Promise<string> {
+	const jobs = join(root, ".limen", "jobs");
+	await writeRecord(join(jobs, id), { state: "starting", startedAt: "2026-10-04T00:00:00.000Z", spawnerPid: null });
+	const publishing = join(root, ".limen", `.publishing-${id}`);
+	await rename(join(jobs, id), publishing);
+	return publishing;
+}
+
+// R-104: the move of a publication's folder took the folder's own lock with a wait, under the jobs lock.
+test("prune keeps a publication's left folder while another process holds its lock, names it as held, and moves it at the next prune", async (t) => {
+	const p = await fresh(t);
+	withEnvironment(t, SHORT_WAIT);
+	const id = "2026-10-04-locked-5e6f7a8b";
+	const publishing = await leftPublication(p.root, id);
+	const whileHeld = await withLock({ folder: publishing }, () => pruneFinishedWorktrees(p.root));
+	const next = await pruneFinishedWorktrees(p.root);
+	const target = join(archiveOf(p, "2026-10-04"), id);
+	assert.deepEqual(
+		{ held: whileHeld.held, removed: whileHeld.removed, moved: next.removed.map((removal) => removal.to) },
+		{ held: [id], removed: [], moved: [target] },
+	);
+});
+
+// R-104 Decision 3: the worktree lock, which a publication's move takes under the jobs lock, was taken with a wait too.
+// A project with no Git repository has no worktree pass, which takes that lock with a wait outside the jobs lock.
+test("prune keeps a publication's left folder while another process holds the worktree lock, in a project with no Git repository, and moves it at the next prune", async (t) => {
+	const root = await mkdtemp(join(tmpdir(), "limen-prune-"));
+	t.after(() => rm(root, { recursive: true, force: true }));
+	withEnvironment(t, SHORT_WAIT);
+	const id = "2026-10-04-waiting-9a8b7c6d";
+	const publishing = await leftPublication(root, id);
+	const lock = worktreeGuard(join(root, ".limen", "jobs"));
+	const whileHeld = await withLock(lock, () => pruneFinishedWorktrees(root));
+	const left = existsSync(publishing);
+	const next = await pruneFinishedWorktrees(root);
+	assert.deepEqual(
+		{ held: whileHeld.held, removed: whileHeld.removed, left, moved: next.removed.map((removal) => removal.to) },
+		{ held: [id], removed: [], left: true, moved: [join(root, ".limen", "archive", "2026-10", id)] },
+	);
 });
 
 // R-027 Out of scope, D-097 (4) (e): a terminal job whose scope end failed may still run processes in its worktree.

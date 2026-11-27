@@ -4,7 +4,7 @@ wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: 
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
 R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025, R-097, R-099, R-026, R-030, R-033,
 R-027, R-028, R-031, R-035, R-100, R-029, R-032, R-034, R-036, R-037, R-087, R-098, R-101, R-102, R-103, R-038,
-R-111, R-039, R-040, R-042, R-043, R-044, R-041, R-112, R-045, R-047. -->
+R-111, R-039, R-040, R-042, R-043, R-044, R-041, R-112, R-045, R-047, R-104. -->
 
 # Changes
 
@@ -544,3 +544,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-05)
 - Commit: R-047
 - Rollback: git revert $(git log --format=%H --grep='^R-047:' adrian-rebuild --)
+
+## 2026-11-28 R-104 The sweep's daily prune archives every unregistered folder and waits on no job's lock; a queue entry is live only for a project's job
+- What: `src/runtime/pruning.ts` (an unregistered folder of the worktree root, with its `.git` or not, moves into `.limen/archive/unregistered/`; every lock under the jobs lock in one attempt, `PruneResult.held` and one `heldLine`; an empty job folder whose month place is taken goes to `unregistered/`; `keptCandidates`); `src/runtime/retiring.ts`, `src/runtime/sweeping.ts` (prune's held lines); `src/runtime/start-queue.ts` (an entry is live only for a job of a registered project, the wrapper's own entry by the old rule); `src/job/record.ts` (a comment); `docs/commands.md`, `docs/jobs.md`; tests (`test/runtime/pruning.test.ts`, `test/cli/sweep.test.ts`, `test/runtime/start-queue.test.ts`)
+- Why: A-002, A-024, T-25, D-107
+- Proof: `node adrian-rebuild/tools/gate.mjs --out node_modules/.rebuild-review/R-104.gate` → exit 0 (1498/1498); `node adrian-rebuild/tools/fails-before.mjs` → exit 0; `node adrian-rebuild/tools/check.mjs` → exit 0
+- Measurement: unmeasured (plan.md → Measurement: M-09)
+- Commit: R-104
+- Rollback: git revert $(git log --format=%H --grep='^R-104:' adrian-rebuild --)

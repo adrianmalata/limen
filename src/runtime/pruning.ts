@@ -2,10 +2,10 @@
 // is prune's one caller (src/runtime/sweeping.ts, D-097 (4) (c)), and `limen land` deletes the branch it merged. Prune
 // removes only what Git holds elsewhere: a clean worktree, whose tracked files are on its branch, and a landed branch,
 // whose tip is in the target's history; it moves what Git does not hold into the job archive instead (z. 29, D-097 (4)
-// (d)). No removal takes a worktree that `git status` shows dirty, whatever job names it, or the worktree of a finished
-// job whose unlanded work nothing resolved (A-001, src/job/unlanded.ts); `limen abandon` removes one only once its state
-// is on a branch and only what prune could remove itself (src/job/abandoning.ts), through `removalBlock`,
-// `removeWorktree` and `removeTrash` here.
+// (d), D-107 (4)). No removal takes a worktree that `git status` shows dirty, whatever job names it, or the worktree of
+// a finished job whose unlanded work nothing resolved (A-001, src/job/unlanded.ts); `limen abandon` removes one only
+// once its state is on a branch and only what prune could remove itself (src/job/abandoning.ts), through
+// `removalBlock`, `removeWorktree` and `removeTrash` here.
 import { randomUUID } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import { readdir, realpath, rm } from "node:fs/promises";
@@ -14,7 +14,7 @@ import { atomicRename, makeDurableFolder } from "../atomic-write.ts";
 import { shownField } from "../boundary.ts";
 import { retainedGroupJob } from "../job/group-cabinet.ts";
 import { everRan, isTerminal } from "../job/job.ts";
-import { PUBLISHING, worktreeLock } from "../job/publication.ts";
+import { PUBLISHING, worktreeGuard, worktreeLock } from "../job/publication.ts";
 import {
 	archiveMonth,
 	type JobRecord,
@@ -53,10 +53,24 @@ export type PruneRemoval = {
  * given, as `limen abandon` gives one.
  */
 export type PruneKept = { readonly path: string; readonly job: string | undefined; readonly reason?: string };
-/** What one prune did: the paths it removed and the worktrees it kept for their unlanded work. */
-export type PruneResult = { readonly removed: readonly PruneRemoval[]; readonly kept: readonly PruneKept[] };
+/**
+ * What one prune did: the paths it removed or moved, the worktrees it kept for what they hold, and, by job id, the job
+ * folders it kept because another process held a lock their move needs, which the next daily prune takes (R-104).
+ */
+export type PruneResult = {
+	readonly removed: readonly PruneRemoval[];
+	readonly kept: readonly PruneKept[];
+	readonly held: readonly string[];
+};
+/** What the worktree pass of one repository did: the paths it removed or moved, and the worktrees it kept. */
+type PassResult = Pick<PruneResult, "removed" | "kept">;
 /** Why prune removes a worktree some job recorded; a job that keeps it never gets here. */
 type PruneOwners = Map<string, { readonly jobDir: string; readonly reason: string }>;
+/**
+ * Why prune moves a folder of the worktree root that Git does not register into the project's archive: one reason
+ * for each, with its `.git` or not, since the line already says where the folder went (R-104 Decision 2, T-18).
+ */
+const UNREGISTERED = "the directory is not a registered Git worktree";
 /**
  * The line of one removal, or of one move into the archive, which names where the folder went (z. 10). A job can name
  * a folder of the worktree root or of `.limen/jobs/`, and the sweep's lines reach the coordinator's model, so every
@@ -74,6 +88,14 @@ export function pruneLine(removal: PruneRemoval): string {
 export function keptLine(kept: PruneKept): string {
 	const job = kept.job === undefined ? "none" : shownField(kept.job);
 	return `kept ${shownField(kept.path)} (job ${job}): ${kept.reason ?? "unlanded work"}`;
+}
+/**
+ * The line of a job folder that a daily step kept because another process held a lock its move needs, which the next
+ * daily run of that step takes: one line for the prune and the retire (T-25 (2), R-104), its id escaped as `keptLine`
+ * escapes a path.
+ */
+export function heldLine(id: string, step: "prune" | "retire"): string {
+	return `kept job ${shownField(id)} for the next daily ${step}: another process holds its lock`;
 }
 /**
  * Why the checkout at `path` holds state the project's repository cannot hold: a nested repository whose commit its
@@ -98,19 +120,20 @@ function registeredBelow(path: string, registered: Iterable<string>): string | u
 }
 /**
  * The daily prune of the project at `root` (D-097 (4)): moves into the job archive what no job keeps and Git does not
- * hold (`archiveUnstarted`), then removes the clean worktrees of each of its repositories that no job keeps, moving the
- * folders of the worktree root that Git does not register and that hold no `.git` into the project's archive. Returns
- * what it removed or moved and the worktrees it kept.
+ * hold (`archiveUnstarted`), then removes the clean worktrees of each of its repositories that no job keeps, moving
+ * every folder of the worktree root that Git does not register into the project's archive, its `.git` with it when it
+ * holds one (D-107 (4)). Returns what it removed or moved, the worktrees it kept, and the job folders it kept because
+ * another process held a lock their move needs.
  */
 export async function pruneFinishedWorktrees(root: string): Promise<PruneResult> {
-	const { repositories, removals, owners } = await archiveUnstarted(root, `${root}/.limen/jobs`);
+	const { repositories, removals, owners, held } = await archiveUnstarted(root, `${root}/.limen/jobs`);
 	const kept: PruneKept[] = [];
 	for (const repository of repositories) {
 		const pruned = await pruneRepositoryWorktrees(repository, root, owners);
 		removals.push(...pruned.removed);
 		kept.push(...pruned.kept);
 	}
-	return { removed: removals, kept };
+	return { removed: removals, kept, held };
 }
 /**
  * The one rule every removal obeys: a job keeps its record and its worktree while it is starting, running, or in an
@@ -260,8 +283,11 @@ async function branchUses(jobsRoot: string): Promise<Map<string, BranchUse>> {
 	}
 	return uses;
 }
-/** What the moves into the job archive did: the folders that went, and why each worktree their records named goes. */
-type Archived = { readonly removals: PruneRemoval[]; readonly owners: PruneOwners };
+/**
+ * What the moves into the job archive did: the folders that went, why each worktree their records named goes, and the
+ * job folders that stay because another process held a lock their move needs, by job id.
+ */
+type Archived = { readonly removals: PruneRemoval[]; readonly owners: PruneOwners; readonly held: readonly string[] };
 /** A folder `.limen/.publishing-<id>` a publication made, by the job's id and its time of change. */
 type Publication = { readonly folder: string; readonly id: string; readonly changed: number };
 
@@ -270,13 +296,12 @@ type Publication = { readonly folder: string; readonly id: string; readonly chan
  * and no longer starts, each folder there with no record, and each `.limen/.publishing-<id>` that a publication left,
  * and says why the worktree such a record named goes. The moves run under the jobs lock, the token draw's, as retire's
  * do (A-018), each folder read again there, and a publication's under the worktree lock too, which publication renames
- * it under. Names the repositories whose worktrees the prune visits: those of jobs that started, else the root, each
- * only while it is a Git repository, as a workspace with no job is not.
+ * it under. Every lock under the jobs lock is taken with one attempt, as retire takes a job's, since a wait there would
+ * hold every spawn's token draw: a folder whose lock another process holds stays for the next daily prune (R-104).
+ * Names the repositories whose worktrees the prune visits: those of jobs that started, else the root, each only while
+ * it is a Git repository, as a workspace with no job is not.
  */
-async function archiveUnstarted(
-	root: string,
-	jobsRoot: string,
-): Promise<{ repositories: Set<string>; removals: PruneRemoval[]; owners: PruneOwners }> {
+async function archiveUnstarted(root: string, jobsRoot: string): Promise<Archived & { repositories: Set<string> }> {
 	const repositories = new Set<string>();
 	const unstarted: string[] = [];
 	for (const id of await jobFolders(jobsRoot)) {
@@ -291,7 +316,7 @@ async function archiveUnstarted(
 	const publications = await leftPublications(root);
 	const archived: Archived =
 		unstarted.length + publications.length === 0
-			? { removals: [], owners: new Map() }
+			? { removals: [], owners: new Map(), held: [] }
 			: await withLock(jobsLock(root), () => moveUnstarted(root, unstarted, publications));
 	if (repositories.size === 0) {
 		repositories.add(root);
@@ -302,7 +327,9 @@ async function archiveUnstarted(
 /**
  * Under the jobs lock: moves each of `unstarted` that still holds no record or a record that never started and no
  * longer starts, read again under the job's own lock, and each of `publications` still left, each into the month of the
- * job archive of its start, else of the move.
+ * job archive of its start, else of the move (`unstartedTarget`). Each lock is taken with one attempt: a folder whose
+ * own lock another process holds, and every publication while another process holds the worktree lock, stays, named
+ * in `held` (R-104 Decision 3).
  */
 async function moveUnstarted(
 	root: string,
@@ -311,17 +338,21 @@ async function moveUnstarted(
 ): Promise<Archived> {
 	const removals: PruneRemoval[] = [];
 	const owners: PruneOwners = new Map();
+	const held: string[] = [];
 	for (const jobDir of unstarted) {
 		const record = existsSync(jobDir) ? await readRecord(jobDir) : undefined;
 		if (!existsSync(jobDir) || everRan(record?.state) || (await jobKeeps(jobDir, record))) {
 			continue;
 		}
-		const to = await archiveFolder(root, basename(jobDir), record);
+		const to = await unstartedTarget(root, basename(jobDir), record);
 		const again = async () => {
 			const now = await readRecord(jobDir);
 			return !(everRan(now?.state) || (await jobKeeps(jobDir, now)));
 		};
-		if (await moveLockedFolder(jobDir, to, again)) {
+		const moved = await moveLockedFolder(jobDir, to, again, { mode: "skip" });
+		if (moved === undefined) {
+			held.push(basename(jobDir));
+		} else if (moved) {
 			if (record?.worktree) {
 				owners.set(await resolved(record.worktree), {
 					jobDir,
@@ -333,25 +364,38 @@ async function moveUnstarted(
 		}
 	}
 	if (publications.length > 0) {
-		removals.push(...(await worktreeLock(`${root}/.limen/jobs`, () => movePublications(root, publications))));
+		const lock = worktreeGuard(`${root}/.limen/jobs`);
+		const moved = await withLock(lock, () => movePublications(root, publications), { mode: "skip" });
+		removals.push(...(moved?.removals ?? []));
+		held.push(...(moved?.held ?? publications.map(({ id }) => id)));
 	}
-	return { removals, owners };
+	return { removals, owners, held };
 }
-/** Under the jobs lock and the worktree lock: moves each of `publications` that is still there and still left. */
-async function movePublications(root: string, publications: readonly Publication[]): Promise<PruneRemoval[]> {
+/**
+ * Under the jobs lock and the worktree lock: moves each of `publications` that is still there and still left, its own
+ * lock taken with one attempt; one whose lock another process holds stays, named in `held`.
+ */
+async function movePublications(
+	root: string,
+	publications: readonly Publication[],
+): Promise<{ readonly removals: PruneRemoval[]; readonly held: string[] }> {
 	const removals: PruneRemoval[] = [];
+	const held: string[] = [];
 	for (const { folder, id, changed } of publications) {
 		const record = existsSync(folder) ? await readRecordOf(folder, id) : undefined;
 		if (!(existsSync(folder) && publicationLeft(record, changed))) {
 			continue;
 		}
 		const to = await archiveFolder(root, id, record);
-		if (await moveLockedFolder(folder, to, async () => true)) {
+		const moved = await moveLockedFolder(folder, to, async () => true, { mode: "skip" });
+		if (moved === undefined) {
+			held.push(id);
+		} else if (moved) {
 			const jobDir = `${root}/.limen/jobs/${id}`;
 			removals.push({ path: folder, jobDir, reason: "its publication never finished and its spawner is gone", to });
 		}
 	}
-	return removals;
+	return { removals, held };
 }
 /**
  * The folder of the job archive of the project at `root` that the job `id` of `record` moves to, its month's folder
@@ -361,6 +405,29 @@ async function archiveFolder(root: string, id: string, record: JobRecord | undef
 	const month = archiveMonth(root, record?.startedAt ?? new Date().toISOString());
 	await makeDurableFolder(month);
 	return join(month, id);
+}
+/**
+ * Where the folder `id` of `.limen/jobs/`, which holds `record` or none, moves: its month of the job archive
+ * (`archiveFolder`), or, for a folder with no record whose place there another folder already holds, the project's
+ * archive of folders that are no job (`unregisteredTarget`), so the move replaces nothing and the step succeeds. A
+ * writer that takes a job's lock right after a retire moved the job makes its folder again, empty, and the job the
+ * retire moved holds that place when both moves fall in one month (R-104 Decision 5, R-101 open point 4). The retire,
+ * the one other mover into the archive, runs under the jobs lock too, so the place cannot be taken after this check.
+ */
+async function unstartedTarget(root: string, id: string, record: JobRecord | undefined): Promise<string> {
+	const to = await archiveFolder(root, id, record);
+	return record === undefined && existsSync(to) ? await unregisteredTarget(root, id) : to;
+}
+/**
+ * A new place for the folder `name` in the archive of the project at `root` for folders that are no job,
+ * `.limen/archive/unregistered/<name>-<time>/`, whose name is no month, so no reader of the job archive takes what it
+ * holds for a job (D-097 (4) (d), R-101 Decision 3); the archive's folder is made and synced first, as retire makes a
+ * month's.
+ */
+async function unregisteredTarget(root: string, name: string): Promise<string> {
+	const folder = unregisteredArchive(root);
+	await makeDurableFolder(folder);
+	return join(folder, `${name}-${new Date().toISOString().replaceAll(/[:.]/g, "-")}`);
 }
 /**
  * The folders `.limen/.publishing-<id>` of the project at `root` that a publication left (D-080): a crash before its
@@ -405,7 +472,7 @@ async function pruneRepositoryWorktrees(
 	repository: string,
 	root: string,
 	removedOwners: PruneOwners,
-): Promise<PruneResult> {
+): Promise<PassResult> {
 	const jobsRoot = `${root}/.limen/jobs`;
 	const worktreeRoot = await resolved(worktreeRootOf(repository));
 	const listed = await removalCandidates(repository, worktreeRoot);
@@ -430,61 +497,60 @@ type PrunePass = {
 	readonly removedOwners: PruneOwners;
 	readonly unlanded: ReadonlyMap<string, string>;
 	readonly repository: string;
-	/** The project's root, whose archive takes the folders of the worktree root that hold no checkout. */
+	/** The project's root, whose archive takes the folders of the worktree root that Git does not register. */
 	readonly root: string;
 };
 /**
  * The removals of one prune, deepest first (A-001): what a kept job keeps stays, with what is inside it; a worktree with
  * unlanded work, one `git status` shows dirty, or one with a nested commit the project's repository lacks
- * (`unsavedNested`), read before anything moves, stays and is named, with what is inside it, a held one inside it named
+ * (`unsavedNested`), read before anything moves, stays and is named, with what is inside it, a kept one inside it named
  * too; and a candidate that still holds a registered worktree once the worktrees below
- * it were decided stays, named with that cause, since its removal would take that one with it. A folder Git does not
- * register that holds no `.git` is no checkout whose files a branch holds, so it moves into the project's archive
- * instead of being removed (`archiveUnregistered`, z. 29).
+ * it were decided stays, named with that cause, since its removal would take that one with it. Only a registered
+ * worktree is removed. A folder Git does not register is no checkout whose files a branch holds, with a `.git` or not:
+ * a clone keeps commits only its own `.git` holds, so it moves into the project's archive whole instead of being
+ * removed (`archiveUnregistered`, z. 29, D-107 (4)); one `git status` shows dirty stays, as above (R-104 Decision 1).
  */
-async function prunePass(pass: PrunePass): Promise<PruneResult> {
+async function prunePass(pass: PrunePass): Promise<PassResult> {
 	const jobOf = (path: string) => passJob(pass, path);
-	const held = heldCandidates(pass);
+	const keep = keptCandidates(pass);
 	const present = new Set(pass.registered);
 	const removed: PruneRemoval[] = [];
 	const kept: PruneKept[] = [];
 	for (const [path, registered] of [...pass.candidates].sort(([left], [right]) => right.length - left.length)) {
-		// A clean worktree inside a kept job's or a held one stays with it, without a line of its own.
-		const inHeld = [...held.keys()].some((folder) => path.startsWith(`${folder}/`));
-		if (within(path, pass.kept) || (inHeld && !held.has(path))) {
+		// A clean worktree inside a kept job's or a kept candidate stays with it, without a line of its own.
+		const inKept = [...keep.keys()].some((folder) => path.startsWith(`${folder}/`));
+		if (within(path, pass.kept) || (inKept && !keep.has(path))) {
 			continue;
 		}
-		const reason = held.has(path) ? held.get(path) : registeredBelow(path, present);
-		if (held.has(path) || reason) {
+		const reason = keep.has(path) ? keep.get(path) : registeredBelow(path, present);
+		if (keep.has(path) || reason) {
 			kept.push({ path, job: jobOf(path), ...(reason === undefined ? {} : { reason }) });
 			continue;
 		}
 		const owner = pass.owners.get(path) ?? pass.removedOwners.get(path);
-		// A folder another prune moved since the listing is gone: every move of one holds the worktree lock.
-		if (!(registered || existsSync(`${path}/.git`)) && existsSync(path)) {
-			const to = await archiveUnregistered(pass.root, path);
-			const why = "the directory is not a registered Git worktree and holds no .git";
-			removed.push({ path, jobDir: owner?.jobDir, reason: owner?.reason ?? why, to });
+		if (!registered) {
+			// A folder another prune moved since the listing is gone: every move of one holds the worktree lock.
+			if (existsSync(path)) {
+				const to = await archiveUnregistered(pass.root, path);
+				removed.push({ path, jobDir: owner?.jobDir, reason: owner?.reason ?? UNREGISTERED, to });
+			}
 			continue;
 		}
 		if (!(await detach(path))) {
 			continue;
 		}
 		present.delete(path);
-		const why = registered ? "no job records this worktree" : "directory is not a registered Git worktree";
-		removed.push({ path, jobDir: owner?.jobDir, reason: owner?.reason ?? why });
+		removed.push({ path, jobDir: owner?.jobDir, reason: owner?.reason ?? "no job records this worktree" });
 	}
 	return { removed: removed.reverse(), kept: kept.reverse() };
 }
 /**
- * Moves the folder `path` of a worktree root, which Git does not register and which holds no `.git`, whole into the
- * archive of the project at `root`, `.limen/archive/unregistered/<name>-<time>/`, whose name is no month, so no reader
- * of the job archive takes it for a job (D-097 (4) (d), Decision 3); returns where it went.
+ * Moves the folder `path` of a worktree root, which Git does not register, whole, its `.git` with it when it holds one,
+ * into the archive of the project at `root` for folders that are no job (`unregisteredTarget`, D-107 (4)); returns
+ * where it went.
  */
 async function archiveUnregistered(root: string, path: string): Promise<string> {
-	const folder = unregisteredArchive(root);
-	await makeDurableFolder(folder);
-	const to = join(folder, `${basename(path)}-${new Date().toISOString().replaceAll(/[:.]/g, "-")}`);
+	const to = await unregisteredTarget(root, basename(path));
 	await atomicRename(path, to);
 	return to;
 }
@@ -498,23 +564,23 @@ function passJob(pass: PrunePass, path: string): string | undefined {
  * `git status`, or a nested commit the project's repository lacks; with the cause its line names when that is not
  * `unlanded work`.
  */
-function heldCandidates(pass: PrunePass): Map<string, string | undefined> {
-	const held = new Map<string, string | undefined>();
+function keptCandidates(pass: PrunePass): Map<string, string | undefined> {
+	const keep = new Map<string, string | undefined>();
 	for (const [path] of pass.candidates) {
 		if (within(path, pass.kept)) {
 			continue;
 		}
 		if (pass.unlanded.has(path)) {
-			held.set(path, undefined);
+			keep.set(path, undefined);
 			continue;
 		}
 		const changes = worktreeChanges(path, passJob(pass, path));
 		const unsaved = changes?.length === 0 ? unsavedNested(path, pass.repository) : undefined;
 		if ((changes?.length ?? 0) > 0 || unsaved) {
-			held.set(path, unsaved);
+			keep.set(path, unsaved);
 		}
 	}
-	return held;
+	return keep;
 }
 /** Whether `path` is one of `folders` or inside one. */
 function within(path: string, folders: Iterable<string>): boolean {
@@ -522,13 +588,13 @@ function within(path: string, folders: Iterable<string>): boolean {
 }
 /** The worktree of each finished job of the project whose unlanded work nothing resolved, with the job's id. */
 async function unlandedWorktrees(root: string): Promise<Map<string, string>> {
-	const held = new Map<string, string>();
+	const unlanded = new Map<string, string>();
 	for (const work of await unlandedWork(root)) {
 		if (work.worktree) {
-			held.set(await resolved(work.worktree), work.id);
+			unlanded.set(await resolved(work.worktree), work.id);
 		}
 	}
-	return held;
+	return unlanded;
 }
 /** The folder beside `repository` that Limen makes its job worktrees in. */
 function worktreeRootOf(repository: string): string {

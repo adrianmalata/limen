@@ -37,10 +37,10 @@ import { updateRegisteredProjects } from "../project/seat.ts";
 import { sweepLines } from "../project/summary.ts";
 import { hasCode } from "../system-error.ts";
 import { jobOfScope } from "./launcher.ts";
-import { keptLine, type PruneKept, pruneFinishedWorktrees, pruneLine } from "./pruning.ts";
+import { heldLine, keptLine, type PruneKept, pruneFinishedWorktrees, pruneLine } from "./pruning.ts";
 import { confirmDeadJobs, endLeftoverScopes, type JobFailure } from "./reap.ts";
 import { resumeAfterQuota } from "./resuming.ts";
-import { heldLine, retiredLine, retireMarkedJobs } from "./retiring.ts";
+import { retiredLine, retireMarkedJobs } from "./retiring.ts";
 import { removeDeadEntries } from "./start-queue.ts";
 
 /** The package root of the running CLI, whose `bin/limen` the sweep's service runs (`/opt/limen` on the seat). */
@@ -269,11 +269,11 @@ async function sweepProject(
 /**
  * The daily steps of the project at `root`, when its stamp is absent or at least 24 hours old (`dailyDue`): prune,
  * retire, and the close of leftover Herdr tabs, in that order, each one whether or not one before it failed, as the
- * minute steps run. Each line of a removal, a move or a retire goes out, and of a job that retire keeps since another
- * process holds its lock, which keeps the step a success, and a `kept` line once, though prune and retire both keep a
- * worktree. Only when every step succeeded is the stamp written, atomically, and named; a step that fails is returned,
- * named `<root> (daily <step>)`, with no stamp, so the next minute's run does the daily steps again (T-02). A manual
- * run does what the timer does (D-097 (4) (a)).
+ * minute steps run. Each line of a removal, a move or a retire goes out, and of a job folder that prune or retire keeps
+ * since another process holds a lock its move needs, which keeps the step a success (R-104), and a `kept` line once,
+ * though prune and retire both keep a worktree. Only when every step succeeded is the stamp written, atomically, and
+ * named; a step that fails is returned, named `<root> (daily <step>)`, with no stamp, so the next minute's run does the
+ * daily steps again (T-02). A manual run does what the timer does (D-097 (4) (a)).
  */
 async function dailySteps(root: string, out: CommandText): Promise<readonly Failed[]> {
 	const where = (step: string) => `${root} (daily ${step})`;
@@ -299,7 +299,8 @@ async function dailySteps(root: string, out: CommandText): Promise<readonly Fail
 			"prune",
 			async () => {
 				const pruned = await pruneFinishedWorktrees(root);
-				return [...pruned.removed.map(pruneLine), ...keptLines(pruned.kept)];
+				const held = pruned.held.map((id) => heldLine(id, "prune"));
+				return [...pruned.removed.map(pruneLine), ...keptLines(pruned.kept), ...held];
 			},
 		],
 		[
@@ -307,7 +308,8 @@ async function dailySteps(root: string, out: CommandText): Promise<readonly Fail
 			async () => {
 				const { retired, held, branches, kept: stays } = await retireMarkedJobs(root);
 				const deleted = branches === 0 ? [] : [`deleted ${branches} landed branch${branches === 1 ? "" : "es"}`];
-				return [...keptLines(stays), ...retired.map(retiredLine), ...held.map(heldLine), ...deleted];
+				const waiting = held.map((id) => heldLine(id, "retire"));
+				return [...keptLines(stays), ...retired.map(retiredLine), ...waiting, ...deleted];
 			},
 		],
 		["close of leftover tabs", () => closeLeftoverTabs(root)],

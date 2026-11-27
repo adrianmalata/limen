@@ -446,7 +446,8 @@ export function archiveMonth(root: string, at: string): string {
 
 /**
  * The folder of the archive of the project at `root` that prune moves a folder of the worktree root to when Git does
- * not register it and it holds no `.git` (D-097 (4) (d)): `.limen/archive/unregistered/`, whose name is no month, so no
+ * not register it, with its `.git` or not, and a folder of `.limen/jobs/` with no record whose place in its month
+ * another folder holds (D-097 (4) (d), D-107 (4), R-104): `.limen/archive/unregistered/`, whose name is no month, so no
  * reader of the job archive takes what it holds for a job.
  */
 export function unregisteredArchive(root: string): string {

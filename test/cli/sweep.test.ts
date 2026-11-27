@@ -16,7 +16,7 @@ import {
 } from "node:fs";
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { userInfo } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { type TestContext, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { type Identity, type JobRecord, readRecordSync, type Scope } from "../../src/job/record.ts";
@@ -835,6 +835,53 @@ test("the daily retire keeps a job whose lock another process holds, with a line
 				.includes(`kept job ${held} for the next daily retire: another process holds its lock`),
 		},
 		{ held: true, retired: true, stamp: true, line: true },
+	);
+});
+
+// R-104, R-101 open point 6: prune waited up to 60 s for a folder's own lock while it held the jobs lock, so one lock
+// held elsewhere failed the whole daily prune with LOCK_TIMEOUT, and no stamp was written. The wait is cut to 200 ms,
+// so a run that still waits fails at once.
+test("the daily prune keeps a folder whose lock another process holds, with a line, and the run writes the stamp", async (t) => {
+	const p = await fresh(t);
+	const folder = await leftover(p);
+	const run = await withLock({ folder }, async () => sweep(p, [], { env: { LIMEN_LOCK_WAIT_MS: "200" } }));
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(
+		{
+			kept: existsSync(join(folder, "log")),
+			stamp: existsSync(stampOf(p)),
+			line: outputText(run)
+				.split("\n")
+				.includes(`kept job ${basename(folder)} for the next daily prune: another process holds its lock`),
+		},
+		{ kept: true, stamp: true, line: true },
+	);
+});
+
+// R-104, R-101 open point 4: a writer that takes a job's lock after a retire moved the job makes the job's folder
+// again, empty, and the daily prune's move of it into the month of the job archive that holds the retired job failed
+// with STEP_FAILED, so no stamp was written and the daily steps ran every minute until the month changed.
+test("the daily prune moves an empty job folder whose month in the job archive holds the retired job, leaves that job byte for byte, and the run writes the stamp", async (t) => {
+	const p = await fresh(t);
+	const id = "2026-11-23-retired-1a2b3c4d";
+	const now = new Date().toISOString();
+	const retired = archived(p, id, now);
+	const abandoned = { branch: `limen/abandon/${id}`, commit: "2".repeat(40), at: now };
+	await writeRecord(retired, { state: "done", label: id, startedAt: now, finishedAt: now, abandoned });
+	await writeFile(join(retired, "log"), "the retired job's log\n");
+	const before = tree(retired);
+	await mkdir(jobDir(p, id), { recursive: true });
+	const run = sweep(p);
+	assert.equal(run.status, 0, run.stderr);
+	const unregistered = join(p.root, ".limen", "archive", "unregistered");
+	assert.deepEqual(
+		{
+			archived: tree(retired),
+			stamp: existsSync(stampOf(p)),
+			left: existsSync(jobDir(p, id)),
+			moved: existsSync(unregistered) && readdirSync(unregistered).some((name) => name.startsWith(`${id}-`)),
+		},
+		{ archived: before, stamp: true, left: false, moved: true },
 	);
 });
 

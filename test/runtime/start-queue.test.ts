@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { type JobRecord, readRecordSync, recordPath } from "../../src/job/record.ts";
@@ -46,11 +46,15 @@ const logOf = (dir: string): string => (existsSync(join(dir, "log")) ? readFileS
 const ended = (waiting: Promise<QueueEnd>) =>
 	Promise.race([waiting, delay<"still waiting">(BOUND_MS, "still waiting", { ref: false })]);
 
-/** A seat in the OS temporary folder for one test, its gate file holding `text` (none when undefined); its path. */
+/**
+ * A seat in the OS temporary folder for one test, its gate file holding `text` (none when undefined), with one
+ * registered project, `<seat>/repo`, whose jobs the tests queue; its path.
+ */
 async function seat(t: TestContext, text?: string): Promise<string> {
 	const home = await mkdtemp(join(tmpdir(), "limen-start-gate-"));
 	t.after(() => rm(home, { recursive: true, force: true }));
 	await mkdir(join(home, ".limen"));
+	await writeFile(join(home, ".limen", "projects"), `${join(home, "repo")}\n`);
 	if (text !== undefined) {
 		await writeFile(join(home, ".limen", GATE_FILE), text);
 	}
@@ -491,6 +495,73 @@ test("the queue's entries as seat queue reads them hold only the live one, and e
 test("removeDeadEntries removes the dead and the malformed entry, keeps the live one, and says how many it removed", async (t) => {
 	const entries = await threeEntries(t);
 	assert.deepEqual([await removeDeadEntries(), readdirSync(entries)], [2, ["live.json"]]);
+});
+
+/** The job of the entry `foreignEntry` writes: it runs in a folder of no project the seat registers. */
+const FOREIGN = "2026-11-26-foreign-9a8b7c6d";
+/** The test's folder that holds the seat whose start queue keeps its entries in `entries`. */
+const homeOf = (entries: string): string => dirname(dirname(dirname(entries)));
+/**
+ * Writes, into the start queue of the seat at `home`, the entry of a job whose wrapper is this process, whose record
+ * runs and whose folder is no job of a project the seat registers (`<seat>/elsewhere`), first in start order (priority
+ * 1, queued at 1); its file's name.
+ */
+async function foreignEntry(home: string): Promise<string> {
+	const dir = join(home, "elsewhere", ".limen", "jobs", FOREIGN);
+	await writeRecord(dir, { state: "running" });
+	const entries = join(home, ".limen", "start-queue", "entries");
+	await mkdir(entries, { recursive: true });
+	const entry = { id: FOREIGN, jobDir: dir, label: FOREIGN, priority: 1, queuedAt: 1, pid: process.pid };
+	await writeFile(join(entries, `${FOREIGN}.json`), JSON.stringify(entry));
+	return `${FOREIGN}.json`;
+}
+
+// D-107 (5), R-102 open point 9: an entry was live on its pid and its record alone, so any process of the agents'
+// account could hold every other job's start until its failAfter with an entry that names a running record anywhere.
+test("the queue's entries as seat queue reads them leave out an entry whose folder is no job of a registered project", async (t) => {
+	const entries = await threeEntries(t);
+	await foreignEntry(homeOf(entries));
+	const listed = await queueEntries();
+	assert.deepEqual(
+		listed.map((entry) => entry.id),
+		["2026-11-24-live-1a2b3c4d"],
+	);
+});
+
+test("removeDeadEntries removes an entry whose folder is no job of a registered project", async (t) => {
+	const entries = await threeEntries(t);
+	const foreign = await foreignEntry(homeOf(entries));
+	await removeDeadEntries();
+	assert.equal(existsSync(join(entries, foreign)), false);
+});
+
+test("a queued job of a registered project starts while an entry whose folder is no job of a registered project is first in start order", async (t) => {
+	const paths = await queuedJob(t, OPEN);
+	await foreignEntry(paths.home);
+	const stop = new AbortController();
+	const waiting = waitForStart(paths.dir, stop.signal);
+	try {
+		assert.equal(await ended(waiting), "started");
+	} finally {
+		stop.abort();
+		await Promise.allSettled([waiting]);
+	}
+});
+
+// R-104 Decision 7: the rule holds the starts of other jobs only, so a waiting wrapper judges its own entry by its
+// wrapper and its job alone; judged by the rule, the entry of a job of a project the seat does not register would be
+// dead to its own wrapper, which would then never be first in the queue and would wait until failAfter.
+test("a queued job of a project the seat does not register starts in its turn", async (t) => {
+	const paths = await queuedJob(t, OPEN);
+	await writeFile(join(paths.home, ".limen", "projects"), "");
+	const stop = new AbortController();
+	const waiting = waitForStart(paths.dir, stop.signal);
+	try {
+		assert.equal(await ended(waiting), "started");
+	} finally {
+		stop.abort();
+		await Promise.allSettled([waiting]);
+	}
 });
 
 /**

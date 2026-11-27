@@ -25,9 +25,9 @@ export const RETIRE_AFTER_MS = 24 * 60 * 60_000;
 /** A job retire moved: its id and its folder in the archive, from the project's root. */
 export type Retired = { readonly id: string; readonly to: string };
 /**
- * What one retire did: the jobs it moved, the jobs it kept because another process held their own lock, how many
- * landed branches it deleted, and the worktree of each finished job that holds unlanded work, which it keeps with its
- * record, as prune does.
+ * What one retire did: the jobs it moved, the jobs it kept because another process held their own lock, by id, whose
+ * line is prune's `heldLine`, how many landed branches it deleted, and the worktree of each finished job that holds
+ * unlanded work, which it keeps with its record, as prune does.
  */
 export type RetireResult = {
 	readonly retired: readonly Retired[];
@@ -42,11 +42,6 @@ export type RetireResult = {
  */
 export function retiredLine({ id, to }: Retired): string {
 	return `retired ${shownField(id)} to ${shownField(to)}`;
-}
-
-/** The line of a job retire kept because another process held its own lock, which the next daily retire takes. */
-export function heldLine(id: string): string {
-	return `kept job ${shownField(id)} for the next daily retire: another process holds its lock`;
 }
 
 /** A job retire takes: its folder, its record as the first read found it, and its folder in the archive. */

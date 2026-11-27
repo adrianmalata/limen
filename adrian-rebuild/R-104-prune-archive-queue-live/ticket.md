@@ -3,7 +3,8 @@
 czysty folder jest kasowany); pod lockiem jobów bierze locki folderów jedną próbą, jak retire; pusty
 `.limen/jobs/<id>/` obok wycofanego joba nie wywraca już dziennych kroków; wpis kolejki startowej jest żywy tylko dla
 joba zarejestrowanego projektu. Stan: napisany 26.11 przy `cbe6f1a` z inwentarza `evidence/inventories/R-104.md`;
-`active` od 27.11 w nocy przy `767ac6f`, z miejscami faktów w decyzji 8. -->
+`active` od 27.11 w nocy przy `767ac6f`, z miejscami faktów w decyzji 8; decyzja 9 (domyślna nocna) zawęża test
+klonu z nieistniejącym gitdirem, a sama sprawa czeka na Adriana jako Q-104. -->
 
 # R-104 The sweep's daily prune archives every unregistered folder and waits on no job's lock; a queue entry is live only for a project's job
 
@@ -142,3 +143,29 @@ inventory's questions in `evidence/inventories/R-104.md` → section 9):
    criteria at `HEAD`: AC-5 and AC-8 exit 1; AC-6 exits 0 only on the lines the ticket changes
    (`src/runtime/pruning.ts:466`, `test/runtime/pruning.test.ts:167` and `:184`), AC-7 only on `docs/jobs.md:143` and
    `:149`. AC-10 names the gate's `--out` form (D-130).
+9. 2026-11-27, the implementer's `BLOCKED` in protocol step 3 (night default, for Adrian to confirm in the morning;
+   D-054 (2) (a): Change 5's test of a clone whose `.git` names a gone gitdir contradicts the ticket's own Change 1 and
+   Decision 1 on this machine's Git, so it is narrowed to the ticket's scope). The fact: with Git 2.56.1, `git status`
+   in such a folder prints `fatal: gitfile does not point to a valid repository: <path>/.git`, which `worktreeChanges`
+   (`src/project/git.ts:365-378`) does not read as "no checkout" (it knows only `not a git repository`), so the held
+   checks, which come first (Change 1, Decision 1), fail the daily prune with `GIT_FAILED` naming the folder, at `HEAD`
+   and after this ticket alike; fact 1 rested on the older wording. The answer (the implementer's option (b)): that
+   test asserts what Decision 1 gives, the daily prune fails with `GIT_FAILED` naming the folder and the folder stays
+   byte for byte; it passes at `HEAD`, a guard and no fails-before test, and AC-1 holds with it. Nothing about the
+   case changes in this ticket: neither `worktreeChanges`, which every caller shares (spawn, `limen status`, abandon,
+   land, the registered worktree pass), nor an archive of an unregistered folder whose status fails. Whether one of
+   those comes, and in which ticket, is Q-104 for Adrian (`.night/questions.md`), which does not stop this ticket.
+10. 2026-11-27, review round 1 (PASS; `review.md`), the findings to fix (protocol step 6; the main session's reading,
+    settled by T-18, T-29 (5) and T-30, not asked):
+    - F1 (note 1): the doc comment at `src/runtime/sweeping.ts:274` is rewrapped at 120 columns, as the file's others.
+    - F2 (note 3, T-18: one word per thing): `held` keeps the meaning Change 2 and Decision 4 give it, a folder whose lock
+      another process holds; the existing `heldCandidates` (`src/runtime/pruning.ts`, the worktrees kept for dirty or
+      unlanded work, whose lines say `kept`) is renamed `keptCandidates`, with its callers and comments, so "held" names
+      one thing in the module.
+    - F3 (note 4, T-30): the `QueueReader` doc (`src/runtime/start-queue.ts:561-562`) names the rule as the
+      `readEntries` doc does: the wrapper's own entry is judged by its wrapper and its job alone, every other entry also
+      by whether its folder is a job of a registered project.
+    - F4 (note 6, T-29 (5)): the opening comments of `test/runtime/pruning.test.ts`, `test/cli/sweep.test.ts` and
+      `test/runtime/start-queue.test.ts` get no added sentences: each goes back to its text at `HEAD`, and what the new
+      tests check stays in their names and the comments above them (T-29 (6): the header becomes one line in the ticket
+      that rewrites the module).

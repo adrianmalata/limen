@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { mkdir, readdir, readFile, rm } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { mkdir, readdir, readFile, realpath, rm } from "node:fs/promises";
+import { basename, isAbsolute, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { atomicWrite } from "../atomic-write.ts";
 import {
@@ -31,7 +31,7 @@ import {
 import { LimenError, usageError } from "../outcome.ts";
 import { platform } from "../platform/platform.ts";
 import { readOptional } from "../project/inherit.ts";
-import { seatDir } from "../project/seat.ts";
+import { registeredProjects, seatDir } from "../project/seat.ts";
 import { hasCode } from "../system-error.ts";
 import { queueDiagnosis } from "./queue-diagnosis.ts";
 
@@ -488,7 +488,9 @@ async function enqueue(entry: Entry): Promise<void> {
 	}
 }
 async function decide(entry: Entry, gate: StartGate | undefined, stop: AbortSignal): Promise<Decision> {
-	const ahead = (await liveEntries()).filter((other) => other.id !== entry.id && order(other, entry) < 0).length;
+	const ahead = (await liveEntries(entry.id)).filter(
+		(other) => other.id !== entry.id && order(other, entry) < 0,
+	).length;
 	if (!gate) {
 		return { start: true, detail: "the gate is off" };
 	}
@@ -516,7 +518,7 @@ async function decide(entry: Entry, gate: StartGate | undefined, stop: AbortSign
 	return groupLock(
 		queueDir(),
 		async (): Promise<Decision> => {
-			if ((await liveEntries())[0]?.id !== entry.id || (await settleLeft(gate)) > 0) {
+			if ((await liveEntries(entry.id))[0]?.id !== entry.id || (await settleLeft(gate)) > 0) {
 				return { start: false, kind: "raced", detail, ahead: 0 };
 			}
 			await atomicWrite(join(queueDir(), "last-start"), `${new Date().toISOString()}\n`);
@@ -556,22 +558,35 @@ const order = (a: Entry, b: Entry): number =>
 	a.priority - b.priority || a.queuedAt - b.queuedAt || a.id.localeCompare(b.id);
 
 /**
- * The queue in start order, read only: the entries whose wrapper lives and whose job runs, and the files of the dead
- * and malformed ones, which whoever may write removes. A recycled pid can keep a dead entry until the reaper ends its
- * job; the state check then finds it dead. A missing folder is an empty queue. With `strict`, as the seat sweep reads
- * it, any other failure to list the folder goes on (T-01, review round 2, note 13); the waiting wrappers and `limen
- * seat queue` still read such a folder as empty, until R-082 brings the swallowed errors to zero.
+ * How a reader reads the queue: `strict`, as the seat sweep reads it, and `own`, the id of a waiting wrapper's own job,
+ * whose entry `readEntries` judges by its wrapper and its job alone, every other entry also by whether its folder is a
+ * job of a registered project.
  */
-async function readEntries(strict = false): Promise<{ readonly live: Entry[]; readonly dead: string[] }> {
+type QueueReader = { readonly strict?: boolean; readonly own?: string };
+
+/**
+ * The queue in start order, read only: the entries whose wrapper lives, whose folder is a job of a project the seat
+ * registers (`projectJob`, D-107 (5)) and whose job runs, and the files of the dead, foreign and malformed ones, which
+ * whoever may write removes. So any process of the agents' account that writes an entry naming a running record
+ * elsewhere holds no other job's start. The entry of the reader's own job (`own`) is judged by its wrapper and its job
+ * alone: the rule guards the other jobs' starts, so a job of a project the seat does not register still starts in its
+ * turn (R-104 Decision 7). A recycled pid can keep a dead entry until the reaper ends its job; the state check then
+ * finds it dead. A missing folder is an empty queue. With `strict`, as the seat sweep reads it, any other failure to
+ * list the folder goes on (T-01, review round 2, note 13); the waiting wrappers and `limen seat queue` still read such
+ * a folder as empty, until R-082 brings the swallowed errors to zero.
+ */
+async function readEntries(reader: QueueReader = {}): Promise<{ readonly live: Entry[]; readonly dead: string[] }> {
 	const folder = join(queueDir(), "entries");
 	const live: Entry[] = [];
 	const dead: string[] = [];
 	const names = await readdir(folder).catch((error: unknown) => {
-		if (strict && !hasCode(error, "ENOENT")) {
+		if (reader.strict && !hasCode(error, "ENOENT")) {
 			throw error;
 		}
 		return [] as string[];
 	});
+	// A relative path would name a folder below the reader's working folder, so it names no project.
+	const roots = registeredProjects().filter((root) => isAbsolute(root));
 	for (const name of names) {
 		if (!name.endsWith(".json")) {
 			continue;
@@ -581,7 +596,7 @@ async function readEntries(strict = false): Promise<{ readonly live: Entry[]; re
 			continue;
 		}
 		const entry = parseEntry(body);
-		if (entry && platform.processAlive(entry.pid) && (await entryState(entry.jobDir)) === "running") {
+		if (entry && (await liveEntry(entry, entry.id === reader.own ? undefined : roots))) {
 			live.push(entry);
 		} else {
 			dead.push(join(folder, name));
@@ -590,9 +605,62 @@ async function readEntries(strict = false): Promise<{ readonly live: Entry[]; re
 	return { live: live.sort(order), dead };
 }
 
-/** The queue in start order, for a waiting wrapper: a dead or malformed entry is removed, so it never blocks. */
-async function liveEntries(): Promise<Entry[]> {
-	const { live, dead } = await readEntries();
+/**
+ * Whether the entry `entry` is live: its wrapper lives, its folder is a job of one of the registered projects `roots`
+ * (none to check for the reader's own job), and its job runs. The folder is checked before its record is read, so no
+ * record outside the registered projects is read.
+ */
+async function liveEntry(entry: Entry, roots: readonly string[] | undefined): Promise<boolean> {
+	return (
+		platform.processAlive(entry.pid) &&
+		(roots === undefined || (await projectJob(entry, roots))) &&
+		(await entryState(entry.jobDir)) === "running"
+	);
+}
+
+/**
+ * Whether the folder of `entry` is one of the jobs of a project the seat registers (D-107 (5), R-104 Decision 6): its
+ * `jobDir` is `<root>/.limen/jobs/<id>` for one of `roots`, the entry's own id a folder name there, compared as real
+ * paths, so neither a link nor `..` makes another folder one of the project's jobs.
+ */
+async function projectJob(entry: Entry, roots: readonly string[]): Promise<boolean> {
+	const { id } = entry;
+	if (id === "" || id.startsWith(".") || basename(id) !== id) {
+		return false;
+	}
+	const real = await realPath(entry.jobDir);
+	if (real === undefined) {
+		return false;
+	}
+	for (const root of roots) {
+		if ((await realPath(join(root, ".limen", "jobs", id))) === real) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * The real path of `path`; undefined when nothing is there (ENOENT), as a project holds no job of that id. Any other
+ * failure to resolve it goes on (T-01).
+ */
+async function realPath(path: string): Promise<string | undefined> {
+	try {
+		return await realpath(path);
+	} catch (error) {
+		if (hasCode(error, "ENOENT")) {
+			return undefined;
+		}
+		throw error;
+	}
+}
+
+/**
+ * The queue in start order, for the waiting wrapper of the job `own`: a dead, foreign or malformed entry is removed, so
+ * it never blocks, and the wrapper's own entry is judged by its wrapper and its job alone (`readEntries`).
+ */
+async function liveEntries(own: string): Promise<Entry[]> {
+	const { live, dead } = await readEntries({ own });
 	for (const path of dead) {
 		await rm(path, { force: true });
 	}
@@ -605,12 +673,12 @@ export async function queueEntries(): Promise<readonly Entry[]> {
 }
 
 /**
- * Removes every dead or malformed entry of the start queue, once per run of the seat sweep (R-032), since `limen seat
- * queue` only skips one and a dead wrapper never removes its own; returns how many it removed. A queue folder that
- * cannot be listed for another reason than its absence is the sweep's failure, never an empty queue.
+ * Removes every dead, foreign or malformed entry of the start queue, once per run of the seat sweep (R-032), since
+ * `limen seat queue` only skips one and a dead wrapper never removes its own; returns how many it removed. A queue
+ * folder that cannot be listed for another reason than its absence is the sweep's failure, never an empty queue.
  */
 export async function removeDeadEntries(): Promise<number> {
-	const { dead } = await readEntries(true);
+	const { dead } = await readEntries({ strict: true });
 	for (const path of dead) {
 		await rm(path, { force: true });
 	}
@@ -638,9 +706,9 @@ function parseEntry(body: string): Entry | undefined {
 }
 
 /**
- * The state of the job an entry names. The queue is the seat's, so the job may belong to any project: a record this
- * Limen cannot read (damaged, or not migrated) ends the entry as a dead job's does, and the job's own commands report
- * the record.
+ * The state of the job an entry names. The queue is the seat's, so the job may belong to any of its projects: a record
+ * this Limen cannot read (damaged, or not migrated) ends the entry as a dead job's does, and the job's own commands
+ * report the record.
  */
 async function entryState(jobDir: string): Promise<string | undefined> {
 	const record = await readRecord(jobDir).catch((error: unknown) => {
