@@ -180,7 +180,10 @@ w bramce dała D-133, znalezisko A-092 i nowy ticket R-112. Przekazanie do limen
 rekomendacje: tag `limen-turn-cue`, krótka linia porażki, wizja joba do wiadomości kontekstowej, reguła języka
 w rejestrze właściciela, akapit ASD-STE100 do rejestru agenta, `templates/communication.md` wycięty). R-044
 zamknięty (trzy rundy recenzji: FAIL, PASS, PASS); R-041 zamknięty według D-134 (trzy rundy recenzji); jednorazowa
-porażka testu wake w bramce R-041 dała D-135: wyjątek od D-029 dla A-092 do czasu R-112, który idzie następny. -->
+porażka testu wake w bramce R-041 dała D-135: wyjątek od D-029 dla A-092 do czasu R-112, który idzie następny.
+Przekazanie do limen-rebuild-44: inwentarz R-112 pokazał, że hook wake nie czeka na zapis rejestru projektów, który
+przeżywa jego zatrzymanie → D-136 (zatrzymanie hooka czeka na ten zapis, testy zatrzymują hook przed usunięciem
+folderu) i fakt E-22 (Pi czeka na handlery `session_shutdown`); R-112 `active`. -->
 
 
 
@@ -1621,6 +1624,21 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   gate's output line and the count it reports) and runs the gate once more; any other failure, or a second failure of
   that file in the same ticket, follows D-029. R-112's commit removes the exception from `## Agents`. (2) R-112 is the
   next ticket after R-041, before R-045. Check: none (the outcome records each occurrence).
+- 2026-11-27 D-136 (Adrian: "rekomendacja"; Q-101, option (a), from R-112's read-only inventory): the reproduction
+  shows A-092's cause beyond the implementer's reading in D-133. The wake hook starts the project's registration in the
+  seat folder at `session_start` without awaiting it (`hook/wake.ts:956` at `11860b9`: `void
+  registerProject(root).catch(() => {})`), and its `session_shutdown` handler returns nothing, so the registry write
+  outlives the hook's stop; `node:test` runs `t.after` hooks in the order they were registered, so today the folder's
+  removal also comes first. A script outside the repository: a removal of the folder right after `session_start`
+  failed with `ENOTEMPTY` on `home/.limen` in 2 of 100 runs; right after an awaited shutdown the seat folder did not
+  exist, and after 300 ms it held `projects`. (1) R-112 changes `hook/wake.ts` as well: the hook keeps the
+  registrations it started, and its `session_shutdown` handler returns once they have settled. Pi awaits each
+  `session_shutdown` handler (E-22), so a stop on the seat (exit, `/reload`) waits for that write: normally
+  milliseconds, at most the lock's 60 s bound when another live process holds the registry's lock. (2) The wake tests
+  stop every hook they started, awaiting its shutdown, before they remove the project's folder; a new test that fails
+  before the change shows the registry written, with no lock left, after an awaited shutdown. (3) R-112's sources add
+  D-136 and E-22; its title stays. The main session carries it out (his consent in the same answer). Check: R-112's
+  criteria.
 
 ### Gate 2 §2, copied
 
@@ -1744,6 +1762,7 @@ the sources itself.
 | E-19 | How Pi runs the tool calls of one assistant message (R-036; the seat and the package source, 2026-11-25) | In parallel by default (`toolExecution ?? "parallel"`, `pi-agent-core@1.5.1/dist/agent.js#L147`): `executeToolCallsParallel` (`dist/agent-loop.js`) emits every `tool_execution_start` first, then each `tool_execution_end` as its tool finishes, so a tool can end while another of its message still runs. | A-059 | yes (code; the seat's first stall trial, `## State`, "`limen-rebuild-33`") |
 | E-20 | What Pi does with a message sent while `agent_settled` is emitted (A-089; the package source, 2026-11-26) | Run after the event: `prompt` and an idle `sendCustomMessage` with `triggerTurn` push themselves onto `_deferredSettledActions` while `_isEmittingAgentSettled` is set (`pi-coding-agent@1.5.1/dist/core/agent-session.js#L1696-L1699`, `#L1967-L1971`); `_emitAgentSettled` marks the session idle, awaits every handler, then runs the held actions one by one, each as a run of its own that ends with its own `agent_settled` (`#L738-L760`, `#L1528-L1536`), depth first, with no `catch`, so a throwing action drops the rest. No event carries a run or message id; `agent_settled` carries only `aborted`; `pi.sendUserMessage` returns nothing (`extensions/loader.js#L315-L318`). | A-089 | yes (code; `evidence/wake-settle-deferral.md`, `evidence/inventories/R-111.md` → section 1) |
 | E-21 | What Pi does with two hook sends made in one synchronous stretch while the session is idle (A-090; the package source, 2026-11-26) | Both start runs: `prompt` awaits `_preparePrompt` before it reads `isStreaming` (`agent-session.js#L1720`, `#L1749`), and only `_startRun` marks the session busy (`#L1488`), so neither send sees the other and `deliverAs` is not read. The second run's `agent.prompt` throws "Agent is already processing a prompt" (`pi-agent-core@1.5.1/dist/agent.js#L246-L248`) before any `message_start`; its `finally` emits `agent_settled` inside the first run and marks the session idle (`agent-session.js#L740`); the message is dropped and the error goes only to the extension error channel. Deterministic when no extension has an `input` handler and the auth check is synchronous. | A-090 | yes (code, traced and not run; `evidence/inventories/R-111.md` → section 2) |
+| E-22 | Does Pi wait for an extension's `session_shutdown` handler (A-092; the package source, 2026-11-27) | Yes, on every path that ends a session: `emitSessionShutdownEvent` awaits `extensionRunner.emit(event)` (`pi-coding-agent@1.5.1/dist/core/extensions/runner.js#L80-L85`), and `emit` awaits each handler of each extension in turn, a throw going to the extension error channel (`#L821-L848`); the process exit (`dist/core/agent-session-runtime.js#L301-L310`, reason `quit`), a session switch (`#L102-L112`) and `/reload` (`dist/core/agent-session.js#L3103`) await it before the session is disposed. So a handler that returns a promise holds the stop until the promise settles. | A-092 | yes (code, not run) |
 
 **Consequences (main session, 2026-11-17).**
 - **A-086 (critical, `fix`; Adrian, gate 2 revision 2):** E-1 means that on the seat's only route Limen's role
@@ -2046,7 +2065,7 @@ Columns:
 | R-109 | The alerts' unit sends over IPv4 first | 4 | A-066, D-108, D-112 | R-033 | S | delegated | night | — | systemd | 4.11 | ready |
 | R-110 | A continuation reuses its parent's context message; change notices and the board digest come only on a change | 4 | A-079, A-037, A-051, D-114, D-120, D-126 | R-039, R-042, R-043, R-044 | M | delegated | night | — | pi | 4.2 | ready |
 | R-111 | A wake is settled only by the run it entered; an idle sweep starts one run | 4 | A-089, A-090, D-128, D-129 | R-038 | L | delegated | night | — | pi | 4.14 | done |
-| R-112 | The wake hook's tests stop the hook before they remove its folder | 4 | A-092, D-133 | R-043 | S | delegated | night | — | — | — | planned |
+| R-112 | The wake hook's tests stop the hook before they remove its folder | 4 | A-092, D-133, D-136, E-22 | R-043 | S | delegated | night | — | — | — | active |
 | R-048 | Jobs run the bridge isolated: no `--approve`, `--offline`, a private `TMPDIR`, an explicit Claude Code path | 5 | A-025, E-3, E-4, E-15, D-005, D-017 | R-040, R-087 | M | delegated | night | — | pi, bridge | 5.8, 5.9 | planned |
 | R-049 | Agents run only root-owned code; Pi, bridge and Claude Code versions are declared | 5 | A-025, T-32, T-36, D-017 | R-017, R-020, R-048 | L | delegated | night | yes | pi | 5.3, 5.5, 5.6, 5.10, 5.20 | planned |
 | R-050 | The registered coordinator and its start script | 5 | A-033, A-061, A-029, §2, D-017 | R-026, R-033, R-034, R-049 | L | delegated | night | yes | pi, herdr, systemd | 5.4, 5.11, 5.20 | planned |
@@ -6122,3 +6141,15 @@ and no night running): `limen-rebuild-43` starts `limen-rebuild-44` with `node a
    handovers: R-044 Decisions 17 and 18, Deviations 1–10 and Open points 1–10; R-041's Deviations 1–5 and Open points
    1–4; D-135's reading of "tak".
 The handover after it is `limen-rebuild-45`.
+
+`limen-rebuild-44` (2026-11-27, by day, Adrian at the terminal): `close-previous` printed `handover: closed tmux session
+limen-rebuild-43` and one `handover: stopped claude …` line and exited 0; the takeover push was skipped as redundant,
+the terminal being active; context 8 % at the start; `HEAD` = `origin/adrian-rebuild` = `11860b9`, the tree clean.
+- R-112's read-only inventory (D-135 (2)) showed A-092's cause beyond D-133's reading: the hook's registration in the
+  seat folder is not awaited and outlives its `session_shutdown`, so a stop before the removal alone would not end the
+  race (a scratch script: 2 of 100 removals right after `session_start` failed with `ENOTEMPTY`). Q-101 with a push
+  (searched first: `input/gate-2-decisions.md`, `taste.md` (T-01, T-29), `input/zasady-budowy-harnessu.md` (z. 14,
+  17, 21), `## Decisions` (D-029, D-133, D-135)) → Adrian: "rekomendacja" → D-136 and engine fact E-22. R-112 `active`
+  at `11860b9`, its `ticket.md` written.
+- Next: R-112 through protocol steps 3–7; then R-045, R-047, R-104–R-110 (all `ready`), and R-046's variants sheet
+  (D-054 (3)).
