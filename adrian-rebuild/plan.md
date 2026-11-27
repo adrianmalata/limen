@@ -188,7 +188,8 @@ folderu) i fakt E-22 (Pi czeka na handlery `session_shutdown`); po przerwie Adri
 (narzędzia i skille według roli, rola tylko do odczytu, która coś zapisze, kończy się `failed`; recenzja FAIL, PASS,
 PASS); D-137 (noc dziś do 8:00, sobota w dzień, przebieg weekendowy w dwóch oknach od soboty 15:00) i D-138 (commit
 ticketu po temacie, dokładna linia Rollback przy kolizji; commit `Tools:`); przekazanie do limen-rebuild-45, która
-uruchamia noc. -->
+zrobiła preflight nocy (testy runnera 43/43, handover 24/24, check.mjs bez błędów, 8 ticketów ready) i uruchamia
+night.mjs do 8:00. -->
 
 
 
@@ -6241,3 +6242,25 @@ session's acts, in this order:
    16–18, Deviations 1–10 and Open points 1–9; `evidence/changes-subject/outcome.md` → Open points 1–4.
 The handover after it is `limen-rebuild-46`.
 
+
+`limen-rebuild-45` (2026-11-27, by day, Adrian at the terminal and on his phone): `close-previous` printed `handover:
+closed tmux session limen-rebuild-44` and one `handover: stopped claude …` line and exited 0; the takeover push was
+skipped as redundant, the terminal being active; context 10 % at the start; `HEAD` = `origin/adrian-rebuild` =
+`d4ffdf3`, the tree clean.
+
+Night of 2026-11-27/28 (D-137 (1), D-102's pattern, until 08:00; D-137 is Adrian's request for this start, D-024).
+Preflight at `d4ffdf3` (D-024): `node --test adrian-rebuild/tools/test-night.mjs` → exit 0 (43/43); `node --test
+adrian-rebuild/tools/test-handover.mjs` → exit 0 (24/24); `night.mjs` unchanged since `356807f`, whose review rounds
+1–3 were PASS (`evidence/night-reset-wait/review.md`); `node adrian-rebuild/tools/check.mjs` → exit 0 (8 `ready`
+tickets, their criteria against the allow-list); `HEAD` equal to `origin/adrian-rebuild` after a fetch, clean tree; a
+new `claude -p` session listed `rebuild-implementer` and `rebuild-reviewer`; no `.night/lock` and no
+`.night/status.json`. Use at 21:46: five-hour window 26 %, weekly 23 % (the account of `limen-rebuild-41`'s note).
+- The night's queue, in protocol order (`## Agents`, step 1: the lowest `ready` ID whose dependencies are `done`):
+  R-047, R-104, R-105 (after R-104; its `changes.md` entry needs D-138's exact Rollback, which `check.mjs` names),
+  R-106, R-107, R-108, R-109, R-110. If R-104 stops, R-105 waits and the others go on. Each ticket's `ticket.md` is
+  checked again at `HEAD` first (protocol step 2, D-025). R-046 (`pair`, `day-after`) and gate 5.4 wait for Adrian.
+- `limen-rebuild-45` starts the runner by D-102 (2) right after the commit of this entry, as a background task, and
+  then changes nothing in the repository until the runner's end wakes it (D-102 (1), (3)). At that end: a push,
+  `## State`, `.night/status.json`; on Saturday by day Adrian's answers (D-137 (2)); at about 15:00 the preflight again
+  and `night.mjs --until 08:30`, then `--until 19:30` when a `night` ticket can still start (D-137 (3)). The handover
+  after it is `limen-rebuild-46`.
