@@ -1,8 +1,4 @@
-// The communication hook: the context message it sends at a session's start and after a compaction, which bytes it
-// holds, the options of each send (D-114 (1), E-13), a compaction's payload of the wrong shape refused (T-32 (4)), no
-// system prompt from any handler (A-086), a session's start built from declarations only: a `jg` on PATH changes
-// nothing (T-36), a turn cue and a specs reminder from the package's files alone, with no drift block (A-039, A-042),
-// and a job's first prompt and tool results with nothing of the cut task note (A-044).
+// hook/communication.ts: the context message it sends, the turn cue it returns, the reminders in a tool result.
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -14,6 +10,7 @@ import limenCommunication from "../../hook/communication.ts";
 import { LimenError } from "../../src/outcome.ts";
 import { contextMessage, markdownSection } from "../../src/runtime/context-message.ts";
 import { inTemporaryProject } from "../environment.ts";
+import { writeRecord } from "../plant.ts";
 
 const JOB_ID = "2026-11-19-context-tools-1a2b3c4d";
 const PACKAGE = fileURLToPath(new URL("../..", import.meta.url));
@@ -362,25 +359,240 @@ test("A-039: the turn cue holds the package's shared cue and not the one of a re
 	assert.deepEqual([body.length > 0, cue.includes(body), cue.includes("project-cue-marker")], [true, true, false]);
 });
 
-// A-039: the specs reminder names the lines of the package's specs register, the text every role's message holds.
-test("A-039: after a write under spec/ the reminder names the package's specs register, not the project's register", async (t) => {
+/** A tool result as Pi gives it to the handlers: of the tool `toolName` called with `input`, with `fields` over it. */
+const toolResult = (toolName: string, input: object, fields: object = {}) => ({
+	type: "tool_result",
+	toolCallId: "call-1",
+	toolName,
+	input,
+	content: [{ type: "text", text: "Done." }],
+	isError: false,
+	...fields,
+});
+
+/** The text parts of a tool_result handler's result, joined; "" when the hook left the result as it was. */
+function resultText(result: unknown): string {
+	const content = typeof result === "object" && result !== null ? Reflect.get(result, "content") : undefined;
+	const parts: readonly unknown[] = Array.isArray(content) ? content : [];
+	return parts
+		.map((part) => (typeof part === "object" && part !== null ? Reflect.get(part, "text") : undefined))
+		.filter((text) => typeof text === "string")
+		.join("\n");
+}
+
+/** The package's specs register as the reminder appends it: the `## Specs` section. */
+async function specsSection(): Promise<string> {
+	return markdownSection(await readFile(join(PACKAGE, "templates/registers/specs.md"), "utf8"), "Specs");
+}
+
+// A-039: the specs reminder holds the package's specs register, the text every role's message holds, never a project's.
+test("A-039: after a write under spec/ the reminder holds the package's Specs section, not the project register's", async (t) => {
 	const { project, home } = await fixture(t);
 	await mkdir(join(project, ".agents/limen"), { recursive: true });
 	await writeFile(join(project, ".agents/limen/communication.md"), PROJECT_REGISTER);
 	environment(t, coordinatorSession(home));
-	const write = {
-		type: "tool_result",
-		toolName: "write",
-		input: { path: "spec/features/planned/F001-demo/ticket.md" },
-		content: [{ type: "text", text: "Wrote the ticket." }],
-		isError: false,
-	};
-	const result = loadHook().fire("tool_result", write, { cwd: project });
-	const text = JSON.stringify(result);
+	const write = toolResult("write", { path: "spec/features/planned/F001-demo/ticket.md" });
+	const text = resultText(loadHook().fire("tool_result", write, { cwd: project }));
+	assert.deepEqual([text.includes(await specsSection()), text.includes("project-specs-marker")], [true, false]);
+});
+
+/** A planned ticket, whose edit brings the vision (H-12). */
+const PLANNED = "spec/features/planned/F001-x/ticket.md";
+const VISION_MARKER = "vision-marker";
+/** The vision reminder of the vision `vision` writes: its header line, then the file's text. */
+const VISION_REMINDER = `[limen] Vision (spec/vision.md lines 1-3): check this edit against it.\n# Vision\n\n${VISION_MARKER}`;
+
+/** Writes the project's vision: `# Vision`, a blank line, then `lines`, or the marker line alone. */
+async function vision(project: string, lines: readonly string[] = [VISION_MARKER]): Promise<void> {
+	await mkdir(join(project, "spec"), { recursive: true });
+	await writeFile(join(project, "spec", "vision.md"), ["# Vision", "", ...lines, ""].join("\n"));
+}
+
+/** A coordinator's hook in a project that holds a vision: its tool_result handler on a result of `toolName`. */
+async function coordinatorWithVision(t: TestContext) {
+	const { project, home } = await fixture(t);
+	await vision(project);
+	environment(t, coordinatorSession(home));
+	const hook = loadHook();
+	const tool = (toolName: string, input: object, fields: object = {}) =>
+		hook.fire("tool_result", toolResult(toolName, input, fields), { cwd: project });
+	return { hook, project, tool };
+}
+
+// A-041, H-12: the vision comes where a ticket is written, as its text with no read to make, not after the job started.
+test("H-12: an edit and a write of a planned ticket in a coordinator each append the vision's text after its header", async (t) => {
+	const edited = await coordinatorWithVision(t);
+	const written = await coordinatorWithVision(t);
 	assert.deepEqual(
-		[text.includes(`${join(PACKAGE, "templates/registers/specs.md")} lines 1-`), text.includes("communication.md")],
-		[true, false],
+		[edited.tool("edit", { path: PLANNED }), written.tool("write", { path: PLANNED })].map((result) =>
+			resultText(result).endsWith(`\n\n${VISION_REMINDER}`),
+		),
+		[true, true],
 	);
+});
+
+// A-041: both sessions get it; a job reads the vision where its context message reads the project's files, the root.
+test("H-12: a job's edit of a planned ticket appends the vision of its project root, not of its worktree", async (t) => {
+	const { project, home } = await fixture(t);
+	await vision(project);
+	const worktree = join(project, ".limen", "worktrees", "job");
+	await vision(worktree, ["worktree-vision-marker"]);
+	environment(t, jobSession(project, home));
+	const text = resultText(loadHook().fire("tool_result", toolResult("edit", { path: PLANNED }), { cwd: worktree }));
+	assert.deepEqual([text.endsWith(`\n\n${VISION_REMINDER}`), text.includes("worktree-vision-marker")], [true, false]);
+});
+
+// H-12: a job that writes a planned ticket whole gets the vision as one that edits it does.
+test("H-12: a job's write of a planned ticket appends the vision's text after its header", async (t) => {
+	const { project, home } = await fixture(t);
+	await vision(project);
+	environment(t, jobSession(project, home));
+	const text = resultText(loadHook().fire("tool_result", toolResult("write", { path: PLANNED }), { cwd: project }));
+	assert.equal(text.endsWith(`\n\n${VISION_REMINDER}`), true, text);
+});
+
+// H-12: `limen ticket new` writes spec/features/planned/FNNN-…/ticket.md unless the ticket starts active.
+test("H-12: a Bash limen ticket new appends the vision, and one with --lane active appends none", async (t) => {
+	const planned = await coordinatorWithVision(t);
+	const active = await coordinatorWithVision(t);
+	const command = (lane: string) => ({ command: `limen ticket new "Spawn names every missing route"${lane}` });
+	assert.deepEqual(
+		[resultText(planned.tool("bash", command(""))), active.tool("bash", command(" --lane active"))],
+		[`Done.\n\n${VISION_REMINDER}`, undefined],
+	);
+});
+
+// H-12: after a spawn the job has its task already, so the vision came too late to shape it.
+test("H-12: the results of a Bash limen spawn and of a git merge in a coordinator get no vision", async (t) => {
+	const { tool } = await coordinatorWithVision(t);
+	assert.deepEqual(
+		[tool("bash", { command: "limen spawn worker F001" }), tool("bash", { command: "git merge --ff-only main" })],
+		[undefined, undefined],
+	);
+});
+
+// AC-13: a limen command brings the vision only when it writes a ticket, whatever words its arguments hold.
+test("H-12: a Bash limen spawn whose note names touch and a planned path gets no vision", async (t) => {
+	const { tool } = await coordinatorWithVision(t);
+	const command = 'limen spawn worker F001 --note "touch spec/features/planned/F001-x/ticket.md first"';
+	assert.equal(tool("bash", { command }), undefined);
+});
+
+// H-12: only `limen` in command position runs Limen, so a path that ends in a folder named limen is no limen command.
+test("H-12: a Bash git mv into a planned ticket with a -C path ending in limen appends the vision", async (t) => {
+	const { tool } = await coordinatorWithVision(t);
+	const command = "git -C /home/u/limen mv a.md spec/features/planned/F1-x/ticket.md";
+	assert.equal(resultText(tool("bash", { command })), `Done.\n\n${VISION_REMINDER}`);
+});
+
+// A-041, z. 4: the appended text stays in the context until a compaction summarises it, so it comes once until then.
+test("A-041: the vision comes once per context: a second planned ticket gets none until a compaction, then it comes again", async (t) => {
+	const { hook, tool } = await coordinatorWithVision(t);
+	const first = resultText(tool("edit", { path: PLANNED }));
+	const second = tool("edit", { path: "spec/features/planned/F002-y/ticket.md" });
+	hook.fire("session_compact", compact("manual"), {});
+	const again = resultText(tool("edit", { path: "spec/features/planned/F002-y/ticket.md" }));
+	assert.deepEqual([first.endsWith(VISION_REMINDER), second, again.endsWith(VISION_REMINDER)], [true, undefined, true]);
+});
+
+/** A styleguide with sections scoped by two folders and a language, under one that applies to every file. */
+const STYLEGUIDE = "# S\n\n## `core/`\n\n1\n\n## `web/`\n\n2\n\n## Rust\n\n3\n";
+
+/** A coordinator's hook in a project that holds `STYLEGUIDE`: the text its tool_result handler appends to an edit. */
+async function styledEdits(t: TestContext) {
+	const { project, home } = await fixture(t);
+	await mkdir(join(project, ".agents/limen"), { recursive: true });
+	await writeFile(join(project, ".agents/limen/styleguide.md"), STYLEGUIDE);
+	environment(t, coordinatorSession(home));
+	const hook = loadHook();
+	return (path: string) => resultText(hook.fire("tool_result", toolResult("edit", { path }), { cwd: project }));
+}
+
+// A-041: the rules come as their text, so the model checks the edit against them with no read of its own.
+test("A-041: a code edit appends the text of the styleguide sections that apply to its path and language, and asks for no read", async (t) => {
+	const edit = await styledEdits(t);
+	const header =
+		"[limen] Styleguide (.agents/limen/styleguide.md lines 1-6, 11-13): check this edit against these rules.";
+	assert.equal(edit("core/a.rs"), `Done.\n\n${header}\n# S\n\n## \`core/\`\n\n1\n\n## Rust\n\n3`);
+});
+
+// A-041: once per area is once per section, since a section's text stays in the context after it came once.
+test("A-041: a later edit appends only the styleguide sections not yet appended, and none when every one was", async (t) => {
+	const edit = await styledEdits(t);
+	edit("core/a.rs");
+	const header = "[limen] Styleguide (.agents/limen/styleguide.md lines 7-10): check this edit against these rules.";
+	assert.deepEqual([edit("core/b.rs"), edit("web/x.ts")], ["", `Done.\n\n${header}\n## \`web/\`\n\n2`]);
+});
+
+/** The text a fresh hook appends to a write under spec/ in the project `project`, in the session the variables name. */
+function specsWrite(project: string): string {
+	const write = toolResult("write", { path: "spec/notes.md" });
+	return resultText(loadHook().fire("tool_result", write, { cwd: project }));
+}
+
+// A-041: the register comes as its text, named as the context message names it (T-18).
+test("A-041: the specs reminder holds the package's Specs section after its header line", async (t) => {
+	const { project, home } = await fixture(t);
+	environment(t, coordinatorSession(home));
+	const text = specsWrite(project);
+	const header = "Done.\n\n[limen] Specs (limen/templates/registers/specs.md lines 1-";
+	const end = `): check this edit against these rules.\n${await specsSection()}`;
+	assert.deepEqual([text.startsWith(header), text.endsWith(end)], [true, true], text);
+});
+
+// A-038: only the roles that write tickets hold the specs register in their message, so only they get it again.
+test("A-038: the specs reminder reaches a coordinator and a keeper, whose context message holds the register, and no worker", async (t) => {
+	const { project, home, job } = await fixture(t);
+	environment(t, coordinatorSession(home));
+	const coordinator = specsWrite(project);
+	// The job's variables name the same variables as the coordinator's, which the test gives back after it.
+	assign(jobSession(project, home));
+	await writeRecord(job, { role: "keeper" });
+	const keeper = specsWrite(project);
+	await writeRecord(job, { role: "worker" });
+	const worker = specsWrite(project);
+	assert.deepEqual([coordinator.includes("[limen] Specs"), keeper.includes("[limen] Specs"), worker], [true, true, ""]);
+});
+
+// An error result changed nothing in the file, so the hook appends nothing, and the rules have not come yet.
+test("an isError result gets nothing and leaves the vision to come, so the next successful edit gets it", async (t) => {
+	const { tool } = await coordinatorWithVision(t);
+	const failed = tool("edit", { path: PLANNED }, { isError: true });
+	assert.deepEqual([failed, resultText(tool("edit", { path: PLANNED })).endsWith(VISION_REMINDER)], [undefined, true]);
+});
+
+// T-10: the appended text is bounded where it is made; its notice says how much was left out and where the whole is.
+test("T-10: a vision over 1000 lines comes cut to 1000 lines, with the notice that names the file and its length", async (t) => {
+	const { project, home } = await fixture(t);
+	await vision(
+		project,
+		Array.from({ length: 1003 }, (_, index) => `line-${index + 3}`),
+	);
+	environment(t, coordinatorSession(home));
+	const text = resultText(loadHook().fire("tool_result", toolResult("edit", { path: PLANNED }), { cwd: project }));
+	const notice = "[spec/vision.md truncated to 1000 of 1005 lines; read the file for remaining context.]";
+	assert.deepEqual(
+		[text.includes("lines 1-1005): check"), text.endsWith(`line-1000\n\n${notice}`), text.includes("line-1001")],
+		[true, true, false],
+	);
+});
+
+// Pi drops a result's structured content when a handler replaces the content alone (Pi 1.5.1's
+// core/extensions/types.d.ts:1129-1140).
+test("a Bash result that brings the vision keeps its structuredContent", async (t) => {
+	const { tool } = await coordinatorWithVision(t);
+	const structured = { output: "", truncated: false, exit_code: 0, wall_time_seconds: 0 };
+	const result = tool("bash", { command: "mkdir -p spec/features/planned/F002-y" }, { structuredContent: structured });
+	const kept = typeof result === "object" && result !== null ? Reflect.get(result, "structuredContent") : undefined;
+	assert.deepEqual(kept, structured);
+});
+
+// Change 2: the touch line "Last turn started or merged work." went with the spawn and merge trigger.
+test("a Bash command that creates a planned ticket leaves no touch line in the next turn cue", async (t) => {
+	const { hook, project } = await coordinatorWithVision(t);
+	hook.fire("tool_result", toolResult("bash", { command: "mkdir -p spec/features/planned/F002-y" }), { cwd: project });
+	const cue = cueText(hook.fire("before_agent_start", PAYLOADS.before_agent_start, { cwd: project }));
+	assert.deepEqual([cue.includes("<limen-project-context>"), cue.includes("Last turn")], [true, false]);
 });
 
 // A-010, R-102: a text that any process could set reached every coordinator's turn as an instruction, so the cue reads

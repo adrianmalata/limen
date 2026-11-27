@@ -4,6 +4,8 @@
 //   commit · fail <code> · error [<text>] (assistant stop reason "error", with <text> as its errorMessage, as the
 //   bridge gives a provider's limit text, E-9) · say <text> · tool <command> · block · orphan · finish <handoff, \n ends
 //   a line>
+//   · edit <path> · write <path> (a call of Pi's edit or write tool with `{ path }`, which appends a line to the file
+//     or writes it, its folders made, and gives Pi's success text as its result)
 //   · idle (a bash tool whose one child waits without CPU) · deaf (ignores SIGTERM from then on)
 //   · tools-on-term <n> (ignores the next SIGTERM and starts n bash tools on it, as an engine that works on in a grace)
 //   · die <SIGNAL> (ends this process by that signal, as the kernel's OOM killer ends one by SIGKILL)
@@ -17,12 +19,12 @@
 //     while a run is active is refused, and a new aborts that run first)
 //   · /<command> <args> (runs a command a hook registered, as a user typing it)
 // The task's run is Pi's first prompt: it is prepared at the start (`before_agent_start`), as Pi's prompt prepares it,
-// and makes its first model call at the first `tool` word, each `tool` word one call that ends in that bash call, or
-// after the last word. Until that call the session is idle, so the words before it stand for what happens while a
-// session waits: a wake, a command, a `block`. Every other run starts from a message a hook sends, as Pi 1.5.1 runs it:
-// a user message sent while the session is idle marks it busy only after Pi's awaits before `_startRun`, so two sent
-// in one stretch both start a run, and the second fails with Pi's error and settles inside the first (E-21); a custom
-// message starts its run at the send.
+// and makes its first model call at the first `tool`, `edit` or `write` word, each such word one call that ends in that
+// tool call, or after the last word. Until that call the session is idle, so the words before it stand for what happens
+// while a session waits: a wake, a command, a `block`. Every other run starts from a message a hook sends, as Pi 1.5.1
+// runs it: a user message sent while the session is idle marks it busy only after Pi's awaits before `_startRun`, so
+// two sent in one stretch both start a run, and the second fails with Pi's error and settles inside the first (E-21); a
+// custom message starts its run at the send.
 // For every model call the fake builds Pi's context and appends what the model receives under the bridge, from
 // src/runtime/bridge-view.ts, as one line of fake-view.jsonl (T-31 (1)); the fake applies no mapping of its own.
 // A SIGTERM ends it as Pi's print mode does (E-17): one `sigterm` event, then exit 143; a second one exits 143 at once.
@@ -532,8 +534,8 @@ async function modelCall(run, decision) {
 						{
 							type: "toolCall",
 							id: `call-${randomUUID().slice(0, 8)}`,
-							name: "bash",
-							arguments: { command: decision.tool },
+							name: decision.tool.name,
+							arguments: decision.tool.input,
 						},
 					],
 					"toolUse",
@@ -566,8 +568,8 @@ async function printReply({ reply, stopReason, errorMessage }) {
 }
 /**
  * The tool calls of `assistant`, in pi-agent-core's order (`agent-loop.js:380-415`): `tool_execution_start`, the
- * `tool_call` handlers, whose block stops the call, the `tool_result` handlers, whose content replaces the result's,
- * `tool_execution_end`, then the result message. The fake runs no command: its output is Pi's empty bash output.
+ * `tool_call` handlers, whose block stops the call, the tool itself, the `tool_result` handlers, whose content replaces
+ * the result's, `tool_execution_end`, then the result message.
  */
 async function runTools(assistant, enter) {
 	const results = [];
@@ -576,10 +578,9 @@ async function runTools(assistant, enter) {
 		emit({ type: "tool_execution_start", toolName: name, args: input });
 		await fire("tool_execution_start", { toolName: name, args: input });
 		const blocked = await toolCall({ type: "tool_call", toolCallId: id, toolName: name, input });
-		const ran = { content: [{ type: "text", text: "(no output)" }], isError: false };
 		const result =
 			blocked === undefined
-				? await toolResult({ type: "tool_result", toolCallId: id, toolName: name, input, ...ran })
+				? await toolResult({ type: "tool_result", toolCallId: id, toolName: name, input, ...runTool(name, input) })
 				: { content: [{ type: "text", text: blocked }], isError: true };
 		emit({ type: "tool_execution_end", toolName: name });
 		await fire("tool_execution_end", { toolName: name });
@@ -588,6 +589,24 @@ async function runTools(assistant, enter) {
 		results.push(message);
 	}
 	return results;
+}
+/**
+ * The tool's own result. The fake runs no command, so bash gives Pi's empty output; edit appends a line to its file and
+ * write writes its file, each with Pi's success text (`core/tools/edit.js:133`, `core/tools/write.js:50`).
+ */
+function runTool(name, input) {
+	const done = (text) => ({ content: [{ type: "text", text }], isError: false });
+	if (name !== "edit" && name !== "write") {
+		return done("(no output)");
+	}
+	const file = resolve(cwd, input.path);
+	mkdirSync(dirname(file), { recursive: true });
+	if (name === "edit") {
+		appendFileSync(file, "fake edit\n");
+		return done(`Successfully replaced 1 block(s) in ${input.path}.`);
+	}
+	writeFileSync(file, "fake write\n");
+	return done(`Successfully wrote to ${input.path}`);
 }
 /** Pi's `emitToolCall` (`core/extensions/runner.js:965-980`): the first block wins; a handler's error blocks the call. */
 async function toolCall(event) {
@@ -734,7 +753,9 @@ for (const line of task.split("\n")) {
 	} else if (word === "say") {
 		reply = value;
 	} else if (word === "tool") {
-		await answer({ tool: value });
+		await answer({ tool: { name: "bash", input: { command: value } } });
+	} else if (word === "edit" || word === "write") {
+		await answer({ tool: { name: word, input: { path: value } } });
 	} else if (word === "block") {
 		await block();
 	} else if (word === "idle") {

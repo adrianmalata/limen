@@ -173,7 +173,9 @@ notatki zadania) zaimplementowany i po dwóch rundach recenzji PASS, ale bramka 
 nieznanym teście z uciętym wyjściem, więc `blocked` na pytaniu Q-91, a noc skończyła się powodem `no-ticket`. Rano
 Q-91 → D-130 (`gate.mjs --out` zapisuje całe wyjście bramki), R-042 zamknięty, D-132; przekazanie do limen-rebuild-42;
 tam D-131: nocny runner po przebiegu zakończonym limitem subskrypcji czeka do minuty po resecie i nie zużywa
-ponowienia (`evidence/night-reset-wait/`, trzy rundy recenzji PASS). -->
+ponowienia (`evidence/night-reset-wait/`, trzy rundy recenzji PASS); R-043 zamknięty (przypomnienia niosą tekst sekcji w wyniku
+narzędzia, wizja przy tickecie w `planned/`, nie po `limen spawn`; trzy rundy recenzji PASS); porażka testu wake
+w bramce dała D-133, znalezisko A-092 i nowy ticket R-112. -->
 
 
 
@@ -1578,6 +1580,17 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   change. Lesson for the main session: when a ticket's deletions are staged, a commit of other paths names its paths
   (`git commit -- <paths>`) or checks `git diff --cached --name-status` first. Check: `git diff 353c2bd <fix> -- src
   test hook` prints nothing.
+- 2026-11-27 D-133 (Adrian: "rekomendacja"; Q-93, option 1, from the `BLOCKED` of R-043's round-1 fix run): the one
+  failure of "a wake that enters no run is counted unconfirmed …" (`test/hook/wake.test.ts`, `ENOTEMPTY` on the
+  `rmdir` of its temporary `home/.limen` during cleanup) in that run's gate, which R-043's change does not execute, is
+  measured as in D-063 (2) and D-067 (1), not rerun for a green result: 10 runs of the file alone on R-043's tree and
+  10 at `HEAD` through `fails-before.mjs`, recorded in R-043's `ticket.md` → `## Decisions`; then R-043's gate runs once
+  more, and a failure of it is again a D-029 finding. The failure is finding A-092 (medium, `fix`): the test registers
+  the removal of its folder before the hook's shutdown, so the folder may go while the hook still writes in it (the
+  implementer's reading, to be shown by the fix's reproduction). A new ticket R-112, stage 4, size S, `delegated`,
+  `night`, after R-043: the wake tests stop the hook before they remove its folder, with a reproduction that fails
+  before the change. The main session carries it out (his consent in the same answer). Check: R-043 `ticket.md` →
+  Decision 15; R-112's criteria; `audit.md` → A-092.
 
 ### Gate 2 §2, copied
 
@@ -1866,8 +1879,9 @@ engine that shows the model's view under the bridge; the turn cue keeps only var
 package and are literal, sourced and budgeted per role. Tickets R-038–R-047, and from gate 5.3 (D-107) the fixes
 R-104 (the daily prune and the start queue) and R-105 (the T-04 and T-26 scans), from D-110 R-106 (the `main` watcher,
 §7 D1 per project), from D-112 the fixes R-107–R-109 of the close of stage 3 on the seat, from D-114 R-110 (the
-continuation's reuse of the context message, the change notices and the digest, split from R-039), and from D-128 R-111
-(a wake sent during a settle, A-089, found with R-038's fake; from D-129 also two idle sends of one sweep, A-090).
+continuation's reuse of the context message, the change notices and the digest, split from R-039), from D-128 R-111
+(a wake sent during a settle, A-089, found with R-038's fake; from D-129 also two idle sends of one sweep, A-090), and
+from D-133 R-112 (the wake test's teardown order, A-092, found in R-043's gate).
 
 ### Stage 5 — The trust boundary (a0.5.0)
 
@@ -1989,7 +2003,7 @@ Columns:
 | R-040 | Role texts come from the package, in three registers | 4 | A-038, A-039, A-042, D-005 | R-001, R-039 | M | delegated | night | yes | — | — | done |
 | R-041 | The turn cue holds only variable parts and the audience line | 4 | A-077, T-13 | R-039 | S | pair | day-after | — | pi | 4.4 | planned |
 | R-042 | The task-note mechanism is cut | 4 | A-044, A-059, D-121 | R-039 | M | delegated | night | yes | — | — | done |
-| R-043 | Just-in-time reminders arrive in the triggering tool result | 4 | A-041, H-12 | R-039 | M | delegated | night | — | pi | 4.5 | ready |
+| R-043 | Just-in-time reminders arrive in the triggering tool result | 4 | A-041, H-12 | R-039 | M | delegated | night | — | pi | 4.5 | done |
 | R-044 | Module switches; hooks load by role and module | 4 | G1.10, G1.1, G1.2, G1.9, A-082, A-040, D-122, D-124 | R-015, R-039, R-040 | M | delegated | night | yes | pi | 4.7, 4.9 | ready |
 | R-045 | Tools and skills per role; a read-only role that writes fails | 4 | A-081, E-5, D-123, D-125 | R-042, R-044 | M | delegated | night | — | pi, bridge | 4.3 | ready |
 | R-046 | Role prompts are literal, sourced and budgeted | 4 | T-09, T-14, T-15, T-08, T-10, T-21, A-043, A-085, A-040 | R-040, R-041, R-042, R-044 | L | pair | day-after | — | — | — | planned |
@@ -2002,6 +2016,7 @@ Columns:
 | R-109 | The alerts' unit sends over IPv4 first | 4 | A-066, D-108, D-112 | R-033 | S | delegated | night | — | systemd | 4.11 | ready |
 | R-110 | A continuation reuses its parent's context message; change notices and the board digest come only on a change | 4 | A-079, A-037, A-051, D-114, D-120, D-126 | R-039, R-042, R-043, R-044 | M | delegated | night | — | pi | 4.2 | ready |
 | R-111 | A wake is settled only by the run it entered; an idle sweep starts one run | 4 | A-089, A-090, D-128, D-129 | R-038 | L | delegated | night | — | pi | 4.14 | done |
+| R-112 | The wake hook's tests stop the hook before they remove its folder | 4 | A-092, D-133 | R-043 | S | delegated | night | — | — | — | planned |
 | R-048 | Jobs run the bridge isolated: no `--approve`, `--offline`, a private `TMPDIR`, an explicit Claude Code path | 5 | A-025, E-3, E-4, E-15, D-005, D-017 | R-040, R-087 | M | delegated | night | — | pi, bridge | 5.8, 5.9 | planned |
 | R-049 | Agents run only root-owned code; Pi, bridge and Claude Code versions are declared | 5 | A-025, T-32, T-36, D-017 | R-017, R-020, R-048 | L | delegated | night | yes | pi | 5.3, 5.5, 5.6, 5.10, 5.20 | planned |
 | R-050 | The registered coordinator and its start script | 5 | A-033, A-061, A-029, §2, D-017 | R-026, R-033, R-034, R-049 | L | delegated | night | yes | pi, herdr, systemd | 5.4, 5.11, 5.20 | planned |
@@ -5985,3 +6000,19 @@ the terminal being active; context 8 % at the start; `HEAD` = `origin/adrian-reb
 - Next: R-043 (protocol step 2 at `HEAD`; its AC-9 `git grep -q 'asks the agent to read' -- templates docs` exits 1
   already, since R-040 moved that sentence into `CONTRIBUTING.md`, so the criterion is confined to that file by
   D-025), then R-044, R-045, R-047, R-104–R-110.
+- R-043 `active` at `356807f` (protocol step 2): its facts' places after R-038, R-039, R-040, R-042 and R-111 in its
+  Decision 11; AC-9 (`-- templates docs`) already exited 1, so by D-025 it is confined to `CONTRIBUTING.md`, where R-040
+  moved the sentence. The implementer's `BLOCKED` (Pi 1.5.1's `read` gives a string as `structuredContent`, so a guard
+  that refuses a non-object would fail every text read) was settled by T-32 as the session's reading (Decision 12: any
+  JSON value, as Pi's `JsonValue`), not asked; its open points accepted in Decision 13.
+- R-043 `done` (delegated): the main session's gates 1382/1382 (336.3 s), 1385/1385 (350.2 s) and 1386/1386 (334.7 s),
+  `fails-before.mjs` exit 0 after each round. Review rounds 1–3 PASS: round 1 → F1–F7 (Decision 14), round 2 → G1–G3
+  (Decision 16; G3, the outcome's proof, by the main session), round 3's two notes → `outcome.md` → Open points 6 and 7
+  (the newline in G1's command position; the `limen ticket new` test over the whole command), for gate 5.4.
+- The round-1 fix run's gate failed once on `test/hook/wake.test.ts` (`ENOTEMPTY` in its cleanup), which R-043 does not
+  execute → Q-93 with a push (searched first: `input/gate-2-decisions.md`, `taste.md`, `input/zasady-budowy-harnessu.md`
+  (z. 17), `## Decisions` (D-029, D-063 (2), D-067 (1))) → Adrian: "rekomendacja" → D-133: measured 10/10 alone on
+  R-043's tree and 10/10 at `HEAD` (R-043 Decision 15), finding A-092 (medium, fix) and the new ticket R-112 (stage 4,
+  S, delegated, night, after R-043, `planned` until its `ticket.md`); the gate once more passed.
+- Ready in stage 4 (10): R-044, R-045, R-047, R-104–R-110 (R-110 after R-044). `planned`: R-112 (its `ticket.md` from
+  an inventory of `test/hook/wake.test.ts`'s teardown), R-041 and R-046 (`pair`, `day-after`).

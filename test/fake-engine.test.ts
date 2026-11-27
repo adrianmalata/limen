@@ -152,6 +152,40 @@ test("a tool_result handler's content replaces the tool's result in the next cal
 	]);
 });
 
+// R-043: the communication hook's reminders ride the results of Pi's edit and write tools, whose input names `path`.
+test("edit and write call Pi's edit and write tools with { path }, through tool_call and tool_result, and write the file", async (t) => {
+	const dir = await fake(
+		t,
+		"write notes/a.md\nedit notes/a.md\nsay done",
+		'for (const name of ["tool_call", "tool_result"]) pi.on(name, (event) => note([name, event.toolName, event.input]));',
+	);
+	const path = { path: "notes/a.md" };
+	assert.deepEqual(
+		{ seen: lines(dir, "seen.jsonl"), file: readFileSync(join(dir, "notes", "a.md"), "utf8") },
+		{
+			seen: [
+				["tool_call", "write", path],
+				["tool_result", "write", path],
+				["tool_call", "edit", path],
+				["tool_result", "edit", path],
+			],
+			file: "fake write\nfake edit\n",
+		},
+	);
+});
+
+test("a tool_result handler's content replaces an edit's result in the next call, after Pi's write result", async (t) => {
+	const dir = await fake(
+		t,
+		"write notes/a.md\nedit notes/a.md\nsay done",
+		'pi.on("tool_result", (event) => (event.toolName === "edit" ? { content: [{ type: "text", text: "patched edit" }] } : undefined));',
+	);
+	assert.deepEqual(lastRecords(dir).slice(1), [
+		{ role: "tool", text: ["Successfully wrote to notes/a.md"], tools: ["mcp__custom-tools__write"] },
+		{ role: "tool", text: ["patched edit"], tools: ["mcp__custom-tools__edit"] },
+	]);
+});
+
 test("a run ends with agent_end, then agent_settled", async (t) => {
 	const names = ["agent_start", "agent_end", "agent_settled", "session_shutdown"];
 	const dir = await fake(t, "say done", `for (const name of ${JSON.stringify(names)}) pi.on(name, () => note(name));`);

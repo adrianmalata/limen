@@ -18,6 +18,8 @@ function manifest(name: string): string {
 
 const PI_AI = `export interface TextContent { type: "text"; text: string; textSignature?: string }
 export interface ImageContent { type: "image"; data: string; mimeType: string }
+export type JsonValue = null | boolean | number | string | readonly JsonValue[] | JsonObject;
+export type JsonObject = { [key: string]: JsonValue };
 export interface UserMessage { role: "user"; content: string | (TextContent | ImageContent)[] }
 export interface AssistantMessage {
 	role: "assistant";
@@ -36,7 +38,7 @@ export type AgentMessage = Message | CustomAgentMessages[keyof CustomAgentMessag
 
 /** Pi's extension API in the shape of Pi 1.5.1, reduced to the members, events and fields that the adapter declares. */
 const PI_CODING_AGENT = `import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
+import type { ImageContent, JsonValue, TextContent } from "@earendil-works/pi-ai";
 export interface SessionStartEvent { type: "session_start"; reason: "startup" | "reload" | "new" | "resume" | "fork" }
 export interface SessionShutdownEvent { type: "session_shutdown"; reason: "quit" | "reload" }
 export interface SessionCompactEvent { type: "session_compact"; reason: "manual" | "threshold" | "overflow"; willRetry: boolean }
@@ -54,7 +56,13 @@ export interface ToolResultEvent {
 	toolName: string;
 	input: Record<string, unknown>;
 	content: (TextContent | ImageContent)[];
+	structuredContent?: JsonValue;
 	isError: boolean;
+}
+export interface ToolResultEventResult {
+	content?: (TextContent | ImageContent)[];
+	structuredContent?: JsonValue;
+	isError?: boolean;
 }
 export interface AgentSettledEvent { type: "agent_settled"; aborted: boolean }
 export type ExtensionEvent = SessionStartEvent | SessionShutdownEvent | SessionCompactEvent | BeforeAgentStartUserEvent
@@ -96,7 +104,7 @@ export interface ExtensionAPI {
 	on(event: "message_end", handler: ExtensionHandler<MessageEndEvent, { message?: AgentMessage }>): () => void;
 	on(event: "context", handler: ExtensionHandler<ContextEvent, { messages?: AgentMessage[] }>): () => void;
 	on(event: "tool_call", handler: ExtensionHandler<ToolCallEvent, { block?: boolean; reason?: string }>): () => void;
-	on(event: "tool_result", handler: ExtensionHandler<ToolResultEvent, { content?: (TextContent | ImageContent)[]; isError?: boolean }>): () => void;
+	on(event: "tool_result", handler: ExtensionHandler<ToolResultEvent, ToolResultEventResult>): () => void;
 	on(event: "agent_start", handler: ExtensionHandler<AgentStartEvent>): () => void;
 	on(event: "agent_end", handler: ExtensionHandler<AgentEndEvent>): () => void;
 	on(event: "agent_settled", handler: ExtensionHandler<AgentSettledEvent>): () => void;
@@ -207,6 +215,31 @@ test("the contract fails Pi types whose session_compact lacks willRetry, and nam
 	const diagnostics = await piContract(types);
 	assert.ok(
 		diagnostics.some((line) => line.includes("session_compact.willRetry checks nothing")),
+		diagnostics.join("\n\n"),
+	);
+});
+
+// R-043: the communication hook returns a result's structured content with its new content, or Pi drops it.
+test("the contract fails Pi types whose tool_result lacks structuredContent, and names the field", async (t) => {
+	const types = await fixture(t, {
+		change: (text) =>
+			text.replace("[];\n\tstructuredContent?: JsonValue;\n\tisError: boolean;", "[];\n\tisError: boolean;"),
+	});
+	const diagnostics = await piContract(types);
+	assert.ok(
+		diagnostics.some((line) => line.includes("tool_result.structuredContent checks nothing")),
+		diagnostics.join("\n\n"),
+	);
+});
+
+test("the contract fails Pi types whose tool_result handler result lacks structuredContent, and names the field", async (t) => {
+	const types = await fixture(t, {
+		change: (text) =>
+			text.replace("[];\n\tstructuredContent?: JsonValue;\n\tisError?: boolean;", "[];\n\tisError?: boolean;"),
+	});
+	const diagnostics = await piContract(types);
+	assert.ok(
+		diagnostics.some((line) => line.includes("ToolResultEventResult.structuredContent checks nothing")),
 		diagnostics.join("\n\n"),
 	);
 });

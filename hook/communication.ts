@@ -1,16 +1,21 @@
 import { readFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { transport } from "../src/config.ts";
-import { packageRoot, readOptional } from "../src/project/inherit.ts";
+import { readRecordSync } from "../src/job/record.ts";
+import { readOptional } from "../src/project/inherit.ts";
 import { ticketPointers } from "../src/project/planning.ts";
 import {
+	boundLines,
 	CONTEXT_FILE,
 	CUE_FILE,
 	capabilitySection,
 	contextMessage,
+	holdsSpecs,
 	MAX_CONTEXT_LINES,
 	markdownSection,
+	packageName,
 	packageText,
+	projectText,
 	SPECS_REGISTER,
 	STYLE_FILE,
 	trimmedLines,
@@ -47,27 +52,24 @@ const LANGUAGES: Readonly<Record<string, readonly string[]>> = {
 };
 
 type ReminderKind = "specs" | "style" | "vision";
+/** A reminder a tool result asks for: its kind, and the written file whose path picks the styleguide's sections. */
 type Ask = { readonly kind: ReminderKind; readonly paths: readonly string[] };
 type Section = { readonly title: string; readonly level: number; readonly start: number; readonly end: number };
-type LineRange = readonly [number, number];
-/** What the context holds: guidance lines the agent read, and sections a reminder already named. Compaction drops both. */
-type Recall = { readonly read: Map<ReminderKind, LineRange[]>; readonly named: Set<string> };
+/** A guidance file as a reminder appends it: the name its header gives the file, and the file's lines. */
+type Guide = { readonly shown: string; readonly lines: readonly string[] };
 
-const REMINDER_KINDS = ["style", "vision", "specs"] as const;
-// The style and vision reminders ask for a project file, the specs reminder for the package's specs register, which no
-// project file replaces (A-039); `pattern` finds that file in a read.
-const GUIDANCE: Readonly<Record<ReminderKind, { readonly file: string; readonly pattern: RegExp }>> = {
-	style: { file: STYLE_FILE, pattern: /\.agents\/limen\/styleguide\.md\b/ },
-	vision: { file: VISION_FILE, pattern: /\bspec\/vision\.md\b/ },
-	specs: { file: SPECS_REGISTER, pattern: /\btemplates\/registers\/specs\.md\b/ },
-};
+/** The header's name of each kind of guidance. */
+const LABELS: Readonly<Record<ReminderKind, string>> = { specs: "Specs", style: "Styleguide", vision: "Vision" };
+/** The vision is one section, which no path scopes. */
+const VISION_ASK: Ask = { kind: "vision", paths: [] };
 
 /**
  * Limen's standing text is the session's context message (A-086), which Pi's system prompt cannot carry under the
  * bridge (E-1): the hook sends it once, at the session's start, and again only after a compaction removed it from the
- * model's context, always the bytes the session holds (A-037). The per-turn note is a short cue. After an edit, a spawn
- * or a merge, the tool result asks the agent to read the guidance lines that apply, once per context, until it has
- * read them.
+ * model's context, always the bytes the session holds (A-037). The per-turn note is a short cue. A tool result, the one
+ * message of a role of its own (E-1), carries the text of the guidance that applies to what the call wrote, each
+ * section once until a compaction or a new session start (A-041): the styleguide after a code edit, the specs register
+ * after an edit under spec/, and the vision once a planned ticket is written (H-12).
  */
 export default function limenCommunication(pi: Pick<PiApi, "on" | "sendMessage">): void {
 	let lastTouch: string | undefined;
@@ -97,12 +99,10 @@ export default function limenCommunication(pi: Pick<PiApi, "on" | "sendMessage">
 			lastFailure = assistantStopReason(message) || undefined;
 		}),
 	);
-	const recall: Recall = { read: new Map(), named: new Set() };
+	/** The sections the reminders appended in this context, by `sectionKey`; a compaction summarises them away. */
+	const shown = new Set<string>();
 	// A session's start and a compaction give a new context, so the reminders start over with it.
-	deliverContext(pi, () => {
-		recall.read.clear();
-		recall.named.clear();
-	});
+	deliverContext(pi, () => shown.clear());
 	pi.on(
 		"tool_result",
 		recorded((raw: unknown, rawContext: unknown) => {
@@ -111,18 +111,21 @@ export default function limenCommunication(pi: Pick<PiApi, "on" | "sendMessage">
 			if (event.isError) {
 				return;
 			}
-			noteRead(recall, event);
-			const asks = guidanceAsks(event, transport("LIMEN_JOB") === "1");
-			if (!asks.length) {
-				return;
-			}
-			lastTouch = touchLine(event, asks);
+			const asks = guidanceAsks(event);
+			lastTouch = touchLine(event, asks) ?? lastTouch;
 			const root = transport("LIMEN_CONTEXT_ROOT") ?? context.cwd;
-			const reminders = asks.map((ask) => recallReminder(recall, ask, root, context.cwd)).filter(Boolean);
+			const reminders = asks
+				.filter((ask) => ask.kind !== "specs" || sessionHoldsSpecs(root))
+				.map((ask) => reminder(shown, ask, root, context.cwd))
+				.filter(Boolean);
 			if (!reminders.length) {
 				return;
 			}
-			return { content: appendText(event.content, reminders.join("\n\n")) };
+			// Pi drops the structured content of a result whose content a handler replaced alone (Pi 1.5.1's
+			// core/extensions/types.d.ts:1129-1140), so the handler returns it beside the new content (R-043 Decision 10).
+			const content = appendText(event.content, reminders.join("\n\n"));
+			const { structuredContent } = event;
+			return structuredContent === undefined ? { content } : { content, structuredContent };
 		}),
 	);
 }
@@ -296,29 +299,31 @@ function jobTicket(cwd: string): string {
 	return ticketPointers(task)[0]?.path ?? "";
 }
 
-/** A write or an edit names one file, which `toolPath` reads. */
-function guidanceAsks(event: PiToolResultEvent, job: boolean): readonly Ask[] {
+/**
+ * The reminders a tool result asks for. A write or an edit names one file, which `toolPath` reads: under spec/ it asks
+ * for the specs register, as code for the styleguide, and in spec/features/planned/ for the vision too. A Bash command
+ * asks for the vision when it creates a planned ticket (H-12).
+ */
+function guidanceAsks(event: PiToolResultEvent): readonly Ask[] {
 	const name = event.toolName;
 	if (name === "write" || name === "edit") {
-		const paths = [toolPath(event)];
+		const path = toolPath(event);
 		const asks: Ask[] = [
-			{ kind: "specs", paths: paths.filter(isSpecPath) },
-			{ kind: "style", paths: paths.filter((path) => !isSpecPath(path) && isCodePath(path)) },
+			{ kind: "specs", paths: isSpecPath(path) ? [path] : [] },
+			{ kind: "style", paths: !isSpecPath(path) && isCodePath(path) ? [path] : [] },
 		];
-		return asks.filter((ask) => ask.paths.length);
+		return [...asks.filter((ask) => ask.paths.length), ...(isPlannedPath(path) ? [VISION_ASK] : [])];
 	}
-	if ((name === "bash" || name === "powershell") && isVisionCommand(stringField(event.input, "command"), job)) {
-		return [{ kind: "vision", paths: [] }];
+	if ((name === "bash" || name === "powershell") && createsPlannedTicket(stringField(event.input, "command"))) {
+		return [VISION_ASK];
 	}
 	return [];
 }
 
-function touchLine(event: PiToolResultEvent, asks: readonly Ask[]): string {
+/** The cue's line on the file the last write or edit touched under spec/ or in code; undefined for any other call. */
+function touchLine(event: PiToolResultEvent, asks: readonly Ask[]): string | undefined {
 	const paths = asks.flatMap((ask) => ask.paths);
-	if (!paths.length) {
-		return "Last turn started or merged work.";
-	}
-	return `Last turn ${event.toolName === "edit" ? "edited" : "wrote"} ${paths.join(", ")}.`;
+	return paths.length ? `Last turn ${event.toolName === "edit" ? "edited" : "wrote"} ${paths.join(", ")}.` : undefined;
 }
 
 function toolPath(event: PiToolResultEvent): string {
@@ -338,6 +343,10 @@ function isSpecPath(path: string): boolean {
 	return /(?:^|\/)spec\//.test(posixPath(path));
 }
 
+function isPlannedPath(path: string): boolean {
+	return /(?:^|\/)spec\/features\/planned\//.test(posixPath(path));
+}
+
 function isCodePath(path: string): boolean {
 	if (!path || /^[a-z][\w+.-]*:\/\//i.test(path)) {
 		return false;
@@ -345,76 +354,54 @@ function isCodePath(path: string): boolean {
 	return !/\.md$/i.test(posixPath(path));
 }
 
-/** A worker merges main into its own branch to stay current; that starts no new work. */
-function isVisionCommand(command: string, job: boolean): boolean {
-	if (/\blimen\s+spawn\b/.test(command)) {
-		return true;
-	}
-	if (/\bgit\s+merge\b/.test(command)) {
-		return !job;
+/**
+ * `limen ticket new` writes spec/features/planned/FNNN-…/ticket.md unless the ticket starts active
+ * (src/project/ticket-folders.ts); a command that makes, copies or moves a file names that folder itself. A command
+ * that runs another `limen` command writes no ticket, whatever its arguments name (a spawn's note, H-12). `limen`
+ * runs only in command position, at the start or after `;`, `&`, `|` or `(`, by its name or a path ending in it, so a
+ * folder named limen in an argument is no limen command.
+ */
+function createsPlannedTicket(command: string): boolean {
+	if (/(?:^|[;&|(])\s*(?:\S*\/)?limen\s+[a-z]/.test(command)) {
+		return /\blimen\s+ticket\s+new\b/.test(command) && !/--lane(?:\s+|=)["']?active\b/.test(command);
 	}
 	return /\b(?:mkdir|cp|mv|touch|install)\b/.test(command) && /spec\/features\/planned\//.test(command);
 }
 
-/** A read tool covers the lines it showed; `cat` covers the whole file, while `head` or `sed` may show only a slice. */
-function noteRead(recall: Recall, event: PiToolResultEvent): void {
-	const name = event.toolName;
-	if (name === "read") {
-		const [file = ""] = /^.*\.md$/i.exec(posixPath(toolPath(event))) ?? [];
-		const kind = REMINDER_KINDS.find((candidate) => GUIDANCE[candidate].pattern.test(file));
-		if (kind) {
-			recall.read.set(kind, [...(recall.read.get(kind) ?? []), ...readRanges(event)]);
-		}
-		return;
+/**
+ * Whether this session's context message holds the specs register (A-038): a coordinator's, or a job's by the role its
+ * record holds, the one its spawn built the message for and a continuation builds it again from (src/job/spawning.ts,
+ * src/job/continuation.ts, which reads a record with none as a worker's).
+ */
+function sessionHoldsSpecs(root: string): boolean {
+	if (transport("LIMEN_JOB") !== "1") {
+		return holdsSpecs({ session: "coordinator" });
 	}
-	const command = posixPath(stringField(event.input, "command"));
-	if ((name !== "bash" && name !== "powershell") || !/\b(?:cat|bat|Get-Content)\b/.test(command)) {
-		return;
-	}
-	for (const kind of REMINDER_KINDS) {
-		if (GUIDANCE[kind].pattern.test(command)) {
-			recall.read.set(kind, [...(recall.read.get(kind) ?? []), [1, Number.POSITIVE_INFINITY]]);
-		}
-	}
+	const record = readRecordSync(join(root, ".limen", "jobs", transport("LIMEN_JOB_ID") ?? ""));
+	return holdsSpecs({ session: "job", role: record?.role || "worker" });
 }
 
 /**
- * A truncated read says `[Showing lines 1-300 of 429`. Otherwise Pi takes offset and limit; a read without either
- * shows the whole file.
+ * The reminder of `ask`: the sections of its guidance that apply and that no reminder appended in this context yet,
+ * which it marks as appended; "" when none is left, or when the project holds no such guidance file.
  */
-function readRanges(event: PiToolResultEvent): LineRange[] {
-	const text = event.content.map((part) => (part.type === "text" ? part.text : "")).join("\n");
-	const shown = /\[Showing lines (\d+)-(\d+) of \d+/.exec(text);
-	if (shown) {
-		return [[Number(shown[1]), Number(shown[2])]];
+function reminder(shown: Set<string>, ask: Ask, root: string, cwd: string): string {
+	const guide = guidance(ask.kind, root);
+	const files = ask.paths.map((path) => projectPath(cwd, path)).filter(Boolean);
+	if (!guide || (ask.kind === "style" && !files.length)) {
+		return "";
 	}
-	const offset = event.input.offset;
-	const limit = event.input.limit;
-	if (typeof offset === "number" || typeof limit === "number") {
-		const start = typeof offset === "number" ? Math.max(1, offset) : 1;
-		return [[start, typeof limit === "number" ? start + limit - 1 : Number.POSITIVE_INFINITY]];
+	const sections = applicableSections(ask.kind, markdownSections(guide.lines), files);
+	const fresh = sections.filter((section) => !shown.has(sectionKey(ask.kind, section)));
+	for (const section of fresh) {
+		shown.add(sectionKey(ask.kind, section));
 	}
-	return [[1, Number.POSITIVE_INFINITY]];
+	return fresh.length ? reminderText(ask.kind, guide, fresh) : "";
 }
 
-/** Names the guidance lines that apply and are still unread, once until compaction; quiet when nothing new applies. */
-function recallReminder(recall: Recall, ask: Ask, root: string, cwd: string): string {
-	const guide = guidance(ask.kind, root, cwd);
-	const inside = ask.paths.map((path) => projectPath(cwd, path));
-	const files = ask.kind === "style" ? inside.filter(Boolean) : ask.paths.map((path, index) => inside[index] || path);
-	if (!guide || (ask.kind !== "vision" && !files.length)) {
-		return "";
-	}
-	const read = recall.read.get(ask.kind) ?? [];
-	const unread = applicableSections(ask.kind, guide.sections, files).filter((section) => !isRead(section, read));
-	const keys = unread.map((section) => `${ask.kind}:${section.start}:${section.title}`);
-	if (keys.every((key) => recall.named.has(key))) {
-		return "";
-	}
-	for (const key of keys) {
-		recall.named.add(key);
-	}
-	return reminderText(ask.kind, guide.shown, unread, files);
+/** A section by its guidance, its first line and its title: what one reminder appended. */
+function sectionKey(kind: ReminderKind, section: Section): string {
+	return `${kind}:${section.start}:${section.title}`;
 }
 
 /** The path from the project root, or "" for a file outside it. */
@@ -424,24 +411,21 @@ function projectPath(cwd: string, path: string): string {
 }
 
 /**
- * The specs register is read from the package only (A-038); for a project file the copy in the agent's worktree wins
- * over the root's. Each is shown by its short path when it lies in the project.
+ * The guidance file of `kind`, read when the tool result is built through the readers each role's context message reads
+ * it with (T-25 (1)): the package's specs register (A-039), or the project root's styleguide or vision, each named as
+ * the message names it; undefined for a project file that is missing or holds no text, which the message leaves out.
  */
-function guidance(
-	kind: ReminderKind,
-	root: string,
-	cwd: string,
-): { readonly shown: string; readonly sections: readonly Section[] } | undefined {
+function guidance(kind: ReminderKind, root: string): Guide | undefined {
 	if (kind === "specs") {
-		const path = join(packageRoot(), SPECS_REGISTER);
-		return { shown: projectPath(cwd, path) || path, sections: markdownSections(packageText(SPECS_REGISTER)) };
+		return guideOf(packageName(SPECS_REGISTER), packageText(SPECS_REGISTER));
 	}
-	for (const path of [join(cwd, GUIDANCE[kind].file), join(root, GUIDANCE[kind].file)]) {
-		const text = readOptional(path);
-		if (text !== undefined) {
-			return { shown: projectPath(cwd, path) || path, sections: markdownSections(text) };
-		}
-	}
+	const path = kind === "style" ? STYLE_FILE : VISION_FILE;
+	const text = projectText(root, path);
+	return text === undefined ? undefined : guideOf(path, text);
+}
+
+function guideOf(shown: string, text: string): Guide | undefined {
+	return trimmedLines(text).length ? { shown, lines: text.replaceAll("\r\n", "\n").trimEnd().split("\n") } : undefined;
 }
 
 function applicableSections(
@@ -484,36 +468,19 @@ function sectionScope(title: string, file: string): boolean | undefined {
 	return languages.length ? languages.some((word) => LANGUAGES[word]?.includes(extension)) : undefined;
 }
 
-function isRead(section: Section, read: readonly LineRange[]): boolean {
-	for (let line = section.start; line <= section.end; line++) {
-		if (!read.some(([start, end]) => start <= line && line <= end)) {
-			return false;
-		}
-	}
-	return true;
+/**
+ * One header line that names the file, the lines and what to check (A-041), then the text of those lines, within the
+ * bound of each part of the context message and with its notice when it cuts them (T-10).
+ */
+function reminderText(kind: ReminderKind, guide: Guide, sections: readonly Section[]): string {
+	const rules = kind === "vision" ? "it" : "these rules";
+	const header = `[limen] ${LABELS[kind]} (${guide.shown} lines ${lineList(sections)}): check this edit against ${rules}.`;
+	const lines = lineRanges(sections).flatMap(([start, end]) => guide.lines.slice(start - 1, end));
+	return `${header}\n${boundLines(trimmedLines(lines.join("\n")), guide.shown)}`;
 }
 
-function reminderText(
-	kind: ReminderKind,
-	shown: string,
-	sections: readonly Section[],
-	files: readonly string[],
-): string {
-	const ask = `make your next tool call a read of ${shown} lines ${lineList(sections)}`;
-	const again = "even if an earlier copy is in your context";
-	if (kind === "vision") {
-		return `[limen] Vision: ${ask}. Read it ${again}, then check this step against it.`;
-	}
-	const scoped = sections
-		.filter((section) => files.some((file) => sectionScope(section.title, file)))
-		.map((section) => section.title);
-	const named = scoped.length ? `, including the sections ${scoped.join(", ")}` : "";
-	const label = kind === "specs" ? "Specs" : "Styleguide";
-	return `[limen] ${label}: ${ask}. They hold the rules for ${files.join(", ")}${named}. Read them ${again}, then check this edit against them.`;
-}
-
-/** `1-59, 85-125`: sections that touch share one range. */
-function lineList(sections: readonly Section[]): string {
+/** The lines of `sections` as ranges; sections that touch share one range. */
+function lineRanges(sections: readonly Section[]): readonly (readonly [number, number])[] {
 	const ranges: [number, number][] = [];
 	for (const { start, end } of sections) {
 		const last = ranges.at(-1);
@@ -523,12 +490,18 @@ function lineList(sections: readonly Section[]): string {
 			ranges.push([start, end]);
 		}
 	}
-	return ranges.map(([start, end]) => (start === end ? `${start}` : `${start}-${end}`)).join(", ");
+	return ranges;
+}
+
+/** `1-59, 85-125`. */
+function lineList(sections: readonly Section[]): string {
+	return lineRanges(sections)
+		.map(([start, end]) => (start === end ? `${start}` : `${start}-${end}`))
+		.join(", ");
 }
 
 /** Each heading starts a section that runs to the next heading; text above the first heading is a section too. */
-function markdownSections(text: string): readonly Section[] {
-	const lines = text.replaceAll("\r\n", "\n").trimEnd().split("\n");
+function markdownSections(lines: readonly string[]): readonly Section[] {
 	const starts: Omit<Section, "end">[] = [];
 	let fenced = false;
 	for (const [index, line] of lines.entries()) {

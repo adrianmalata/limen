@@ -18,7 +18,7 @@ export const VISION_FILE = "spec/vision.md";
 export const AGENTS_FILE = "AGENTS.md";
 /** The package's cue sections, which ride each run's cue (hook/communication.ts); R-041 rewrites them. */
 export const CUE_FILE = "templates/communication.md";
-/** The specs register: how tickets are written, for the roles that write them; the specs reminder names its lines. */
+/** The specs register: how tickets are written, for the roles that write them; a reminder appends its section. */
 export const SPECS_REGISTER = "templates/registers/specs.md";
 const CAPABILITY_FILE = "templates/capability.md";
 const MANUAL_FILE = "templates/manual.md";
@@ -42,6 +42,16 @@ const OWNER_FACING = "owner-facing coordinator";
 export type ContextAudience =
 	| { readonly session: "coordinator" }
 	| { readonly session: "job"; readonly role: string; readonly preamble: string; readonly bridgeIsolated: boolean };
+/** Of a session's audience, what decides whether its message holds the specs register: the session, a job's role. */
+export type SpecsAudience = { readonly session: "coordinator" } | { readonly session: "job"; readonly role: string };
+
+/**
+ * Whether the context message of `audience` holds the specs register: the coordinator's, and that of a job role that
+ * writes tickets (A-038). The communication hook appends the register's section after an edit under spec/ only there.
+ */
+export function holdsSpecs(audience: SpecsAudience): boolean {
+	return audience.session === "coordinator" || SPECS_ROLES.includes(audience.role);
+}
 
 /**
  * The context message of `audience` in the project `root`: a neutral marker that names the role (D-114 (3)), so it
@@ -51,10 +61,10 @@ export type ContextAudience =
  */
 export function contextMessage(root: string, audience: ContextAudience): string {
 	const coordinator = audience.session === "coordinator";
-	const specs = coordinator || SPECS_ROLES.includes(audience.role);
+	const specs = holdsSpecs(audience);
 	const agents = !coordinator && audience.bridgeIsolated;
 	const parts = [
-		boundText(capabilitySection("Frame"), `limen/${CAPABILITY_FILE}`, "Capability"),
+		boundText(capabilitySection("Frame"), packageName(CAPABILITY_FILE), "Capability"),
 		coordinator ? packagePart(MANUAL_FILE, "Coordinator manual") : rolePreamble(audience.preamble),
 		packagePart(AGENT_REGISTER, "Agent register"),
 		specs ? packagePart(SPECS_REGISTER, "Specs register") : "",
@@ -70,6 +80,27 @@ export function contextMessage(root: string, audience: ContextAudience): string 
 /** The text of the package file at `path`; a missing one is a broken install, so the read throws (T-01). */
 export function packageText(path: string): string {
 	return readFileSync(join(packageRoot(), path), "utf8");
+}
+
+/** How a message names the package file at `path`: by its path in the package, so no absolute path enters it. */
+export function packageName(path: string): string {
+	return `limen/${path}`;
+}
+
+/** The text of the project's file at `path` below `root`; undefined when the project holds none, which adds no part. */
+export function projectText(root: string, path: string): string | undefined {
+	return readOptional(join(root, path));
+}
+
+/**
+ * `lines` joined, cut to MAX_CONTEXT_LINES, with a notice of how many there were and that the file `path` holds the
+ * rest when the bound cut them (T-10).
+ */
+export function boundLines(lines: readonly string[], path: string): string {
+	const content = lines.slice(0, MAX_CONTEXT_LINES).join("\n");
+	return lines.length > MAX_CONTEXT_LINES
+		? `${content}\n\n[${path} truncated to ${MAX_CONTEXT_LINES} of ${lines.length} lines; read the file for remaining context.]`
+		: content;
 }
 
 /** The capability frame's section under `heading`: the frame describes Limen itself, so it is the package's. */
@@ -108,7 +139,7 @@ export function trimmedLines(text: string): readonly string[] {
 
 /** The package file at `path` as a part headed `label`, named by its path in the package. */
 function packagePart(path: string, label: string): string {
-	return boundText(packageText(path), `limen/${path}`, label);
+	return boundText(packageText(path), packageName(path), label);
 }
 
 /**
@@ -116,11 +147,11 @@ function packagePart(path: string, label: string): string {
  * message. The spawn has just resolved the file, so a read that fails is an error.
  */
 function rolePreamble(preamble: string): string {
-	return boundText(readFileSync(preamble, "utf8"), `limen/templates/${basename(preamble)}`, "Role");
+	return boundText(readFileSync(preamble, "utf8"), packageName(`templates/${basename(preamble)}`), "Role");
 }
 
 function boundFile(root: string, path: string, label: string): string {
-	const text = readOptional(join(root, path));
+	const text = projectText(root, path);
 	return text === undefined ? "" : boundText(text, path, label);
 }
 
@@ -129,10 +160,5 @@ function boundText(text: string, path: string, label: string): string {
 	if (!lines.length) {
 		return "";
 	}
-	const content = lines.slice(0, MAX_CONTEXT_LINES).join("\n");
-	const notice =
-		lines.length > MAX_CONTEXT_LINES
-			? `\n\n[${path} truncated to ${MAX_CONTEXT_LINES} of ${lines.length} lines; read the file for remaining context.]`
-			: "";
-	return `## ${label} (${path})\n${content}${notice}`;
+	return `## ${label} (${path})\n${boundLines(lines, path)}`;
 }

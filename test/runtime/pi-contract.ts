@@ -1,8 +1,9 @@
 // The type contract of the Pi adapter (T-32 (2), D-055 (1)): a file that assigns Pi's own types to the declarations of
-// src/runtime/pi-api.ts, compiled with the repository's TypeScript against Pi's type packages at a path the caller
-// gives, so no seat path is in the repository. Pi's types import packages that are not vendored (provider SDKs, the
-// TUI, typebox), so the contract compiles with skipLibCheck, under which a type from an unresolved package becomes
-// `any` and passes every assignment; the contract therefore also proves that each type it compares checks something.
+// src/runtime/pi-api.ts, and the adapter's tool_result patch to Pi's handler result, compiled with the repository's
+// TypeScript against Pi's type packages at a path the caller gives, so no seat path is in the repository. Pi's types
+// import packages that are not vendored (provider SDKs, the TUI, typebox), so the contract compiles with skipLibCheck,
+// under which a type from an unresolved package becomes `any` and passes every assignment; the contract therefore also
+// proves that each type it compares checks something.
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -18,8 +19,8 @@ const REPO_CONFIG = fileURLToPath(new URL("../../tsconfig.json", import.meta.url
 const TYPE_ROOTS = fileURLToPath(new URL("../../node_modules/@types", import.meta.url));
 
 /** The contract file. Its diagnostics name the line, so each check is one statement. */
-const CONTRACT = `import type { ExtensionAPI, ExtensionContext, ExtensionEvent } from "@earendil-works/pi-coding-agent";
-import type { PiApi, PiContext, PiContextEntry, PiEvents, PiMessage } from "ADAPTER";
+const CONTRACT = `import type { ExtensionAPI, ExtensionContext, ExtensionEvent, ToolResultEventResult } from "@earendil-works/pi-coding-agent";
+import type { PiApi, PiContext, PiContextEntry, PiEvents, PiMessage, PiToolResultPatch } from "ADAPTER";
 
 declare const unrelated: unique symbol;
 /** True when T checks nothing: any (also a type whose package did not resolve) or never. */
@@ -50,9 +51,11 @@ declare const customEntry: Extract<
 	Element<ReturnType<Field<Field<ExtensionContext, "sessionManager">, "buildContextEntries">>>,
 	{ type: "custom_message" }
 >;
+declare const patch: PiToolResultPatch;
 
 // Each type the contract compares checks something: Pi's API and context, each event the adapter reads, each field
-// of them that the adapter declares, the fields of a message, and those of a custom message entry.
+// of them that the adapter declares, the fields of a message, those of a custom message entry, and those of a
+// tool_result handler's result (R-043: Pi drops a result's structured content that a handler does not return).
 export const piTypes: None<(Vacuous<ExtensionAPI> extends true ? "ExtensionAPI" : never) | (Vacuous<ExtensionContext> extends true ? "ExtensionContext" : never)> = "none";
 export const apiMembers: None<Unchecked<PiApi, ExtensionAPI, "ExtensionAPI.">> = "none";
 export const contextFields: None<Unchecked<PiContext, ExtensionContext, "ExtensionContext.">> = "none";
@@ -60,11 +63,13 @@ export const events: None<{ [K in keyof PiEvents & string]: Vacuous<Payload<K>> 
 export const eventFields: None<{ [K in keyof PiEvents & string]: Unchecked<PiEvents[K], Payload<K>, \`\${K}.\`> }[keyof PiEvents & string]> = "none";
 export const messageFields: None<Unchecked<PiMessage, typeof message, "message.">> = "none";
 export const entryFields: None<Unchecked<PiContextEntry, typeof customEntry, "custom_message.">> = "none";
+export const patchFields: None<Unchecked<PiToolResultPatch, ToolResultEventResult, "ToolResultEventResult.">> = "none";
 
-// Pi's own values fit the adapter's declarations.
+// Pi's own values fit the adapter's declarations, and the result a hook returns fits Pi's.
 export const apiFits: PiApi = api;
 export const contextFits: PiContext = context;
 export const eventsFit: PiEvents = payloads;
+export const patchFits: ToolResultEventResult = patch;
 `;
 
 /**

@@ -7,7 +7,8 @@ decyzja fix w R-019) i A-088 (helper testów `waitJob` wraca przed końcem wrapp
 w R-007); 26.11 doszło A-089 (budzenie wysłane w trakcie settle liczone jako niepotwierdzone przed własnym biegiem
 i wysyłane ponownie; decyzja fix w R-111) oraz A-090 (dwa budzenia z jednego sweepa przy bezczynnej sesji ścigają się
 w Pi, drugie ginie; decyzja fix w R-111); A-091 (test bramki padł raz w nocy, nazwa nieznana;
-accepted-risk po D-130); razem fix 80, accepted-risk 1, rejected 9, rejected / fix 1; pole Final dojdzie w etapie 6. -->
+accepted-risk po D-130); A-092 (test wake usuwa swój katalog przed zatrzymaniem hooka i padł raz w bramce R-043; fix
+w R-112 po D-133); razem fix 81, accepted-risk 1, rejected 9, rejected / fix 1; pole Final dojdzie w etapie 6. -->
 
 # Audit of Limen at `rebuild-base`
 
@@ -1792,6 +1793,21 @@ intents: `evidence/audit-pass2/history.md`.
 - History: Related: A-087 (a lock-contention test that failed now and then until R-019), A-089 (a wake test that hung once until R-111).
 - Note: Added in rebuild stage 5 (2026-11-27, `plan.md` D-130) from one lost gate failure.
 - Decision: accepted-risk (the test is unknown; D-130 names the next failure) — Nothing names the test, so there is nothing to fix; D-130 makes the next failure readable, and that failure becomes its own finding (the main session's reading of D-130, for Adrian at gate 5.4).
+
+### A-092 A wake test removes its folder before it stops the hook, and failed once in R-043's gate
+- Area: cross-cutting
+- Severity: medium
+- Location: `package.json:27`
+- Evidence: on 2026-11-27 the gate of R-043's round-1 fix run (`gate.mjs --out`) exited 1, 1384 of 1385: "a wake that enters no run is counted unconfirmed, with its reason in the job's log, once the session has been quiet for 30 s" (`test/hook/wake.test.ts`) failed in its cleanup with `ENOTEMPTY: directory not empty, rmdir …/limen-wake-lost-…/home/.limen`; R-043 changes nothing that test executes, and the gate before the fix round passed 1382/1382. In `test/hook/wake.test.ts` (lines 127 and 167 at `356807f`) `hookProject` registers the folder's removal with `t.after` before `startCoordinator` registers the hook's `session_shutdown`.
+- Rule: z. 17, z. 31
+- Verdict: non-compliant
+- Direction: the wake tests stop the hook before they remove its folder, with a reproduction that fails before the change (R-112, D-133).
+- Scenario: A ticket's gate fails now and then on a cleanup race of a test it does not touch; each failure stops the ticket for a question, and a re-run would hide it (D-029).
+- Candidates: none (found in rebuild stage 5, R-043, 2026-11-27)
+- Status: new
+- History: Related: A-087 (a lock-contention test that failed now and then until R-019), A-089 (a wake test that hung once until R-111), A-091 (a lost gate failure).
+- Note: Added in rebuild stage 5 (2026-11-27, `plan.md` D-133) from one gate failure; the cause is the implementer's reading until R-112's reproduction shows it.
+- Decision: fix — R-112 (D-133).
 
 ## Pass 2: hypotheses from the owner's analysis
 

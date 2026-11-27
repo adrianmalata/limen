@@ -48,11 +48,17 @@ export type PiMessageEvent = { readonly message: PiMessage };
 export type PiContextEvent = { readonly messages: readonly PiMessage[] };
 /** `tool_call`: a tool call before it runs. */
 export type PiToolCallEvent = { readonly toolName: string };
-/** `tool_result`: a tool call after it ran. */
+/** A JSON value, as Pi's `JsonValue` (pi-ai `types.d.ts:322`): what a tool's structured content may be. */
+export type PiJson = null | boolean | number | string | readonly PiJson[] | { readonly [key: string]: PiJson };
+/**
+ * `tool_result`: a tool call after it ran. A tool that declares an output schema also gives its structured content,
+ * which Pi drops when a handler replaces the content without returning it (`core/extensions/types.d.ts:1129-1140`).
+ */
 export type PiToolResultEvent = {
 	readonly toolName: string;
 	readonly input: Readonly<Record<string, unknown>>;
 	readonly content: readonly PiPart[];
+	readonly structuredContent?: PiJson;
 	readonly isError: boolean;
 };
 
@@ -95,8 +101,8 @@ export type PiContextEntry = {
 };
 /** What a `tool_call` handler returns to block the call. */
 export type PiBlock = { readonly block: boolean; readonly reason: string };
-/** What a `tool_result` handler returns to change the result's content. */
-export type PiToolResultPatch = { readonly content: PiPart[] };
+/** What a `tool_result` handler returns to change the result's content, with the structured content it keeps. */
+export type PiToolResultPatch = { readonly content: PiPart[]; readonly structuredContent?: PiJson };
 
 /** The context's UI. */
 export type PiUi = {
@@ -286,6 +292,42 @@ const part: Check = (value, field) => {
 	return isObject(value) ? refusal(at(field, "type"), 'one of "text" or "image"', kind) : record(value, field);
 };
 
+/** An object whose prototype is Object's or none: what JSON parses to and what a tool's result literal is. */
+function isPlainObject(value: unknown): value is object {
+	if (!isObject(value)) {
+		return false;
+	}
+	const prototype: unknown = Object.getPrototypeOf(value);
+	return prototype === Object.prototype || prototype === null;
+}
+
+/**
+ * A JSON value as Pi's `JsonValue` declares it: null, a boolean, a finite number, a string, or a list or a plain
+ * object of JSON values, each item checked. Pi's bash gives an object and a text read a string, so a narrower check
+ * would refuse a value Pi gives (R-043 Decision 12).
+ */
+const json: Check = (value, field) => {
+	if (value === null || typeof value === "boolean" || typeof value === "string") {
+		return undefined;
+	}
+	if (typeof value === "number") {
+		return Number.isFinite(value) ? undefined : refusal(field, "a JSON value", value);
+	}
+	if (Array.isArray(value)) {
+		return listOf(json)(value, field);
+	}
+	if (!isPlainObject(value)) {
+		return refusal(field, "a JSON value", value);
+	}
+	for (const [key, item] of Object.entries(value)) {
+		const refused = json(item, at(field, key));
+		if (refused) {
+			return refused;
+		}
+	}
+	return undefined;
+};
+
 /** A part of a message: a text part carries its text, as Pi's `TextContent` does; another part may have none. */
 const messagePart: Check = (value, field) =>
 	(partType(value) === "text" ? textPart : shape<PiMessagePart>({ type: text, text: maybe(text) }))(value, field);
@@ -311,7 +353,13 @@ const EVENTS: { readonly [K in keyof PiEvents]: Check } = {
 	message_end: shape<PiMessageEvent>({ message }),
 	context: shape<PiContextEvent>({ messages: listOf(message) }),
 	tool_call: shape<PiToolCallEvent>({ toolName: text }),
-	tool_result: shape<PiToolResultEvent>({ toolName: text, input: record, content: listOf(part), isError: flag }),
+	tool_result: shape<PiToolResultEvent>({
+		toolName: text,
+		input: record,
+		content: listOf(part),
+		structuredContent: maybe(json),
+		isError: flag,
+	}),
 };
 
 /** The check of each context field. */

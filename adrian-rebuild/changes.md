@@ -496,3 +496,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-01, M-05)
 - Commit: R-042
 - Rollback: git revert $(git log --format=%H --grep='^R-042:' adrian-rebuild --)
+
+## 2026-11-27 R-043 Just-in-time reminders arrive in the triggering tool result
+- What: `hook/communication.ts` (the reminder carries the bounded section text after one header line, once per section until a compaction or a new session start; the vision on a `write` or `edit` under `spec/features/planned/`, on `limen ticket new` and on the shell creation pattern, never on `limen spawn` or `git merge`; the read memory and the "started or merged work" touch line cut; `structuredContent` passed through); `src/runtime/context-message.ts` (its readers, the bound and the specs audience exported); `src/runtime/pi-api.ts` (`structuredContent` as a JSON value, Decision 12); `test/fake-engine.mjs` (`edit` and `write` words); `test/runtime/pi-contract.ts`; `CONTRIBUTING.md`, `docs/setup.md`; tests (`test/u13-guidance-reminder.test.ts` removed into `test/hook/communication.test.ts`)
+- Why: A-041, H-12
+- Proof: `node adrian-rebuild/tools/gate.mjs --out node_modules/.rebuild-review/R-043.gate` → exit 0 (1386/1386); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (four files); `node adrian-rebuild/tools/check.mjs` → exit 0
+- Measurement: unmeasured (plan.md → Measurement: M-05, M-07)
+- Commit: R-043
+- Rollback: git revert $(git log --format=%H --grep='^R-043:' adrian-rebuild --)

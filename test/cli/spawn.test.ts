@@ -1,5 +1,5 @@
 // `limen spawn`: the job it starts, each refusal with the snapshot unchanged, the context message it publishes, and
-// what the job's model gets (A-086).
+// what the job's model gets (A-086), a reminder in a tool result included (A-041).
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -369,6 +369,25 @@ test("a reviewer spawn beside a done job whose branch holds an unlanded commit s
 
 /** The reference of the worker's context message for a project as `limen init` leaves it, as the plant's is (A-051). */
 const WORKER_CONTEXT = fileURLToPath(new URL("../runtime/context-message/worker.md", import.meta.url));
+
+/** A line of the vision the model-view test commits, found in no Limen text. */
+const VISION_MARKER = "vision-marker-of-the-reminder-test";
+
+// A-041, H-12, T-31 (1): a job's context message holds no vision (R-039) and its cue only a pointer, so the vision's
+// text in the model's view can come only from the reminder the hook appends to the edit's result, a tool record.
+test("a worker's edit of a planned ticket brings the vision's text inside that edit's tool result, in no user message", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	await writeFile(join(p.root, "spec", "vision.md"), `# Vision\n\n${VISION_MARKER}\n`);
+	git(p.root, "commit", "-qam", "vision with a marker");
+	const id = spawnJob(p, "edit spec/features/planned/F001-x/ticket.md\nsay done");
+	assert.equal(waitJob(p, id), "done");
+	const after = engineViews(jobDir(p, id))[1];
+	const holding = (role: string) =>
+		(after?.messages ?? []).filter((record) => record.role === role && record.text.join("\n").includes(VISION_MARKER))
+			.length;
+	assert.deepEqual({ tool: holding("tool"), user: holding("user") }, { tool: 1, user: 0 });
+});
 
 // A-079: the job's session opens with the message its publication saved, not one built again later.
 test("a spawn publishes the job's context.md, the reference context message of its role for a project as limen init leaves it", async (t) => {

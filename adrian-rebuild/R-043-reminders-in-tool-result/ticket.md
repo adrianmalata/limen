@@ -2,8 +2,9 @@
 wywołało, zamiast prosić model o kolejny odczyt pliku; raz na obszar, ponownie po kompakcji, z dzisiejszym limitem
 1000 linii. Przypomnienie o wizji przychodzi przy tworzeniu albo edycji ticketu w `spec/features/planned/`, a nie po
 `limen spawn` czy `git merge`; atrapa silnika dostaje słowa `edit` i `write`, żeby test widział tekst w wiadomości
-`tool` widoku modelu. Stan: napisany 26.11 przy `aa721d7` z inwentarza `evidence/inventories/R-043.md`; `ready` za
-R-039. -->
+`tool` widoku modelu. Stan: napisany 26.11 przy `aa721d7` z inwentarza `evidence/inventories/R-043.md`; zamknięty
+27.11 (krok 2 w Decision 11, AC-9 zawężone do `CONTRIBUTING.md`; `BLOCKED` o `structuredContent` rozstrzygnięty przez
+T-32 w Decision 12; poprawki rund 1–2 w Decisions 14 i 16; porażka testu wake po D-133 w Decision 15). -->
 
 # R-043 Just-in-time reminders arrive in the triggering tool result
 
@@ -127,7 +128,7 @@ Facts at `aa721d7` (inventory sections 1, 3, 4):
 - AC-6: `git grep -q 'make your next tool call' -- hook/communication.ts` → exit 1.
 - AC-7: `git grep -q 'even if an earlier copy is in your context' -- hook/communication.ts` → exit 1.
 - AC-8: `git grep -q 'started or merged work' -- hook/communication.ts` → exit 1.
-- AC-9: `git grep -q 'asks the agent to read' -- templates docs` → exit 1.
+- AC-9: `git grep -q 'asks the agent to read' -- CONTRIBUTING.md` → exit 1 (pathspec confined by Decision 11).
 - AC-10: `git ls-files -- test/u13-guidance-reminder.test.ts | grep -q .` → exit 1.
 - AC-11: `node adrian-rebuild/tools/gate.mjs` → exit 0.
 - AC-12: `npx biome check --error-on-warnings .` → exit 0; `node adrian-rebuild/tools/check.mjs` → exit 0.
@@ -167,3 +168,64 @@ inventory's questions in `evidence/inventories/R-043.md` → section 8):
 9. u13's cases move into the hook's test file (Q9): T-29 (6).
 10. `structuredContent` is passed through on a Bash result: Pi drops it otherwise (`types.d.ts:1129-1133`), and a hook
     that silently drops a tool's output is a defect, not a choice.
+11. 2026-11-27 protocol step 2 at `356807f` (the main session, by day; D-025): the places of the facts after R-038,
+    R-039, R-040, R-042 and R-111. The `tool_result` handler is at `hook/communication.ts:106-127` (R-042 removed the
+    note's recording from it; `appendText` at `:549`); the forced-read text is `reminderText` (`:496-515`); the triggers
+    are `guidanceAsks` (`:300-314`) and `isVisionCommand` (`:349-357`); the read memory is `noteRead` (`:360`),
+    `readRanges` (`:385`), `isRead` (`:487`) and `GUIDANCE` (`:59`), cleared by the `forget` callback of R-039's
+    `deliverContext` (`:102-105`, `:135`) at `session_start` and after a compaction; the touch line is `touchLine`
+    (`:316-322`). The 1,000-line bound is `MAX_CONTEXT_LINES` of `src/runtime/context-message.ts`, whose readers
+    (`markdownSection`, `trimmedLines`, `packageText`, `STYLE_FILE`, `VISION_FILE`, `SPECS_REGISTER`) are the ones
+    `## Change` 1 means. Fact 6's sentence is now in `CONTRIBUTING.md` ("After a write or an edit under `spec/`, the
+    hook asks the agent to read the `## Specs` section of `templates/registers/specs.md` by its line numbers", moved
+    there by R-040), and the hook's header comment says the same at `:68-70`. The fake has no `edit` or `write` word
+    yet. AC-9 (`-- templates docs`) already exited 1 at `HEAD`, so it is confined to `CONTRIBUTING.md`, which
+    `## Change` 5 names: it exits 0 at `HEAD` and expects 1. AC-6–AC-8 exit 0 at `HEAD` and expect 1, and AC-10
+    lists the file at `HEAD`; every match of AC-6–AC-9 is a line the ticket removes or rewrites.
+12. 2026-11-27 the implementer's `BLOCKED` (the main session's reading, settled by T-32, not a question for Adrian):
+    Pi 1.5.1's `read` tool gives a string as `structuredContent` (`dist/core/tools/read.js:26-29`, `:53-57`, `:294` of
+    the vendor copy; `bash` gives an object), and Pi declares the field `JsonValue` (`dist/core/extensions/types.d.ts:1017`,
+    `:1137`). `## Change` 4's "refuses a non-object one" would fail every text `read` in a job, against T-32 (the adapter
+    follows Pi's real types; (4) refuses only an unexpected shape) and Decision 10. So the `tool_result` guard accepts any
+    JSON value as `JsonValue` declares it (null, a boolean, a finite number, a string, an array of these, a plain object
+    of these) and refuses anything else with `BAD_DATA` naming `structuredContent`; the adapter declares a
+    `JsonValue`-equivalent type, as the contract needs. Change 4's `pi-api.test.ts` item reads: the guard keeps bash's
+    object and read's string and refuses a value that is no JSON value.
+13. 2026-11-27 the implementer's open points, accepted by the main session as readings of `## Change` 1 and 2:
+    (a) `src/runtime/context-message.ts` exports the project-file read, the 1,000-line bound with its notice and the
+    specs audience predicate, so the reminder reads through the same reader (T-25 (1)); the context message's bytes do
+    not change; the file joins `## Change`. (b) `test/runtime/pi-contract.ts` checks that Pi's `ToolResultEventResult`
+    has `structuredContent`, with a fixture test that names the missing field. (c) Once per area is once per section
+    (today's key of fact 3): a reminder appends only the sections not yet appended in this context. (d) The specs
+    header names the register as the context message does (`limen/templates/registers/specs.md`, T-18). (e) In a job,
+    the specs gating takes the role from the same source the context message's audience uses (one rule, T-25 (1)).
+    (f) Only a `write` or `edit` sets the touch line; a Bash vision trigger sets none (Change 2).
+
+Review round 1 (2026-11-27, by day; `review.md` → Round 1): PASS with nine notes. To fix, by the resumed implementer,
+then the gate and round 2:
+14. F1: the test "a Bash result that brings the vision keeps its structuredContent" asserts the kept
+    `structuredContent` alone, not the reminder's text (T-29 (3)).
+    F2: the A-038 test is split: the Specs reminder holds the `## Specs` section; the Specs reminder reaches only a
+    role whose context message holds the specs register.
+    F3: a Bash command that runs `limen` is matched only by the `limen ticket new` rule, never by the creation pattern,
+    so a `limen spawn` whose task text holds `touch` and a planned path brings no vision (AC-13); a test. A `git mv` out
+    of `planned/` keeps today's pattern (`## Change` 1) and goes to `outcome.md` → Open points.
+    F4: a test of the vision on a job's `write`.
+    F5: `docs/setup.md` and `CONTRIBUTING.md` say each section comes once until a compaction or a new session start
+    (such as `/reload`).
+    F6: the comment lines over 120 columns (`test/runtime/pi-contract.ts`, `test/fake-engine.mjs`) are wrapped.
+    F7: `test/hook/communication.test.ts` opens with one line on what it tests (T-29 (5)).
+15. 2026-11-27 D-133 (Adrian: "rekomendacja"; Q-93, option 1, from the `BLOCKED` of the round-1 fix run): its gate
+    exited 1, 1384 of 1385, on "a wake that enters no run is counted unconfirmed …" (`test/hook/wake.test.ts`,
+    `ENOTEMPTY` on the `rmdir` of its temporary `home/.limen` in cleanup), a test that executes nothing this ticket
+    changes. Measured as in D-063 (2), not rerun for a green result (the main session): 10 of 10 runs of the file alone
+    on this tree passed (`node --test test/hook/wake.test.ts`, exit 0, 21/21, 12–13 s each), and 10 of 10 at `HEAD`
+    passed (`fails-before.mjs test/hook/wake.test.ts`, exit 1 each, "pass at HEAD"), so the trees do not differ. The
+    failure is A-092, fixed in R-112. The gate runs once more; a failure of it is again a D-029 finding.
+
+Review round 2 (2026-11-27, by day; `review.md` → Round 2): PASS with three notes; the last round of fixes:
+16. G1: `createsPlannedTicket` takes a command for a `limen` command only when `limen` (or a path ending in `/limen`)
+    stands in command position: at the start, or after `;`, `&`, `|` or `(`; so `git -C <dir>/limen mv … planned/…`
+    is a creation again; a test that fails before the fix. A compound command that also runs `limen` keeps F3's rule.
+    G2: the test of the Specs reminder's text is named after A-041, not A-038.
+    G3: `outcome.md` shows the last gate and `fails-before.mjs` runs (the main session, protocol step 7).

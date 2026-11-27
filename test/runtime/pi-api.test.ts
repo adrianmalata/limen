@@ -164,6 +164,22 @@ test("piEvent refuses a tool_result part whose type is neither text nor image", 
 	assert.equal(refusal(() => piEvent("tool_result", audio)).field, "content.0.type");
 });
 
+// R-043, T-32: the communication hook returns a result's structured content with the content it changes, so the guard
+// checks it as Pi 1.5.1 declares it, `JsonValue`: bash gives an object, a text read a string.
+test("piEvent returns a tool_result with bash's structured object or read's structured string, and refuses structuredContent that is no JSON value", () => {
+	const bash = { ...toolResult, toolName: "bash", structuredContent: { output: "", truncated: false, exit_code: 0 } };
+	const read = { ...toolResult, structuredContent: "a" };
+	const kept = [piEvent("tool_result", bash).structuredContent, piEvent("tool_result", read).structuredContent];
+	const error = refusal(() => piEvent("tool_result", { ...toolResult, structuredContent: { output: () => "" } }));
+	assert.deepEqual(
+		[kept, where(error)],
+		[
+			[bash.structuredContent, "a"],
+			["Pi event tool_result", "structuredContent.output"],
+		],
+	);
+});
+
 test("piEvent refuses a tool_result whose input is not an object", () => {
 	assert.equal(refusal(() => piEvent("tool_result", { ...toolResult, input: "a.md" })).field, "input");
 });
