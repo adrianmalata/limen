@@ -12,7 +12,6 @@ import {
 import { join } from "node:path";
 import { atomicRenameSync, atomicWriteSync } from "../src/atomic-write.ts";
 import { transport } from "../src/config.ts";
-import { noteSteer } from "../src/job/task-note.ts";
 import { type PiApi, recorded } from "../src/runtime/pi-api.ts";
 
 const CLAIM_STALE_MS = 30_000;
@@ -126,7 +125,7 @@ function deliver(pi: Pick<PiApi, "sendUserMessage">, job: string, name: string):
 		return false;
 	}
 	try {
-		pi.sendUserMessage(`${text}\n\n${noteSteer(job)}`, { deliverAs: "steer" });
+		pi.sendUserMessage(text, { deliverAs: "steer" });
 		atomicWriteSync(join(claim, "accepted"), "1\n");
 		atomicRenameSync(claim, delivered);
 		rmSync(inbox, { force: true });

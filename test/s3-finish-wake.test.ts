@@ -91,7 +91,7 @@ test("a job that ends done, failed or on a provider error wakes its session once
 	// The jobs that commit wait for their release until the last spawn: a finished job with unlanded work refuses a worker
 	// spawn (A-001).
 	const ids = {
-		done: job(`block\ncommit\nfinish\nfinish ${handoff}`, "a done"),
+		done: job(`block\ncommit\nfinish ${handoff}`, "a done"),
 		failed: job("fail 7", "a failed"),
 		provider: job(`block\nsay ${FINAL.line}\ncommit\nerror`, "a provider error"),
 	};
@@ -107,7 +107,8 @@ test("a job that ends done, failed or on a provider error wakes its session once
 		[jobRecord(p, ids.failed)?.failure?.kind, jobRecord(p, ids.provider)?.failure?.kind],
 		["exit", "engine-error"],
 	);
-	assert.equal(jobFile(p, ids.done, "log").split("note check sent").length, 2);
+	// The first finish ends the job with its handoff; no check before it is sent (A-044).
+	assert.equal(jobFile(p, ids.done, "log").includes("note check sent"), false);
 	// A provider error after a commit fails the job (967ab4b recorded it as done) and keeps the commit on its branch.
 	assert.equal(git(p.root, "rev-list", "--count", `main..${jobRecord(p, ids.provider)?.branch}`), "1");
 	wokeOnce(ids, [coord, second]);
@@ -119,9 +120,11 @@ test("a job that ends done, failed or on a provider error wakes its session once
 	assert.ok(done.includes(`Final message:\n${handoff.replaceAll("\\n", "\n")}\n\n`));
 	assert.equal(jobFile(p, ids.provider, "result"), FINAL.text); // stdout cut it inside letters of 2, 3 and 4 bytes
 	assert.ok(provider.includes(`Final message:\n${FINAL.text}\n\n`));
-	// Its open note checks reach the wake, one line each, and it is not a plain done; `npm test` never ran.
-	assert.match(done, /is done with open checks \(.+\n\nOpen checks:\n- Hold: not proven\. No run\.\n- Cap: /);
-	assert.match(done, /\n- Cap: not proven\. Limen: no proof that `npm test` ran \(no shell call names it .+\n\n/);
+	// The task note is cut (A-044): a "Note check" in the final message is its text, so the wake is a plain done.
+	assert.deepEqual(
+		[/\nis done \(/.test(done), done.includes("\n\nJob done. Next step: land it, "), /open checks/i.test(done)],
+		[true, true, false],
+	);
 	// The next tests of this plant spawn workers, which these two commits would refuse.
 	for (const id of [ids.done, ids.provider]) {
 		const abandoned = limen(p, ["abandon", id]);
@@ -133,7 +136,7 @@ test("stop, timeout and a stalled tool each end a job once and wake its session 
 	writeFileSync(join(p.root, ".agents/limen/limits.json"), '{"prepare":"1s","toolStall":"2s","timeout":"2h"}\n');
 	const ids = {
 		stopped: job("block", "b stopped"),
-		timeout: job("block", "b timeout", ["--timeout", "3s"]),
+		timeout: job("block", "b timeout", ["--role", "reviewer", "--timeout", "3s"]),
 		stall: job("idle", "b stall", ["--prepare", "sleep 30"]),
 	};
 	await until(jobDir(p, ids.stopped), () => existsSync(join(jobDir(p, ids.stopped), "fake-blocked-1")));
@@ -145,7 +148,12 @@ test("stop, timeout and a stalled tool each end a job once and wake its session 
 		[jobRecord(p, ids.timeout)?.failure?.kind, jobRecord(p, ids.stall)?.failure?.kind],
 		["timeout", "stall"],
 	);
-	assert.equal(jobFile(p, ids.timeout, "log").match(/steered: 1 min left before the timeout: /g)?.length, 1);
+	// D-121: the wrapper takes the steer's text from the job's record.role; a reviewer's differs from the commit text of
+	// a record with no role, so a wrapper that dropped the role fails here.
+	assert.equal(
+		jobFile(p, ids.timeout, "log").match(/steered: 1 min left before the timeout: write your verdict now\.\n/g)?.length,
+		1,
+	);
 	assert.match(
 		jobFile(p, ids.stall, "log"),
 		/limits: ignored \.agents\/limen\/limits\.json: timeout: expected one of the fields prepare, toolStall or toolCalls, got "2h"\n.*timed out after 1 s.*stalled tool bash sleep 600: scope CPU idle and no tool progress for 2s/s,

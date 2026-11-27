@@ -18,7 +18,6 @@ import {
 	readRecordSync,
 	writeOwedWake,
 } from "../src/job/record.ts";
-import { openChecks } from "../src/job/task-note.ts";
 import {
 	advisoryFamily,
 	advisorySlot,
@@ -82,16 +81,11 @@ type FinishedJob = { readonly id: string; readonly label: string; readonly state
 type LimitEnd = { readonly at: number; readonly resetAt: string | null };
 type HerdrPane = { readonly binary: string; readonly pane: string };
 
-// Toast words for a done job; one whose final "Note check" left items open asks for a decision before landing.
-const PLAIN_DONE = {
+// Toast words for a done job, the same for every done job since A-044 cut the task note.
+const DONE_WORDS = {
 	title: "done; next step: land it",
 	next: "land it, or name the check that blocks landing",
 	toast: "done; next step: land it, or name the check that blocks landing",
-};
-const OPEN_DONE = {
-	title: "done with open checks; decide before landing",
-	next: "continue the job, start a review, or accept each open check with a reason",
-	toast: "done with open checks; decide each before landing",
 };
 
 // biome-ignore lint/complexity/noExcessiveLinesPerFunction: split pending: hook factory, handlers share its state
@@ -416,15 +410,14 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 		if (!claimMarker(job, "herdr", slot)) {
 			return;
 		}
-		const done = state === "done" && openChecks(recordOf(job)).length > 0 ? OPEN_DONE : PLAIN_DONE;
 		// An advisory is a note on a running job, not a state; its title reads as the seat notification's does.
-		const headline = state === "done" ? done.title : state === "advisory" ? "· advisory" : `is ${state}`;
+		const headline = state === "done" ? DONE_WORDS.title : state === "advisory" ? "· advisory" : `is ${state}`;
 		herdrCall([
 			"notification",
 			"show",
 			`limen: ${label} ${headline}`,
 			"--body",
-			state === "done" ? `job ${id} · branch ${branch} · ${done.next}` : `job ${id} · branch ${branch}`,
+			state === "done" ? `job ${id} · branch ${branch} · ${DONE_WORDS.next}` : `job ${id} · branch ${branch}`,
 			"--sound",
 			state === "done" ? "done" : "request",
 		]);
@@ -554,7 +547,7 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 					try {
 						session?.ui.notify(
 							state === "done"
-								? `limen: ${label} ${openChecks(recordOf(job)).length ? OPEN_DONE.toast : PLAIN_DONE.toast} (${id})`
+								? `limen: ${label} ${DONE_WORDS.toast} (${id})`
 								: `limen: ${label} is ${state}; inspect failure (${id})`,
 							"info",
 						);

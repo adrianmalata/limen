@@ -1,7 +1,8 @@
 // The communication hook: the context message it sends at a session's start and after a compaction, which bytes it
 // holds, the options of each send (D-114 (1), E-13), a compaction's payload of the wrong shape refused (T-32 (4)), no
 // system prompt from any handler (A-086), a session's start built from declarations only: a `jg` on PATH changes
-// nothing (T-36), and a turn cue and a specs reminder from the package's files alone, with no drift block (A-039, A-042).
+// nothing (T-36), a turn cue and a specs reminder from the package's files alone, with no drift block (A-039, A-042),
+// and a job's first prompt and tool results with nothing of the cut task note (A-044).
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -403,4 +404,27 @@ test("a coordinator's turn cue holds no seat-rules block when the seat folder ho
 		[cue.includes("<limen-project-context>"), cue.includes("Seat-wide rules"), cue.includes(rule.text)],
 		[true, false, false],
 	);
+});
+
+// A-044: a job's first prompt asked it to read or write its task note, which nothing measured.
+test("a job's first before_agent_start message is the turn cue alone, the same as its next prompt's", async (t) => {
+	const { project, home } = await fixture(t);
+	environment(t, jobSession(project, home));
+	const hook = loadHook();
+	const [first, next] = [1, 2].map(() =>
+		cueText(hook.fire("before_agent_start", PAYLOADS.before_agent_start, { cwd: project })),
+	);
+	assert.deepEqual([first, first?.endsWith("</limen-project-context>")], [next, true]);
+});
+
+// A-044: the hook kept a job's first note as note.first.md and logged each change of note.md.
+test("a job's tool_result after a write of note.md leaves no note.first.md and no note changed line", async (t) => {
+	const { project, home, job } = await fixture(t);
+	environment(t, jobSession(project, home));
+	await writeFile(join(job, "log"), "");
+	const hook = loadHook();
+	hook.fire("before_agent_start", PAYLOADS.before_agent_start, { cwd: project });
+	await writeFile(join(job, "note.md"), "- Done means: tests pass.\n");
+	hook.fire("tool_result", PAYLOADS.tool_result, { cwd: project });
+	assert.deepEqual([existsSync(join(job, "note.first.md")), await readFile(join(job, "log"), "utf8")], [false, ""]);
 });

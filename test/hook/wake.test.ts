@@ -313,6 +313,21 @@ async function jobFor(jobs: string, id: string, session: string, fields: Partial
 	return job;
 }
 
+// A-044: the task note is cut, so the items an older record holds in openChecks no longer make a done job's toast ask
+// for a decision (R-042 Decision 2).
+test("the toast of a done job whose older record holds open checks is the plain done toast", async (t) => {
+	const { root, jobs } = await hookProject(t, "limen-wake-open-checks-");
+	const session = "wake-open-checks-session";
+	const id = "2026-11-27-checked-0008";
+	await jobFor(jobs, id, session, { openChecks: ["Tests: not proven. No run."] });
+	const coordinator = startCoordinator(t, root, session);
+	await until(() => coordinator.wakes.some((wake) => wake.includes(id)));
+	assert.deepEqual(
+		coordinator.notes.filter((note) => note.includes(`(${id})`)),
+		[`limen: finished done; next step: land it, or name the check that blocks landing (${id})`],
+	);
+});
+
 /** One coordinator turn on `wake`, as Pi runs it: the wake enters, the reply ends with `ending`, and the run settles. */
 function turn(
 	coordinator: Coordinator,

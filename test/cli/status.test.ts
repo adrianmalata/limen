@@ -1,6 +1,7 @@
 // `limen status` lists the leftover files of cut features in the project it reports on, the Limen variables of its
-// environment that it no longer reads or reads only until a ticket, names a running job's note, lists the finished
-// jobs whose unlanded work makes a worker spawn refuse (A-001) and the branches of abandoned work (A-002), warns when
+// environment that it no longer reads or reads only until a ticket, names a running job's note, lists a done job as a
+// candidate whatever its older record's open checks, the finished jobs whose unlanded work makes a worker spawn refuse
+// (A-001) and the branches of abandoned work (A-002), warns when
 // the alerts do not run (A-066), names a hook's refusal in a coordinator's process (T-32 (4)), shows a dead job without
 // ending it (T-04), and names the jobs the seat sweep cannot end and a sweep that does not run (R-032).
 import assert from "node:assert/strict";
@@ -272,6 +273,25 @@ test("limen status lists every finished job with unlanded work, whatever its age
 		]),
 	);
 	assert.ok(!lines[at + 7]?.startsWith("  "), run.stdout);
+});
+
+// A-044: the task note is cut, so an older record's open checks no longer move a done job under "Needs a decision"
+// (R-042 Decision 2).
+test("limen status lists a done job whose older record holds open checks as a candidate, as any done job", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = spawnJob(p, "commit", ["--label", "checked"]);
+	assert.equal(waitJob(p, id), "done");
+	await editRecord(jobDir(p, id), () => ({ openChecks: ["Tests: not proven. No run."] }));
+	const run = limen(p, ["status"]);
+	assert.equal(run.status, 0, run.stderr);
+	const lines = run.stdout.split("\n");
+	const at = lines.indexOf("Candidates to inspect (1):");
+	assert.deepEqual(
+		[lines[at + 1], lines[at + 2], /open checks/i.test(run.stdout)],
+		[`  checked (${id}) · ${jobRecord(p, id)?.branch}`, "Needs a decision (0):", false],
+		run.stdout,
+	);
 });
 
 // A-002: Limen never deletes a limen/abandon/<id> branch, so status names each one until a person deletes it, also once

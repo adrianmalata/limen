@@ -85,6 +85,8 @@ export const LEFTOVERS: readonly Leftover[] = [
 	// package, so nothing reads them, changed or not (A-039, A-042).
 	{ path: ".agents/limen/communication.md", feature: ROLE_TEXTS },
 	...ROLE_COPIES.map((role) => ({ path: `.agents/limen/${role}.md`, feature: ROLE_TEXTS })),
+	// The project reminders: only the task note's prompts, steers and check read them, and A-044 cut all three.
+	{ path: ".agents/limen/reminders.md", feature: "the task note (R-042)" },
 ];
 
 /**

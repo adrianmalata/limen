@@ -488,3 +488,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-01 at the close of stage 4, M-02, M-05)
 - Commit: R-040
 - Rollback: git revert $(git log --format=%H --grep='^R-040:' adrian-rebuild --)
+
+## 2026-11-27 R-042 The task-note mechanism is cut
+- What: `src/job/task-note.ts` and `test/u14-task-note.test.ts` removed (their first commit by mistake in 9520a86, restored by the fix commit, D-132); the note's start text, steer appendix, check turn before `finish`, "done with open checks" state and project reminders cut from `hook/`, `src/job/`, `src/runtime/` and the readers (wake, toast, status, summary, show); the 80 % steer by role (D-121); `.agents/limen/reminders.md` a leftover; docs and templates; tests (`test/hook/finish.test.ts` and `test/job/session-commands.test.ts` new)
+- Why: A-044, A-059, D-121
+- Proof: `node adrian-rebuild/tools/gate.mjs --out node_modules/.rebuild-review/R-042.gate` → exit 0 (1365/1365); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (seven files); `node adrian-rebuild/tools/check.mjs` → exit 0
+- Measurement: unmeasured (plan.md → Measurement: M-01, M-05)
+- Commit: R-042
+- Rollback: git revert $(git log --format=%H --grep='^R-042:' adrian-rebuild --)

@@ -1,5 +1,6 @@
-// `limen continue`: its start, the transcript it copies with the same mode, the context message it carries, its
-// engine's environment, its refusals, and the unlanded work of its parent that it takes (A-001).
+// `limen continue`: its start, the transcript it copies with the same mode, the context message it carries and the
+// note files it does not, its engine's environment, its refusals, and the unlanded work of its parent that it takes
+// (A-001).
 import assert from "node:assert/strict";
 import { chmodSync, existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -136,6 +137,23 @@ test("a continuation of a parent folder without context.md publishes one built f
 	const child = startedJob(limen(p, ["continue", parent, "say next"]));
 	await ended(p, child);
 	assert.equal(readFileSync(join(jobDir(p, child), "context.md"), "utf8"), readFileSync(WORKER_CONTEXT, "utf8"));
+});
+
+// A-044: the task note is cut, so an older parent's note files stay in its folder as content (D-057 (3)) and go no
+// further.
+test("a continuation of a parent folder that holds note.md and note.first.md publishes a child with neither", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const parent = spawnJob(p, "say first");
+	await ended(p, parent);
+	await writeFile(join(jobDir(p, parent), "note.md"), "- Done means: tests pass.\n");
+	await writeFile(join(jobDir(p, parent), "note.first.md"), "- Done means: it builds.\n");
+	const child = startedJob(limen(p, ["continue", parent, "say next"]));
+	await ended(p, child);
+	assert.deepEqual(
+		["note.md", "note.first.md"].map((name) => existsSync(join(jobDir(p, child), name))),
+		[false, false],
+	);
 });
 
 test("a job continued with limen continue starts an engine whose environment holds no LIMEN_CONTINUE", async (t) => {

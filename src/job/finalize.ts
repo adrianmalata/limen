@@ -1,6 +1,6 @@
 // The end of a job (A-019, T-01): its terminal transition through the record's one writer (src/job/record.ts), then
 // what follows from it. A failed end takes the failure its detector passes, kind and detail (A-016 (1)). Before the
-// transition it counts the job's commits, collects the open note checks and reads its
+// transition it counts the job's commits and reads its
 // scope's readings, unless the finisher read them before it ended the scope itself, as the reaper does
 // (src/runtime/reap.ts), with the peak CPU share a job's wrapper measured (M-09); an OOM kill those readings count
 // names a signal death's or a reaped wrapper's failure `oom` (A-052), and an end on the subscription limit of a job's
@@ -31,7 +31,6 @@ import {
 	type SideFailure,
 	transition,
 } from "./record.ts";
-import { noteCheckOpen } from "./task-note.ts";
 
 /** The readings of a scope that could not be read. */
 const UNREAD: ScopeReadings = { memoryPeakBytes: null, cpuMicroseconds: null, oomKills: null };
@@ -113,8 +112,6 @@ export async function finalizeJob(jobDir: string, end: JobEnd, options: Finalize
 		sideFailures.push(sideFailure("commit count", error));
 		return null;
 	});
-	// A done the coordinator asked for (`done: <reason>`) already accepts what is open.
-	const open = state === "done" && !detail.startsWith("done:") ? noteCheckOpen(jobDir, record.worktree) : [];
 	// The scope's readings just before the transition, while its processes still hold it (`memory.peak` goes with it).
 	const { readings, failures } = options.readings ?? (await readScope(record));
 	sideFailures.push(...failures);
@@ -137,7 +134,6 @@ export async function finalizeJob(jobDir: string, end: JobEnd, options: Finalize
 				end.state === "failed"
 					? recordedFailure(end.failure, current.scope ? readings : UNREAD, current.quotaAttempt)
 					: null,
-			openChecks: open.length ? open : null,
 			commits,
 			// A job that ends while it waits leaves the queue here, its wait kept with the time it left (A-036).
 			...queueLeft(current, new Date().toISOString()),

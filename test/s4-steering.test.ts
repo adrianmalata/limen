@@ -123,10 +123,9 @@ test("a running worker gets each steer once and in order; an ended one refuses a
 	}
 	await release(dir);
 	assert.equal(waitJob(p, parent), "done");
-	// The engine has exited, so every delivery it will ever get is recorded; each asks to log a change in the note.
-	const note = new RegExp(`\\n\\n\\[limen\\] If this steer changes .* in \\S+/jobs/${parent}/note\\.md\\. .*$`);
-	const delivered = steers(dir).map((text) => text?.replace(note, " +note"));
-	assert.deepEqual(delivered, ["one +note", "two +note"]);
+	// The engine has exited, so every delivery it will ever get is recorded; each is its inbox text alone, since the
+	// appendix that asked to log a change in the task note is cut (A-044).
+	assert.deepEqual(steers(dir), ["one", "two"]);
 	const before = readdirSync(join(dir, "steer"), { recursive: true }).sort();
 	const late = limen(p, ["steer", parent, "late"]);
 	assert.equal(late.status, 1);
@@ -161,12 +160,10 @@ test("continue resumes the parent's session, linked, with its extensions or a re
 		assert.equal(waitJob(p, id), "done");
 		return id;
 	};
-	writeFileSync(join(jobDir(p, parent), "note.md"), "- Done means: now.\n");
 	const inherited = continued([]);
 	assert.equal(jobRecord(p, inherited)?.parent, parent);
-	// The child carries the task note, and its first prompt names the note in its own folder.
-	assert.equal(jobFile(p, inherited, "note.md"), "- Done means: now.");
-	assert.ok(jobFile(p, inherited, "fake-context.txt").includes(`/jobs/${inherited}/note.md, or write it`));
+	// The child's first prompt names no task note, which is cut (A-044).
+	assert.equal(jobFile(p, inherited, "fake-context.txt").includes("note.md"), false);
 	const resumed = readFileSync(join(jobDir(p, inherited), "session/fake.jsonl"), "utf8");
 	assert.ok(resumed.startsWith(transcript) && resumed.length > transcript.length, "the child's transcript grows");
 	assert.deepEqual(extensions(inherited).slice(-1), [first]);

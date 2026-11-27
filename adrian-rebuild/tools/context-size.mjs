@@ -1,9 +1,10 @@
 /* PL: Skrypt pomiaru rozmiarów Limena przy dowolnym refie gita (bez checkoutu): linie i bajty na moduł oraz bajty
    i ≈tokeny (bajty/4) kontekstu każdej roli z szablonów refa (moduł role-context.mjs). Dla refa z wiadomością
    kontekstową (od R-039) kolumny to "Context message" i "Cue" (M-01 po etapie 4); dla starszego refa zostają kolumny
-   promptu systemowego: na każdy request, na prompt i raz na sesję. Służy do mapy w etapie 1 i do porównań przed/po
-   w etapach 4–5; z --project mierzy też pliki prawdziwego projektu (np. na seacie), niczego w nim nie zapisując. Wynik
-   zapisuje atomowo (atomic-write.mjs, D-018). Stan: działa; test w tools/test-context-size.mjs. */
+   promptu systemowego: na każdy request, na prompt i raz na sesję; rozmiary notatki zadania (start, sprawdzenie,
+   dopisek do steera) podaje tylko dla refa sprzed R-042, który ją wyciął. Służy do mapy w etapie 1 i do porównań
+   przed/po w etapach 4–5; z --project mierzy też pliki prawdziwego projektu (np. na seacie), niczego w nim nie
+   zapisując. Wynik zapisuje atomowo (atomic-write.mjs, D-018). Stan: działa; test w tools/test-context-size.mjs. */
 // Usage: node adrian-rebuild/tools/context-size.mjs [ref] [--project <path>] [--out <file>]   (from the repo root)
 import { spawnSync } from "node:child_process";
 import { parseArgs } from "node:util";
@@ -196,8 +197,8 @@ function messageSection(context, fixture) {
 		"|---|---|---|",
 		...messageRows(context),
 		"",
-		`The \`finish\` tool schema of a job (name, description, parameters as JSON): ${cell(bytes(context.tool))}. The job's`,
-		`note start, added to its first cue only: ${cell(bytes(context.job.once))}.`,
+		`The \`finish\` tool schema of a job (name, description, parameters as JSON): ${cell(bytes(context.tool))}.`,
+		...(context.events ? [`The job's note start, added to its first cue only: ${cell(bytes(context.job.once))}.`] : []),
 		"",
 		...eventLine(context),
 		"### Context message by part",
@@ -207,8 +208,12 @@ function messageSection(context, fixture) {
 	];
 }
 
-/** The sizes of the job's per-event texts. */
-function eventLine({ events: { noteCheck, noteSteer } }) {
+/** The sizes of the job's per-event texts of the task note; none for a ref from R-042 on, which cut it. */
+function eventLine({ events }) {
+	if (!events) {
+		return [];
+	}
+	const { noteCheck, noteSteer } = events;
 	return [`Per event (job roles): note check ${cell(bytes(noteCheck))}, steer suffix ${cell(bytes(noteSteer))}.`, ""];
 }
 

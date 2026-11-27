@@ -6,7 +6,8 @@ ról, które nie docierają przez bridge); 18.11 doszło A-087 (znikające rejes
 decyzja fix w R-019) i A-088 (helper testów `waitJob` wraca przed końcem wrappera joba; luka w kodzie, nie zaobserwowana, decyzja fix
 w R-007); 26.11 doszło A-089 (budzenie wysłane w trakcie settle liczone jako niepotwierdzone przed własnym biegiem
 i wysyłane ponownie; decyzja fix w R-111) oraz A-090 (dwa budzenia z jednego sweepa przy bezczynnej sesji ścigają się
-w Pi, drugie ginie; decyzja fix w R-111); razem fix 80, rejected 9, rejected / fix 1; pole Final dojdzie w etapie 6. -->
+w Pi, drugie ginie; decyzja fix w R-111); A-091 (test bramki padł raz w nocy, nazwa nieznana;
+accepted-risk po D-130); razem fix 80, accepted-risk 1, rejected 9, rejected / fix 1; pole Final dojdzie w etapie 6. -->
 
 # Audit of Limen at `rebuild-base`
 
@@ -464,6 +465,7 @@ intents: `evidence/audit-pass2/history.md`.
 | A-088 | low | cross-cutting | non-compliant | The test helper `waitJob` returns before the job's wrapper has exited, so a test that acts on the finished job races it | none (rebuild stage 5) | new | fix |
 | A-089 | high | reliability | non-compliant | A wake sent during a settle is counted unconfirmed before its own run, re-sent, and can stop automatic delivery | none (rebuild stage 5) | new | fix |
 | A-090 | high | reliability | non-compliant | Two wakes sent in one sweep while the coordinator is idle race in Pi: the second is dropped and its settle lands inside the first run | none (rebuild stage 5) | new | fix |
+| A-091 | medium | cross-cutting | non-compliant | A gate test failed once in R-042's night run, and its name is unknown | none (rebuild stage 5) | new | accepted-risk |
 
 ### A-001 Prune deletes the uncommitted work of every finished job, automatically
 - Area: reliability
@@ -1775,6 +1777,21 @@ intents: `evidence/audit-pass2/history.md`.
 - History: Related: A-089 (the same handler's settle of deliveries that have not entered) and A-033 (lost wakes); R-038's fake reserves the session at the send, so no test could reach this order.
 - Note: Added in rebuild stage 5 (2026-11-26, `plan.md` D-129) from R-111's read-only inventory of Pi 1.5.1's sources; not seen on the seat (no seat logs in the repository).
 - Decision: fix — High, as A-089: the wake is the coordinator's only news of a finished job, and a blocked claim waits for a person. Fixed in R-111 with A-089 (size L), since both rules change the same settle handler and sweep. Check: R-111's test on the fake (fails before, passes after); `## Deployment` 4.14 (Adrian, 2026-11-26, D-129).
+
+### A-091 A gate test failed once in R-042's night run, and its name is unknown
+- Area: cross-cutting
+- Severity: medium
+- Location: `package.json:27`
+- Evidence: in the night of 2026-11-26/27 the main session's gate on R-042's tree exited 1 after a fix round that changed only two comments of rebuild tools and `outcome.md`, which no test reads; the session's tool output was cut before the failing test and the summary, and no allowed command kept it (R-042 `ticket.md` → Decision 12, `.night/questions.md` → Q-91). The next gate run on the same tree, with `gate.mjs --out`, passed 1365/1365 (R-042 `outcome.md` → Open points).
+- Rule: z. 17, z. 31
+- Verdict: non-compliant
+- Direction: every gate run of the protocol writes its whole output with `--out` (D-130), so a next failure names its test and becomes its own finding; no re-run hides it (D-029).
+- Scenario: A test that fails now and then fails a ticket's gate at night; with the output lost, the ticket waits for a question that cannot name the test, and the cause stays unknown.
+- Candidates: none (found in rebuild stage 5, R-042, 2026-11-27)
+- Status: new
+- History: Related: A-087 (a lock-contention test that failed now and then until R-019), A-089 (a wake test that hung once until R-111).
+- Note: Added in rebuild stage 5 (2026-11-27, `plan.md` D-130) from one lost gate failure.
+- Decision: accepted-risk (the test is unknown; D-130 names the next failure) — Nothing names the test, so there is nothing to fix; D-130 makes the next failure readable, and that failure becomes its own finding (the main session's reading of D-130, for Adrian at gate 5.4).
 
 ## Pass 2: hypotheses from the owner's analysis
 

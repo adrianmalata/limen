@@ -3,7 +3,9 @@ dopisek do każdego steera, tura sprawdzenia przed `finish` (pierwsze `finish` k
 `note.md`/`note.first.md`, stan „done with open checks” i przypomnienia projektu `.agents/limen/reminders.md`; pole
 `openChecks` zostaje w rekordzie wersji 1 jako historia (nowe joby piszą `null`). Steer przy 80 % czasu mówi każdej
 roli tylko to, co jest prawdą w tym commicie (D-121). Stan: napisany 26.11 przy `83405ae` z inwentarza
-`evidence/inventories/R-042.md`; `ready` za R-039. -->
+`evidence/inventories/R-042.md`; sprawdzony w nocy 26/27.11 przy `353c2bd` (miejsca faktów po R-039 i R-040,
+decyzja 8); po dwóch rundach poprawek bramka po G1 padła na nieznanym teście (wyjście ucięte, Q-91, decyzja 12);
+27.11 w dzień bramka z `--out` zielona (D-130, decyzja 13), runda 3 PASS, ticket zamknięty. -->
 
 # R-042 The task-note mechanism is cut
 
@@ -96,7 +98,8 @@ Facts at `aa721d7` (inventory sections 1–5; line numbers in files R-039 change
 9. Text (fact 7; A-085): `README.md` loses the experiment section; `docs/setup.md` and `docs/jobs.md` lose the note and
    the open-check paragraph; the manual's sentence (`templates/agents.md:139` at `aa721d7`, in the manual's file as R-040
    leaves it) goes, and the coordinator's reference file of R-039 under `test/runtime/context-message/` follows; the
-   comments of inventory section 5 follow.
+   comments of inventory section 5 follow, among them those of `adrian-rebuild/tools/fake-pi-rpc.mjs` and
+   `adrian-rebuild/tools/same-task-session.mjs` (named here by Decision 9).
 10. Tests, each failing at HEAD with R-039 done (T-29):
     - `test/hook/finish.test.ts`, new: the first `finish` writes `result` and ends the session with `done`; the hook
       registers no settle handler; `log` gets no check line.
@@ -199,3 +202,51 @@ inventory's questions in `evidence/inventories/R-042.md` → section 8):
 6. `.agents/limen/reminders.md` is a leftover (Q6 (a)): the registry's rule "Each cut ticket appends its own entries"
    (`src/project/leftovers.ts:16`).
 7. The M-01 tools keep the note columns for older refs (Q7 (a)), as R-039 item 8 keeps old columns.
+
+Checked at `353c2bd` (2026-11-27, night run 4, protocol step 2, after R-039, R-040 and R-111):
+8. The places of the facts now: `noteStart` at `hook/communication.ts:96` and `recordNote` at `:122` (with the
+   `note.md` read at `:94`); `noteSteer` at `hook/steering.ts:129`; `noteCheck` at `hook/finish.ts:42`, the settle
+   handler at `:81-96`; `noteCheckOpen` at `src/job/finalize.ts:117`, `openChecks` written at `:140`; the note carry at
+   `src/job/continuation.ts:569`; the 80 % steer at `src/runtime/wrapper.ts:329`; the manual's sentence at
+   `templates/manual.md:139` (R-040 renamed the file, so item 9's "the manual's file as R-040 leaves it" is
+   `templates/manual.md`, and the coordinator's reference is `test/runtime/context-message/owner-facing-coordinator.md`);
+   the M-01 tools read the note's events at `adrian-rebuild/tools/role-context.mjs:159-162` and
+   `adrian-rebuild/tools/context-size.mjs:211-212`. No register file of R-040 (`templates/registers/`) names the note.
+   Every match of AC-10–AC-16 at `HEAD` is a line the ticket removes (D-025): `src/job/task-note.ts`, the hooks'
+   imports and calls, `src/job/continuation.ts:569`, `src/job/finalize.ts:3` and `:34`, `src/job/session-commands.ts:45`,
+   `src/runtime/pi-api.ts`'s settle declarations, `hook/wake.ts`, `src/job/job.ts:214`, `src/job/wake-text.ts`,
+   `templates/manual.md:139`, `README.md:73-106`, `docs/jobs.md:47`, `docs/setup.md:169` and
+   `src/runtime/wrapper.ts:329`; AC-13's second command exits 1 at `HEAD` and expects 0.
+
+Review round 1 (2026-11-27, night run 4; `review.md` → Round 1): PASS with three notes.
+9. Night default, for Adrian to confirm in the morning (D-054 (2) (a)): item 9 asks that "the comments of inventory
+   section 5 follow", and two of them lie in rebuild tools, `adrian-rebuild/tools/fake-pi-rpc.mjs:63` and
+   `adrian-rebuild/tools/same-task-session.mjs:2` (its Polish summary), which still name `src/job/session-commands.ts`
+   as a reader of Pi session files; `## Change` did not name the two files, so the review guard kept the implementer
+   from them. Item 9 now names both, so the fix round may change their comments only.
+10. To fix, by a fresh implementer (D-026), then the gate and round 2:
+    F1: the two comments of Decision 9 stop naming `src/job/session-commands.ts` as a session reader (it is now only
+    the command splitter of `limen stats`); each says what reads the shape now (T-30 (2)), with its `PL:` summary true.
+    F2: an end-to-end proof that the wrapper picks the 80 % steer from the job's `record.role`: a timeout job whose
+    role's text differs from the fallback ("commit your work now."), e.g. a reviewer's "write your verdict now.", so a
+    wrapper that dropped `record.role` fails it (T-29 (3), T-38); the test's place by T-29 is the implementer's choice.
+    Without change, with the reason in `review.md`: note 3 (the s3 assertion hidden at HEAD by the file's cascade).
+
+Review round 2 (2026-11-27, night run 4; `review.md` → Round 2): PASS with two notes. The last round of fixes, by a
+fresh implementer (D-026), then the gate and round 3, whose notes go to the open points (D-092):
+11. G1: the two comments of F1 (`adrian-rebuild/tools/fake-pi-rpc.mjs:63`, the `PL:` summary of
+    `adrian-rebuild/tools/same-task-session.mjs`) name `src/job/usage.ts` as the reader of the entry shape they mean,
+    without "Limen's one reader of Pi's session files", since `src/picture/activity.ts` reads a session file too
+    (T-30 (1)). Note 2 (the "split pending" suppressions, T-27 (1)) stays with R-082's ratchet, `outcome.md` → Open
+    points 3.
+
+After fix round 2 (2026-11-27, night run 4, about 02:30):
+12. The main session's gate after G1 exited 1 with its failing test unknown (the tool cut the output before it and
+    kept no copy; no new ignored file; G1 changed no file a test runs), so by D-029 a test failed without a change of
+    the code it runs. Not run again; the question is `.night/questions.md` → Q-91 (how R-042 gets its gate; recommended:
+    `gate.mjs --out <file>` by day, then one run). R-042 is `blocked`; review round 3 waits for the answer, and the
+    working tree keeps the whole change uncommitted.
+13. 2026-11-27 D-130 (Adrian: "dla Q-91 wybieram rekomendację"; Q-91, option 1): `gate.mjs` gains `--out <file>`
+    first (a `Tools:` commit); then one gate run on this tree with `--out`. A failure names its test, which becomes the
+    finding, and R-042 waits for its fix; a pass is R-042's gate, the lost failure goes to `outcome.md` → Open points as
+    an occurrence with a finding "a gate test failed once, its name unknown", and review round 3 follows.

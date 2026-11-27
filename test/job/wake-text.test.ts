@@ -1,5 +1,5 @@
-// src/job/wake-text.ts: the text of a job's wake, here how the job ended and what a quota job's wake asks, on a job
-// folder in the OS temporary folder.
+// src/job/wake-text.ts: the text of a job's wake, here how the job ended, what a quota job's wake asks and a done
+// job's plain wake, on a job folder in the OS temporary folder.
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -72,6 +72,27 @@ test("the ending of a quota-exhausted job says the cap of 3 resumes was reached,
 	assert.equal(
 		jobEnding(job, record),
 		"Stop: the subscription limit, after 3 resumes, the most Limen makes. Limen does not resume it again.",
+	);
+});
+
+// A-044: the task note is cut, so the items an older record holds in openChecks stay history (R-042 Decision 2).
+test("the completion wake of a done job whose older record holds open checks is a plain done that names none of them", (t) => {
+	const job = mkdtempSync(join(tmpdir(), "limen-wake-text-"));
+	t.after(() => rmSync(job, { recursive: true, force: true }));
+	const record: JobRecord = {
+		...emptyRecord(basename(job)),
+		state: "done",
+		openChecks: ["Tests: not proven. No run."],
+	};
+	writeFileSync(join(job, "record.json"), serialized(record));
+	const wake = completionWake(job, "fix login · F012", "done", record.id, "limen/fix", "");
+	assert.deepEqual(
+		[
+			wake.startsWith(`Limen job "fix login · F012" is done (${record.id}) on branch limen/fix.\n\n`),
+			wake.includes("\n\nJob done. Next step: land it, "),
+			/open checks|Tests: not proven/i.test(wake),
+		],
+		[true, true, false],
 	);
 });
 

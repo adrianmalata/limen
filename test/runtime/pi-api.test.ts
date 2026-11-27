@@ -13,13 +13,11 @@ import { LimenError } from "../../src/outcome.ts";
 import {
 	isRecorded,
 	type PiContext,
-	type PiSettleEvent,
 	piCommandArgs,
 	piContext,
 	piContextEntries,
 	piEvent,
 	piRateLimit,
-	piSettleEvent,
 	piToolInput,
 	recorded,
 } from "../../src/runtime/pi-api.ts";
@@ -47,11 +45,6 @@ function refusal(guard: () => unknown): Refused {
 /** The place in Pi and the field a refusal names. */
 function where(error: Refused): readonly string[] {
 	return [error.file, error.field];
-}
-
-/** `value` as Pi's runtime hands it over, whatever its declared type says: a copy through JSON, which is `any`. */
-function asHandedOver(value: object): PiSettleEvent<unknown> {
-	return JSON.parse(JSON.stringify(value));
 }
 
 const message = { role: "assistant", content: [{ type: "text", text: "done" }], stopReason: "stop" };
@@ -179,19 +172,6 @@ test("piEvent refuses an event that is not an object", () => {
 	const error = refusal(() => piEvent("tool_call", "bash"));
 	assert.deepEqual(where(error), ["Pi event tool_call", ""]);
 	assert.equal(error.message, 'Pi event tool_call: expected an object, got "bash"');
-});
-
-test("piSettleEvent returns an agent_before_settle with Pi's own entries and refuses an unknown outcome", () => {
-	const entry = { type: "custom", customType: "other", data: 1 };
-	const event = { outcome: "completed" as const, entries: [entry] };
-	assert.equal(piSettleEvent(event).entries[0], entry);
-	const error = refusal(() => piSettleEvent(asHandedOver({ outcome: "finished", entries: [] })));
-	assert.deepEqual(where(error), ["Pi event agent_before_settle", "outcome"]);
-	assert.match(error.message, /expected one of "completed", "aborted" or "error", got "finished"$/);
-});
-
-test("piSettleEvent refuses an agent_before_settle whose entries are not a list", () => {
-	assert.equal(refusal(() => piSettleEvent(asHandedOver({ outcome: "error", entries: {} }))).field, "entries");
 });
 
 test("piContext returns the context itself, so a method keeps its owner, and checks only the fields it is given", () => {

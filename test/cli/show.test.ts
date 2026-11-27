@@ -1,11 +1,11 @@
 // `limen show` (src/job/listing.ts) of a finished job: the readings of its systemd user scope with its peak CPU share,
-// and the kind and the reset time of its failure; and of a running job whose wrapper is dead, which it shows and does
-// not end (T-04).
+// the kind and the reset time of its failure, and an older record's open checks; and of a running job whose wrapper is
+// dead, which it shows and does not end (T-04).
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { test } from "node:test";
-import type { Scope } from "../../src/job/record.ts";
+import type { JobRecord, Scope } from "../../src/job/record.ts";
 import { platform } from "../../src/platform/platform.ts";
 import { jobDir, jobRecord, limen, plant, SCOPE_READINGS, writeRecord } from "../plant.ts";
 import { snapshot } from "../snapshot.ts";
@@ -13,12 +13,17 @@ import { snapshot } from "../snapshot.ts";
 const READ = "2026-11-22-scope-1a2b3c4d";
 const UNREAD = "2026-11-22-gone-5e6f7a8b";
 
-/** A finished job's record, task and log in its folder `dir`, its scope with `readings`. */
-async function finished(dir: string, readings: Omit<Scope, "unit" | "cgroup">): Promise<void> {
+/** A finished job's record, task and log in its folder `dir`, its scope with `readings`, and the record's `fields`. */
+async function finished(
+	dir: string,
+	readings: Omit<Scope, "unit" | "cgroup">,
+	fields: Partial<JobRecord> = {},
+): Promise<void> {
 	const unit = `limen-job-${basename(dir)}.scope`;
 	const at = "2026-11-22T10:00:00.000Z";
 	const scope = { unit, cgroup: `/user.slice/app.slice/${unit}`, ...readings };
-	await writeRecord(dir, { state: "done", label: "demo", branch: "limen/demo", startedAt: at, finishedAt: at, scope });
+	const record = { state: "done", label: "demo", branch: "limen/demo", startedAt: at, finishedAt: at, scope } as const;
+	await writeRecord(dir, { ...record, ...fields });
 	await writeFile(join(dir, "task.md"), "say done\n");
 	await writeFile(join(dir, "log"), `[limen ${at}] done: pi exited 0\n`);
 }
@@ -81,6 +86,23 @@ test("the detail of a failed job shows its failure kind, and for quota its reset
 			[0, "  failure timeout"],
 		],
 		shown.map((run) => `${run.stdout}${run.stderr}`).join("\n"),
+	);
+});
+
+// A-044, z. 29: the task note is cut, so a done job is a plain done; an older record's open items stay readable as
+// history (R-042 Decision 2).
+test("the detail of a done job whose older record holds open checks shows it done, with one plain open-checks block", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const open = ["Tests: not proven. No run.", "Build: dropped."];
+	await finished(jobDir(p, READ), SCOPE_READINGS, { openChecks: open });
+	const run = limen(p, ["show", READ]);
+	const lines = run.stdout.split("\n");
+	const at = lines.indexOf("  open-checks:");
+	assert.deepEqual(
+		[run.status, lines[0]?.startsWith("DONE demo · "), lines.slice(at + 1, at + 3), /open checks/i.test(run.stdout)],
+		[0, true, open.map((line) => `    ${line}`), false],
+		`${run.stdout}${run.stderr}`,
 	);
 });
 

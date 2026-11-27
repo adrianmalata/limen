@@ -210,6 +210,13 @@ test("listLeftovers names a .limen/coordinators folder as a leftover of the cut 
 	assert.deepEqual(listLeftovers(root), [{ path: ".limen/coordinators", feature: "seat rules (R-102)" }]);
 });
 
+// A-044: the project reminders went with the task note, their one reader, so nothing reads the file any more.
+test("listLeftovers names a .agents/limen/reminders.md as a leftover of the cut task note", () => {
+	const root = project();
+	write(root, ".agents/limen/reminders.md", "- Every migration has a down step.\n");
+	assert.deepEqual(listLeftovers(root), [{ path: ".agents/limen/reminders.md", feature: "the task note (R-042)" }]);
+});
+
 test("a second dropLeftovers call removes nothing", () => {
 	const root = project();
 	write(root, FILE.path, "{}\n");

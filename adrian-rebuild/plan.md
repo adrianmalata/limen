@@ -1569,6 +1569,12 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   `resetsAt` and does not count that run as a used retry; it still never starts a run at or after `--until`. Built by
   the main session with a test in `tools/test-night.mjs` and a `rebuild-reviewer` review, as D-026 was. Check: `node
   --test adrian-rebuild/tools/test-night.mjs`.
+- 2026-11-27 D-132 (Adrian: "1"; Q-92, option 1): the main session's commit `9520a86` took R-042's two staged deletions
+  (`src/job/task-note.ts`, `test/u14-task-note.test.ts`) by mistake; a fix commit restores both from `353c2bd` in the
+  index only, without rewriting history, and R-042 stages their deletion again, so its own commit holds its whole
+  change. Lesson for the main session: when a ticket's deletions are staged, a commit of other paths names its paths
+  (`git commit -- <paths>`) or checks `git diff --cached --name-status` first. Check: `git diff 353c2bd <fix> -- src
+  test hook` prints nothing.
 
 ### Gate 2 §2, copied
 
@@ -1979,7 +1985,7 @@ Columns:
 | R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16, D-114 | R-021, R-038 | L | delegated | night | yes | pi, bridge | 4.2 | done |
 | R-040 | Role texts come from the package, in three registers | 4 | A-038, A-039, A-042, D-005 | R-001, R-039 | M | delegated | night | yes | — | — | done |
 | R-041 | The turn cue holds only variable parts and the audience line | 4 | A-077, T-13 | R-039 | S | pair | day-after | — | pi | 4.4 | planned |
-| R-042 | The task-note mechanism is cut | 4 | A-044, A-059, D-121 | R-039 | M | delegated | night | yes | — | — | blocked |
+| R-042 | The task-note mechanism is cut | 4 | A-044, A-059, D-121 | R-039 | M | delegated | night | yes | — | — | done |
 | R-043 | Just-in-time reminders arrive in the triggering tool result | 4 | A-041, H-12 | R-039 | M | delegated | night | — | pi | 4.5 | ready |
 | R-044 | Module switches; hooks load by role and module | 4 | G1.10, G1.1, G1.2, G1.9, A-082, A-040, D-122, D-124 | R-015, R-039, R-040 | M | delegated | night | yes | pi | 4.7, 4.9 | ready |
 | R-045 | Tools and skills per role; a read-only role that writes fails | 4 | A-081, E-5, D-123, D-125 | R-042, R-044 | M | delegated | night | — | pi, bridge | 4.3 | ready |
@@ -5934,3 +5940,9 @@ of his accounts, so the five-hour and weekly shares in the status file are that 
 - Next: one gate run on R-042's tree with `--out node_modules/.rebuild-review/R-042.gate` (D-130), then R-042 from its
   review round 3; then D-131's change of `night.mjs`; then the queue R-043, R-044, R-045, R-047, R-104–R-110. A
   handover by D-047 after R-042's commit (context 43 % now; the dirty tree blocks `handover.mjs` until then).
+- Q-92 → D-132 (Adrian: "1"): commit `9520a86` had taken R-042's two staged deletions; the fix commit restores them
+  (HEAD's `src`, `test` and `hook` equal `353c2bd`'s), and R-042 stages their deletion again.
+- R-042 `done` (delegated, D-130): the main session's gate with `--out` → exit 0, 1365/1365 (348.0 s); review round 3
+  PASS with one note on `outcome.md`, fixed by the main session; A-091 (medium, accepted-risk, for gate 5.4) records
+  the lost failure. Next: D-131's change of `night.mjs` and the queue R-043, R-044, R-045, R-047, R-104–R-110, after a
+  handover by D-047.

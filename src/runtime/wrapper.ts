@@ -43,6 +43,27 @@ const DEFAULT_TIMEOUT_MS = 90 * 60_000;
 const MAX_TOOL_CALLS = 900;
 /** The tool-start cap: `toolCalls` of the project's limits file, read at each tool start, else 900 (R-015). */
 const toolCallCap = (): number => limitCount("toolCalls", MAX_TOOL_CALLS);
+/** What the 80 % steer asks of a role that writes work, and of a role that `DEADLINE_ASKS` does not name. */
+const COMMIT_ASK = "commit your work now.";
+/**
+ * What the 80 % steer asks of each role, only what is true at this commit (D-121): a verdict of the roles that judge,
+ * the final report of a researcher, a commit of every role that writes, a group's team (`coordinator`) and its workers
+ * included. R-063 adds that Limen runs the checks once it does.
+ */
+const DEADLINE_ASKS: ReadonlyMap<string, string> = new Map([
+	["reviewer", "write your verdict now."],
+	["judge", "write your verdict now."],
+	["researcher", "give your report in your final message now."],
+	["worker", COMMIT_ASK],
+	["keeper", COMMIT_ASK],
+	["quality", COMMIT_ASK],
+	["coordinator", COMMIT_ASK],
+]);
+
+/** The 80 % steer of a job of `role`, its record's, with `minutes` left before its timeout. */
+export function deadlineSteerText(role: string | null, minutes: number): string {
+	return `${minutes} min left before the timeout: ${DEADLINE_ASKS.get(role ?? "") ?? COMMIT_ASK}`;
+}
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: split pending: internal job runner
 // biome-ignore lint/complexity/noExcessiveLinesPerFunction: same split as the line above
 export async function runInternalJob(): Promise<void> {
@@ -319,15 +340,14 @@ export async function runInternalJob(): Promise<void> {
 		void samples.tick(tickContext);
 	}, stallTickMs());
 	const timeout = setTimeout(() => exhaust({ kind: "timeout", detail: `timeout after ${timeoutMs}ms` }), timeoutMs);
-	// A model cannot see the clock; one steer at 80% lets it leave a commit or a verdict before the timeout.
+	// A model cannot see the clock; one steer at 80% lets it leave a commit, a verdict or a report before the timeout.
 	const steerAt = Math.round(timeoutMs * 0.8);
 	const deadlineSteer = setTimeout(() => {
 		if (exhausted) {
 			return;
 		}
 		const minutes = Math.max(1, Math.round((timeoutMs - steerAt) / 60_000));
-		const text = `${minutes} min left before the timeout: commit your work or write your verdict now; mark checks you did not run as unverified.`;
-		void enqueueSteer(jobDir, text).catch(failLog);
+		void enqueueSteer(jobDir, deadlineSteerText(record?.role ?? null, minutes)).catch(failLog);
 	}, steerAt);
 	const result = await outcome;
 	engineEnded = true;

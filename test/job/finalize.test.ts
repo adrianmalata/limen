@@ -1,6 +1,6 @@
-// src/job/finalize.ts: the end of a job through its terminal transition: the log line and the failure it writes, the
-// readings of the job's systemd user scope it writes with them, the start of its group's next round, and the end of
-// that scope after them.
+// src/job/finalize.ts: the end of a job through its terminal transition: the log line and the failure it writes, no
+// open checks read from a done job's result while an older record's still read, the readings of the job's systemd
+// user scope it writes with them, the start of its group's next round, and the end of that scope after them.
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -93,6 +93,24 @@ test("finalizeJob records the kind, the detail and the reset time its detector p
 		failures.push((await readRecord(job))?.failure);
 	}
 	assert.deepEqual(failures, passed);
+});
+
+// A-044: the end parsed the "Note check" of the result into open checks; the task note is cut, so nothing reads it.
+test("finalizeJob of a done job whose result holds a Note check with lines not proven records openChecks null", async (t) => {
+	const { job } = await jobFolder(t);
+	await writeRecord(job, { state: "running", identity: IDENTITY });
+	writeFileSync(join(job, "result"), "Done.\n\n## Note check\n- Tests: not proven. No run.\n- Build: dropped.\n");
+	await finalizeJob(job, { state: "done", detail: "pi exited 0" });
+	const record = await readRecord(job);
+	assert.deepEqual([record?.state, record?.openChecks], ["done", null]);
+});
+
+// The field stays in schema version 1 as history (R-042 Decision 1), so a record that holds its value still reads.
+test("a version-1 record of a done job that holds openChecks reads with its lines", async (t) => {
+	const { job } = await jobFolder(t);
+	await writeRecord(job, { state: "done", openChecks: ["Tests: not proven. No run."] });
+	const record = await readRecord(job);
+	assert.deepEqual([record?.version, record?.openChecks], [1, ["Tests: not proven. No run."]]);
 });
 
 // A-036, D-072: any finisher of a queued job, such as `limen stop` or the reaper, clears `queued`, so the wait itself

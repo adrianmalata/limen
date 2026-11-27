@@ -6,7 +6,6 @@ import { ticketPointers } from "../project/planning.ts";
 import { producedNothing } from "./job.ts";
 import { QUOTA_RESUMES, quotaResume } from "./quota.ts";
 import { type JobRecord, type Progress, readProgressSync, readRecordSync } from "./record.ts";
-import { openChecks } from "./task-note.ts";
 import { claimSlots, deliveryExists } from "./wake-delivery.ts";
 
 /** A content file of the job (`task.md`, `result`, `start-notice`), trimmed; "" when it is missing. */
@@ -72,15 +71,12 @@ export function completionWake(
 	const record = readRecordSync(job);
 	const location = repo ? ` in repository ${repo}` : "";
 	const task = firstSentence(text(join(job, "task.md")));
-	// A done job whose final "Note check" left items open is not a plain done; the lead says so and lists them.
-	const open = state === "done" ? openChecks(record) : [];
-	const shown = open.length ? "done with open checks" : state;
 	const said = task
-		? `Limen job ${JSON.stringify(label)}: ${task}\nis ${shown} (${id}) on branch ${branch}${location}.`
-		: `Limen job ${JSON.stringify(label)} is ${shown} (${id}) on branch ${branch}${location}.`;
+		? `Limen job ${JSON.stringify(label)}: ${task}\nis ${state} (${id}) on branch ${branch}${location}.`
+		: `Limen job ${JSON.stringify(label)} is ${state} (${id}) on branch ${branch}${location}.`;
 	const waited = missedStartNotice(job, route.session);
 	// A start notice the session never got is its own paragraph after the lead, word for word.
-	const lead = [said, waited, open.length ? `Open checks:\n${open.join("\n")}` : ""].filter(Boolean).join("\n\n");
+	const lead = [said, waited].filter(Boolean).join("\n\n");
 	const empty = jobProducedNothing(record, progressOf(job));
 	const facts = empty ? "It produced nothing (0 tool calls, no commits)." : "";
 	let handoff = "The job failed or stopped; inspect the failure before deciding whether to resume work.";
@@ -88,22 +84,14 @@ export function completionWake(
 		handoff =
 			"Job done. Next step: land it, or name the check that still blocks landing. Done does not mean that review passed.";
 	}
-	if (open.length) {
-		handoff =
-			"The worker left the checks above open. Decide for each before you land: continue the job, start a review, " +
-			"or accept it and tell the user why.";
-	}
 	let instruction =
 		"Inspect the job record, failure and log/session. A repair handoff states the observed failure with its evidence and names a cause only when you verified it. Resume focused fixes and re-review if appropriate; do not treat this failure as a new-spawn or release signal. Keep the user informed; ask only when genuine product ambiguity, a scope or risk tradeoff, or an irreversible action needs a human decision.";
 	if (state === "done") {
-		const land = open.length
-			? "Then decide each open check, and land the work at the verified commit only after that."
-			: "Then land the work at the verified commit.";
 		// A route's own wording (the Herdr prompt to a coordinator without a Pi session) replaces only the landing
 		// instruction.
 		instruction =
 			routeInstruction ??
-			`Inspect the job record, branch diff and commits, log/session, and relevant checks. ${land} If a check blocks landing, name that check and resume a focused fix. ${keeperHint(job, id, record)} After it lands, continue with the next item on the board. Keep the user informed; ask only when genuine product ambiguity, a scope or risk tradeoff, or an irreversible action needs a human decision.`;
+			`Inspect the job record, branch diff and commits, log/session, and relevant checks. Then land the work at the verified commit. If a check blocks landing, name that check and resume a focused fix. ${keeperHint(job, id, record)} After it lands, continue with the next item on the board. Keep the user informed; ask only when genuine product ambiguity, a scope or risk tradeoff, or an irreversible action needs a human decision.`;
 	}
 	if (empty) {
 		instruction =

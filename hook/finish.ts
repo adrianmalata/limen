@@ -1,28 +1,14 @@
-import { appendFileSync, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { atomicWriteSync } from "../src/atomic-write.ts";
 import { transport } from "../src/config.ts";
-import { noteCheck } from "../src/job/task-note.ts";
-import {
-	type PiApi,
-	type PiMessageDraft,
-	type PiSettleEvent,
-	type PiSettleResult,
-	type PiToolOutput,
-	piContext,
-	piSettleEvent,
-	piToolInput,
-	recorded,
-} from "../src/runtime/pi-api.ts";
+import { type PiApi, type PiToolOutput, piContext, piToolInput, recorded } from "../src/runtime/pi-api.ts";
 
 /**
- * `finish` for every Limen job. The handoff becomes the job result, and the session ends after this turn.
- *
- * Once per job, before the finish, the agent gets its task note to check: the first `finish` call answers with the
- * check, and a run that ends without `finish` gets it as one more turn. Pi gives that turn from 1.2.0
- * (`agent_before_settle`).
+ * `finish` for every Limen job. The first call ends the job: its handoff becomes the job result, and the session ends
+ * after this turn (A-044 cut the check before it).
  */
-export default function limenFinish(pi: Pick<PiApi, "on" | "registerTool">): void {
+export default function limenFinish(pi: Pick<PiApi, "registerTool">): void {
 	const root = transport("LIMEN_CONTEXT_ROOT");
 	const id = transport("LIMEN_JOB_ID");
 	if (transport("LIMEN_JOB") !== "1" || !root || !id) {
@@ -32,15 +18,6 @@ export default function limenFinish(pi: Pick<PiApi, "on" | "registerTool">): voi
 	if (!existsSync(jobDir)) {
 		return;
 	}
-	let checked = false;
-	const check = (finishTool: boolean): string | undefined => {
-		if (checked) {
-			return;
-		}
-		checked = true;
-		appendFileSync(join(jobDir, "log"), `[limen ${new Date().toISOString()}] note check sent\n`);
-		return noteCheck(jobDir, finishTool);
-	};
 	pi.registerTool({
 		name: "finish",
 		label: "Finish",
@@ -58,10 +35,6 @@ export default function limenFinish(pi: Pick<PiApi, "on" | "registerTool">): voi
 				_onUpdate: unknown,
 				rawContext: unknown,
 			): Promise<PiToolOutput> => {
-				const ask = check(true);
-				if (ask) {
-					return { content: [{ type: "text", text: ask }], details: {} };
-				}
 				const input = piToolInput("finish", params);
 				const context = piContext("tool finish", rawContext, ["shutdown"]);
 				const handoff = typeof input.handoff === "string" ? input.handoff.trim() : "";
@@ -77,21 +50,4 @@ export default function limenFinish(pi: Pick<PiApi, "on" | "registerTool">): voi
 			},
 		),
 	});
-	pi.on(
-		"agent_before_settle",
-		recorded(<Entry>(raw: PiSettleEvent<Entry>): PiSettleResult<Entry> | undefined => {
-			const event = piSettleEvent(raw);
-			const ask = event.outcome === "completed" ? check(false) : undefined;
-			if (!ask) {
-				return;
-			}
-			const entry: PiMessageDraft = {
-				type: "custom_message",
-				customType: "limen-note-check",
-				content: ask,
-				display: false,
-			};
-			return { entries: [...event.entries, entry], continue: true };
-		}),
-	);
 }

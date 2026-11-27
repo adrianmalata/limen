@@ -1,5 +1,5 @@
-/* PL: Czytnik plików sesji Pi (JSONL) dla narzędzia same-task (R-011), w formacie, który czytają src/job/usage.ts
-   i src/job/session-commands.ts: tokeny według klas (input, cache write, cache read, output) zsumowane po turach
+/* PL: Czytnik plików sesji Pi (JSONL) dla narzędzia same-task (R-011), w formacie, który czyta src/job/usage.ts:
+   tokeny według klas (input, cache write, cache read, output) zsumowane po turach
    asystenta, polecenia basha z wywołań narzędzi, tekst każdej odpowiedzi asystenta, tury zakończone błędem limitu
    (`/hit your (?:[\w-]+ )?limit/i` w errorMessage albo w tekście tury błędu, jak w docs/seat/quota-resume.ts)
    i wywołania narzędzi, których argumenty zawierają dany napis (z pominięciem podanych napisów).

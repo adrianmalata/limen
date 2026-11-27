@@ -1,7 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { transport } from "../src/config.ts";
-import { noteStart, recordNote } from "../src/job/task-note.ts";
 import { packageRoot, readOptional } from "../src/project/inherit.ts";
 import { ticketPointers } from "../src/project/planning.ts";
 import {
@@ -73,9 +72,6 @@ const GUIDANCE: Readonly<Record<ReminderKind, { readonly file: string; readonly 
 export default function limenCommunication(pi: Pick<PiApi, "on" | "sendMessage">): void {
 	let lastTouch: string | undefined;
 	let lastFailure: string | undefined;
-	// The job folder once the first prompt showed the task note, and the note text this hook saw last.
-	let noteDir: string | undefined;
-	let noteSeen: string | undefined;
 	pi.on(
 		"before_agent_start",
 		recorded((raw: unknown, rawContext: unknown) => {
@@ -88,13 +84,7 @@ export default function limenCommunication(pi: Pick<PiApi, "on" | "sendMessage">
 			lastTouch = undefined;
 			lastFailure = undefined;
 			const cue = turnCue(root, job, isWakePrompt(event.prompt), touched, failed);
-			const firstNote = job && !noteDir ? jobFolder(root) : undefined;
-			if (firstNote) {
-				noteDir = firstNote;
-				noteSeen = readOptional(join(firstNote, "note.md"));
-			}
-			const content = firstNote ? `${cue}\n\n${noteStart(firstNote)}` : cue;
-			return { message: { customType: CUE_TYPE, content, display: false } };
+			return { message: { customType: CUE_TYPE, content: cue, display: false } };
 		}),
 	);
 	pi.on(
@@ -118,9 +108,6 @@ export default function limenCommunication(pi: Pick<PiApi, "on" | "sendMessage">
 		recorded((raw: unknown, rawContext: unknown) => {
 			const event = piEvent("tool_result", raw);
 			const context = piContext("tool_result", rawContext, ["cwd"]);
-			if (noteDir) {
-				noteSeen = recordNote(noteDir, noteSeen);
-			}
 			if (event.isError) {
 				return;
 			}
@@ -207,11 +194,6 @@ function deliverContext(pi: Pick<PiApi, "on" | "sendMessage">, forget: () => voi
 
 function isWakePrompt(prompt: string | undefined): boolean {
 	return typeof prompt === "string" && prompt.startsWith("Limen job ");
-}
-
-function jobFolder(root: string): string | undefined {
-	const dir = join(root, ".limen", "jobs", transport("LIMEN_JOB_ID") ?? "");
-	return transport("LIMEN_JOB_ID") && existsSync(dir) ? dir : undefined;
 }
 
 /** The context message as the hook sends it: hidden from the owner's chat, which the model still gets (E-11). */

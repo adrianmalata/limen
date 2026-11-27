@@ -84,8 +84,6 @@ type NewJob = {
 	readonly parent?: string;
 	readonly candidate?: string;
 	readonly session?: { readonly source: string; readonly name: string };
-	/** Files a continuation carries from its parent's job folder, such as the task note. */
-	readonly carried?: Readonly<Record<string, string>>;
 	/** The number of a resume after the subscription limit (A-016 (5)), which the record keeps as `quotaAttempt`. */
 	readonly quotaAttempt?: number;
 };
@@ -112,7 +110,6 @@ export async function publishJob(jobDir: string, job: NewJob): Promise<void> {
 			"task.md": job.task,
 			[CONTEXT_FILE]: job.context,
 			log: "",
-			...job.carried,
 		};
 		if (job.notificationSession) {
 			files[`notify/subscribers/${job.notificationSession}`] = `${startedAt}\n`;

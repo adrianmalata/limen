@@ -56,25 +56,10 @@ export interface ToolResultEvent {
 	content: (TextContent | ImageContent)[];
 	isError: boolean;
 }
-export interface CustomEntryDraft { type: "custom"; customType: string; data?: unknown }
-export interface CustomMessageEntryDraft {
-	type: "custom_message";
-	customType: string;
-	content: string | (TextContent | ImageContent)[];
-	display: boolean;
-	details?: unknown;
-}
-export type SessionBoundaryDraft = CustomEntryDraft | CustomMessageEntryDraft;
-export interface AgentBeforeSettleEvent {
-	type: "agent_before_settle";
-	entries: SessionBoundaryDraft[];
-	continue: boolean;
-	outcome: "completed" | "aborted" | "error";
-}
 export interface AgentSettledEvent { type: "agent_settled"; aborted: boolean }
 export type ExtensionEvent = SessionStartEvent | SessionShutdownEvent | SessionCompactEvent | BeforeAgentStartUserEvent
 	| BeforeAgentStartCustomEvent | MessageStartEvent | MessageEndEvent | ContextEvent | ToolCallEvent | ToolResultEvent
-	| AgentBeforeSettleEvent | AgentStartEvent | AgentEndEvent | AgentSettledEvent;
+	| AgentStartEvent | AgentEndEvent | AgentSettledEvent;
 export interface SessionMessageEntry { type: "message"; id: string; message: AgentMessage }
 export interface CustomMessageEntry {
 	type: "custom_message";
@@ -112,7 +97,6 @@ export interface ExtensionAPI {
 	on(event: "context", handler: ExtensionHandler<ContextEvent, { messages?: AgentMessage[] }>): () => void;
 	on(event: "tool_call", handler: ExtensionHandler<ToolCallEvent, { block?: boolean; reason?: string }>): () => void;
 	on(event: "tool_result", handler: ExtensionHandler<ToolResultEvent, { content?: (TextContent | ImageContent)[]; isError?: boolean }>): () => void;
-	on(event: "agent_before_settle", handler: ExtensionHandler<AgentBeforeSettleEvent, { entries?: SessionBoundaryDraft[]; continue?: boolean }>): () => void;
 	on(event: "agent_start", handler: ExtensionHandler<AgentStartEvent>): () => void;
 	on(event: "agent_end", handler: ExtensionHandler<AgentEndEvent>): () => void;
 	on(event: "agent_settled", handler: ExtensionHandler<AgentSettledEvent>): () => void;

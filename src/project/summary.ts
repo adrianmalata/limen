@@ -58,7 +58,6 @@ type JobFiles = {
 	readonly origin: string;
 	readonly started: string;
 	readonly ended: string;
-	readonly openChecks: boolean;
 	/** The line of a job the seat sweep cannot end from its third attempt in a row (R-032); "" for any other job. */
 	readonly stuck: string;
 };
@@ -308,7 +307,6 @@ async function readJobFiles(dir: string): Promise<JobFiles> {
 		origin: record?.origin.tab ?? "",
 		started: record?.startedAt ?? "",
 		ended: record?.finishedAt ?? "",
-		openChecks: (record?.openChecks?.length ?? 0) > 0,
 		stuck: stuckLine(record),
 	};
 }
@@ -358,8 +356,7 @@ async function scanJob(scan: Scan, id: string): Promise<void> {
 		scan.finished.set(`${job.repo}:${job.branch}`, {
 			id,
 			label: job.label || id,
-			// Open note checks need a decision before the branch is a candidate.
-			state: job.state === "done" && job.openChecks ? "done with open checks" : job.state,
+			state: job.state,
 			branch: job.branch,
 			repo: job.repo,
 		});

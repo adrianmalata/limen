@@ -55,14 +55,6 @@ export type PiToolResultEvent = {
 	readonly content: readonly PiPart[];
 	readonly isError: boolean;
 };
-const PI_OUTCOMES = ["completed", "aborted", "error"] as const;
-/** How a run ended. */
-export type PiOutcome = (typeof PI_OUTCOMES)[number];
-/**
- * `agent_before_settle`: the run's outcome and the entries proposed so far. The entries are Pi's own, of a type Limen
- * does not name; a handler passes them back unread, with its own entry after them.
- */
-export type PiSettleEvent<Entry> = { readonly outcome: PiOutcome; readonly entries: readonly Entry[] };
 
 /** The payload of each event whose fields a hook reads, by the event's name. */
 export type PiEvents = {
@@ -74,7 +66,6 @@ export type PiEvents = {
 	readonly context: PiContextEvent;
 	readonly tool_call: PiToolCallEvent;
 	readonly tool_result: PiToolResultEvent;
-	readonly agent_before_settle: PiSettleEvent<unknown>;
 };
 
 /** The events a hook handles, those whose payload it does not read included. */
@@ -106,10 +97,6 @@ export type PiContextEntry = {
 export type PiBlock = { readonly block: boolean; readonly reason: string };
 /** What a `tool_result` handler returns to change the result's content. */
 export type PiToolResultPatch = { readonly content: PiPart[] };
-/** An entry a hook adds at `agent_before_settle`: a custom message. */
-export type PiMessageDraft = { readonly type: "custom_message" } & PiCustomMessage;
-/** What an `agent_before_settle` handler returns: Pi's entries with the hook's own after them, and one more turn. */
-export type PiSettleResult<Entry> = { readonly entries: (Entry | PiMessageDraft)[]; readonly continue: boolean };
 
 /** The context's UI. */
 export type PiUi = {
@@ -176,14 +163,6 @@ export interface PiApi {
 	on(event: "context", handler: PiHandler): void;
 	on(event: "tool_call", handler: PiHandler<PiBlock | undefined>): void;
 	on(event: "tool_result", handler: PiHandler<PiToolResultPatch | undefined>): void;
-	// Generic in Pi's entry type, so that the handler can pass Pi's entries back and cannot make one up.
-	on(
-		event: "agent_before_settle",
-		handler: <Entry>(
-			event: PiSettleEvent<Entry>,
-			context: unknown,
-		) => PiSettleResult<Entry> | undefined | Promise<PiSettleResult<Entry> | undefined>,
-	): void;
 	on(event: "agent_start", handler: PiHandler): void;
 	on(event: "agent_end", handler: PiHandler): void;
 	on(event: "agent_settled", handler: PiHandler): void;
@@ -225,8 +204,6 @@ const flag: Check = (value, field) => (typeof value === "boolean" ? undefined : 
 const callable: Check = (value, field) =>
 	typeof value === "function" ? undefined : refusal(field, "a function", value);
 const record: Check = (value, field) => (isObject(value) ? undefined : refusal(field, "an object", value));
-/** Pi's own value, which a hook passes back unread. */
-const passed: Check = () => undefined;
 
 /** One of `values`. */
 function literal(values: readonly string[]): Check {
@@ -335,7 +312,6 @@ const EVENTS: { readonly [K in keyof PiEvents]: Check } = {
 	context: shape<PiContextEvent>({ messages: listOf(message) }),
 	tool_call: shape<PiToolCallEvent>({ toolName: text }),
 	tool_result: shape<PiToolResultEvent>({ toolName: text, input: record, content: listOf(part), isError: flag }),
-	agent_before_settle: shape<PiSettleEvent<unknown>>({ outcome: literal(PI_OUTCOMES), entries: listOf(passed) }),
 };
 
 /** The check of each context field. */
@@ -392,21 +368,9 @@ function assertArgs(command: string, value: unknown): asserts value is string {
 }
 
 /** The payload of event `name` itself, when it has the shape of `PiEvents`; otherwise BAD_DATA names the field. */
-export function piEvent<K extends Exclude<keyof PiEvents, "agent_before_settle">>(
-	name: K,
-	value: unknown,
-): PiEvents[K] {
+export function piEvent<K extends keyof PiEvents>(name: K, value: unknown): PiEvents[K] {
 	assertEvent(name, value);
 	return value;
-}
-
-/**
- * The payload of `agent_before_settle` itself, when it has its shape; otherwise BAD_DATA names the field. Its handler
- * gets the payload typed by Pi's entries (`PiApi.on`), and the guard checks it as it arrives.
- */
-export function piSettleEvent<Entry>(event: PiSettleEvent<Entry>): PiSettleEvent<Entry> {
-	refuse("agent_before_settle", EVENTS.agent_before_settle(event, ""));
-	return event;
 }
 
 /**

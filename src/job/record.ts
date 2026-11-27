@@ -216,7 +216,10 @@ export type JobRecord = Facts & {
 	readonly advisory: Advisory | null;
 	/** The engine's stop reason for its last message. */
 	readonly stopReason: string | null;
-	/** The items a done job's final "Note check" left open. */
+	/**
+	 * History only: the items an older done job's final "Note check" left open. The task note is cut (A-044), so a new
+	 * record holds `null`, and the field stays in version 1 so that every older record still reads (R-042 Decision 1).
+	 */
 	readonly openChecks: readonly string[] | null;
 	/** The job's commits on its branch, one `git log --oneline` line each; null when they were not counted. */
 	readonly commits: readonly string[] | null;

@@ -60,7 +60,7 @@ function sessionFile(job) {
 	return join(dir, "fake.jsonl");
 }
 
-/** One session entry, in the shape `src/job/usage.ts` and `src/job/session-commands.ts` read. */
+/** One session entry, in the shape that `src/job/usage.ts` reads. */
 function entry(job, message) {
 	appendFileSync(sessionFile(job), `${JSON.stringify({ type: "message", timestamp: new Date(), message })}\n`);
 	if (job === undefined && message.role === "assistant") {

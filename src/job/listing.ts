@@ -143,7 +143,6 @@ async function renderReadableJob(loaded: LoadedJob, state: string): Promise<{ co
 	const recordedTools = progress?.toolCalls ?? undefined;
 	const commits = record.commits ? record.commits.join("\n") : undefined;
 	const empty = !running && producedNothing(recordedTools, commits);
-	const openChecks = recordTexts(record).openChecks;
 	const diffstat = detailed ? branchDiffstat(loaded.root, record) : "";
 	const lastTool = progress?.lastTool;
 	const rendered = renderJob(job, {
@@ -154,7 +153,6 @@ async function renderReadableJob(loaded: LoadedJob, state: string): Promise<{ co
 		...(lastTool ? { lastTool: displayed(lastTool, detailed) } : {}),
 		...(running && pulse ? { pulse, processAlive: owner === "alive" } : {}),
 		...(pulse === "queued" && queue ? { queue } : {}),
-		...(openChecks ? { openChecks: true } : {}),
 		diffstat,
 		logTail: log.tail,
 	});
@@ -173,10 +171,13 @@ function runningPulse(record: JobRecord, owner: OwnerState, activity: string | u
 		...(activity ? { activity } : {}),
 	});
 }
-/** The record's open checks of a done job, its commits, and its side failures, as text blocks. */
+/**
+ * The open checks an older record holds, history of the cut task note (A-044), its commits, and its side failures, as
+ * text blocks.
+ */
 function recordTexts(record: JobRecord): { openChecks: string; commits: string; sideFailures: string } {
 	return {
-		openChecks: record.state === "done" ? (record.openChecks ?? []).join("\n") : "",
+		openChecks: (record.openChecks ?? []).join("\n"),
 		commits: (record.commits ?? []).join("\n"),
 		sideFailures: record.sideFailures.map(({ channel, message }) => `${channel}: ${message}`).join("\n"),
 	};
@@ -241,7 +242,8 @@ function jobBlocks(loaded: LoadedJob, facts: JobFacts): string[] {
 	}
 	const sections: ReadonlyArray<readonly [string, string]> = [
 		["stop-reason", record.stopReason ?? ""],
-		["open-checks", texts.openChecks],
+		// The detail alone: `limen status` shows a done job as done, whatever its older record holds.
+		["open-checks", detailed ? texts.openChecks : ""],
 		["versions", detailed ? (record.versions ?? "") : ""],
 		["commits", detailed ? texts.commits : ""],
 		["side-failures", texts.sideFailures],
@@ -273,7 +275,6 @@ function shownJob(loaded: LoadedJob, facts: JobFacts): ShownJob {
 		...(empty ? { producedNothing: true } : {}),
 		...(lastTool ? { lastTool: displayed(lastTool, detailed) } : {}),
 		...((job.phase === "failed" || job.phase === "stopped") && reason && reason !== "see log" ? { reason } : {}),
-		...(texts.openChecks ? { reason: "done with open checks" } : {}),
 		elapsedMs: observedAt - facts.startedAt.getTime(),
 		silentMs: observedAt - logStat.mtimeMs,
 		...(running ? {} : { ageMs: Date.now() - observedAt }),
@@ -293,7 +294,7 @@ function shownEvidence(loaded: LoadedJob, texts: ReturnType<typeof recordTexts>,
 		...(record.stopReason ? { stopReason: record.stopReason } : {}),
 		...(detailed && record.versions ? { versions: record.versions.trimEnd() } : {}),
 		...(detailed && texts.commits ? { commits: texts.commits } : {}),
-		...(texts.openChecks ? { openChecks: texts.openChecks } : {}),
+		...(detailed && texts.openChecks ? { openChecks: texts.openChecks } : {}),
 		...(texts.sideFailures ? { sideFailures: texts.sideFailures } : {}),
 		...(evidence.result ? { result: evidence.result } : {}),
 		...(evidence.model ? { model: evidence.model } : {}),

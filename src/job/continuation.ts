@@ -20,7 +20,6 @@ import {
 	workspaceRepository,
 	workspaceRoot,
 } from "../project/git.ts";
-import { readOptional } from "../project/inherit.ts";
 import { inheritedPlanning } from "../project/planning.ts";
 import { CONTEXT_FILE, type ContextAudience, contextMessage } from "../runtime/context-message.ts";
 import {
@@ -565,13 +564,6 @@ async function continuationExtensions(
 async function publishContinuation(record: ContinuationRecord): Promise<void> {
 	const { jobDir, parent, repository, membership } = record;
 	const { notificationSession, coordinatorTab, coordinatorPane } = record.route;
-	const carried: Record<string, string> = {};
-	for (const name of ["note.md", "note.first.md"]) {
-		const body = readOptional(`${parent.dir}/${name}`)?.trim();
-		if (body) {
-			carried[name] = `${body}\n`;
-		}
-	}
 	await publishJob(jobDir, {
 		task: `${record.task}\n`,
 		context: record.context,
@@ -594,7 +586,6 @@ async function publishContinuation(record: ContinuationRecord): Promise<void> {
 		...(coordinatorPane ? { originPane: coordinatorPane } : {}),
 		...(record.group ? { group: { id: record.group.id, team: record.group.team } } : {}),
 		...(record.quotaAttempt === undefined ? {} : { quotaAttempt: record.quotaAttempt }),
-		carried,
 	});
 }
 async function restoreParentWorktree(

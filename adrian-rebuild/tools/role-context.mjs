@@ -4,8 +4,9 @@
    podręcznika, także `templates/manual.md` od R-040, i bez rejestrów z `templates/registers/`). Dla
    refa z `src/runtime/context-message.ts` (od R-039) mierzy wiadomość kontekstową każdej roli z tego modułu i cue
    z hooka `communication`; dla starszego refa, jak dotąd, prompt systemowy, cue i dodatki raz na sesję z hooków
-   z atrapą API silnika. Fikstura działa w trybie testowym (`LIMEN_TEST_MODE=1`). Stan: działa; test
-   w tools/test-context-size.mjs. */
+   z atrapą API silnika; teksty notatki zadania (sprawdzenie przed `finish`, dopisek do steera) tylko dla refa
+   z `src/job/task-note.ts`, czyli sprzed R-042. Fikstura działa w trybie testowym (`LIMEN_TEST_MODE=1`). Stan:
+   działa; test w tools/test-context-size.mjs. */
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -20,6 +21,8 @@ export const GROUP_ROLES = ["coordinator"];
 const NOT_ROLES = new Set(["agents", "manual", "capability", "communication", "styleguide", "group-member", "linear"]);
 // The module that builds a role's context message, from R-039 on; an older ref has none.
 const CONTEXT_MODULE = "src/runtime/context-message.ts";
+// The task note's module, up to R-042, which cut it; a later ref has none.
+const NOTE_MODULE = "src/job/task-note.ts";
 const JOB_ID = "2026-01-01-size-probe-00000000";
 const TICKET = "spec/features/active/F001-probe/ticket.md";
 // Project files the hooks read; copied from --project into the fixture, never written back.
@@ -122,8 +125,8 @@ async function install(pkg, hook) {
 
 /**
  * One session of the communication hook: the first prompt and a second ordinary prompt. The difference between the
- * two cues is what enters once per session (the job's note start); `system` is the system prompt the first returned,
- * which a ref from R-039 on never returns.
+ * two cues is what enters once per session (the job's note start, up to R-042); `system` is the system prompt the
+ * first returned, which a ref from R-039 on never returns.
  */
 async function session(pkg, root, prompt) {
 	const { handlers } = await install(pkg, "communication.ts");
@@ -155,8 +158,15 @@ async function finishTool(pkg) {
 	return tools.map(({ name, description, parameters }) => JSON.stringify({ name, description, parameters })).join("");
 }
 
+/**
+ * The job's task-note texts of one event each, the check before the finish and the steer's appendix, for a ref that
+ * has the module; undefined for a ref from R-042 on, which cut it.
+ */
 async function noteEvents(pkg, jobDir) {
-	const notes = await import(pathToFileURL(join(pkg, "src/job/task-note.ts")).href);
+	if (!existsSync(join(pkg, NOTE_MODULE))) {
+		return undefined;
+	}
+	const notes = await import(pathToFileURL(join(pkg, NOTE_MODULE)).href);
 	return {
 		noteCheck: typeof notes.noteCheck === "function" ? notes.noteCheck(jobDir, false) : undefined,
 		noteSteer: typeof notes.noteSteer === "function" ? notes.noteSteer(jobDir) : undefined,

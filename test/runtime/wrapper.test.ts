@@ -4,8 +4,8 @@
 // detector sets (A-016 (1)), the stall rule over the scope's CPU time and its uncertainty note, the peak CPU share of
 // the scope, an exhaustion whose scope cannot be ended still kills its process group, a TERM or a signal without a
 // stop request ends a job failed, a TERM after the engine ended changes nothing, the tests' end gate holds a wrapper
-// only in test mode, the engine's argv appends nothing to Pi's system prompt, and a job folder without its context
-// message starts no engine.
+// only in test mode, the engine's argv appends nothing to Pi's system prompt, a job folder without its context
+// message starts no engine, and the 80 % steer's text per role.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -18,7 +18,7 @@ import { isTerminal } from "../../src/job/job.ts";
 import { type Identity, readRecordSync, transition } from "../../src/job/record.ts";
 import { platform } from "../../src/platform/platform.ts";
 import { ownerState } from "../../src/runtime/reap.ts";
-import { endGate, failInternalJob } from "../../src/runtime/wrapper.ts";
+import { deadlineSteerText, endGate, failInternalJob } from "../../src/runtime/wrapper.ts";
 import { withEnvironment } from "../environment.ts";
 import {
 	engineEvents,
@@ -225,6 +225,25 @@ test("A-086: a job's engine starts with no --append-system-prompt in its argv", 
 	assert.equal(waitJob(p, id), "done");
 	const argv: string[] = JSON.parse(jobFile(p, id, "fake-argv.json"));
 	assert.equal(argv.includes("--append-system-prompt"), false, argv.join(" "));
+});
+
+// D-121: one text for every role asked a reviewer to commit and every role to mark checks for the cut task note (A-044);
+// the steer now says per role only what is true, and R-063 adds that Limen runs the checks.
+test("the 80 % steer asks a reviewer and a judge for the verdict, a researcher for the report and a worker for a commit, naming no note", () => {
+	const roles = ["reviewer", "judge", "researcher", "worker"];
+	const texts = roles.map((role) => deadlineSteerText(role, 18));
+	assert.deepEqual(
+		{ texts, note: texts.filter((text) => /note|unverified|checks/i.test(text)) },
+		{
+			texts: [
+				"18 min left before the timeout: write your verdict now.",
+				"18 min left before the timeout: write your verdict now.",
+				"18 min left before the timeout: give your report in your final message now.",
+				"18 min left before the timeout: commit your work now.",
+			],
+			note: [],
+		},
+	);
 });
 
 // R-039 Decision 13: an engine with no standing instructions would end as a false success. The job waits in the start

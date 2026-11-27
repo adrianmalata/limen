@@ -166,4 +166,4 @@ Limen's standing text reaches the model in one context message per session, a hi
 
 A short note on each turn recalls the capability frame in one sentence and names the audience and the reply rules. The wake cue is in that note, not in the context message. After a write or an edit, the tool result repeats the rule that applies.
 
-Every job also keeps a task note, checked once before the finish, and a project can add `.agents/limen/reminders.md` for every job. The [task-note experiment](../README.md#task-note-experiment-started-2026-10-22) describes both.
+A job's first `finish` call ends it: its handoff becomes the job's result, and the session exits. A job's first prompt gets the same turn note as every other prompt, and a steer reaches the model as it was sent. Nothing reads a project's `.agents/limen/reminders.md`; `limen status` lists it as a leftover file.

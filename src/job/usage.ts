@@ -282,8 +282,8 @@ function messageOf(fields: ReadonlyMap<string, unknown>, field: string): Session
 }
 
 /**
- * One part of an assistant message's content: the command of a bash tool call, in the shape src/job/session-commands.ts
- * reads one, a part of type `toolCall` named `bash` whose arguments hold a command as text; none for any other part.
+ * One part of an assistant message's content: the command of a bash tool call, a part of type `toolCall` named `bash`
+ * whose arguments hold a command as text; none for any other part.
  * Pi checks a call's arguments against its tool's schema before it runs it (pi-agent-core's `prepareToolCall`), so a
  * bash call whose arguments hold no command as text ran nothing.
  */

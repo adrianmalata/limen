@@ -1,7 +1,8 @@
-/* PL: Test narzędzia context-size.mjs (M-01, R-039) w obu formach. Forma nowa: kod drzewa roboczego zatwierdzony
-   w repozytorium tymczasowym, gdzie raport daje dla każdej roli z szablonów wiadomość kontekstową o rozmiarze jej pliku
-   wzorcowego z test/runtime/context-message/ oraz cue. Forma stara: ref a0.3.0, gdzie zostają kolumny promptu
-   systemowego. Oba przebiegi idą bez `pi` na PATH, bo fikstura daje atrapę. Raport trafia do katalogu tymczasowego
+/* PL: Test narzędzia context-size.mjs (M-01, R-039, R-042) w obu formach. Forma nowa: kod drzewa roboczego
+   zatwierdzony w repozytorium tymczasowym, gdzie raport daje dla każdej roli z szablonów wiadomość kontekstową
+   o rozmiarze jej pliku wzorcowego z test/runtime/context-message/ oraz cue, a bez `src/job/task-note.ts` (od R-042)
+   żadnej linii o notatce zadania. Forma stara: ref a0.3.0, gdzie zostają kolumny promptu systemowego i rozmiary
+   notatki. Oba przebiegi idą bez `pi` na PATH, bo fikstura daje atrapę, a raport trafia do katalogu tymczasowego
    systemu. Stan: działa. */
 // Usage: node --test adrian-rebuild/tools/test-context-size.mjs   (from the repo root)
 import assert from "node:assert/strict";
@@ -103,6 +104,20 @@ test("for a ref with the context message module, the report has a row for each r
 	);
 });
 
+// R-042 cut src/job/task-note.ts, so a ref from it on has no note to measure; an older ref keeps the note's sizes.
+test("for a ref without the task note module, the report has the context message table and no line on the note", (t) => {
+	const dir = scratch(t);
+	const report = measure(t, dir, "HEAD");
+	assert.deepEqual(
+		{
+			module: existsSync(join(dir, "src/job/task-note.ts")),
+			header: report.includes("\n| Role | Context message | Cue |\n"),
+			note: report.split("\n").filter((line) => /note start|note check|steer suffix/.test(line)),
+		},
+		{ module: false, header: true, note: [] },
+	);
+});
+
 test(`for an older ref, ${OLDER}, the report keeps the system prompt's columns and the roles of that ref's templates`, {
 	skip:
 		spawnSync("git", ["rev-parse", "--verify", "--quiet", `${OLDER}^{commit}`], { cwd: REPO }).status === 0
@@ -116,7 +131,8 @@ test(`for an older ref, ${OLDER}, the report keeps the system prompt's columns a
 			header: report.includes(`\n${header}\n`),
 			rows: ROWS.map(([name]) => Boolean(row(report, name))),
 			cut: ["scout", "picture"].map((name) => Boolean(row(report, name))),
+			note: report.includes("\nPer event (job roles): note check "),
 		},
-		{ header: true, rows: ROWS.map(() => true), cut: [false, false] },
+		{ header: true, rows: ROWS.map(() => true), cut: [false, false], note: true },
 	);
 });
