@@ -2,7 +2,8 @@
 wyłączone. Wyłączony moduł nie daje tekstu do wiadomości kontekstowej ani hooka, a jego polecenia i role odmawiają
 kodem `MODULE_OFF`; hooki sesji wybiera jeden moduł `src/runtime/hook-set.ts`, a tekst modułów przenosi się do
 `templates/modules/<moduł>/<plik części>`. `limen migrate` raportuje moduły w użyciu na krok 4.9. Stan: napisany 26.11
-przy `6e5f5ca` z inwentarza `evidence/inventories/R-044.md`; `ready` za R-039 i R-040 (D-124: zależność od R-040). -->
+przy `6e5f5ca` z inwentarza `evidence/inventories/R-044.md`; `active` od 27.11 przy `1933e49`, z miejscami faktów po
+R-040–R-043 i R-111 w decyzji 16. -->
 
 # R-044 Module switches; hooks load by role and module
 
@@ -245,3 +246,13 @@ inventory's questions in `evidence/inventories/R-044.md` → section 8):
 15. 2026-11-26 D-124 (Adrian: "1"; Q-85, option 1): R-044 depends on R-040 as well as R-015 and R-039: both change
     `src/runtime/context-message.ts`, the manual and the `## Specs` register, and item 6 extends R-040's part files
     (`templates/manual.md`, `templates/registers/specs.md`).
+16. 2026-11-27, protocol step 2 at `1933e49` (the main session's reading): the facts' places after R-038–R-043 and R-111.
+    Fact 1: `src/project/limits.ts:12`, `src/boundary.ts:190`. Fact 2: `templates/limen-extension.ts:8` (byte-identical
+    to `.pi/extensions/limen.ts`); `hook/group-peer.ts:49-50`, `:92`; `hook/steering.ts:62-64`;
+    `src/runtime/wrapper.ts:252-256`. Fact 3: `src/registry.ts:100-108`; `src/main.ts:117`. Fact 5: the manual is
+    `templates/manual.md` (R-040): `:9`, `:19`, `:23-32`, `:38`, `:68`, `:74`, `:88`, `:142`, `:146`, `:148`, `:174-187`;
+    `templates/worker.md:14-16`; `templates/coordinator.md:12-14`; the `## Specs` register's front-matter line is
+    `templates/registers/specs.md:13` (R-040), not `templates/communication.md:31`; `templates/keeper.md:11-16`;
+    `templates/reviewer.md:5`; the keeper's `Map:` line is `src/commands/keeper.ts:89`. Fact 6: `src/registry.ts:109-110`;
+    `src/help.ts:56`, `:67`, `:156`. Item 9's docs places may have moved likewise (`docs/setup.md:60` holds the stub's
+    "communication, wake, and steering"). AC-9–AC-13 exit 0 at `1933e49`, and every test file the criteria name exists.
