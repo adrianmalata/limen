@@ -186,7 +186,9 @@ przeżywa jego zatrzymanie → D-136 (zatrzymanie hooka czeka na ten zapis, test
 folderu) i fakt E-22 (Pi czeka na handlery `session_shutdown`); po przerwie Adriana R-112 zamknięty (bramka
 1440/1440, recenzja PASS w pierwszej rundzie), a wyjątek D-135 zniknął z protokołu w `## Agents`; R-045 zamknięty
 (narzędzia i skille według roli, rola tylko do odczytu, która coś zapisze, kończy się `failed`; recenzja FAIL, PASS,
-PASS). -->
+PASS); D-137 (noc dziś do 8:00, sobota w dzień, przebieg weekendowy w dwóch oknach od soboty 15:00) i D-138 (commit
+ticketu po temacie, dokładna linia Rollback przy kolizji; commit `Tools:`); przekazanie do limen-rebuild-45, która
+uruchamia noc. -->
 
 
 
@@ -6205,4 +6207,37 @@ the terminal being active; context 8 % at the start; `HEAD` = `origin/adrian-reb
   G1–G3, the last round (Decision 18); round 3 PASS, its doc note fixed by the main session (D-053 (2)), its parser note
   in `outcome.md` → Open points 9 (D-092). For gate 5.4: R-045 Decisions 16–18, Deviations 1–10, Open points 1–9.
   The implementer's three HEAD-copy folders stay in the gate's private TMPDIR (`head-run-*`; `rm` is denied).
+- Q-102 → D-137 (Adrian away from Saturday 15:00 to Sunday about 20:00; tonight's night, Saturday by day, then the
+  weekend runs). Q-103 → D-138: `check.mjs` counted a State commit's body line as R-045's commit (and `f749fae`'s as
+  R-105's); `tools/changes-entries.mjs` now finds a ticket's commit by its subject, and R-045's entry names the exact
+  Rollback (`evidence/changes-subject/`, review FAIL then PASS; `Tools:` commit `b127332`, after R-045's `6b0ec00`).
+  Lesson: a check's result is its exit code, never the last line of its output (the main session's first Biome run of
+  that change hid an error behind `tail -1`).
+
+Handover of 2026-11-27 (D-047, at 40 % context, after the commits `R-045:` (`6b0ec00`) and `Tools:` (`b127332`), with
+the tree clean and pushed and no night running): `limen-rebuild-44` starts `limen-rebuild-45` with `node
+adrian-rebuild/tools/handover.mjs start 45` and ends its turn. By day, Adrian at the terminal and on his phone. The next
+session's acts, in this order:
+1. A push notification to Adrian (one line in Polish) that it takes over and starts tonight's night run by D-137; then
+   `node adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into this section.
+2. D-137 (1): D-024's preflight (`node --test adrian-rebuild/tools/test-night.mjs`, the runner's last review verdict in
+   `evidence/night-reset-wait/review.md`, `HEAD` = `origin/adrian-rebuild` and a clean tree, a new `claude -p` session
+   listing both subagent definitions), its results shown to Adrian; then the runner as a background task by D-102 (2):
+   `mkdir -p adrian-rebuild/.night`, then `nohup node adrian-rebuild/tools/night.mjs --until 08:00` with stdout and
+   stderr appended to `adrian-rebuild/.night/launcher.log`. From then on it only reads, until the runner's end wakes it
+   (D-102 (1), (3)).
+3. The night's queue (stage 4, `ready`, `night`): R-047, R-104, R-105 (after R-104; its `changes.md` entry needs
+   D-138's exact Rollback, which `check.mjs` names), R-106, R-107, R-108, R-109, R-110. R-046 (`pair`) and gate 5.4
+   wait for Adrian.
+4. At the runner's end (D-102 (3)): a push, `## State` and `.night/status.json`; Saturday by day, Adrian's answers
+   from `.night/questions.md` and the unblocked tickets (D-137 (2)); on Saturday at about 15:00, by D-137 (3), the
+   preflight again and `night.mjs --until 08:30`, then, at its end, `--until 19:30` when a `night` ticket can still
+   start. A handover by D-047 only while no runner holds the lock (D-102 (5)).
+5. For Adrian, outside the sessions' reach: before he leaves on Saturday, the laptop as for D-053 (4) (Windows Update
+   paused, sleep "Never" on mains, the lid "Do nothing", power and network); the three `head-run-*` folders the R-045
+   implementer left in the gate's private TMPDIR (`rm` is denied to the sessions); `.claude/agents/rebuild-implementer.md`
+   still runs the bare gate (`evidence/gate-out/outcome.md` → Open points 5).
+6. At gate 5.4, besides the items of the earlier handovers: D-136 and E-22 with R-112's Open points; R-045 Decisions
+   16–18, Deviations 1–10 and Open points 1–9; `evidence/changes-subject/outcome.md` → Open points 1–4.
+The handover after it is `limen-rebuild-46`.
 
