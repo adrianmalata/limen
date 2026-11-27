@@ -1,11 +1,13 @@
-/* PL: Test bramki gate.mjs na fiksturze (D-105 (1)): w tymczasowym repo skrypt `check` zapisuje podane pliki, a bramka
-   kończy się porażką i nazywa każdy nowy plik ignorowany przez git, nie licząc `node_modules/` na każdej głębokości
-   i plików wymiany edytora (D-032); zmieniony plik, który istniał przed biegiem, nie jest nowy, nieudany `check`
-   zachowuje swój kod wyjścia, a lista, której nie dało się zrobić po biegu, też jest porażką. Stan: działa. */
+/* PL: Test bramki gate.mjs na fiksturze (D-105 (1), D-130): w tymczasowym repo skrypt `check` wypisuje linie
+   i zapisuje podane pliki, a bramka kończy się porażką i nazywa każdy nowy plik ignorowany przez git, nie licząc
+   `node_modules/` na każdej głębokości i plików wymiany edytora (D-032); zmieniony plik, który istniał przed biegiem,
+   nie jest nowy, nieudany `check` zachowuje swój kod wyjścia, a lista, której nie dało się zrobić po biegu, też jest
+   porażką. Z `--out` plik ma całe wyjście w kolejności, linie bramki i kod wyjścia, także po nieudanej liście;
+   `--out` bez pliku i nieznany argument niczego nie uruchamiają, a stary plik nie przetrwa biegu. Stan: działa. */
 // Usage: node --test adrian-rebuild/tools/test-gate.mjs
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, test } from "node:test";
@@ -21,10 +23,14 @@ const env = {
 	GIT_CEILING_DIRECTORIES: root,
 	XDG_CACHE_HOME: join(root, "cache"),
 };
-// The fixture's whole suite: it writes and removes the paths it is given, then exits with the given code.
+// The fixture's whole suite: it prints the lines it is given to stdout or stderr in order, writes and removes the paths
+// it is given, then exits with the given code.
 const CHECK = `import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 const plan = JSON.parse(process.env.GATE_FIXTURE);
+for (const [stream, line] of plan.print ?? []) {
+	(stream === "err" ? console.error : console.log)(line);
+}
 for (const path of plan.write ?? []) {
 	mkdirSync(dirname(path), { recursive: true });
 	writeFileSync(path, "written by the check\\n");
@@ -54,8 +60,8 @@ function fixture(existing = []) {
 	return work;
 }
 
-const gate = (work, plan) =>
-	spawnSync(process.execPath, [GATE], {
+const gate = (work, plan, args = []) =>
+	spawnSync(process.execPath, [GATE, ...args], {
 		cwd: work,
 		env: { ...env, GATE_FIXTURE: JSON.stringify(plan) },
 		encoding: "utf8",
@@ -100,4 +106,72 @@ test("A listing that fails after the run fails the gate, so a lost listing is no
 	const result = gate(fixture(), { remove: [".git"] });
 	assert.equal(result.status, 1, result.stderr);
 	assert.match(result.stderr, /gate: git ls-files failed: .*not a git repository/s);
+});
+
+test("D-130: --out writes the check's output in order, the gate's lines and its exit code, which it keeps", () => {
+	const work = fixture();
+	const lines = ["one, on stdout", "two, on stderr", "three, on stdout"];
+	const print = [
+		["out", lines[0]],
+		["err", lines[1]],
+		["out", lines[2]],
+	];
+	const result = gate(work, { print, write: ["out/left.json"], exit: 3 }, ["--out", "out/gate.txt"]);
+	assert.equal(result.status, 3, result.stderr);
+	const text = readFileSync(join(work, "out/gate.txt"), "utf8");
+	const at = lines.map((line) => text.indexOf(line));
+	assert.ok(at[0] >= 0 && at[0] < at[1] && at[1] < at[2], text);
+	assert.ok(text.includes(named("out/left.json")), text);
+	assert.match(text, /gate: exit 3\n$/);
+	assert.ok(result.stderr.includes("gate: exit 3; the whole output is in out/gate.txt"), result.stderr);
+});
+
+test("D-130: the --out file in an ignored folder of the checkout is no new ignored file of the run", () => {
+	const work = fixture();
+	const result = gate(work, {}, ["--out", "out/gate.txt"]);
+	assert.equal(result.status, 0, result.stderr);
+	assert.doesNotMatch(result.stderr, /new ignored file/);
+	assert.ok(existsSync(join(work, "out/gate.txt")), "the file is written");
+});
+
+test("D-130: --out without a file refuses before the check runs", () => {
+	const work = fixture();
+	const result = gate(work, { write: ["out/ran.json"] }, ["--out"]);
+	assert.notEqual(result.status, 0);
+	assert.match(result.stderr, /--out needs a file/);
+	assert.equal(existsSync(join(work, "out/ran.json")), false);
+});
+
+test("D-130: with --out, a listing that fails after the run keeps the check's output in the file and fails", () => {
+	const work = fixture();
+	const result = gate(work, { print: [["out", "the check ran"]], remove: [".git"] }, ["--out", "out/gate.txt"]);
+	assert.equal(result.status, 1, result.stderr);
+	const text = readFileSync(join(work, "out/gate.txt"), "utf8");
+	assert.ok(text.includes("the check ran"), text);
+	assert.match(text, /gate: git ls-files failed: .*not a git repository/s);
+	assert.match(text, /gate: exit 1\n$/);
+	assert.deepEqual(readdirSync(join(work, "out")), ["gate.txt"]);
+});
+
+test("A failing check's exit code wins over a listing that fails after it", () => {
+	const result = gate(fixture(), { remove: [".git"], exit: 3 });
+	assert.equal(result.status, 3, result.stderr);
+	assert.match(result.stderr, /gate: git ls-files failed/);
+});
+
+test("D-130: an unknown argument refuses before the check runs", () => {
+	const work = fixture();
+	const result = gate(work, { write: ["out/ran.json"] }, ["--output", "out/gate.txt"]);
+	assert.equal(result.status, 2, result.stderr);
+	assert.match(result.stderr, /gate: unknown arguments: --output out\/gate\.txt/);
+	assert.equal(existsSync(join(work, "out/ran.json")), false);
+});
+
+test("D-130: an earlier run's --out file is gone when this run ends before its own file is written", () => {
+	const work = fixture();
+	write(work, "out/gate.txt", "an earlier run\n");
+	rmSync(join(work, ".git"), { recursive: true, force: true });
+	const result = gate(work, {}, ["--out", "out/gate.txt"]);
+	assert.notEqual(result.status, 0);
+	assert.equal(existsSync(join(work, "out/gate.txt")), false);
 });
