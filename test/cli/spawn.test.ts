@@ -430,8 +430,8 @@ const WORKER_CONTEXT = fileURLToPath(new URL("../runtime/context-message/worker.
 /** A line of the vision the model-view test commits, found in no Limen text. */
 const VISION_MARKER = "vision-marker-of-the-reminder-test";
 
-// A-041, H-12, T-31 (1): a job's context message holds no vision (R-039) and its cue only a pointer, so the vision's
-// text in the model's view can come only from the reminder the hook appends to the edit's result, a tool record.
+// A-041, H-12, T-31 (1): a job's context message holds one line that points at the vision (D-134 (3)), not its text,
+// so the vision's text in the model's view comes only from the reminder the hook appends to the edit's result.
 test("a worker's edit of a planned ticket brings the vision's text inside that edit's tool result, in no user message", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());

@@ -38,6 +38,8 @@ Tickets, notes, reviews, outcomes, handoffs, and documentation are written for a
 
 ## Agent
 
+Write in plain technical English (about 80% of ASD-STE100). Short sentences. One idea each. Active voice. Simple exact words. One word for one thing. No slang, idioms, or filler.
+
 Write so another agent can continue without this thread.
 
 - Outcome first, then evidence or checks, uncertainty, and the next concrete action.
@@ -60,6 +62,8 @@ Read it once as the owner who just sat down.
 - Did you claim a check you did not run?
 - If it is a ticket or an outcome: within the budget, no status line, no bare feature numbers, no progress markers?
 - Plain words, specific claims, natural rhythm, active voice, no filler, no manufactured enthusiasm, no recap of work the reader did not ask to relive.
+
+Vision (read-only): `spec/vision.md` — durable intent. Load it before choosing or starting work.
 
 ## Styleguide (.agents/limen/styleguide.md)
 # Styleguide

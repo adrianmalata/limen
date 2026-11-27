@@ -190,3 +190,19 @@ lists. A job folder's saved `context.md` from before the deployment lacks the vi
   pair (D-114 (3)); the order of the lines (the audience first, since it governs the reply; the anchor last); one
   newline between lines (no blank line, a few bytes per prompt; category A (b) of D-054 (2)); size M, not S (three
   modules and the role texts).
+- 2026-11-27, review round 1 (`review.md`), the findings to fix (text only, so no new test): F1: `CONTRIBUTING.md:29`
+  and the header comment of `hook/communication.ts` (`:74-75`) say the cue holds "the lines that apply", not "what
+  changed since the last turn" (the ticket line repeats and the board advisory is a standing state). F2:
+  `docs/setup.md:187` says the note's anchor is the capability file's own one-sentence `## Cue` section, apart from the
+  `## Frame` the context message holds, so the sentence does not read as a contradiction. Finding 4 goes to
+  `outcome.md` → Open points (the main session); finding 3 needs no change (Deviations 5).
+  2026-11-27, with the round's `BLOCKED` (`check.mjs` refused the main session's `test/hook/wake.test.ts:318` in D-135,
+  a file absent at `rebuild-base`; the main session dropped `:318`): F1's reason also covers "since the last turn" in
+  the `turnCue` comment (`hook/communication.ts:239`), `CONTRIBUTING.md:39` and `docs/setup.md:187`, which the round
+  drops from all three.
+- 2026-11-27, review round 2 (`review.md`), the last round of fixes (text only, so no new test): G1 (blocking):
+  `docs/setup.md:187` and the header comment of `hook/communication.ts` (`:74-75`) say the cue repeats no register
+  section, and that its audience line carries the language that the registers' rule names (T-13), instead of "repeats
+  nothing the context message holds" and "repeats none of that text". G2: the `VISION_LINE` comment
+  (`src/runtime/context-message.ts:21-22`) says why the line rides the frozen message (D-134 (3), z. 3) and drops "only
+  when its work needs it". G3: `outcome.md` → Done 7 quotes `CONTRIBUTING.md:29` as it reads now.

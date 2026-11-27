@@ -4,7 +4,7 @@ wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: 
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
 R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025, R-097, R-099, R-026, R-030, R-033,
 R-027, R-028, R-031, R-035, R-100, R-029, R-032, R-034, R-036, R-037, R-087, R-098, R-101, R-102, R-103, R-038,
-R-111, R-039, R-040, R-042, R-043, R-044. -->
+R-111, R-039, R-040, R-042, R-043, R-044, R-041. -->
 
 # Changes
 
@@ -512,3 +512,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-01, M-05)
 - Commit: R-044
 - Rollback: git revert $(git log --format=%H --grep='^R-044:' adrian-rebuild --)
+
+## 2026-11-27 R-041 The turn cue holds only variable parts and the audience line
+- What: `hook/communication.ts` (the cue `limen-turn-cue`: the audience line, the failure, ticket, touch and board-advisory lines that apply, the frame's anchor; the Shared, Human, Agent and Wake sections and the job's vision and board lines cut); `src/runtime/context-message.ts` (a job's vision line; `CUE_FILE` cut); `templates/communication.md` removed; `templates/registers/owner.md` (the language rule), `templates/registers/agent.md` (the ASD-STE100 paragraph under `## Agent`), `templates/keeper.md`; `CONTRIBUTING.md`, `docs/setup.md`; tests (`test/hook/communication.test.ts`, `test/runtime/context-message.test.ts` and its reference messages, `test/seat/bridge-contract.test.ts`, `test/s4-steering.test.ts`)
+- Why: A-077, T-13, D-134
+- Proof: `node adrian-rebuild/tools/gate.mjs --out node_modules/.rebuild-review/R-041.gate` → exit 0 (1439/1439); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (two files); `node adrian-rebuild/tools/check.mjs` → exit 0
+- Measurement: unmeasured (plan.md → Measurement: M-01, M-05)
+- Commit: R-041
+- Rollback: git revert $(git log --format=%H --grep='^R-041:' adrian-rebuild --)

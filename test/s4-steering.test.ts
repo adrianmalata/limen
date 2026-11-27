@@ -132,12 +132,12 @@ test("a running worker gets each steer once and in order; an ended one refuses a
 	assert.deepEqual(readdirSync(join(dir, "steer"), { recursive: true }).sort(), before);
 });
 
-test("a worker's first model call carries the package's register, styleguide, frame and cue once, vision and board pointers, and no board body", () => {
+// D-134 (3): the board pointer went with the cut of the job's board line; every job role's text forbids board edits.
+test("a worker's first model call carries the package's register, styleguide, frame and cue once, a vision pointer, and no board body", () => {
 	const viewed = firstView(jobDir(p, parent));
 	const seen = [STYLE, REGISTER, PACKAGED, FRAME, CUE].map((marker) => count(viewed, marker));
 	assert.deepEqual(seen, [1, 0, 1, 1, 1], "styleguide, project register, package register, capability frame and cue");
 	assert.ok(viewed.includes("`spec/vision.md`"), "vision pointer");
-	assert.ok(viewed.includes("`spec/build.md`"), "board pointer");
 	const absent = [VISION, BOARD].map((marker) => count(viewed, marker));
 	assert.deepEqual(absent, [0, 0], "a worker reads the vision itself, never gets the board body");
 });

@@ -8,13 +8,10 @@ import { ticketPointers } from "../src/project/planning.ts";
 import {
 	boundLines,
 	CONTEXT_FILE,
-	CUE_FILE,
 	capabilitySection,
 	contextMessage,
 	enabledModules,
 	holdsSpecs,
-	MAX_CONTEXT_LINES,
-	markdownSection,
 	moduleFiles,
 	packageName,
 	packageText,
@@ -41,8 +38,12 @@ import { assistantStopReason } from "../src/runtime/stream.ts";
 
 /** The custom type of the context message (D-114 (1), T-16): a `limen-*` custom message, never a user message. */
 const CONTEXT_TYPE = "limen-context";
-/** The custom type of the turn cue, which R-041 changes. */
-const CUE_TYPE = "limen-project-context";
+/** The custom type of the turn cue and the name of its tag pair (D-134 (1)), a `limen-*` custom message as well. */
+const CUE_TYPE = "limen-turn-cue";
+/** The audience line of the coordinator's cue: it answers the owner in the owner's language (T-13). */
+const OWNER_AUDIENCE = "Audience: owner. Answer in the language of the owner's last message.";
+/** The audience line of a job's cue: every job writes for agents and records, in English (T-13). */
+const AGENT_AUDIENCE = "Audience: agent. Plain technical English.";
 const BOARD_ADVISORY_LINES = 120;
 // A styleguide heading that names one of these words applies only to files with the listed extensions.
 const LANGUAGES: Readonly<Record<string, readonly string[]>> = {
@@ -70,11 +71,12 @@ const VISION_ASK: Ask = { kind: "vision", paths: [] };
 /**
  * Limen's standing text is the session's context message (A-086), which Pi's system prompt cannot carry under the
  * bridge (E-1): the hook sends it once, at the session's start, and again only after a compaction removed it from the
- * model's context, always the bytes the session holds (A-037). The per-turn note is a short cue. A tool result, the one
- * message of a role of its own (E-1), carries the text of the guidance that applies to what the call wrote, each
- * section once until a compaction or a new session start (A-041): the styleguide after a code edit, the specs register
- * after an edit under spec/, with the specs file of each module that is on, and the vision once a planned ticket is
- * written (H-12).
+ * model's context, always the bytes the session holds (A-037). The per-turn note is a short cue that repeats no
+ * register section: its audience line carries the language that the registers' rule names (T-13), then come the lines
+ * that apply and the frame's anchor (A-077). A tool result, the one message of a role of its own (E-1), carries the
+ * text of the guidance that applies to what the call wrote, each section once until a compaction or a new session
+ * start (A-041): the styleguide after a code edit, the specs register after an edit under spec/, with the specs file
+ * of each module that is on, and the vision once a planned ticket is written (H-12).
  */
 export default function limenCommunication(pi: Pick<PiApi, "on" | "sendMessage">): void {
 	let lastTouch: string | undefined;
@@ -82,7 +84,7 @@ export default function limenCommunication(pi: Pick<PiApi, "on" | "sendMessage">
 	pi.on(
 		"before_agent_start",
 		recorded((raw: unknown, rawContext: unknown) => {
-			const event = piEvent("before_agent_start", raw);
+			piEvent("before_agent_start", raw);
 			const context = piContext("before_agent_start", rawContext, ["cwd"]);
 			const root = sessionRoot(context.cwd);
 			const job = transport("LIMEN_JOB") === "1";
@@ -90,7 +92,7 @@ export default function limenCommunication(pi: Pick<PiApi, "on" | "sendMessage">
 			const failed = lastFailure;
 			lastTouch = undefined;
 			lastFailure = undefined;
-			const cue = turnCue(root, job, isWakePrompt(event.prompt), touched, failed);
+			const cue = turnCue(root, job, touched, failed);
 			return { message: { customType: CUE_TYPE, content: cue, display: false } };
 		}),
 	);
@@ -203,10 +205,6 @@ function deliverContext(pi: Pick<PiApi, "on" | "sendMessage">, forget: () => voi
 	);
 }
 
-function isWakePrompt(prompt: string | undefined): boolean {
-	return typeof prompt === "string" && prompt.startsWith("Limen job ");
-}
-
 /** The context message as the hook sends it: hidden from the owner's chat, which the model still gets (E-11). */
 function contextOf(content: string): PiCustomMessage {
 	return { customType: CONTEXT_TYPE, content, display: false };
@@ -236,51 +234,27 @@ function startingContext(context: Pick<PiContext, "cwd">): string {
 	return readFileSync(join(root, ".limen", "jobs", transport("LIMEN_JOB_ID") ?? "", CONTEXT_FILE), "utf8");
 }
 
-function turnCue(
-	cwd: string,
-	job: boolean,
-	wake: boolean,
-	lastTouch: string | undefined,
-	failed: string | undefined,
-): string {
-	const lines = [capabilitySection("Cue"), registerCue("Shared"), registerCue(job ? "Agent" : "Human")].filter(Boolean);
-	if (failed) {
-		lines.push(registerCue("Failure").replaceAll("{{failure}}", failed));
-	}
-	if (wake) {
-		lines.push(registerCue("Wake"));
-	}
-	if (job) {
-		const ticket = jobTicket(cwd);
-		if (ticket) {
-			lines.push(`Ticket: ${ticket}`);
-		}
-		if (readOptional(join(cwd, VISION_FILE)) !== undefined) {
-			lines.push("Vision (read-only): `spec/vision.md` — durable intent. Load it before choosing or starting work.");
-		}
-		if (readOptional(join(cwd, "spec/build.md")) !== undefined) {
-			lines.push("Board (read-only): `spec/build.md` — consult before reporting work; do not edit.");
-		}
-	}
-	if (lastTouch) {
-		lines.push(lastTouch);
-	}
-	if (!job) {
-		const board = boardAdvisory(cwd);
-		if (board) {
-			lines.push(board);
-		}
-	}
-	return ["<limen-project-context>", ...lines, "</limen-project-context>"].join("\n\n");
+/**
+ * The run's cue (A-077): the context message holds the standing text, so the cue holds the audience line, which names
+ * the reply's language (T-13), then each line that applies (the last turn's failure, a job's ticket, the file the last
+ * turn touched, an over-long board in the coordinator), then the capability frame's anchor (A-043), one line each.
+ */
+function turnCue(root: string, job: boolean, lastTouch: string | undefined, failed: string | undefined): string {
+	const lines = [
+		job ? AGENT_AUDIENCE : OWNER_AUDIENCE,
+		failed ? `Last turn failed (${failed}).` : "",
+		job ? ticketLine(root) : "",
+		lastTouch ?? "",
+		job ? "" : boardAdvisory(root),
+		capabilitySection("Cue"),
+	].filter(Boolean);
+	return [`<${CUE_TYPE}>`, ...lines, `</${CUE_TYPE}>`].join("\n");
 }
 
-/** A cue section of the package's cue file, which no project file replaces (A-039); a section it lacks adds no line. */
-function registerCue(heading: string): string {
-	const section = markdownSection(
-		trimmedLines(packageText(CUE_FILE)).slice(0, MAX_CONTEXT_LINES).join("\n"),
-		`Cue: ${heading}`,
-	);
-	return section.split("\n").slice(1).join("\n").trim();
+/** The cue's line on the ticket the job's task names; "" when it names none. */
+function ticketLine(root: string): string {
+	const ticket = jobTicket(root);
+	return ticket ? `Ticket: ${ticket}` : "";
 }
 
 function boardAdvisory(cwd: string): string {

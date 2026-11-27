@@ -15,12 +15,15 @@ export const CONTEXT_FILE = "context.md";
 export const MAX_CONTEXT_LINES = 1000;
 /** The project's styleguide, which every role gets. */
 export const STYLE_FILE = ".agents/limen/styleguide.md";
-/** The project's vision, which the coordinator gets whole and a job by a pointer in its cue. */
+/** The project's vision, which the coordinator gets whole and a job as `VISION_LINE`, a line that points at it. */
 export const VISION_FILE = "spec/vision.md";
+/**
+ * A job's part in the vision's place while the project holds a vision. The line does not change within a session, so
+ * it rides the frozen message, the session's stable prefix, instead of every turn's cue (D-134 (3), z. 3).
+ */
+const VISION_LINE = "Vision (read-only): `spec/vision.md` — durable intent. Load it before choosing or starting work.";
 /** The project's own context, which a job gets only while its bridge runs isolated and so forwards none (E-15). */
 export const AGENTS_FILE = "AGENTS.md";
-/** The package's cue sections, which ride each run's cue (hook/communication.ts); R-041 rewrites them. */
-export const CUE_FILE = "templates/communication.md";
 /** The specs register: how tickets are written, for the roles that write them; a reminder appends its section. */
 export const SPECS_REGISTER = "templates/registers/specs.md";
 const CAPABILITY_FILE = "templates/capability.md";
@@ -60,8 +63,9 @@ export function holdsSpecs(audience: SpecsAudience): boolean {
  * The context message of `audience` in the project `root`: a neutral marker that names the role (D-114 (3)), so it
  * never starts with `/` (E-14), then each part apart by a blank line, then the closing tag. The parts that never change
  * come first and the project's files last (z. 3): the frame, the manual or the role's preamble, the registers of the
- * role's audience, then the vision, the styleguide and, for a job whose bridge forwards none, the project's AGENTS.md.
- * Right after each part come the parts of the modules on in the project, in the order of the modules (`moduleFiles`).
+ * role's audience, then the vision (the coordinator's whole, a job's as one line that points at it), the styleguide
+ * and, for a job whose bridge forwards none, the project's AGENTS.md. Right after each part come the parts of the
+ * modules on in the project, in the order of the modules (`moduleFiles`).
  */
 export function contextMessage(root: string, audience: ContextAudience): string {
 	const coordinator = audience.session === "coordinator";
@@ -77,7 +81,7 @@ export function contextMessage(root: string, audience: ContextAudience): string 
 		[packagePart(AGENT_REGISTER, "Agent register"), AGENT_REGISTER],
 		[specs ? packagePart(SPECS_REGISTER, "Specs register") : "", SPECS_REGISTER],
 		[coordinator ? packagePart(OWNER_REGISTER, "Owner register") : "", OWNER_REGISTER],
-		[coordinator ? boundFile(root, VISION_FILE, "Vision") : "", VISION_FILE],
+		[coordinator ? boundFile(root, VISION_FILE, "Vision") : visionLine(root), VISION_FILE],
 		[boundFile(root, STYLE_FILE, "Styleguide"), STYLE_FILE],
 		[agents ? boundFile(root, AGENTS_FILE, "Project context") : "", AGENTS_FILE],
 	];
@@ -184,6 +188,11 @@ function packagePart(path: string, label: string): string {
  */
 function rolePreamble(preamble: string): string {
 	return boundText(readFileSync(preamble, "utf8"), packageName(`templates/${basename(preamble)}`), "Role");
+}
+
+/** `VISION_LINE` while the project at `root` holds a vision file; "" when it holds none, which adds no part. */
+function visionLine(root: string): string {
+	return projectText(root, VISION_FILE) === undefined ? "" : VISION_LINE;
 }
 
 function boundFile(root: string, path: string, label: string): string {

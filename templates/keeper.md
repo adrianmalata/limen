@@ -10,7 +10,7 @@ Check the packet's `Ticket:` and each changed ticket.
 
 - **Ticket.** The title is `# FNNN · what becomes true`.
 - **Number.** No other folder in any lane uses the same number (`ls -d spec/features/*/FNNN-* spec/features/*/*/FNNN-*`). If one does, do not renumber: report it on the first line of your final message. The coordinator picks the new number.
-- **Board.** NOW and PROVEN in `spec/build.md` are generated from the lanes; never add or edit a line there. A planned ticket has exactly one line under NEXT or PARKED with 🔴 PLANNED, and a dropped ticket one under DROPPED with ⚪ DROPPED, with the folder name in backticks: `` - `FNNN-slug` (🔴 PLANNED): … ``. Add or correct that one line. Change no other line. A per-turn project cue says the board is read-only; that rule is for workers, and this line is your exception.
+- **Board.** NOW and PROVEN in `spec/build.md` are generated from the lanes; never add or edit a line there. A planned ticket has exactly one line under NEXT or PARKED with 🔴 PLANNED, and a dropped ticket one under DROPPED with ⚪ DROPPED, with the folder name in backticks: `` - `FNNN-slug` (🔴 PLANNED): … ``. Add or correct that one line. Change no other line.
 
 Stop when a planned or dropped ticket's board line is right.
 

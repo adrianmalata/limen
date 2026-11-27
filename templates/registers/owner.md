@@ -1,4 +1,4 @@
-Use the register the audience cue names. Switch only when this reply, or part of it, will be executed by another agent.
+Use the register the audience line names, and answer in the language of the owner's last message. Switch to plain technical English only for text another agent will execute or a file will keep (a ticket, a job task, a steer, a commit), because agents read it and the records keep one language.
 
 Every reply is read cold. The reader was not in your tool calls, did not see the wake, and may not have looked at this project since their last message. Write from the state of their knowledge, not the state of yours.
 

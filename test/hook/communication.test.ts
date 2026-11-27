@@ -344,19 +344,102 @@ test("a coordinator's turn cue holds no Guidance drift block when the project ho
 	await writeFile(join(project, ".agents/limen/communication.md"), PROJECT_REGISTER);
 	environment(t, coordinatorSession(home));
 	const cue = cueText(sessionStart(project));
-	assert.deepEqual([cue.includes("<limen-project-context>"), cue.includes("Guidance drift")], [true, false]);
+	assert.deepEqual([cue.includes("<limen-turn-cue>"), cue.includes("Guidance drift")], [true, false]);
 });
 
-// A-039: the cue's register lines come from the package, which no project file replaces.
-test("A-039: the turn cue holds the package's shared cue and not the one of a register the project holds", async (t) => {
+// A-039: the cue's lines are the hook's and the package's, which no project file replaces.
+test("A-039: a register the project holds leaves the coordinator's turn cue unchanged", async (t) => {
 	const { project, home } = await fixture(t);
+	environment(t, coordinatorSession(home));
+	const plain = cueText(sessionStart(project));
 	await mkdir(join(project, ".agents/limen"), { recursive: true });
 	await writeFile(join(project, ".agents/limen/communication.md"), PROJECT_REGISTER);
+	assert.equal(cueText(sessionStart(project)), plain);
+});
+
+/** The capability frame's one-sentence anchor, the turn cue's last line (A-043). */
+async function anchor(): Promise<string> {
+	const section = markdownSection(await readFile(join(PACKAGE, "templates/capability.md"), "utf8"), "Cue");
+	return section.split("\n").slice(1).join("\n").trim();
+}
+
+/** The coordinator's audience line and a job's, which carry the language of the reply (T-13). */
+const OWNER_AUDIENCE = "Audience: owner. Answer in the language of the owner's last message.";
+const AGENT_AUDIENCE = "Audience: agent. Plain technical English.";
+/** The ticket a job's task names, which its cue repeats. */
+const TICKET = "spec/features/active/F001-demo/ticket.md";
+
+/** The turn cue that holds `lines` and then the anchor, in its tag pair, one line each. */
+async function expectedCue(lines: readonly string[]): Promise<string> {
+	return ["<limen-turn-cue>", ...lines, await anchor(), "</limen-turn-cue>"].join("\n");
+}
+
+// A-077: the standing text is in the context message, so a cue with nothing new is the audience line and the anchor.
+test("A-077: a coordinator's turn cue with no variable line is its audience line and the frame's anchor", async (t) => {
+	const { project, home } = await fixture(t);
 	environment(t, coordinatorSession(home));
+	assert.equal(cueText(sessionStart(project)), await expectedCue([OWNER_AUDIENCE]));
+});
+
+test("A-077: a job's turn cue is its audience line, the ticket line of its task and the frame's anchor", async (t) => {
+	const { project, home, job } = await fixture(t);
+	await writeFile(join(job, "task.md"), `Implement the ticket.\n\nTicket: ${TICKET}\n`);
+	environment(t, jobSession(project, home));
+	assert.equal(cueText(sessionStart(project)), await expectedCue([AGENT_AUDIENCE, `Ticket: ${TICKET}`]));
+});
+
+// D-134 (2): the line states the fact alone; what to do after a failed turn is the owner register's.
+test("D-134: the cue after a turn that ended in error says it failed with its reason, and the cue after that does not", async (t) => {
+	const { project, home } = await fixture(t);
+	environment(t, coordinatorSession(home));
+	const hook = loadHook();
+	const failed = { role: "assistant", content: [], stopReason: "error", errorMessage: "provider overloaded" };
+	hook.fire("message_end", { type: "message_end", message: failed }, { cwd: project });
+	const cues = [1, 2].map(() =>
+		cueText(hook.fire("before_agent_start", PAYLOADS.before_agent_start, { cwd: project })),
+	);
+	assert.deepEqual(cues, [
+		await expectedCue([OWNER_AUDIENCE, "Last turn failed (error: provider overloaded)."]),
+		await expectedCue([OWNER_AUDIENCE]),
+	]);
+});
+
+// A-077: the wake's section of the cue went; a wake is told apart by its own text (R-051), not by the cue.
+test("A-077: a wake prompt gets the same turn cue as an owner prompt", async (t) => {
+	const { project, home } = await fixture(t);
+	environment(t, coordinatorSession(home));
+	const wake = { type: "before_agent_start", prompt: "Limen job 2026-11-19-x-1a2b3c4d ended.", systemPrompt: "Base." };
+	assert.equal(cueText(loadHook().fire("before_agent_start", wake, { cwd: project })), cueText(sessionStart(project)));
+});
+
+// T-13: the coordinator answers in the owner's language, so its cue names no fixed language; agents write English.
+test('T-13: the coordinator\'s turn cue holds no "English", and a job\'s holds "Plain technical English."', async (t) => {
+	const { project, home } = await fixture(t);
+	environment(t, coordinatorSession(home));
+	const owner = cueText(sessionStart(project));
+	// The job's variables name the same variables as the coordinator's, which the test gives back after it.
+	assign(jobSession(project, home));
+	const agent = cueText(sessionStart(project));
+	assert.deepEqual([owner.includes("English"), agent.includes("Plain technical English.")], [false, true]);
+});
+
+test("D-134: the turn cue is a hidden custom message of type limen-turn-cue", async (t) => {
+	const { project, home } = await fixture(t);
+	environment(t, coordinatorSession(home));
+	const start = sessionStart(project);
+	const message = typeof start === "object" && start !== null ? Reflect.get(start, "message") : undefined;
+	const field = (name: string) => (typeof message === "object" && message !== null ? Reflect.get(message, name) : "");
+	assert.deepEqual([field("customType"), field("display")], ["limen-turn-cue", false]);
+});
+
+// D-134 (3): a job's message points at the vision, and every job role's text forbids board edits.
+test("D-134: a job's turn cue names neither the vision nor the board of a project that holds both", async (t) => {
+	const { project, home } = await fixture(t);
+	await vision(project);
+	await writeFile(join(project, "spec", "build.md"), "# Build\n");
+	environment(t, jobSession(project, home));
 	const cue = cueText(sessionStart(project));
-	const shared = markdownSection(await readFile(join(PACKAGE, "templates/communication.md"), "utf8"), "Cue: Shared");
-	const body = shared.split("\n").slice(1).join("\n").trim();
-	assert.deepEqual([body.length > 0, cue.includes(body), cue.includes("project-cue-marker")], [true, true, false]);
+	assert.deepEqual([cue.includes("spec/vision.md"), cue.includes("spec/build.md")], [false, false]);
 });
 
 /** A tool result as Pi gives it to the handlers: of the tool `toolName` called with `input`, with `fields` over it. */
@@ -618,7 +701,7 @@ test("a Bash command that creates a planned ticket leaves no touch line in the n
 	const { hook, project } = await coordinatorWithVision(t);
 	hook.fire("tool_result", toolResult("bash", { command: "mkdir -p spec/features/planned/F002-y" }), { cwd: project });
 	const cue = cueText(hook.fire("before_agent_start", PAYLOADS.before_agent_start, { cwd: project }));
-	assert.deepEqual([cue.includes("<limen-project-context>"), cue.includes("Last turn")], [true, false]);
+	assert.deepEqual([cue.includes("<limen-turn-cue>"), cue.includes("Last turn")], [true, false]);
 });
 
 // A-010, R-102: a text that any process could set reached every coordinator's turn as an instruction, so the cue reads
@@ -639,7 +722,7 @@ test("a coordinator's turn cue holds no seat-rules block when the seat folder ho
 	const start = sessionStart(project);
 	const cue = typeof start === "object" && start !== null ? JSON.stringify(Reflect.get(start, "message")) : "";
 	assert.deepEqual(
-		[cue.includes("<limen-project-context>"), cue.includes("Seat-wide rules"), cue.includes(rule.text)],
+		[cue.includes("<limen-turn-cue>"), cue.includes("Seat-wide rules"), cue.includes(rule.text)],
 		[true, false, false],
 	);
 });
@@ -652,7 +735,7 @@ test("a job's first before_agent_start message is the turn cue alone, the same a
 	const [first, next] = [1, 2].map(() =>
 		cueText(hook.fire("before_agent_start", PAYLOADS.before_agent_start, { cwd: project })),
 	);
-	assert.deepEqual([first, first?.endsWith("</limen-project-context>")], [next, true]);
+	assert.deepEqual([first, first?.endsWith("</limen-turn-cue>")], [next, true]);
 });
 
 // A-044: the hook kept a job's first note as note.first.md and logged each change of note.md.

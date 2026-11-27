@@ -194,6 +194,49 @@ test("A-038: the coordinator's message holds the owner, agent and specs register
 	);
 });
 
+/** The first line of the owner register: the reply's language and when to switch to the agent register (D-134 (4)). */
+const LANGUAGE_RULE =
+	"Use the register the audience line names, and answer in the language of the owner's last message. Switch to plain technical English only for text another agent will execute or a file will keep (a ticket, a job task, a steer, a commit), because agents read it and the records keep one language.";
+
+// T-13: the owner register, not a setting or the cue, carries the rule to answer in the owner's language.
+test("T-13: the coordinator's owner register opens with the rule to answer in the language of the owner's last message", async (t) => {
+	const root = await initProject(t);
+	const message = contextMessage(root, { session: "coordinator" });
+	assert.equal(message.includes(`${REGISTER_HEADINGS.owner}${LANGUAGE_RULE}\n`), true);
+});
+
+/** A job's line that points at the project's vision, which the turn cue carried before (D-134 (3)). */
+const VISION_LINE = "Vision (read-only): `spec/vision.md` — durable intent. Load it before choosing or starting work.";
+
+// D-134 (3): the line rides the job's frozen message instead of every turn, in the coordinator's vision part's place.
+test("D-134: a worker's message holds the vision line once, between the agent register and the styleguide, only while the project holds spec/vision.md", async (t) => {
+	const root = await initProject(t);
+	const agent = (await readFile(join(PACKAGE, "templates/registers/agent.md"), "utf8")).trim();
+	const held = contextMessage(root, audience(root, "worker"));
+	await rm(join(root, "spec/vision.md"));
+	const none = contextMessage(root, audience(root, "worker"));
+	assert.deepEqual(
+		[
+			held.split(VISION_LINE).length - 1,
+			held.includes(`${agent}\n\n${VISION_LINE}\n\n## Styleguide (.agents/limen/styleguide.md)\n`),
+			none.includes(VISION_LINE),
+		],
+		[1, true, false],
+	);
+});
+
+/** The plain-English paragraph that the cue's shared section carried on every turn (D-134 (5)). */
+const ASD_STE100 =
+	"Write in plain technical English (about 80% of ASD-STE100). Short sentences. One idea each. Active voice. Simple exact words. One word for one thing. No slang, idioms, or filler.";
+
+test("D-134: every role's message holds the ASD-STE100 paragraph first under the agent register's ## Agent", async (t) => {
+	const root = await initProject(t);
+	const missing = everyMessage(root).flatMap((message, index) =>
+		message.includes(`\n## Agent\n\n${ASD_STE100}\n\n`) ? [] : [ROLES[index]?.name],
+	);
+	assert.deepEqual(missing, []);
+});
+
 // A-039: the register override is cut; the coordinator keeps the owner's language through the conversation itself.
 test("A-039: a project's .agents/limen/communication.md changes no role's message", async (t) => {
 	const root = await initProject(t);
@@ -230,7 +273,7 @@ test("D-005: a job whose bridge runs isolated gets the project's AGENTS.md as th
 });
 
 // A-038: the notes for the package's maintainers moved into CONTRIBUTING.md; a model has no use for them.
-test("A-038: no message holds a maintainer note of the package's register or cue file", async (t) => {
+test("A-038: no message holds a maintainer note of the package's speech texts", async (t) => {
 	const root = await initProject(t);
 	const notes = ["Package default speech registers", "## Turn cue convention", "The hook selects the bodies"];
 	const found = everyMessage(root).flatMap((message, index) =>

@@ -10,6 +10,8 @@ Tickets, notes, reviews, outcomes, handoffs, and documentation are written for a
 
 ## Agent
 
+Write in plain technical English (about 80% of ASD-STE100). Short sentences. One idea each. Active voice. Simple exact words. One word for one thing. No slang, idioms, or filler.
+
 Write so another agent can continue without this thread.
 
 - Outcome first, then evidence or checks, uncertainty, and the next concrete action.

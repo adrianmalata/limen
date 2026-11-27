@@ -8,7 +8,7 @@ import { type TestContext, test } from "node:test";
 import { runBridgeContract } from "../../seat/bridge-contract.ts";
 
 const TASK = "Do the task.";
-const CUE = "<limen-project-context>\n\ncue\n\n</limen-project-context>";
+const CUE = "<limen-turn-cue>\ncue\n</limen-turn-cue>";
 /** The prompt the bridge sends for the Pi session below: the task, then the cue, as one prompt (E-14). */
 const PROMPT = `${TASK}\n\n${CUE}`;
 
@@ -27,7 +27,7 @@ function piEntry(type: string, fields: Record<string, unknown>): string {
 const PI_SESSION = [
 	JSON.stringify({ type: "session", version: 3, id: "s1", timestamp: "2026-11-26T10:00:00.000Z", cwd: "/work" }),
 	piEntry("message", { message: { role: "user", content: [{ type: "text", text: TASK }], timestamp: 1 } }),
-	piEntry("custom_message", { customType: "limen-project-context", content: CUE, display: false }),
+	piEntry("custom_message", { customType: "limen-turn-cue", content: CUE, display: false }),
 	piEntry("message", {
 		message: { role: "assistant", content: [{ type: "text", text: "ok" }], provider: "p", model: "m", timestamp: 2 },
 	}),

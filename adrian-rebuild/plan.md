@@ -178,7 +178,9 @@ narzędzia, wizja przy tickecie w `planned/`, nie po `limen spawn`; trzy rundy r
 w bramce dała D-133, znalezisko A-092 i nowy ticket R-112. Przekazanie do limen-rebuild-43: R-044 `active`
 (implementer, BLOCKED rozstrzygnięty według G1.10 w decyzji 17 ticketu); arkusz wariantów R-041 → D-134 (wszystkie
 rekomendacje: tag `limen-turn-cue`, krótka linia porażki, wizja joba do wiadomości kontekstowej, reguła języka
-w rejestrze właściciela, akapit ASD-STE100 do rejestru agenta, `templates/communication.md` wycięty). -->
+w rejestrze właściciela, akapit ASD-STE100 do rejestru agenta, `templates/communication.md` wycięty). R-044
+zamknięty (trzy rundy recenzji: FAIL, PASS, PASS); R-041 zamknięty według D-134 (trzy rundy recenzji); jednorazowa
+porażka testu wake w bramce R-041 dała D-135: wyjątek od D-029 dla A-092 do czasu R-112, który idzie następny. -->
 
 
 
@@ -1609,6 +1611,16 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   lines' words (T-13), the cut of the Shared, Human, Agent and Wake sections (A-077, T-15 (1)), the frame anchor (A-043),
   the touch, ticket and board-length lines, the tag pair (D-114 (3)). R-041 keeps the mode `pair`, its `Run` becomes
   `night`, and `rebuild-implementer` implements it. Check: R-041's criteria and golden tests.
+- 2026-11-27 D-135 (Adrian: "tak"; Q-100, read as option 1 with "yes" to its R-112 part, the only option with a yes or
+  no; an exception to D-029 until R-112, as D-031 was for A-087): R-041's main-session gate failed once, 1438 of 1439,
+  on "the toast of a done job whose older record holds open checks is the plain done toast"
+  (`test/hook/wake.test.ts`, `ENOTEMPTY` on the `rmdir` of its temporary `home/.limen` in cleanup), a test that
+  executes nothing R-041 changes, the second occurrence of A-092's mechanism in another ticket (z. 38). (1) Until
+  R-112, when the gate fails only on `test/hook/wake.test.ts` with `ENOTEMPTY` on the `rmdir` of its temporary
+  `home/.limen`, the main session records the failure in the ticket's `outcome.md` as an occurrence of A-092 (the
+  gate's output line and the count it reports) and runs the gate once more; any other failure, or a second failure of
+  that file in the same ticket, follows D-029. R-112's commit removes the exception from `## Agents`. (2) R-112 is the
+  next ticket after R-041, before R-045. Check: none (the outcome records each occurrence).
 
 ### Gate 2 §2, copied
 
@@ -2019,7 +2031,7 @@ Columns:
 | R-038 | The fake engine shows the model's view under the bridge | 4 | T-31, A-051, D-115, D-119 | R-017 | L | delegated | night | — | bridge | 4.1 | done |
 | R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16, D-114 | R-021, R-038 | L | delegated | night | yes | pi, bridge | 4.2 | done |
 | R-040 | Role texts come from the package, in three registers | 4 | A-038, A-039, A-042, D-005 | R-001, R-039 | M | delegated | night | yes | — | — | done |
-| R-041 | The turn cue holds only variable parts and the audience line | 4 | A-077, T-13, D-134 | R-039 | M | pair | night | — | pi | 4.4 | active |
+| R-041 | The turn cue holds only variable parts and the audience line | 4 | A-077, T-13, D-134 | R-039 | M | pair | night | — | pi | 4.4 | done |
 | R-042 | The task-note mechanism is cut | 4 | A-044, A-059, D-121 | R-039 | M | delegated | night | yes | — | — | done |
 | R-043 | Just-in-time reminders arrive in the triggering tool result | 4 | A-041, H-12 | R-039 | M | delegated | night | — | pi | 4.5 | done |
 | R-044 | Module switches; hooks load by role and module | 4 | G1.10, G1.1, G1.2, G1.9, A-082, A-040, D-122, D-124 | R-015, R-039, R-040 | M | delegated | night | yes | pi | 4.7, 4.9 | done |
@@ -2958,7 +2970,10 @@ Protocol per ticket (rebuild stage 5):
    and `compare --git` exits 0, without waiting for the task's completion notification (D-059). A test that failed
    even once without a change of the code it runs
    is a finding: nobody runs it again to get a green gate (z. 17); by day the main session asks Adrian, at night it
-   writes a question in `.night/questions.md` and the ticket waits (D-029).
+   writes a question in `.night/questions.md` and the ticket waits (D-029). Until R-112 (D-135): a gate that fails only
+   on `test/hook/wake.test.ts` with `ENOTEMPTY` on the `rmdir` of its temporary `home/.limen` is recorded in the
+   ticket's `outcome.md` as an occurrence of A-092 (the output line and the count) and runs once more; any other
+   failure, or a second failure of that file in the same ticket, follows D-029.
 5. Review: `node adrian-rebuild/tools/review-guard.mjs snapshot --out node_modules/.rebuild-review/R-NNN.before` and
    `node adrian-rebuild/tools/review-guard.mjs diff --out node_modules/.rebuild-review/R-NNN.diff` (an ignored
    directory, like the gate's helper, so the guard does not see the files; `--out` creates it and writes atomically,
@@ -6076,3 +6091,13 @@ the terminal being active; context 8 % at the start; `HEAD` = `origin/adrian-reb
   R-044 are `done`). `planned`: R-041 (its `ticket.md` next), R-112 (its `ticket.md` from an inventory of
   `test/hook/wake.test.ts`'s teardown), R-046 (`pair`, L, after R-041).
 - For gate 5.4: R-044 Decisions 17 and 18 (the session's readings) and its Deviations 1–10 and Open points 1–10.
+- R-041 `done` (pair, implemented by `rebuild-implementer` from D-134, `ticket.md` written at `511fafd`): the main
+  session's first gate failed once on `test/hook/wake.test.ts` (`ENOTEMPTY` in cleanup, A-092's mechanism in another
+  test) → Q-100 with a push (searched first: the four sources; D-031 and D-133 do not settle it) → Adrian: "tak" →
+  D-135 (an exception to D-029 for A-092 until R-112, as D-031 was; R-112 next); the gate once more 1439/1439. Review
+  round 1 PASS → F1–F2 (text; a `BLOCKED` on the main session's `:318` in D-135, dropped); round 2 FAIL (the docs and
+  the hook comment said the cue repeats nothing of the context message) → G1–G3, the last round; round 3 PASS, its note
+  fixed by the main session. Gates 1439/1439 (352.3 s, 345.6 s, 362.0 s).
+- Next: R-112 (D-135 (2)): its `ticket.md` from a read-only inventory of `test/hook/wake.test.ts`'s teardown (A-092,
+  D-133), then the implementer; its commit removes D-135's line from `## Agents`. Then R-045, R-047, R-104–R-110
+  (R-110's dependencies are all `done`), and R-046 (`pair`, L, after R-041): its variants sheet is due by D-054 (3).

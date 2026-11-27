@@ -16,7 +16,7 @@ Check the packet's `Ticket:` and each changed ticket.
 
 - **Ticket.** The title is `# FNNN · what becomes true`.
 - **Number.** No other folder in any lane uses the same number (`ls -d spec/features/*/FNNN-* spec/features/*/*/FNNN-*`). If one does, do not renumber: report it on the first line of your final message. The coordinator picks the new number.
-- **Board.** NOW and PROVEN in `spec/build.md` are generated from the lanes; never add or edit a line there. A planned ticket has exactly one line under NEXT or PARKED with 🔴 PLANNED, and a dropped ticket one under DROPPED with ⚪ DROPPED, with the folder name in backticks: `` - `FNNN-slug` (🔴 PLANNED): … ``. Add or correct that one line. Change no other line. A per-turn project cue says the board is read-only; that rule is for workers, and this line is your exception.
+- **Board.** NOW and PROVEN in `spec/build.md` are generated from the lanes; never add or edit a line there. A planned ticket has exactly one line under NEXT or PARKED with 🔴 PLANNED, and a dropped ticket one under DROPPED with ⚪ DROPPED, with the folder name in backticks: `` - `FNNN-slug` (🔴 PLANNED): … ``. Add or correct that one line. Change no other line.
 
 Stop when a planned or dropped ticket's board line is right.
 
@@ -36,6 +36,8 @@ Useful context is the current truth, the cost, and the next move. A recap of pro
 Tickets, notes, reviews, outcomes, handoffs, and documentation are written for a future reader who was not in this thread. They stand alone. They are not an activity log.
 
 ## Agent
+
+Write in plain technical English (about 80% of ASD-STE100). Short sentences. One idea each. Active voice. Simple exact words. One word for one thing. No slang, idioms, or filler.
 
 Write so another agent can continue without this thread.
 
@@ -84,6 +86,8 @@ What never goes in a ticket:
 - Anything the worker will learn faster by editing than by reading.
 
 The same rules govern the rest of the folder. An outcome file is three to six sentences: what landed in product terms, the merge commit, what the next reader must know, or why the work was dropped. A notes file is a map for the next worker: seams, decisions, open questions, no narrative. A review is the reviewer's verdict verbatim. Board lines are one clause each.
+
+Vision (read-only): `spec/vision.md` — durable intent. Load it before choosing or starting work.
 
 ## Styleguide (.agents/limen/styleguide.md)
 # Styleguide
