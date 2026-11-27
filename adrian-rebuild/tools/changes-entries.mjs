@@ -1,8 +1,9 @@
-/* PL: Sprawdzanie wpisów changes.md według D-009 (Node, bez zależności), wydzielone z check.mjs, żeby dało się je
-   testować na fiksturze. Wpis ma nagłówek „YYYY-MM-DD R-NNN tytuł”, pola What, Why, Proof, Measurement, Commit
-   i Rollback; kluczem jest temat commitu: `Commit: R-NNN`, a Rollback to `git revert $(git log …)`. Wpis zapisany
-   w HEAD musi mieć na gałęzi adrian-rebuild dokładnie jeden commit „R-NNN:”, który zmienia changes.md; wpis jeszcze
-   niezacommitowany — zero. Stan: działa; test w tools/test-changes-entries.mjs. */
+/* PL: Sprawdzanie wpisów changes.md według D-009 i D-138 (Node, bez zależności), wydzielone z check.mjs, żeby dało się
+   je testować na fiksturze. Wpis ma nagłówek „YYYY-MM-DD R-NNN tytuł”, pola What, Why, Proof, Measurement, Commit
+   i Rollback; kluczem jest temat commitu: `Commit: R-NNN`. Wpis zapisany w HEAD musi mieć na gałęzi adrian-rebuild
+   dokładnie jeden commit z tematem „R-NNN:”, który zmienia changes.md; wpis jeszcze niezacommitowany — zero. Rollback
+   to `git revert $(git log --grep …)` z D-009, a gdy ten `--grep` trafia też w commit o innym temacie (linia „R-NNN:”
+   w treści), dokładna postać z `awk` po temacie (D-138). Stan: działa; test w tools/test-changes-entries.mjs. */
 import { spawnSync } from "node:child_process";
 
 export const CHANGES = "adrian-rebuild/changes.md";
@@ -21,11 +22,36 @@ export function rollbackCommand(id, branch = "adrian-rebuild") {
 	return `git revert $(git log --format=%H --grep='^${id}:' ${branch} --)`;
 }
 
-/** The commits that `rollbackCommand(id)` would revert, found the same way. */
+/**
+ * D-138's rollback command, for a ticket whose D-009 `--grep` also finds another commit: it reverts only the commits
+ * whose subject's first word is `<id>:`.
+ */
+export function exactRollbackCommand(id, branch = "adrian-rebuild") {
+	return `git revert $(git log --format='%H %s' ${branch} -- | awk '$2 == "${id}:" {print $1}')`;
+}
+
+/**
+ * The commits of `branch` whose subject's first word is `<id>:`, the commits D-009 keys an entry by (D-138 (1)): the
+ * words split as `awk` splits them, so `exactRollbackCommand` reverts exactly the commits counted here.
+ */
 export function commitsFor(id, { cwd = ".", branch = "adrian-rebuild" } = {}) {
-	return git(["log", "--format=%H", `--grep=^${id}:`, branch, "--"], cwd)
+	return git(["log", "--format=%H %s", branch, "--"], cwd)
+		.split("\n")
+		.map((line) => line.trim().split(/[ \t]+/))
+		.filter((words) => words[1] === `${id}:`)
+		.map((words) => words[0]);
+}
+
+/**
+ * The Rollback an entry must name (D-138 (2)): D-009's while every commit its `--grep` finds is a commit of the ticket,
+ * since `--grep` matches any line of a message, so a body line `<id>: …` of another commit would be reverted too.
+ */
+export function expectedRollback(id, { cwd = ".", branch = "adrian-rebuild" } = {}) {
+	const ticket = new Set(commitsFor(id, { cwd, branch }));
+	const grepped = git(["log", "--format=%H", `--grep=^${id}:`, branch, "--"], cwd)
 		.split("\n")
 		.filter(Boolean);
+	return grepped.every((commit) => ticket.has(commit)) ? rollbackCommand(id, branch) : exactRollbackCommand(id, branch);
 }
 
 /** The entries of a changes.md text: `## YYYY-MM-DD R-NNN <title>` and its `- Field: value` lines; fences skipped. */
@@ -43,15 +69,16 @@ export function parseEntries(text) {
 		});
 }
 
-function checkFields({ id, fields }, errors) {
+function checkFields({ id, fields }, errors, { cwd, branch }) {
 	for (const name of FIELDS.filter((field) => !fields[field])) {
 		errors.push(`${CHANGES}: ${id}: missing field ${name}`);
 	}
 	if (fields.Commit !== undefined && fields.Commit !== id) {
 		errors.push(`${CHANGES}: ${id}: Commit is "${fields.Commit}", expected "${id}" (D-009)`);
 	}
-	if (fields.Rollback !== undefined && !fields.Rollback.includes(rollbackCommand(id))) {
-		errors.push(`${CHANGES}: ${id}: Rollback does not say ${rollbackCommand(id)} (D-009)`);
+	const rollback = expectedRollback(id, { cwd, branch });
+	if (fields.Rollback !== undefined && !fields.Rollback.includes(rollback)) {
+		errors.push(`${CHANGES}: ${id}: Rollback does not say ${rollback} (D-009, D-138)`);
 	}
 	const measurement = /^(measured|unmeasured \(plan\.md → Measurement: M-\d{2}.*\))$/;
 	if (fields.Measurement !== undefined && !measurement.test(fields.Measurement)) {
@@ -77,7 +104,7 @@ export function checkEntries({ text, headText, folders, done, cwd = ".", branch 
 			errors.push(`${CHANGES}: ${id} has more than one entry`);
 		}
 		seen.add(id);
-		checkFields(entry, errors);
+		checkFields(entry, errors, { cwd, branch });
 		if (!folders.some((folder) => folder.startsWith(`${id}-`))) {
 			errors.push(`${CHANGES}: ${id}: no ticket folder adrian-rebuild/${id}-<slug>/`);
 		}
