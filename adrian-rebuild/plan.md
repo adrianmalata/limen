@@ -170,7 +170,10 @@ zamknięty w dzień (dwie rundy recenzji PASS), potem noc do 8:00; w niej R-039 
 przebieg 4 zamknął R-040 (teksty Limena tylko z pakietu, rejestr w trzech plikach według odbiorcy, dryf wycięty,
 `templates/manual.md`; trzy rundy recenzji PASS, uwagi rundy 3 do R-044, R-045 i otwartych punktów); R-042 (wycięcie
 notatki zadania) zaimplementowany i po dwóch rundach recenzji PASS, ale bramka po ostatniej poprawce padła na
-nieznanym teście z uciętym wyjściem, więc `blocked` na pytaniu Q-91, a noc skończyła się powodem `no-ticket`. -->
+nieznanym teście z uciętym wyjściem, więc `blocked` na pytaniu Q-91, a noc skończyła się powodem `no-ticket`. Rano
+Q-91 → D-130 (`gate.mjs --out` zapisuje całe wyjście bramki), R-042 zamknięty, D-132; przekazanie do limen-rebuild-42;
+tam D-131: nocny runner po przebiegu zakończonym limitem subskrypcji czeka do minuty po resecie i nie zużywa
+ponowienia (`evidence/night-reset-wait/`, trzy rundy recenzji PASS). -->
 
 
 
@@ -5966,3 +5969,19 @@ and no night running): `limen-rebuild-41` starts `limen-rebuild-42` with `node a
    R-040 `outcome.md` → Deviations (night defaults); R-042 Decision 9; A-091's `accepted-risk` (the session's reading
    of D-130); `evidence/gate-out/outcome.md` → Open points 3–5.
 The handover after it is `limen-rebuild-43`.
+
+`limen-rebuild-42` (2026-11-27, by day, Adrian at the terminal): `close-previous` printed `handover: closed tmux session
+limen-rebuild-41` and one `handover: stopped claude …` line and exited 0; the takeover push was skipped as redundant,
+the terminal being active; context 8 % at the start; `HEAD` = `origin/adrian-rebuild` = `02923ca`, the tree clean.
+- D-131 built by the main session (`evidence/night-reset-wait/`): a run that ends on a subscription limit (its last
+  `result` line's `api_error` `"usage_limit_reached"`; `resetsAt` and `rateLimitType` from the main session's API error
+  message before it, since the `result` line carries no `api_error_params` in any observed run: Decision 2) is followed
+  by the next run one minute after the reset (`RESET_MARGIN`, Decision 3), not counted as a retry; a start at or after
+  `--until` ends the night with exit 3; a limit with no usable reset (none, no valid date, beyond seven days) or a
+  passed reset is today's counted retry. `test-night.mjs` 43/43; 12 of the 14 new tests failed at `HEAD`, the other two
+  and every guard under ten mutations. Review rounds 1–3 PASS: round 1 → F1–F5, round 2 → G1–G3 (the last round of
+  fixes), round 3's one note on the ticket's text fixed by the main session. Unmeasured until a night meets a limit
+  (`outcome.md` → Unmeasured). The `Tools:` commit holds it with this entry.
+- Next: R-043 (protocol step 2 at `HEAD`; its AC-9 `git grep -q 'asks the agent to read' -- templates docs` exits 1
+  already, since R-040 moved that sentence into `CONTRIBUTING.md`, so the criterion is confined to that file by
+  D-025), then R-044, R-045, R-047, R-104–R-110.

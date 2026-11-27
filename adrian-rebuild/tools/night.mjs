@@ -6,15 +6,18 @@
    po przebiegu dopisuje do logu liczbę wywołań narzędzi sesji głównej na commit (kanał poboczny: błąd liczenia to
    linia w logu, nie koniec nocy). O końcu decyduje wyłącznie pole
    `reason` w .night/status.json zapisanym po starcie przebiegu (kod 0), a bez niego następuje ponowienie po 30, 60
-   i 120 min, nigdy od godziny końca (potem kod 3); awaria samego narzędzia daje kod 4. Nie dotyka gita ani plików
-   poza .night/. Eksportuje sprawdzenie żywej blokady, którego używa też handover.mjs (D-102). Stan: działa; test
-   w tools/test-night.mjs. */
+   i 120 min, nigdy od godziny końca (potem kod 3); przebieg zakończony limitem subskrypcji (pola `api_error`
+   i `resetsAt` w stream-json, nie tekst) czeka do minuty po resecie i nie zużywa ponowienia (D-131). Awaria samego
+   narzędzia daje kod 4. Nie dotyka gita ani plików poza .night/. Eksportuje sprawdzenie żywej blokady, którego używa
+   też handover.mjs (D-102). Stan: działa; test w tools/test-night.mjs. */
 // Usage: node adrian-rebuild/tools/night.mjs --until HH:MM [--claude <path>]
 //   --until  local time; the end is the next HH:MM, and one more than 18 h ahead has passed (exit 1)
 //   --claude the Claude Code executable (default: claude on PATH); the tests pass a fake
 // Exit 0: a run wrote its reason of the end; 1: refused before the first run; 3: the night ended without a reason;
 //      4: the runner itself failed (the message carries the stack).
 // After each run the log gets "night: run <n>: main-session tool calls: <k>, …" lines, one per commit (D-026).
+// A run that ended on a subscription limit is followed by the next run one minute after the limit's reset, which is
+// not one of the 3 retries (D-131).
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
@@ -44,6 +47,14 @@ const FOREGROUND = { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1" };
 const RETRY_MINUTES = [30, 60, 120];
 const HORIZON_HOURS = 18;
 const MINUTE = 60_000;
+// D-131: the `api_error` of a run that ended on a subscription limit, a field of its stream-json.
+const LIMIT_ERROR = "usage_limit_reached";
+// The limit resets on the server's clock; a start one minute later keeps a laptop clock that runs a little ahead from
+// meeting the same limit and spending a counted retry (D-131, Decision 3 of evidence/night-reset-wait/ticket.md).
+const RESET_MARGIN = MINUTE;
+// The longest limit window (`seven_day`): a reset further ahead is no usable reset time, so a change of the field's
+// unit (milliseconds) falls back to the counted retries instead of ending the night at once (G3 of that ticket).
+const LONGEST_WINDOW = 7 * 24 * 60 * MINUTE;
 const PROMPT = "adrian-rebuild/input/prompt.md";
 const NIGHT = "adrian-rebuild/.night";
 const USAGE = "usage: node adrian-rebuild/tools/night.mjs --until HH:MM [--claude <path>]";
@@ -286,11 +297,23 @@ function runClaude(command, args, cwd, log) {
 const sizeOf = (log) => statSync(log, { throwIfNoEntry: false })?.size ?? 0;
 
 /**
- * D-026 (4): the main session's tool calls per commit in what run `run` appended to its log from byte `offset` on;
- * a log of an earlier night of the same day keeps its own bytes out of the count.
+ * What a run appended to its log from byte `offset` on, so a log of an earlier night of the same day keeps its own
+ * bytes out; or the code of the read's failure. Both readers are side channels (T-01): the count of D-026 and the
+ * limit of D-131 each turn a failure into a line in the log. The code, not the message: a file-system message holds
+ * the log's absolute path, a home path that must not reach plan.md when the day session copies the line (D-026
+ * review round 2).
  */
-function countLines(run, log, offset) {
-	const segments = countToolCalls(readFileSync(log).subarray(offset).toString("utf8"));
+function readRun(log, offset) {
+	try {
+		return { text: readFileSync(log).subarray(offset).toString("utf8") };
+	} catch (error) {
+		return { failure: error.code ?? error.name };
+	}
+}
+
+/** D-026 (4): the main session's tool calls per commit in a run's output. */
+function countLines(run, text) {
+	const segments = countToolCalls(text);
 	const last = segments.length - 1;
 	return segments.map(({ calls, commit }, index) => {
 		let where = last === 0 ? "no commit in this run" : "after the last commit";
@@ -305,14 +328,105 @@ function countLines(run, log, offset) {
  * The count is a side channel (T-01, D-026 review round 1): its failure becomes one line in the log and never ends
  * the night, whose end depends only on `status.json`.
  */
-function countLinesOrFailure(run, log, offset) {
-	try {
-		return countLines(run, log, offset);
-	} catch (error) {
-		// The code, not the message: a file-system message holds the log's absolute path, a home path that must not
-		// reach plan.md when the day session copies the line (D-026 review round 2).
-		return [`night: run ${run}: tool calls not counted (${error.code ?? error.name})`];
+function countLinesOrFailure(run, output) {
+	let failure = output.failure;
+	if (failure === undefined) {
+		try {
+			return countLines(run, output.text);
+		} catch (error) {
+			failure = error.code ?? error.name;
+		}
 	}
+	return [`night: run ${run}: tool calls not counted (${failure})`];
+}
+
+/** The line's JSON object, or undefined for any other line (stderr, the runner's own lines). */
+function jsonObject(line) {
+	try {
+		const value = JSON.parse(line);
+		return typeof value === "object" && value !== null ? value : undefined;
+	} catch (error) {
+		if (error instanceof SyntaxError) {
+			return undefined;
+		}
+		throw error;
+	}
+}
+
+/**
+ * D-131: the subscription limit that ended a run, read from fields of its stream-json, never from its text (z. 2):
+ * undefined unless the run's last `result` line has `api_error` "usage_limit_reached". That line carries no reset, so
+ * `type` and `resetsAt` (a Date at most the longest window after the run's end at `ended`, else undefined) come from
+ * the main session's API error message before it; a subagent's (`parent_tool_use_id` set) is not the run's.
+ */
+function usageLimit(text, ended) {
+	let info;
+	let limit;
+	for (const line of text.split("\n")) {
+		const event = jsonObject(line);
+		if (event?.type === "result") {
+			limit = event.api_error === LIMIT_ERROR ? { info } : undefined;
+			info = undefined;
+		} else if (event?.api_error === LIMIT_ERROR && event.parent_tool_use_id === null) {
+			info = event.api_error_params?.rate_limit_info;
+		}
+	}
+	if (limit === undefined) {
+		return undefined;
+	}
+	const { resetsAt, rateLimitType } = limit.info ?? {};
+	const reset = Number.isSafeInteger(resetsAt) && resetsAt > 0 ? new Date(resetsAt * 1000) : undefined;
+	return {
+		// The type goes into log lines the day session reads, so only a plain word: a newline would forge a line.
+		type: typeof rateLimitType === "string" && /^[a-z_]+$/.test(rateLimitType) ? rateLimitType : "subscription",
+		// No reset and an invalid date (a safe integer past the last date a Date holds) give NaN, which fails this too.
+		resetsAt: reset?.getTime() - ended.getTime() <= LONGEST_WINDOW ? reset : undefined,
+	};
+}
+
+/**
+ * Why run `run` gives no wait for a limit's reset, as a log line; undefined when it did not end on a limit. The line
+ * states only the fact: the next one says whether a retry or the end follows.
+ */
+function noWaitLine(run, output, limit) {
+	if (output.failure !== undefined) {
+		return `night: run ${run}: no limit read (${output.failure})`;
+	}
+	if (limit === undefined) {
+		return undefined;
+	}
+	const which =
+		limit.resetsAt === undefined
+			? `the ${limit.type} limit with no usable reset time in its output`
+			: `the ${limit.type} limit, whose reset at ${stamp(limit.resetsAt)} has passed`;
+	return `night: run ${run} ended on ${which}`;
+}
+
+/**
+ * After run `run` ended at `ended` without a reason: one minute after the reset of the limit that ended it, not
+ * counted (D-131), or else the next counted retry of D-019, with no `next` when none is left. A reset not after the
+ * run's end gives no wait, so every uncounted wait moves past a reset that was still ahead (z. 1).
+ */
+function nextRun(run, output, retries, ended) {
+	const limit = output.text === undefined ? undefined : usageLimit(output.text, ended);
+	if (limit?.resetsAt !== undefined && limit.resetsAt > ended) {
+		return { limit, next: new Date(limit.resetsAt.getTime() + RESET_MARGIN), counted: false };
+	}
+	const wait = RETRY_MINUTES[retries];
+	const next = wait === undefined ? undefined : new Date(ended.getTime() + wait * MINUTE);
+	return { next, counted: true, note: noWaitLine(run, output, limit) };
+}
+
+/** Why no run follows, for the line of exit 3. */
+function noRunReason({ limit, next }) {
+	if (next === undefined) {
+		return `all ${RETRY_MINUTES.length} retries used`;
+	}
+	if (limit === undefined) {
+		return `a retry at ${stamp(next)} would start at or after the end`;
+	}
+	const reset = `the ${limit.type} limit resets at ${stamp(limit.resetsAt)}`;
+	return `${reset}, so the next run at ${stamp(next)} would start at or after the end`;
 }
 
 /** Runs and retries until a run writes its reason (0), the retries are used up or the end comes (3). */
@@ -329,6 +443,7 @@ async function runNight({ root, dir, claude, until, end }, { now, sleep, out }) 
 	];
 	const shown = [claude, ...args].map((arg) => (/\s/.test(arg) ? JSON.stringify(arg) : arg)).join(" ");
 	const hint = `see the run logs in ${NIGHT}/ and plan.md → ## State`;
+	let retries = 0;
 	for (let run = 1; ; run += 1) {
 		const log = join(dir, `${day}-run-${run}.log`);
 		const note = (line) => {
@@ -339,27 +454,35 @@ async function runNight({ root, dir, claude, until, end }, { now, sleep, out }) 
 		note(`night: run ${run} started ${stamp(started)}, until ${stamp(end)}: ${shown}`);
 		const offset = sizeOf(log);
 		const ending = await runClaude(claude, args, root, log);
-		for (const line of countLinesOrFailure(run, log, offset)) {
+		// Read before the notes below append to the log, so that a log the run removed is not this run's output.
+		const output = readRun(log, offset);
+		for (const line of countLinesOrFailure(run, output)) {
 			note(line);
 		}
+		const ended = now();
 		const status = readReason(join(dir, "status.json"), started);
-		note(`night: run ${run} ${ending} at ${stamp(now())}; status.json: ${status.note}`);
+		note(`night: run ${run} ${ending} at ${stamp(ended)}; status.json: ${status.note}`);
 		if (status.reason !== undefined) {
 			note(`night: the session ended with the reason ${status.reason}; exit 0`);
 			return 0;
 		}
-		const wait = RETRY_MINUTES[run - 1];
-		const next = wait === undefined ? undefined : new Date(now().getTime() + wait * MINUTE);
-		if (next === undefined || next >= end) {
-			const why =
-				next === undefined
-					? `all ${RETRY_MINUTES.length} retries used`
-					: `a retry at ${stamp(next)} would start at or after the end`;
-			note(`night: ended without a reason in status.json after ${run} runs; exit 3 (${why}); ${hint}`);
+		const after = nextRun(run, output, retries, ended);
+		if (after.note !== undefined) {
+			note(after.note);
+		}
+		if (after.next === undefined || after.next >= end) {
+			note(`night: ended without a reason in status.json after ${run} runs; exit 3 (${noRunReason(after)}); ${hint}`);
 			return 3;
 		}
-		note(`night: retry ${run} of ${RETRY_MINUTES.length} at ${stamp(next)}`);
-		await sleep(wait * MINUTE);
+		if (after.counted) {
+			retries += 1;
+			note(`night: retry ${retries} of ${RETRY_MINUTES.length} at ${stamp(after.next)}`);
+		} else {
+			const { type, resetsAt } = after.limit;
+			const reset = `ended on the ${type} limit, which resets at ${stamp(resetsAt)}`;
+			note(`night: run ${run} ${reset}; the next run at ${stamp(after.next)}, not a retry (D-131)`);
+		}
+		await sleep(after.next.getTime() - now().getTime());
 		if (now() >= end) {
 			note(
 				`night: ended without a reason in status.json after ${run} runs; exit 3 (the end came during the wait); ${hint}`,

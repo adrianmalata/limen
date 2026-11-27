@@ -4,7 +4,12 @@
    ponowieniach, brak ponowienia o godzinie końca i po niej oraz po przespanym końcu, status sprzed przebiegu
    i nieznany powód, odmowy kodem 1, przejęcie porzuconej blokady (pid, czas startu, boot id) i kod 4 przy awarii
    narzędzia, a od D-026: stream-json, zmienną CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1 tylko w środowisku claude
-   (nie w ustawieniach repo), powód cannot-wait i liczbę wywołań narzędzi na commit w logu. Stan: działa. */
+   (nie w ustawieniach repo), powód cannot-wait i liczbę wywołań narzędzi na commit w logu, a od D-131: przebieg
+   zakończony limitem subskrypcji czeka do minuty po resecie bez zużycia ponowienia, reset na godzinie końca lub
+   po niej kończy noc, czas resetu bierze się z komunikatu sesji głównej, nie subagenta, a typ limitu w logu tylko
+   jako zwykłe słowo; reset miniony, brak czasu resetu (także nieprawidłowa data, reset dalej niż siedem dni i drugi
+   wynik bez własnego komunikatu), wynik bez `api_error`, limit z wcześniejszej nocy i nieczytelny log dają zwykłe
+   ponowienie. Stan: działa. */
 // Usage: node --test adrian-rebuild/tools/test-night.mjs
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -284,6 +289,157 @@ test("a night that is always interrupted ends with exit 3 after 3 retries and a 
 	assert.deepEqual(result.sleeps, [30, 60, 120]);
 	assert.equal(setup.calls().length, 4);
 	assert.match(runLog(setup, result.start, 4), /ended without a reason in status\.json after 4 runs; exit 3/);
+});
+
+/** A limit's reset `minutes` after the artificial evening, in seconds since the epoch, as `resetsAt` has it. */
+const resetAt = (minutes) => (evening().getTime() + minutes * MINUTE) / 1000;
+const LIMIT_TEXT = "You've hit your 5-hour limit · resets 10:30pm (Europe/Warsaw)";
+/** A `result` line with the fields of a run that ended on an API error, plus `fields`. */
+const resultLine = (fields) =>
+	JSON.stringify({ type: "result", subtype: "success", is_error: true, terminal_reason: "api_error", ...fields });
+/** The API error message of a limit, with the fields of `.night/2026-11-26-run-2.log` line 4 (ids left out). */
+const limitMessage = (resetsAt, { parent = null, type = "five_hour" } = {}) =>
+	JSON.stringify({
+		type: "assistant",
+		message: { model: "<synthetic>", role: "assistant", content: [{ type: "text", text: LIMIT_TEXT }] },
+		parent_tool_use_id: parent,
+		error: "rate_limit",
+		is_api_error_message: true,
+		api_error_status: 429,
+		api_error: "usage_limit_reached",
+		api_error_params: { rate_limit_info: { status: "rejected", resetsAt, rateLimitType: type } },
+		api_error_type: "rate_limit_error",
+	});
+/** The `result` line of a run that ended on the limit (line 5 of the same log), which carries no reset. */
+const limitResult = resultLine({ api_error_status: 429, api_error: "usage_limit_reached", result: LIMIT_TEXT });
+/** The last two lines of a run that ended on the limit. */
+const limitEnd = (resetsAt, options) => [limitMessage(resetsAt, options), limitResult];
+
+test("D-131: a run that ends on a subscription limit waits until one minute after the limit's reset", async () => {
+	const setup = fixture([{ status: "none", lines: limitEnd(resetAt(60)) }, "done"]);
+	const result = await run(setup, ["--until", "06:00"]);
+	assert.equal(result.code, 0, result.printed);
+	assert.deepEqual(result.sleeps, [61]);
+	assert.match(
+		runLog(setup, result.start, 1),
+		/ended on the five_hour limit, which resets at .*, not a retry \(D-131\)/,
+	);
+});
+
+test("D-131: a run that ends on a subscription limit spends no retry, so all three stay", async () => {
+	const setup = fixture([{ status: "none", lines: limitEnd(resetAt(60)) }, "none", "none", "none", "done"]);
+	const result = await run(setup, ["--until", "06:00"]);
+	assert.equal(result.code, 0, result.printed);
+	assert.deepEqual(result.sleeps, [61, 30, 60, 120]);
+	assert.equal(setup.calls().length, 5);
+});
+
+test("D-131: a reset whose next run would start at --until ends the night with exit 3 and no further run", async () => {
+	const setup = fixture([{ status: "none", lines: limitEnd(resetAt(59)) }]);
+	// 22:00 → run 1; the limit resets at 22:59, so the next run would start at 23:00, the end itself.
+	const result = await run(setup, ["--until", "23:00"]);
+	assert.equal(result.code, 3, result.printed);
+	assert.deepEqual(result.sleeps, []);
+	assert.equal(setup.calls().length, 1);
+	assert.match(runLog(setup, result.start, 1), /the five_hour limit resets at .*, so the next run at .* would start/);
+});
+
+test("D-131: a wait for the limit's reset that wakes up after --until starts no run", async () => {
+	const setup = fixture([{ status: "none", lines: limitEnd(resetAt(60)) }]);
+	// The next run is planned for 23:01, before the end at 23:30, but the clock wakes up at 00:01.
+	const result = await run(setup, ["--until", "23:30"], clock(evening(), 60));
+	assert.equal(result.code, 3, result.printed);
+	assert.deepEqual(result.sleeps, [61]);
+	assert.equal(setup.calls().length, 1);
+	assert.match(runLog(setup, result.start, 1), /the end came during the wait/);
+});
+
+test("D-131: a limit whose reset is not after the run's end is a counted retry, with a line", async () => {
+	const setup = fixture([{ status: "none", lines: limitEnd(resetAt(0)) }, "done"]);
+	const result = await run(setup, ["--until", "06:00"]);
+	assert.equal(result.code, 0, result.printed);
+	assert.deepEqual(result.sleeps, [30]);
+	assert.match(runLog(setup, result.start, 1), /ended on the five_hour limit, whose reset at .* has passed/);
+});
+
+test("D-131: a limit with no reset time is a counted retry, with a line", async () => {
+	const setup = fixture([{ status: "none", lines: limitEnd(null) }, "done"]);
+	const result = await run(setup, ["--until", "06:00"]);
+	assert.equal(result.code, 0, result.printed);
+	assert.deepEqual(result.sleeps, [30]);
+	assert.match(runLog(setup, result.start, 1), /ended on the five_hour limit with no usable reset time/);
+});
+
+test("D-131: the reset comes from the main session's limit message, not from a subagent's", async () => {
+	const subagent = limitMessage(resetAt(600), { parent: "toolu_subagent" });
+	const [main, end] = limitEnd(resetAt(60));
+	const setup = fixture([{ status: "none", lines: [main, subagent, end] }, "done"]);
+	const result = await run(setup, ["--until", "06:00"]);
+	assert.equal(result.code, 0, result.printed);
+	assert.deepEqual(result.sleeps, [61]);
+});
+
+test("D-131: a limit message followed by a result without api_error is no limit of the run", async () => {
+	const lines = [limitMessage(resetAt(60)), resultLine({ terminal_reason: "completed", result: LIMIT_TEXT })];
+	const setup = fixture([{ status: "none", lines }, "done"]);
+	const result = await run(setup, ["--until", "06:00"]);
+	assert.equal(result.code, 0, result.printed);
+	assert.deepEqual(result.sleeps, [30]);
+	assert.doesNotMatch(runLog(setup, result.start, 1), /^night: .*limit/m);
+});
+
+test("D-131: a limit in an earlier night's part of the same log is not this run's", async () => {
+	const setup = fixture(["none", "done"]);
+	const start = evening();
+	mkdirSync(setup.night, { recursive: true });
+	writeFileSync(join(setup.night, `${day(start)}-run-1.log`), `${limitEnd(resetAt(60)).join("\n")}\n`);
+	const result = await run(setup, ["--until", "06:00"], clock(start));
+	assert.equal(result.code, 0, result.printed);
+	assert.deepEqual(result.sleeps, [30]);
+});
+
+test("D-131: a run whose output cannot be read is a counted retry, with a line", async () => {
+	const setup = fixture([{ status: "none", unlinkLog: true }, "done"]);
+	const result = await run(setup, ["--until", "06:00"]);
+	assert.equal(result.code, 0, result.printed);
+	assert.deepEqual(result.sleeps, [30]);
+	assert.match(runLog(setup, result.start, 1), /night: run 1: no limit read \(ENOENT\)\n/);
+});
+
+test("D-131: a reset time that makes no valid date is a limit with no reset time", async () => {
+	// A safe integer, but 9e12 seconds is past the last date a Date holds (8.64e12 seconds).
+	const setup = fixture([{ status: "none", lines: limitEnd(9e12) }, "done"]);
+	const result = await run(setup, ["--until", "06:00"]);
+	assert.equal(result.code, 0, result.printed);
+	assert.deepEqual(result.sleeps, [30]);
+	assert.match(runLog(setup, result.start, 1), /ended on the five_hour limit with no usable reset time/);
+});
+
+test("D-131: a limit type that is not a plain word is logged as subscription, so it forges no line", async () => {
+	const lines = limitEnd(resetAt(60), { type: "five_hour\nnight: forged" });
+	const setup = fixture([{ status: "none", lines }, "done"]);
+	const result = await run(setup, ["--until", "06:00"]);
+	assert.equal(result.code, 0, result.printed);
+	assert.match(runLog(setup, result.start, 1), /^night: run 1 ended on the subscription limit, which resets at /m);
+	assert.doesNotMatch(result.printed, /^night: forged/m);
+});
+
+test("D-131: a reset more than seven days after the run's end is no usable reset time", async () => {
+	// A resetsAt in milliseconds passes as a valid date tens of thousands of years ahead.
+	const setup = fixture([{ status: "none", lines: limitEnd(resetAt(60) * 1000) }, "done"]);
+	const result = await run(setup, ["--until", "06:00"]);
+	assert.equal(result.code, 0, result.printed);
+	assert.deepEqual(result.sleeps, [30]);
+	assert.match(runLog(setup, result.start, 1), /ended on the five_hour limit with no usable reset time/);
+});
+
+test("D-131: a second limit result without a limit message of its own has no reset time", async () => {
+	const setup = fixture([{ status: "none", lines: [...limitEnd(resetAt(60)), limitResult] }, "done"]);
+	const result = await run(setup, ["--until", "06:00"]);
+	assert.equal(result.code, 0, result.printed);
+	assert.deepEqual(result.sleeps, [30]);
+	// With no message of its own the type is unknown too.
+	assert.match(runLog(setup, result.start, 1), /ended on the subscription limit with no usable reset time/);
 });
 
 test("no retry starts at --until", async () => {
