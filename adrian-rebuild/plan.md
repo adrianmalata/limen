@@ -6101,3 +6101,24 @@ the terminal being active; context 8 % at the start; `HEAD` = `origin/adrian-reb
 - Next: R-112 (D-135 (2)): its `ticket.md` from a read-only inventory of `test/hook/wake.test.ts`'s teardown (A-092,
   D-133), then the implementer; its commit removes D-135's line from `## Agents`. Then R-045, R-047, R-104–R-110
   (R-110's dependencies are all `done`), and R-046 (`pair`, L, after R-041): its variants sheet is due by D-054 (3).
+
+Handover of 2026-11-27 (D-047, at 42 % context, after the commit `R-041:` (`6cb038b`), with the tree clean and pushed
+and no night running): `limen-rebuild-43` starts `limen-rebuild-44` with `node adrian-rebuild/tools/handover.mjs start
+44` and ends its turn. By day, Adrian at the terminal. The next session's acts, in this order:
+1. A push notification to Adrian (one line in Polish) that it takes over at R-112; then `node
+   adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into this section.
+2. R-112 (D-135 (2)): its `ticket.md` from a read-only inventory of `test/hook/wake.test.ts`'s teardown (A-092, D-133;
+   the failing tests so far: "a wake that enters no run is counted unconfirmed …" in R-043's fix run and "the toast of a
+   done job whose older record holds open checks is the plain done toast" in R-041's first gate, both `ENOTEMPTY` on
+   the `rmdir` of the temporary `home/.limen`), with a reproduction that fails before the fix; its commit removes
+   D-135's line from `## Agents` (protocol step 4).
+3. Then by protocol step 1: R-045, R-047, R-104–R-110 (all `ready`; R-110's dependencies are `done`), each through
+   steps 2–7 with the gate's `--out`; R-046 (`pair`, L, its dependencies R-040, R-041, R-042, R-044 all `done`): its
+   variants sheet is due by D-054 (3), and it must keep the owner register's closing-overview sentence until R-073's
+   footer (R-041 → Risk). A night run only when Adrian asks (D-024).
+4. For Adrian, outside the sessions' reach (unchanged): `.claude/agents/rebuild-implementer.md` still runs the bare gate
+   (`evidence/gate-out/outcome.md` → Open points 5).
+5. At gate 5.4, besides items 4 of `limen-rebuild-40`'s, 5 of `limen-rebuild-41`'s and 5 of `limen-rebuild-42`'s
+   handovers: R-044 Decisions 17 and 18, Deviations 1–10 and Open points 1–10; R-041's Deviations 1–5 and Open points
+   1–4; D-135's reading of "tak".
+The handover after it is `limen-rebuild-45`.
