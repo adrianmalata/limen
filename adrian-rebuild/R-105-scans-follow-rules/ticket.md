@@ -3,7 +3,8 @@ poleceń odczytu dochodzi przechodnio do funkcji przejścia stanu; skan idzie wi
 `startingJob`, `queuedText`, `isDayOnly` i część odczytu kolejki startowej przechodzą do modułów bez przejść, dwa
 mieszane pliki poleceń zostają ratchetem z ticketami końcowymi R-058 i R-065, a skan obejmuje też prymitywy czekania
 (D-116 (1)). Skan uruchomień T-26 łapie też `platform.startInScope` i `startOutsideJob`. Stan: napisany 26.11 przy
-`c2513a9` z inwentarza `evidence/inventories/R-105.md`; `ready` za R-104. -->
+`c2513a9` z inwentarza `evidence/inventories/R-105.md`; `active` od 28.11 w nocy przy `e5f9ba1`, z miejscami faktów
+po R-104 w decyzji 9. -->
 
 # R-105 The T-04 and T-26 scans follow what their rules name
 
@@ -119,7 +120,7 @@ Facts at `c3bbc5c` (the read-only inventory `evidence/inventories/R-105.md`; R-1
 - AC-10: `git grep -q 'R-065' -- test/structure.test.ts` → exit 0; `git grep -q 'R-058' -- test/structure.test.ts` →
   exit 0.
 - AC-11: `node adrian-rebuild/tools/fails-before.mjs` → exit 0, its output in `outcome.md` → `## Fails before`.
-- AC-12: `node adrian-rebuild/tools/gate.mjs` → exit 0.
+- AC-12: `node adrian-rebuild/tools/gate.mjs --out node_modules/.rebuild-review/R-105.gate` → exit 0.
 - AC-13: `npx biome check --error-on-warnings .` → exit 0; `node adrian-rebuild/tools/check.mjs` → exit 0.
 - AC-14 (judgment): the T-04 scan follows every module a read command's handler loads, cycles included; outside its two
   lists it finds nothing; each list entry names its end ticket or its reason, and a stale entry fails; each wait
@@ -160,3 +161,22 @@ inventory's technical questions (`evidence/inventories/R-105.md` → section 9),
 8. The wait half follows D-116 (1) at module granularity (Q10 settled by D-116): an entry for a change operation's
    wait is named with that operation, and for a lock it is backed at run time by the read test's read-only folders
    (fact 5), since a module-level scan cannot tell which function of a module a read calls.
+9. 2026-11-28, at activation (`e5f9ba1`; the night's main session, protocol step 2, D-025): the facts' places after
+   R-039–R-045, R-112, R-047 and R-104. Fact 1: the T-04 scan is `test/structure.test.ts:1081-1135` (`STATE_TRANSITIONS`
+   at `:1085-1095`, the sentence "imports directly" at `:1096`, the test at `:1129`), `importedFile` at `:1398-1401`.
+   Fact 2: unchanged in substance (`src/job/listing.ts:7-8`, `src/project/summary.ts:14`,
+   `src/job/group-cabinet.ts:11`, `src/job/statistics.ts:18`, `src/runtime/queue-report.ts:6-15`). Fact 3:
+   `src/runtime/reap.ts` is unchanged (`:37-99`); `hook/wake.ts` imports `ownerState` at `:65`; `isDayOnly`, `dayOnlyTime`
+   and `DAY_ONLY` are at `src/job/landing.ts:511-524`, `recordRefusal` and `recordRateLimit` at `src/job/record.ts:1169`
+   and `:1179`. R-104 changed the queue's read half: `readEntries` is at `src/runtime/start-queue.ts:578`, with its new
+   helpers `liveEntry` (`:613`), `projectJob` (`:626`) and `realPath` (`:647`), which move with it; `parseEntry` at
+   `:687`, `entryState` at `:713`, `queuedText` at `:739`, `lastReading` at `:549`, `SAMPLE_MS` at `:70`. Its rule reads
+   `registeredProjects` from `src/project/seat.ts` (`start-queue.ts:34`, `:589`), whose module already served the queue
+   (`seatDir`) and imports `withLock` (`src/project/seat.ts:6`) for its registry write `updateRegisteredProjects`
+   (`:21-24`, `limen init`): a wait primitive of a change operation in the read half's closure, an entry of Change 2's
+   second list named with that operation. Fact 4: `STARTERS` at `test/structure.test.ts:1519`, `cliLaunches` at `:1558`,
+   the T-26 launch scan at `:1583`; `startInScope` is `src/platform/linux.ts:176`, called only at
+   `src/runtime/launcher.ts:101` and `:135`; `startOutsideJob` is `launcher.ts:95-102`, called by
+   `src/integrations/herdr.ts:61`. Fact 5: the read test is `test/registry.test.ts:848`, `readOnly` at `:835-846`; the
+   queue's timers are at `start-queue.ts:174` (the 2 s sample), `:317` and `:763`. The grep criteria at `HEAD`: AC-7, AC-8
+   and AC-9 exit 0 only on the lines the ticket changes, AC-10 exits 1. AC-12 names the gate's `--out` form (D-130).

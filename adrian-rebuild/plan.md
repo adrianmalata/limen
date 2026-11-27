@@ -2085,7 +2085,7 @@ Columns:
 | R-046 | Role prompts are literal, sourced and budgeted | 4 | T-09, T-14, T-15, T-08, T-10, T-21, A-043, A-085, A-040 | R-040, R-041, R-042, R-044 | L | pair | day-after | — | — | — | planned |
 | R-047 | The coordinator never waits | 4 | T-34 | R-039 | S | delegated | night | — | pi | 4.6 | done |
 | R-104 | The sweep's daily prune archives every unregistered folder and waits on no job's lock; a queue entry is live only for a project's job | 4 | A-002, A-024, T-25, D-107 | R-101 | M | delegated | night | — | — | — | done |
-| R-105 | The T-04 and T-26 scans follow what their rules name | 4 | T-04, T-26, D-107, D-116 | R-032, R-104 | M | delegated | night | — | — | — | ready |
+| R-105 | The T-04 and T-26 scans follow what their rules name | 4 | T-04, T-26, D-107, D-116 | R-032, R-104 | M | delegated | night | — | — | — | active |
 | R-106 | A watcher outside the agents' account keeps a copy of `main` and alerts on its forced update or deletion | 4 | A-006, §7, D-110, D-117 | R-033 | S | delegated | night | — | systemd | 4.10 | ready |
 | R-107 | The exit 4 of systemd 259's `is-active` reads as not active | 4 | A-029, E-18, D-112 | R-026 | S | delegated | night | — | systemd | 4.13 | ready |
 | R-108 | The stall rule follows every pending tool of a message | 4 | A-059, E-19, D-112 | R-036 | S | delegated | night | — | pi | 4.12 | ready |
@@ -6294,3 +6294,6 @@ Night run of 2026-11-27/28 (until 08:00; `night.mjs` run 1 started at 21:47:25, 
   as at `HEAD`), a fresh implementer; round 2 PASS, its two doc notes fixed by the main session (D-053 (2)). The main
   session's gates 1498/1498 (347.6 s, 346.9 s), `fails-before.mjs` exit 0 after each. For the morning: Decision 9
   (`outcome.md` → Night defaults) and Q-104; for gate 5.4: R-104's Deviations 1–4 and Open points 1–3.
+- R-105 `active` at `e5f9ba1` (protocol step 2): its facts' places in its Decision 9; R-104's queue rule adds
+  `liveEntry`, `projectJob` and `realPath` to the read half that moves, and its `registeredProjects` comes from the
+  seat module, whose registry write's lock is a wait exception of a change operation; AC-12 names the gate's `--out`.
