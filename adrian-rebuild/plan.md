@@ -6151,5 +6151,17 @@ the terminal being active; context 8 % at the start; `HEAD` = `origin/adrian-reb
   (searched first: `input/gate-2-decisions.md`, `taste.md` (T-01, T-29), `input/zasady-budowy-harnessu.md` (z. 14,
   17, 21), `## Decisions` (D-029, D-133, D-135)) → Adrian: "rekomendacja" → D-136 and engine fact E-22. R-112 `active`
   at `11860b9`, its `ticket.md` written.
-- Next: R-112 through protocol steps 3–7; then R-045, R-047, R-104–R-110 (all `ready`), and R-046's variants sheet
-  (D-054 (3)).
+- R-112 protocol step 3: `snapshot --git` at `216a1c2`; `rebuild-implementer` finished with `DONE` (its gates
+  1440/1440 twice, `fails-before.mjs` exit 0 in its draft `outcome.md`); `compare --git
+  node_modules/.rebuild-review/R-112.git …/ticket.md` → exit 0. The working tree holds its result, uncommitted:
+  `hook/wake.ts`, `test/hook/wake.test.ts` and the draft `adrian-rebuild/R-112-wake-tests-stop-hook-first/outcome.md`.
+- Adrian stopped the work (he travels without internet): the main session's gate run of step 4 was stopped by the
+  session before its end, with no result; a stopped run is no test failure (D-029 does not apply), and step 4 starts
+  again from the beginning.
+- Next (resume, by day): this is not a cut implementer run (D-102 (4)): the implementer reported `DONE`. Run `compare
+  --git node_modules/.rebuild-review/R-112.git adrian-rebuild/R-112-wake-tests-stop-hook-first/ticket.md` (exit 0
+  expected on the unchanged tree), then protocol step 4 (`gate.mjs --out node_modules/.rebuild-review/R-112.gate`, then
+  `fails-before.mjs test/hook/wake.test.ts`, its output into `outcome.md` → `## Fails before` in place of the
+  implementer's), steps 5–7, and at the commit `## Change` item 3 (D-135's sentence out of `## Agents` step 4; A-092's
+  `Note`). Then R-045, R-047, R-104–R-110 (all `ready`), and R-046's variants sheet (D-054 (3)). Context 20 % at the
+  stop.
