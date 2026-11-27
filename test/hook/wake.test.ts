@@ -3,10 +3,10 @@
 // a tick that ends no dead job (T-04), a wake the subscription limit kept from a coordinator's turn, owed until the
 // sweep releases it (A-016 (2)), one advisory wake per source and session (the D-092 note), a wake settled only by
 // the run it entered (A-089), one wake that starts a run per idle sweep, the others its follow-ups (A-090), the
-// count of a wake that entered no run, and a stop that ends once the hook's registration of its project is
-// written (A-092).
+// count of a wake that entered no run, a stop that ends once the hook's registration of its project is
+// written (A-092), and the coordinator's bash sleep of 30 s or more that its tool_call handler blocks (T-34).
 import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -18,9 +18,19 @@ import { emptyRecord, type JobRecord, readRecordSync, serialized } from "../../s
 import { CLAIM_STALE_MS } from "../../src/job/wake-delivery.ts";
 import { LimenError } from "../../src/outcome.ts";
 import { platform } from "../../src/platform/platform.ts";
+import { sleepRefusal, WAKE_SENTENCE } from "../../src/runtime/mistake-guard.ts";
 import { processIdentity } from "../../src/runtime/reap.ts";
 import { inTemporaryProject, withEnvironment } from "../environment.ts";
-import { editRecord, engineEvents, fakeSystemd, type Plant, plant, within, writeRecord } from "../plant.ts";
+import {
+	editRecord,
+	engineEvents,
+	engineViews,
+	fakeSystemd,
+	type Plant,
+	plant,
+	within,
+	writeRecord,
+} from "../plant.ts";
 
 /** The handler of the `limen` command that the hook registers on a fake `pi`. */
 function commandHandler(): (args: unknown, context: unknown) => Promise<void> {
@@ -111,6 +121,54 @@ test("NOT_MIGRATED: the hook's note with a null next asks to run only limen migr
 		notMigratedNotice(error),
 		"limen: wakes are off in this project: older records; run limen migrate, then reload this coordinator session (/reload): the hook checks only at session start",
 	);
+});
+
+/** The handlers that the hook registers on a fake `pi` in this process's environment, by the event's name. */
+function hookHandlers(): Map<unknown, unknown> {
+	const handlers = new Map<unknown, unknown>();
+	limenWake({
+		on(...args: unknown[]) {
+			handlers.set(args[0], args[1]);
+		},
+		sendUserMessage() {},
+		registerCommand() {},
+	});
+	return handlers;
+}
+
+/** The `tool_call` handler that the hook registers in a coordinator's session. */
+function toolCallHandler(t: TestContext): (event: unknown) => unknown {
+	withEnvironment(t, { LIMEN_JOB: "" });
+	const handler = hookHandlers().get("tool_call");
+	assert.ok(typeof handler === "function", "the hook handles tool_call in a coordinator's session");
+	return (event) => handler(event, {});
+}
+
+/** Pi's `tool_call` payload of a call of its bash tool that runs `command`. */
+function bashCall(command: string) {
+	return { type: "tool_call", toolCallId: "1", toolName: "bash", input: { command } };
+}
+
+// T-34 (1), z. 12: Pi runs no blocked call and writes the reason as the call's error result, which the model reads in
+// the same run; with no `terminate`, the run goes on to that read.
+test("T-34: in a coordinator's session the hook's tool_call handler blocks a bash sleep 240 with the guard's reason", (t) => {
+	assert.deepEqual(toolCallHandler(t)(bashCall("sleep 240")), { block: true, reason: sleepRefusal("sleep 240") });
+});
+
+test("T-34: in a coordinator's session the hook's tool_call handler returns nothing for a bash sleep 5 and for a read", (t) => {
+	const handler = toolCallHandler(t);
+	const read = { type: "tool_call", toolCallId: "2", toolName: "read", input: { path: "sleep 240" } };
+	assert.deepEqual([handler(bashCall("sleep 5")), handler(read)], [undefined, undefined]);
+});
+
+// T-34 (1): the guard is the coordinator's; a job's model may sleep (seat steps 3.8 and 4.12, R-060 for timers).
+test("T-34: the hook registers its tool_call handler in a coordinator's session and none in a job's", (t) => {
+	withEnvironment(t, { LIMEN_JOB: "" });
+	const coordinator = hookHandlers().has("tool_call");
+	// withEnvironment gives the variable its earlier value back after the test, so this change ends with it too.
+	process.env.LIMEN_JOB = "1";
+	const job = hookHandlers().has("tool_call");
+	assert.deepEqual({ coordinator, job }, { coordinator: true, job: false });
 });
 
 /** Waits until `check` holds, failing after `limit` milliseconds. */
@@ -765,4 +823,46 @@ test("a wake that enters no run is not counted while a run settled less than 30 
 	t.mock.timers.tick(1);
 	await turnsUntil(atBound);
 	assert.deepEqual({ early, log: logLines(job) }, { early: [], log: [LOST] });
+});
+
+/**
+ * Runs a coordinator's session named `name` of the plant `p` on the fake engine with the real hook, on `script`, which
+ * makes one bash call, to its end. Gives whether the model's record of the call's result, in the model call after it,
+ * holds the wake sentence, and whether the session's transcript marks that result as an error.
+ */
+function sleptOnce(p: Plant, name: string, script: string): { readonly sentence: boolean; readonly isError: unknown } {
+	const dir = join(p.parent, name);
+	mkdirSync(dir);
+	writeFileSync(join(dir, "task.md"), script);
+	const args = ["--session-dir", join(dir, "session"), "--extension", WAKE_HOOK, `@${join(dir, "task.md")}`];
+	const env = { ...p.env, PI_SESSION_ID: name };
+	const run = spawnSync(join(p.bin, "pi"), args, { cwd: p.root, env, encoding: "utf8", timeout: WAIT_MS });
+	assert.equal(run.status, 0, run.stderr);
+	const record = engineViews(dir)[1]?.messages.at(-1);
+	const entries: Array<{ type?: string; message?: { role?: string; isError?: unknown } }> = readFileSync(
+		join(dir, "session", "fake.jsonl"),
+		"utf8",
+	)
+		.trim()
+		.split("\n")
+		.map((line) => JSON.parse(line));
+	const result = entries.find((entry) => entry.type === "message" && entry.message?.role === "toolResult");
+	return {
+		sentence: record?.role === "tool" && record.text.join("\n").includes(WAKE_SENTENCE),
+		isError: result?.message?.isError,
+	};
+}
+
+// T-34 (1), T-31 (1), E-1: only a tool result reaches the model in a role other than user, so the refusal arrives as the
+// result of the very call the model made, in the next call of the same run.
+test("T-34: on the fake engine a coordinator's bash sleep 240 comes back as an error result that holds the wake sentence, and a sleep 5 as the tool's own result", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	assert.deepEqual(
+		[sleptOnce(p, "coord-long", "tool sleep 240\nsay done"), sleptOnce(p, "coord-short", "tool sleep 5\nsay done")],
+		[
+			{ sentence: true, isError: true },
+			{ sentence: false, isError: false },
+		],
+	);
 });

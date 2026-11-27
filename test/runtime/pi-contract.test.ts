@@ -244,6 +244,34 @@ test("the contract fails Pi types whose tool_result handler result lacks structu
 	);
 });
 
+/**
+ * A change of the fixture that makes its tool_call payload a union, as Pi 1.5.1 declares it: the call of the bash tool,
+ * whose input is `any`, as a typebox type is where typebox is not vendored, and the call of a custom tool, whose input
+ * has the type `custom`.
+ */
+function toolCallUnion(custom: string): (text: string) => string {
+	const single =
+		'export interface ToolCallEvent { type: "tool_call"; toolCallId: string; toolName: string; input: Record<string, unknown> }';
+	const union = [
+		'export interface BashToolCallEvent { type: "tool_call"; toolCallId: string; toolName: "bash"; input: any }',
+		`export interface CustomToolCallEvent { type: "tool_call"; toolCallId: string; toolName: string; input: ${custom} }`,
+		"export type ToolCallEvent = BashToolCallEvent | CustomToolCallEvent;",
+	].join("\n");
+	return (text) => text.replace(single, union);
+}
+
+// R-047 Decision 11: in a union, a member whose field is `any` makes the union's field `any`, so a field of a union
+// payload counts as checked when one member gives it a type that checks something, and is named when none does.
+test("the contract passes a union payload whose field one member types, and fails one whose every member's field is any, naming it", async (t) => {
+	const typed = await piContract(await fixture(t, { change: toolCallUnion("Record<string, unknown>") }));
+	const vacuous = await piContract(await fixture(t, { change: toolCallUnion("any") }));
+	assert.deepEqual(
+		[typed, vacuous.some((line) => line.includes("tool_call.input checks nothing"))],
+		[[], true],
+		[...typed, ...vacuous].join("\n\n"),
+	);
+});
+
 // E-9, T-32 (1): the rate-limit event reaches a hook only on Pi's event bus, so the adapter declares it too.
 test("the contract fails Pi types that lack the event bus the adapter declares, and names it", async (t) => {
 	const types = await fixture(t, { change: (text) => text.replace("\tevents: EventBus;\n", "") });

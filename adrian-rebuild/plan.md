@@ -2083,7 +2083,7 @@ Columns:
 | R-044 | Module switches; hooks load by role and module | 4 | G1.10, G1.1, G1.2, G1.9, A-082, A-040, D-122, D-124 | R-015, R-039, R-040 | M | delegated | night | yes | pi | 4.7, 4.9 | done |
 | R-045 | Tools and skills per role; a read-only role that writes fails | 4 | A-081, E-5, D-123, D-125 | R-042, R-044 | M | delegated | night | — | pi, bridge | 4.3 | done |
 | R-046 | Role prompts are literal, sourced and budgeted | 4 | T-09, T-14, T-15, T-08, T-10, T-21, A-043, A-085, A-040 | R-040, R-041, R-042, R-044 | L | pair | day-after | — | — | — | planned |
-| R-047 | The coordinator never waits | 4 | T-34 | R-039 | S | delegated | night | — | pi | 4.6 | active |
+| R-047 | The coordinator never waits | 4 | T-34 | R-039 | S | delegated | night | — | pi | 4.6 | done |
 | R-104 | The sweep's daily prune archives every unregistered folder and waits on no job's lock; a queue entry is live only for a project's job | 4 | A-002, A-024, T-25, D-107 | R-101 | M | delegated | night | — | — | — | ready |
 | R-105 | The T-04 and T-26 scans follow what their rules name | 4 | T-04, T-26, D-107, D-116 | R-032, R-104 | M | delegated | night | — | — | — | ready |
 | R-106 | A watcher outside the agents' account keeps a copy of `main` and alerts on its forced update or deletion | 4 | A-006, §7, D-110, D-117 | R-033 | S | delegated | night | — | systemd | 4.10 | ready |
@@ -2437,6 +2437,11 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   the 10 s bound, so a Herdr that hangs costs 10 s per tab and about 30 tabs pass the sweep unit's 300 s (the run is
   cut, writes no stamp and repeats each minute); R-103, which rewrites the tab close for its `cleaned` step, records a
   tab once it closed or Herdr no longer lists it, so it is not asked again, and bounds the step's total time.
+- R-060 (R-047 `review.md` → Round 1, note 3): the test "the mistake guard's module imports no module, so it starts no
+  process, reads no file and writes nothing" (`test/runtime/mistake-guard.test.ts`) matches only lines that start with
+  `import`, so a use of the global `process` (such as `process.getBuiltinModule`) or an `import(…)` inside an
+  expression would pass it; R-060, which extends the module with T-42's timers, makes the test check what its name
+  says (T-29).
 - R-060 (D-107; R-032 `outcome.md` → Open points 5 and 6): `limen seat sweep --install` inside a job's scope is not
   refused, though the run refuses `SWEEP_IN_JOB` (agents create no timers, T-42); `--uninstall` reads `is-active` as
   unknown both for `inactive` and a failed probe, so a timer file removed by hand stops every rerun.
@@ -6269,3 +6274,10 @@ Night run of 2026-11-27/28 (until 08:00; `night.mjs` run 1 started at 21:47:25, 
 - R-047 `active` at `0db0f37` (protocol step 2): its facts' places after R-038–R-045 and R-112 in its Decision 10;
   since R-044 a job's hook set holds no `wake`, the manual is `templates/manual.md` (R-040); AC-9 names the gate's
   `--out`.
+- R-047 `done` (delegated): the implementer's `BLOCKED` (Pi 1.5.1's `ToolCallEvent` is a union whose built-in members'
+  `input` are unresolved `typebox` types, so the contract read `tool_call.input` as `any`) → Decision 11, a night
+  default (D-054 (2) (b)): the contract counts a union field as checked when one member types it; a fresh implementer
+  finished from the working tree (D-026). The main session's gate 1487/1487 (348.7 s), `fails-before.mjs` exit 0.
+  Review round 1 PASS with five notes: Open point 2 rewritten in T-17's form by the main session, note 3 (the import
+  test's name) to R-060's notes in `## Tickets`, the rest unchanged with reasons (`review.md`). For the morning:
+  Decision 11 (`outcome.md` → Night defaults); for gate 5.4: R-047's Deviations 1–3 and Open points 1–4.

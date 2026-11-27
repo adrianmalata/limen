@@ -3,7 +3,9 @@
 // TypeScript against Pi's type packages at a path the caller gives, so no seat path is in the repository. Pi's types
 // import packages that are not vendored (provider SDKs, the TUI, typebox), so the contract compiles with skipLibCheck,
 // under which a type from an unresolved package becomes `any` and passes every assignment; the contract therefore also
-// proves that each type it compares checks something.
+// proves that each type it compares checks something. A field of a union, such as Pi 1.5.1's tool_call payload, whose
+// built-in members take their input from typebox, checks something when one member declares it with a type that is
+// neither `any` nor `never`; the assignments still compare every member with the adapter (R-047 Decision 11).
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -31,13 +33,19 @@ type Payload<K> = Extract<ExtensionEvent, { type: K }>;
 type Field<T, F> = T extends unknown ? (F extends keyof T ? T[F] : never) : never;
 /** The element type of an array, or the type itself. */
 type Element<T> = T extends readonly (infer E)[] ? E : T;
-/** Each field of Ours that checks nothing in Theirs, itself or as its element type, named with Prefix. */
+/** true for each member of T that declares field F with a type that checks something, itself and as its element. */
+type Checks<T, F> = T extends unknown
+	? F extends keyof T
+		? Vacuous<T[F]> extends true
+			? never
+			: Vacuous<Element<T[F]>> extends true
+				? never
+				: true
+		: never
+	: never;
+/** Each field of Ours that no member of Theirs declares with a type that checks something, named with Prefix. */
 type Unchecked<Ours, Theirs, Prefix extends string> = {
-	[F in keyof Ours & string]-?: Vacuous<Field<Theirs, F>> extends true
-		? \`\${Prefix}\${F}\`
-		: Vacuous<Element<Field<Theirs, F>>> extends true
-			? \`\${Prefix}\${F}\`
-			: never;
+	[F in keyof Ours & string]-?: [Checks<Theirs, F>] extends [never] ? \`\${Prefix}\${F}\` : never;
 }[keyof Ours & string];
 /** "none" when Names is never; otherwise a sentence that names each of them. */
 type None<Names> = [Names] extends [never] ? "none" : \`\${Names & string} checks nothing: it is any, never or not in Pi\`;

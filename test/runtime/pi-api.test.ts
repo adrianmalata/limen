@@ -13,6 +13,7 @@ import { LimenError } from "../../src/outcome.ts";
 import {
 	isRecorded,
 	type PiContext,
+	piBashCommand,
 	piCommandArgs,
 	piContext,
 	piContextEntries,
@@ -133,6 +134,20 @@ test("piEvent returns a tool_call and refuses one whose toolName is not a string
 	const event = { type: "tool_call", toolCallId: "1", toolName: "bash", input: { command: "ls" } };
 	assert.equal(piEvent("tool_call", event), event);
 	assert.deepEqual(where(refusal(() => piEvent("tool_call", { toolName: 3 }))), ["Pi event tool_call", "toolName"]);
+});
+
+// T-34 (1): the coordinator's hook reads a bash call's command before the call runs (R-047), so the guard checks the
+// call's input as Pi 1.5.1 declares it for every tool: an object.
+test("piEvent returns a tool_call with its input and refuses one whose input is not an object", () => {
+	const event = { type: "tool_call", toolCallId: "1", toolName: "read", input: { path: "a.md" } };
+	const error = refusal(() => piEvent("tool_call", { toolName: "bash", input: "sleep 240" }));
+	assert.deepEqual([piEvent("tool_call", event).input, where(error)], [event.input, ["Pi event tool_call", "input"]]);
+});
+
+test("piBashCommand returns a bash call's command and refuses one whose command is not a string", () => {
+	const command = piBashCommand({ toolName: "bash", input: { command: "sleep 240", timeout: 5 } });
+	const error = refusal(() => piBashCommand({ toolName: "bash", input: { command: ["sleep", "240"] } }));
+	assert.deepEqual([command, where(error)], ["sleep 240", ["Pi event tool_call", "input.command"]]);
 });
 
 /** A tool result with a text and an image part, as Pi gives it to the handlers. */

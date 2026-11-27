@@ -46,8 +46,10 @@ export type PiCompactEvent = { readonly reason: (typeof COMPACTIONS)[number]; re
 export type PiMessageEvent = { readonly message: PiMessage };
 /** `context`: the messages of the next model call. */
 export type PiContextEvent = { readonly messages: readonly PiMessage[] };
-/** `tool_call`: a tool call before it runs. */
-export type PiToolCallEvent = { readonly toolName: string };
+/** `tool_call`: a tool call before it runs, with its input, whose fields are the tool's own. */
+export type PiToolCallEvent = { readonly toolName: string; readonly input: Readonly<Record<string, unknown>> };
+/** The input of a call of Pi's bash tool that a hook reads: its command (`core/tools/bash.d.ts:7-8`). */
+export type PiBashInput = { readonly command: string };
 /** A JSON value, as Pi's `JsonValue` (pi-ai `types.d.ts:322`): what a tool's structured content may be. */
 export type PiJson = null | boolean | number | string | readonly PiJson[] | { readonly [key: string]: PiJson };
 /**
@@ -352,7 +354,7 @@ const EVENTS: { readonly [K in keyof PiEvents]: Check } = {
 	message_start: shape<PiMessageEvent>({ message }),
 	message_end: shape<PiMessageEvent>({ message }),
 	context: shape<PiContextEvent>({ messages: listOf(message) }),
-	tool_call: shape<PiToolCallEvent>({ toolName: text }),
+	tool_call: shape<PiToolCallEvent>({ toolName: text, input: record }),
 	tool_result: shape<PiToolResultEvent>({
 		toolName: text,
 		input: record,
@@ -370,6 +372,9 @@ const CONTEXT: { readonly [K in keyof PiContext]-?: Check } = {
 	ui: shape<PiUi>({ notify: callable, setStatus: callable }),
 	shutdown: callable,
 };
+
+/** The check of a bash call's input: the command a hook reads, a string (`core/tools/bash.d.ts:7-8`). */
+const BASH_INPUT = shape<PiBashInput>({ command: text });
 
 /** The check of the bridge's rate-limit event (E-9): the fields a hook reads, each of them optional. */
 const RATE_LIMIT = shape<PiRateLimit>({ rateLimitType: maybe(text), resetAtMs: maybe(epochTime) });
@@ -449,6 +454,21 @@ export function piContextEntries(
 	const entries: unknown = context.sessionManager.buildContextEntries();
 	assertEntries(place, entries);
 	return entries;
+}
+
+function assertBashInput(value: unknown): asserts value is PiBashInput {
+	refuse("tool_call", BASH_INPUT(value, "input"));
+}
+
+/**
+ * The command of a call of Pi's bash tool, from its `tool_call` payload, when the call's input holds it as a string;
+ * otherwise BAD_DATA names `input.command`. Pi declares each built-in tool's input through typebox, which the vendor
+ * copy of the type contract does not hold, so this guard is the one check of the field.
+ */
+export function piBashCommand(event: PiToolCallEvent): string {
+	const { input } = event;
+	assertBashInput(input);
+	return input.command;
 }
 
 /** The parameters of a call of the tool `tool` itself, when they are an object; otherwise BAD_DATA. */

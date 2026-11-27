@@ -51,10 +51,12 @@ import { removedCommand } from "../src/old-names.ts";
 import { LimenError } from "../src/outcome.ts";
 import { unlandedBranches } from "../src/project/git.ts";
 import { registerProject } from "../src/project/seat.ts";
+import { sleepRefusal } from "../src/runtime/mistake-guard.ts";
 import {
 	type PiApi,
 	type PiContext,
 	type PiMessageEvent,
+	piBashCommand,
 	piCommandArgs,
 	piContext,
 	piEvent,
@@ -1129,6 +1131,20 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 	if (transport("LIMEN_JOB") === "1") {
 		return;
 	}
+	// T-34 (1): Limen wakes the coordinator when a job ends, so a long sleep in its Bash only holds the conversation. Pi
+	// runs no blocked call and gives its reason to the model as the call's error result in the same run, which a
+	// `terminate` would end first (z. 12). A job registers no such handler: its sleep is a stall the wrapper watches.
+	pi.on(
+		"tool_call",
+		recorded((raw: unknown) => {
+			const event = piEvent("tool_call", raw);
+			if (event.toolName !== "bash") {
+				return undefined;
+			}
+			const reason = sleepRefusal(piBashCommand(event));
+			return reason === undefined ? undefined : { block: true, reason };
+		}),
+	);
 	pi.registerCommand("limen", {
 		description: "Mute or resume limen job display and wakes for this session",
 		getArgumentCompletions(prefix) {

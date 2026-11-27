@@ -3,7 +3,7 @@ odmawia w Bash `sleep` 30 s lub dłuższego (także czasu, którego nie umie odc
 T-34 o budzeniu; polityka siedzi w jednym nowym module `src/runtime/mistake-guard.ts`, który R-060 rozszerzy o timery.
 Instrukcja koordynatora zastępuje „Never poll with `sleep`.” tym samym zdaniem. Stan: napisany 26.11 przy `aa721d7` z
 inwentarza `evidence/inventories/R-047.md`; `active` od 27.11 przy `0db0f37`, z miejscami faktów po R-038–R-045 i R-112
-w decyzji 10. -->
+w decyzji 10; decyzja 11 (domyślna nocna) rozstrzyga `BLOCKED` o kontrakcie typów Pi dla unii `tool_call`. -->
 
 # R-047 The coordinator never waits
 
@@ -171,3 +171,23 @@ inventory's questions in `evidence/inventories/R-047.md` → section 8):
     unchanged (`adrian-rebuild/tools/same-task.mjs:51-56`). `docs/setup.md` → Hooks is at `:183-189`. The grep criteria
     at `HEAD`: AC-6 and AC-8 exit 1, AC-7 exits 0 on the one line the ticket replaces (`templates/manual.md:113`). AC-9
     names the gate's `--out` form (D-130).
+11. 2026-11-27, the implementer's `BLOCKED` in protocol step 3 (night default, for Adrian to confirm in the morning; D-054
+    (2) (b): a technical choice inside Change 3, whose purpose T-32 (2) settles, a contract that fails on a mismatch).
+    The question: with `input` on `PiToolCallEvent`, the contract test "the contract passes the real types of Pi 1.5.1
+    in the vendor copy" fails (`contract.mts:42: … "tool_call.input checks nothing: it is any, never or not in Pi"`),
+    because Pi 1.5.1's `ToolCallEvent` is a union (`pi-coding-agent: dist/core/extensions/types.d.ts:962-1004`) whose
+    built-in members' `input` types come from `typebox`, which is not vendored, so under `skipLibCheck` they are `any`
+    and the union's `input` collapses to `any`; only `CustomToolCallEvent.input` is a real type (`Record<string,
+    unknown>`). The answer (the implementer's option 1): `test/runtime/pi-contract.ts` counts a field of a union
+    payload as checked when at least one member of Pi's union declares it with a type that checks something (neither
+    `any` nor `never`, itself or as its element type), and still names the field when every member's type is vacuous;
+    a non-union payload is checked as before, and a missing package still fails. `test/runtime/pi-contract.test.ts`
+    gets a fixture test: a union whose every member's field is `any` fails and names the field, and a union with one
+    member of a real type passes. `eventsFit` keeps assigning Pi's payloads to the adapter's events, so a change of the
+    custom member's `input` still fails the contract. Rejected: a named exception for `tool_call.input` (option 2: it
+    would stop checking silently if Pi made the custom member's `input` a typebox type too), and no `input` in the
+    adapter's type (option 3: the handler would read a field the adapter does not declare, against T-32 (1)). The
+    implementer's other choices so far are accepted: the adapter's guard `piBashCommand` (the handler reads `command`
+    only through the adapter, T-32 (1)), and the reason's lead, for `sleep 240`: "Refused `sleep 240`: the
+    coordinator's session runs no sleep of 30 s or more, or of a length Limen cannot read." before `WAKE_SENTENCE`
+    (Decision 5).

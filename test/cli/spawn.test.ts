@@ -1,6 +1,7 @@
 // `limen spawn`: the job it starts, each refusal with the snapshot unchanged, the context message it publishes, and
 // what the job's model gets (A-086), a reminder in a tool result included (A-041); a module role's job only with its
-// module on (G1.10); a review job that writes fails, and its model gets no edit or write tool (A-081).
+// module on (G1.10); a review job that writes fails, and its model gets no edit or write tool (A-081); a job's bash
+// sleep is not refused (T-34).
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -472,6 +473,20 @@ test("a review job's model view lists only Pi's read and bash tools and Limen's 
 		"mcp__custom-tools__bash",
 		"mcp__custom-tools__finish",
 	]);
+});
+
+// T-34 (1): the coordinator's guard against a long sleep is no job's: a job's sleep is a stall the wrapper watches
+// (seat steps 3.8 and 4.12 run `sleep 300` in trial jobs), and a job's hook set holds no wake hook (R-044).
+test("T-34: a spawned job's bash sleep 240 is not refused: its model gets the tool's own result", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const id = spawnJob(p, "tool sleep 240\nsay done");
+	assert.equal(waitJob(p, id), "done");
+	assert.deepEqual(engineViews(jobDir(p, id))[1]?.messages.at(-1), {
+		role: "tool",
+		text: ["(no output)"],
+		tools: ["mcp__custom-tools__bash"],
+	});
 });
 
 /** The reference of the worker's context message for a project as `limen init` leaves it, as the plant's is (A-051). */
