@@ -175,7 +175,10 @@ Q-91 → D-130 (`gate.mjs --out` zapisuje całe wyjście bramki), R-042 zamknię
 tam D-131: nocny runner po przebiegu zakończonym limitem subskrypcji czeka do minuty po resecie i nie zużywa
 ponowienia (`evidence/night-reset-wait/`, trzy rundy recenzji PASS); R-043 zamknięty (przypomnienia niosą tekst sekcji w wyniku
 narzędzia, wizja przy tickecie w `planned/`, nie po `limen spawn`; trzy rundy recenzji PASS); porażka testu wake
-w bramce dała D-133, znalezisko A-092 i nowy ticket R-112. -->
+w bramce dała D-133, znalezisko A-092 i nowy ticket R-112. Przekazanie do limen-rebuild-43: R-044 `active`
+(implementer, BLOCKED rozstrzygnięty według G1.10 w decyzji 17 ticketu); arkusz wariantów R-041 → D-134 (wszystkie
+rekomendacje: tag `limen-turn-cue`, krótka linia porażki, wizja joba do wiadomości kontekstowej, reguła języka
+w rejestrze właściciela, akapit ASD-STE100 do rejestru agenta, `templates/communication.md` wycięty). -->
 
 
 
@@ -1591,6 +1594,21 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   `night`, after R-043: the wake tests stop the hook before they remove its folder, with a reproduction that fails
   before the change. The main session carries it out (his consent in the same answer). Check: R-043 `ticket.md` →
   Decision 15; R-112's criteria; `audit.md` → A-092.
+- 2026-11-27 D-134 (Adrian: "rekomendacje"; Q-94–Q-99, R-041's variants sheet by D-054 (3), each option (a)): (1)
+  Q-94: the turn cue's tag pair and custom type are `limen-turn-cue`, the plan's term (T-18). (2) Q-95: the failure
+  line is `Last turn failed (<reason>).`, the fact alone; what to do after a failed turn stays in the owner register.
+  (3) Q-96: the job's vision line moves, as one line, into the job's context message; the board line goes, since
+  every job role's text already forbids board edits, and the keeper's sentence about the per-turn cue
+  (`templates/keeper.md:14`) goes with it. (4) Q-97: the owner register's first line becomes "Use the register the
+  audience line names, and answer in the language of the owner's last message. Switch to plain technical English only
+  for text another agent will execute or a file will keep (a ticket, a job task, a steer, a commit), because agents
+  read it and the records keep one language."; it names no `limen ask` (T-13 and T-15 differ on its fields' language;
+  R-068). (5) Q-98: the ASD-STE100 paragraph of `## Cue: Shared` moves unchanged under `## Agent` of the agent
+  register. (6) Q-99: `templates/communication.md` is cut; the audience lines and the failure line are constants in
+  `hook/communication.ts` beside the touch, ticket and board lines. Settled by the sources and not asked: the audience
+  lines' words (T-13), the cut of the Shared, Human, Agent and Wake sections (A-077, T-15 (1)), the frame anchor (A-043),
+  the touch, ticket and board-length lines, the tag pair (D-114 (3)). R-041 keeps the mode `pair`, its `Run` becomes
+  `night`, and `rebuild-implementer` implements it. Check: R-041's criteria and golden tests.
 
 ### Gate 2 §2, copied
 

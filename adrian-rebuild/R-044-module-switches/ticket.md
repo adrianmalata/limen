@@ -256,3 +256,22 @@ inventory's questions in `evidence/inventories/R-044.md` → section 8):
     `templates/reviewer.md:5`; the keeper's `Map:` line is `src/commands/keeper.ts:89`. Fact 6: `src/registry.ts:109-110`;
     `src/help.ts:56`, `:67`, `:156`. Item 9's docs places may have moved likewise (`docs/setup.md:60` holds the stub's
     "communication, wake, and steering"). AC-9–AC-13 exit 0 at `1933e49`, and every test file the criteria name exists.
+17. 2026-11-27, the implementer's `BLOCKED` (which project's switch the shared step reads for `github ensure [root]`,
+    `github deliver <root>`, `github review <root>`, `github work <root>` and `github resolve <root>`), settled by the
+    sources as the main session's reading, not asked (as R-043 Decision 12): option (a). The shared step reads the
+    switch of the project in the entry's `root` positional when the entry declares one and it is given, otherwise the
+    project at the cwd; the registry's schema (the `ROOT` positional) decides, not a name test. G1.10 puts the switch in
+    a project file, so it is the switch of the project the command acts on; Decision 5 already serves `github poll` per
+    project; the poller starts these commands from `/` (`src/integrations/github-poller.ts:664`, `:679`) and the manual
+    tells the coordinator to name the registered root (`templates/manual.md:40`), so item 4's "the project at the cwd"
+    would refuse every handoff with the switch on. Item 4 reads accordingly.
+18. 2026-11-27, the implementer's open points with that `BLOCKED`, accepted as the main session's reading (for Adrian at
+    gate 5.4): (1) outside every project a module command refuses `MODULE_OFF`, as the Risk says of `limen workspace
+    init`; the root lookup that starts git lives in `src/project/git.ts`, so `src/project/modules.ts` starts no process;
+    (2) the `workspace` help summary becomes "a folder outside Git with several Git repositories; each job works in one
+    (--repo)", so its line with `[off] ` keeps T-10's 100 columns; (3) the hook factories read a coordinator's switch from
+    the project at `process.cwd()` and a job's group membership from `LIMEN_GROUP_ID` (`src/config.ts:66`), the wrapper
+    from `jobMembership`, and all call the one function of item 5; (4) the migration's module lines follow the report's
+    first line, so its counts line stays last; (5) the module parts' labels are "GitHub module", "Group module",
+    "Picture module", "Workspace module", "Research module" and "Quality module", and `github poll`, which skips a
+    project and never throws `MODULE_OFF`, does not declare it.
