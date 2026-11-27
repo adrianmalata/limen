@@ -2,16 +2,17 @@ import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { transport } from "../src/config.ts";
 import { noteStart, recordNote } from "../src/job/task-note.ts";
-import { formatDrift, inheritFile, listDrift, packageRoot, readOptional } from "../src/project/inherit.ts";
+import { packageRoot, readOptional } from "../src/project/inherit.ts";
 import { ticketPointers } from "../src/project/planning.ts";
 import {
 	CONTEXT_FILE,
+	CUE_FILE,
 	capabilitySection,
 	contextMessage,
 	MAX_CONTEXT_LINES,
 	markdownSection,
-	PACKAGED_REGISTER,
-	REGISTER_FILE,
+	packageText,
+	SPECS_REGISTER,
 	STYLE_FILE,
 	trimmedLines,
 	VISION_FILE,
@@ -54,11 +55,12 @@ type LineRange = readonly [number, number];
 type Recall = { readonly read: Map<ReminderKind, LineRange[]>; readonly named: Set<string> };
 
 const REMINDER_KINDS = ["style", "vision", "specs"] as const;
-// Each reminder asks for one project file; `pattern` also finds that file, or the packaged register, in a read.
+// The style and vision reminders ask for a project file, the specs reminder for the package's specs register, which no
+// project file replaces (A-039); `pattern` finds that file in a read.
 const GUIDANCE: Readonly<Record<ReminderKind, { readonly file: string; readonly pattern: RegExp }>> = {
 	style: { file: STYLE_FILE, pattern: /\.agents\/limen\/styleguide\.md\b/ },
 	vision: { file: VISION_FILE, pattern: /\bspec\/vision\.md\b/ },
-	specs: { file: REGISTER_FILE, pattern: /(?:\.agents\/limen|\btemplates)\/communication\.md\b/ },
+	specs: { file: SPECS_REGISTER, pattern: /\btemplates\/registers\/specs\.md\b/ },
 };
 
 /**
@@ -248,16 +250,12 @@ function turnCue(
 	lastTouch: string | undefined,
 	failed: string | undefined,
 ): string {
-	const lines = [
-		capabilitySection("Cue"),
-		registerCue(cwd, "Shared"),
-		registerCue(cwd, job ? "Agent" : "Human"),
-	].filter(Boolean);
+	const lines = [capabilitySection("Cue"), registerCue("Shared"), registerCue(job ? "Agent" : "Human")].filter(Boolean);
 	if (failed) {
-		lines.push(registerCue(cwd, "Failure").replaceAll("{{failure}}", failed));
+		lines.push(registerCue("Failure").replaceAll("{{failure}}", failed));
 	}
 	if (wake) {
-		lines.push(registerCue(cwd, "Wake"));
+		lines.push(registerCue("Wake"));
 	}
 	if (job) {
 		const ticket = jobTicket(cwd);
@@ -275,10 +273,6 @@ function turnCue(
 		lines.push(lastTouch);
 	}
 	if (!job) {
-		const drift = formatDrift(listDrift(cwd));
-		if (drift) {
-			lines.push(drift);
-		}
 		const board = boardAdvisory(cwd);
 		if (board) {
 			lines.push(board);
@@ -287,14 +281,10 @@ function turnCue(
 	return ["<limen-project-context>", ...lines, "</limen-project-context>"].join("\n\n");
 }
 
-/** Cue sections belong to the selected register; absent sections have no package fallback. */
-function registerCue(cwd: string, heading: string): string {
-	const inherited = inheritFile(cwd, REGISTER_FILE, PACKAGED_REGISTER);
-	if (!inherited) {
-		return "";
-	}
+/** A cue section of the package's cue file, which no project file replaces (A-039); a section it lacks adds no line. */
+function registerCue(heading: string): string {
 	const section = markdownSection(
-		trimmedLines(inherited.text).slice(0, MAX_CONTEXT_LINES).join("\n"),
+		trimmedLines(packageText(CUE_FILE)).slice(0, MAX_CONTEXT_LINES).join("\n"),
 		`Cue: ${heading}`,
 	);
 	return section.split("\n").slice(1).join("\n").trim();
@@ -451,17 +441,20 @@ function projectPath(cwd: string, path: string): string {
 	return file.startsWith("../") || isAbsolute(file) ? "" : file;
 }
 
-/** The copy in the agent's worktree wins, shown by its short path; the register falls back to the package. */
+/**
+ * The specs register is read from the package only (A-038); for a project file the copy in the agent's worktree wins
+ * over the root's. Each is shown by its short path when it lies in the project.
+ */
 function guidance(
 	kind: ReminderKind,
 	root: string,
 	cwd: string,
 ): { readonly shown: string; readonly sections: readonly Section[] } | undefined {
-	const paths = [join(cwd, GUIDANCE[kind].file), join(root, GUIDANCE[kind].file)];
 	if (kind === "specs") {
-		paths.push(join(packageRoot(), PACKAGED_REGISTER));
+		const path = join(packageRoot(), SPECS_REGISTER);
+		return { shown: projectPath(cwd, path) || path, sections: markdownSections(packageText(SPECS_REGISTER)) };
 	}
-	for (const path of paths) {
+	for (const path of [join(cwd, GUIDANCE[kind].file), join(root, GUIDANCE[kind].file)]) {
 		const text = readOptional(path);
 		if (text !== undefined) {
 			return { shown: projectPath(cwd, path) || path, sections: markdownSections(text) };

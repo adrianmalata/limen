@@ -13,8 +13,8 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, normalize } from "node:path";
 import { after, test } from "node:test";
-import { packageRoot, TRACKED } from "../../src/project/inherit.ts";
-import { dropLeftovers, LEFTOVERS, type Leftover, listLeftovers } from "../../src/project/leftovers.ts";
+import { packageRoot } from "../../src/project/inherit.ts";
+import { dropLeftovers, LEFTOVERS, type Leftover, listLeftovers, PROJECT_FILES } from "../../src/project/leftovers.ts";
 
 const roots: string[] = [];
 after(() => {
@@ -56,15 +56,15 @@ function insideProject(path: string, marker?: string): boolean {
 }
 
 /**
- * Each pair where a registry path equals, lies under or holds another registry path or a tracked template copy. Such a
- * pair does two kinds of harm. First, an entry that holds a tracked path deletes a changed copy of a template, which
- * the drop must keep (R-001, Change item 3), and it does so silently, because no listed line names that copy. Second,
- * the list names one file twice, and the drop fails on its second removal.
+ * Each pair where a registry path equals, lies under or holds another registry path or a project context or owner
+ * file. Such a pair does two kinds of harm. First, an entry that holds a project file deletes a file the project
+ * needs, which the drop must keep (R-001, Change item 3), and it does so silently, because no listed line names that
+ * file. Second, the list names one file twice, and the drop fails on its second removal.
  */
-function overlaps(registry: readonly string[], tracked: readonly string[]): string[] {
+function overlaps(registry: readonly string[], kept: readonly string[]): string[] {
 	const found: string[] = [];
 	for (const [index, path] of registry.entries()) {
-		for (const other of [...registry.slice(index + 1), ...tracked]) {
+		for (const other of [...registry.slice(index + 1), ...kept]) {
 			if (path === other || other.startsWith(`${path}/`) || path.startsWith(`${other}/`)) {
 				found.push(`${path} overlaps ${other}`);
 			}
@@ -73,7 +73,15 @@ function overlaps(registry: readonly string[], tracked: readonly string[]): stri
 	return found;
 }
 
-const TRACKED_PATHS = TRACKED.map(([path]) => path);
+/** The roles of the package and the two a cut removed, whose project copies no code reads since R-040. */
+const ROLES = ["coordinator", "group-member", "judge", "keeper", "quality", "researcher", "reviewer", "worker"];
+const REMOVED_ROLES = ["picture", "scout"];
+/** The project copies of Limen's texts that R-040 leaves unread: the register and a file per role. */
+const ROLE_TEXTS = [
+	".agents/limen/communication.md",
+	...[...ROLES, ...REMOVED_ROLES].map((role) => `.agents/limen/${role}.md`),
+];
+const ROLE_TEXTS_FEATURE = "role texts from the package (R-040)";
 
 const FILE = { path: "cut-file.json", feature: "a cut file" };
 const DIRECTORY = { path: "cut-dir", feature: "a cut directory" };
@@ -90,13 +98,43 @@ test("listLeftovers lists registry entries present as a file, a directory or a s
 	assert.deepEqual(listLeftovers(root, [DIRECTORY, FILE, LINK, MISSING]), [DIRECTORY, FILE, LINK]);
 });
 
-test("listLeftovers lists a project copy identical to its packaged template and skips a changed one", () => {
+test("listLeftovers lists an AGENTS.md identical to the package's coordinator manual", () => {
 	const root = project();
-	write(root, "AGENTS.md", packaged("templates/agents.md"));
-	write(root, ".agents/limen/worker.md", `${packaged("templates/worker.md")}\nA project rule.\n`);
+	write(root, "AGENTS.md", packaged("templates/manual.md"));
 	assert.deepEqual(listLeftovers(root, []), [
-		{ path: "AGENTS.md", feature: "identical copy of the package's templates/agents.md" },
+		{ path: "AGENTS.md", feature: "identical copy of the package's templates/manual.md" },
 	]);
+});
+
+// A-042: a changed AGENTS.md is the project's own context, which reaches every role beside Limen's text.
+test("listLeftovers never lists a changed AGENTS.md", () => {
+	const root = project();
+	write(root, "AGENTS.md", `${packaged("templates/manual.md")}\nA project rule.\n`);
+	assert.deepEqual(listLeftovers(root), []);
+});
+
+// A-039, A-042: every Limen text comes from the package, so the project's register and role files are read by nothing.
+test("listLeftovers lists .agents/limen/communication.md and every role's .agents/limen/<role>.md, each changed, as leftovers of role texts from the package", () => {
+	const root = project();
+	for (const path of ROLE_TEXTS) {
+		write(root, path, "# The project's own text\n");
+	}
+	assert.deepEqual(
+		listLeftovers(root),
+		ROLE_TEXTS.toSorted().map((path) => ({ path, feature: ROLE_TEXTS_FEATURE })),
+	);
+});
+
+test("dropLeftovers removes the project's register and role files and keeps its styleguide", () => {
+	const root = project();
+	for (const path of [...ROLE_TEXTS, ".agents/limen/styleguide.md"]) {
+		write(root, path, "# The project's own text\n");
+	}
+	dropLeftovers(root);
+	assert.deepEqual(
+		[ROLE_TEXTS.filter((path) => existsSync(join(root, path))), existsSync(join(root, ".agents/limen/styleguide.md"))],
+		[[], true],
+	);
 });
 
 test("listLeftovers sorts registry entries and template copies together by path", () => {
@@ -105,7 +143,7 @@ test("listLeftovers sorts registry entries and template copies together by path"
 	const early = { path: ".cut-early", feature: "an early cut" };
 	write(root, late.path, "late\n");
 	write(root, early.path, "early\n");
-	write(root, "AGENTS.md", packaged("templates/agents.md"));
+	write(root, "AGENTS.md", packaged("templates/manual.md"));
 	assert.deepEqual(
 		listLeftovers(root, [late, early]).map((entry) => entry.path),
 		[".cut-early", "AGENTS.md", "zz-cut"],
@@ -192,11 +230,11 @@ test("every LEFTOVERS entry has a normalised relative path inside the project, o
 	}
 });
 
-test("LEFTOVERS entries overlap neither each other nor a tracked template copy", () => {
+test("LEFTOVERS entries overlap neither each other nor a project context or owner file", () => {
 	assert.deepEqual(
 		overlaps(
 			LEFTOVERS.map((entry) => entry.path),
-			TRACKED_PATHS,
+			PROJECT_FILES,
 		),
 		[],
 	);
@@ -249,7 +287,7 @@ test("the registry path rule accepts a path under .git/ only as .git/hooks/<name
 	);
 });
 
-test("the overlap rule flags an equal path, a path under another entry or a tracked copy, and a path that holds one", () => {
+test("the overlap rule flags an equal path, a path under another entry or a project file, and a path that holds one", () => {
 	const bad: Array<readonly string[]> = [
 		["cut", "cut"],
 		["cut", "cut/inner.json"],
@@ -260,12 +298,12 @@ test("the overlap rule flags an equal path, a path under another entry or a trac
 		[".agents/limen"],
 	];
 	assert.deepEqual(
-		bad.filter((registry) => overlaps(registry, TRACKED_PATHS).length === 0),
+		bad.filter((registry) => overlaps(registry, PROJECT_FILES).length === 0),
 		[],
 	);
 	const good: Array<readonly string[]> = [["cut", "cut-other"], ["AGENTS.md.old"], [".agents/limen/cut.json"]];
 	assert.deepEqual(
-		good.filter((registry) => overlaps(registry, TRACKED_PATHS).length > 0),
+		good.filter((registry) => overlaps(registry, PROJECT_FILES).length > 0),
 		[],
 	);
 });

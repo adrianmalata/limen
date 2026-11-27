@@ -4,7 +4,8 @@ koordynatora i keepera), plik projektu nie zastępuje już rejestru, instrukcji 
 dryfie i `templates/.history/` znikają, a `templates/agents.md` zmienia nazwę na `templates/manual.md`. Plik `AGENTS.md`
 projektu trafia do wiadomości kontekstowej joba tylko przy jednej fladze izolacji mostu, wyłączonej do R-048; stare
 kopie w projektach stają się pozostałościami R-001. Stan: napisany 26.11 przy `e26fac2` z inwentarza
-`evidence/inventories/R-040.md`; `ready` za R-039. -->
+`evidence/inventories/R-040.md`; sprawdzony w nocy 26/27.11 przy `c3290a0` (AC-10, AC-13 i AC-14 dopasowane do zakresu,
+domyślna nocna decyzja 12); poprawki recenzji F1–F3 i G1 w decyzjach 13 i 14; `done`. -->
 
 # R-040 Role texts come from the package, in three registers
 
@@ -155,13 +156,14 @@ Files the criteria name that this ticket or R-039 creates: `src/runtime/context-
 - AC-8: `git grep -q 'inheritFile' -- src/project/inherit.ts hook/communication.ts src/runtime/context-message.ts` →
   exit 1.
 - AC-9: `git grep -q 'spawnSync' -- src/project/inherit.ts` → exit 1.
-- AC-10: `git grep -q 'agents/limen/communication' -- hook templates` → exit 1.
+- AC-10: `git grep -q 'agents/limen/communication' -- hook templates src/runtime/context-message.ts` → exit 1.
 - AC-11: `git grep -q 'agents/limen/' -- src/job/spawning.ts src/registry.ts src/old-names.ts` → exit 1.
 - AC-12: `git grep -q 'templates/\.history' -- src test` → exit 1; `git grep -q 'LIMEN_WRITE_HISTORY' --
   test/structure.test.ts CONTRIBUTING.md` → exit 1.
-- AC-13: `git grep -q 'Keep this file at or below\|The hook selects' -- templates` → exit 1.
+- AC-13: `git grep -q 'Keep this file at or below\|The hook selects' -- templates/communication.md
+  templates/registers/owner.md templates/registers/agent.md templates/registers/specs.md` → exit 1.
 - AC-14: `git grep -q 'replaces that default\|at the same path replaces\|unless they overlay\|Overlays\|differs from the
-  package' -- templates docs/setup.md docs/commands.md CONTRIBUTING.md` → exit 1.
+  package' -- templates/manual.md templates/communication.md docs/setup.md docs/commands.md CONTRIBUTING.md` → exit 1.
 - AC-15: `node adrian-rebuild/tools/fails-before.mjs test/runtime/context-message.test.ts test/hook/communication.test.ts
   test/project/leftovers.test.ts test/cli/status.test.ts test/cli/init.test.ts test/cli/old-names.test.ts
   test/job/spawning.test.ts test/s4-steering.test.ts` → exit 0, its output in `outcome.md` → `## Fails before`.
@@ -213,3 +215,40 @@ inventory's questions in `evidence/inventories/R-040.md` → section 7):
    is then met by the code, not by building the path from parts; reported to Adrian on 2026-11-26 with Q-80–Q-84, for
    gate 5.4.
 10. One ticket (Q10): the three parts change the same builder and the same reference files.
+
+Checked at `c3290a0` (2026-11-26, night run 1, protocol step 2, after R-039):
+11. The places of the facts after R-039: the manual's override by a project `AGENTS.md` is
+    `src/runtime/context-message.ts:96` (`MANUAL_FILE` `:21`), the register's `inheritFile` is
+    `src/runtime/context-message.ts:113` (`REGISTER_FILE` `:17`) and `hook/communication.ts:292` (the cue), the cue's
+    drift block `hook/communication.ts:278`; R-039 heads a job's role text `## Role (<path>)`, the path a project's
+    `.agents/limen/<role>.md` or `limen/templates/<role>.md` (R-039 `outcome.md` → Deviations 2), which item 5 leaves to
+    the package's path only. AC-6 matches `src/project/inherit.ts:18` (`TRACKED`, item 6) and
+    `src/runtime/context-message.ts:21` (`MANUAL_FILE`, item 3's rename), both removed by this ticket (D-025).
+12. Night default, for Adrian to confirm in the morning (D-054 (2) (a)): at `HEAD` AC-13's pathspec `templates` also
+    matched `templates/spec/vision.md:3` and `templates/styleguide.md:3` ("Keep this file at or below", the project
+    templates' own notes, which A-038 does not name), and AC-14's `templates` matched `templates/picture/CONTRACT.md:44`
+    ("Overlays never become blocks or edges", the Picture contract), none of which `## Change` touches; both criteria are
+    narrowed to the files this ticket changes or creates (`templates/communication.md`, the three register files,
+    `templates/manual.md`). AC-10 gains `src/runtime/context-message.ts`, where R-039 moved the register's path
+    (`REGISTER_FILE`), so the criterion still covers item 2.
+
+Review round 1 (2026-11-27, night run 4; `review.md` → Round 1): PASS with six notes. To fix, by a fresh implementer
+(D-026), then the gate and round 2:
+13. F1: the comment on `PROJECT_FILES` (`src/project/leftovers.ts:14-16`) says what the list is, item 7's project
+    context and owner files that no entry may equal, hold or lie under, and no longer claims they are every project
+    file Limen still reads (it also reads `.agents/limen/reminders.md` and `spec/build.md`; T-30 (1)).
+    F2: `docs/commands.md:190` names the role copies the list holds as item 7 does, `.agents/limen/<role>.md` of each
+    package role and of the cut roles `picture` and `scout`, instead of every `.agents/limen/<role>.md`.
+    F3: the doc comment on `guidance()` (`hook/communication.ts:444-447`) gives the local reason with a pointer (the
+    specs register is read from the package only, A-038; for a project file the worktree's copy wins over the root's)
+    without the circular clause "which every message that holds it holds too" (T-30 (1)).
+    Without change, with the reasons in `review.md`: notes 1 (a guard of item 7's boundary that HEAD already keeps), 5
+    (exit 5 for a missing package text, a night default for Adrian) and 6 (the manual's title line, R-046's wording).
+
+Review round 2 (2026-11-27, night run 4; `review.md` → Round 2): PASS with two notes. The last round of fixes, by a
+fresh implementer (D-026), then the gate and round 3, whose notes go to the open points (D-092):
+14. G1: the claim that `PROJECT_FILES` are files "Limen still reads", which F1 removed from its comment, leaves the
+    rest of `src/project/leftovers.ts` (`:51`) and `test/project/leftovers.test.ts` (the test name at `:233` and the
+    words at `:58-59`): each says a project context or owner file instead (no Limen code reads `CLAUDE.md`; T-30 (1)),
+    and `outcome.md` → Open points 4 goes. Note 2 (no gate record after F1–F3) is closed by the main session in
+    `outcome.md` → `## Proof` (D-053 (2)).

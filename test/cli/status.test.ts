@@ -27,15 +27,15 @@ import {
 } from "../plant.ts";
 import { snapshot } from "../snapshot.ts";
 
-const AGENTS_TEMPLATE = fileURLToPath(new URL("../../templates/agents.md", import.meta.url));
+const MANUAL_TEMPLATE = fileURLToPath(new URL("../../templates/manual.md", import.meta.url));
 const STUB_TEMPLATE = fileURLToPath(new URL("../../templates/limen-extension.ts", import.meta.url));
 const ALERTS_TOOL = fileURLToPath(new URL("../../seat/alerts.ts", import.meta.url));
 const HEADER = "Leftover files (1); check them, then run limen init --drop-leftovers:";
 
-test("limen status lists an AGENTS.md identical to the package's template as a leftover file before Older", async (t) => {
+test("limen status lists an AGENTS.md identical to the package's coordinator manual as a leftover file before Older", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
-	copyFileSync(AGENTS_TEMPLATE, join(p.root, "AGENTS.md"));
+	copyFileSync(MANUAL_TEMPLATE, join(p.root, "AGENTS.md"));
 	const run = limen(p, ["status"]);
 	assert.equal(run.status, 0, run.stderr);
 	const lines = run.stdout.split("\n");
@@ -43,8 +43,24 @@ test("limen status lists an AGENTS.md identical to the package's template as a l
 	const at = lines.indexOf(HEADER);
 	assert.deepEqual(lines.slice(at, at + 3), [
 		HEADER,
-		"  AGENTS.md (identical copy of the package's templates/agents.md)",
+		"  AGENTS.md (identical copy of the package's templates/manual.md)",
 		"Older: 0 records (limen status --all)",
+	]);
+});
+
+// A-039: the register comes from the package alone, so a project's own copy, changed or not, is read by nothing.
+test("limen status lists a changed .agents/limen/communication.md as a leftover of role texts from the package", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	writeFileSync(join(p.root, ".agents/limen/communication.md"), "# Communication\n\nThe project's own register.\n");
+	const run = limen(p, ["status"]);
+	assert.equal(run.status, 0, run.stderr);
+	const lines = run.stdout.split("\n");
+	assert.ok(lines.includes(HEADER), run.stdout);
+	const at = lines.indexOf(HEADER);
+	assert.deepEqual(lines.slice(at, at + 2), [
+		HEADER,
+		"  .agents/limen/communication.md (role texts from the package (R-040))",
 	]);
 });
 

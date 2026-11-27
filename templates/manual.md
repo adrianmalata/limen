@@ -1,6 +1,6 @@
 # Agent shop manual
 
-This repository uses plain specifications, Git, and `limen` to coordinate one human with several coding sessions. Shop-manual, role, and speech defaults live in the installed `limen` package; a project file at the same path replaces that default.
+This repository uses plain specifications, Git, and `limen` to coordinate one human with several coding sessions. This manual, the role prompts and the speech registers come from the installed `limen` package; no project file replaces them.
 
 ## Coordinator
 
@@ -44,7 +44,7 @@ The seat poller wakes this registered Herdr coordinator for an authorized commen
 
 - `spec/vision.md` explains durable intent. It is human-owned: propose a change and ask before rewriting it. Keep compact, decision-useful bullets under **Product principles** and **Current direction**. The coordinator gets it in its context message, once per session; a worker is pointed at the file.
 - `.agents/limen/styleguide.md` defines concise, durable coding practice. Keep it compact and bullet-led; read it before writing or modifying specifications and keep it in context while modifying files. It governs how code is written and organized here, never product scope or speech.
-- Speech registers live in the installed Limen package. A project file at `.agents/limen/communication.md` replaces that default for this repository only.
+- Speech registers live in the installed Limen package, and no project file replaces them.
 - `spec/build.md` is the board. TRACK, NEXT, PARKED and DROPPED are coordinator prose: keep them true in the change that moves feature state. NOW and PROVEN are generated from the lanes by `limen land`, `limen ticket done` and `limen board --write`; never edit them by hand. `limen board` prints the board with each active ticket's running or last job. Status marks are 🟠 ACTIVE, 🔴 PLANNED, 🟢 PROVEN, ⚪ DROPPED.
 - `spec/features/` is a numbered filing cabinet:
   - `planned/FNNN-slug/` — accepted backlog
@@ -77,7 +77,7 @@ Herdr is the visible layout when it is running. Job records under `.limen/jobs/`
 
 **`--label` is the tab title. Always pass it.** Say what a person will see change when this lands, in plain words, about forty characters; the feature number goes last, not first. A repair, a resume, or a review names its round so sibling tabs differ. That string is the Herdr tab and the job-ID slug; the id hoists a `FNNN` number, however the words are ordered. Omit `--label` and the first 80 characters of the task become the tab — that is how unreadable rows appear. Good: `inline model setup in chat · F422`, `idle backstop repair 1 · F065`, `stop reason review 1 · F021`. Bad: the whole prompt, or a label that is only `F422`.
 
-**`--role <name>`** loads that preamble (`templates/<name>.md` or `.agents/limen/<name>.md`) and opens the space `<project> <name>s`. Default is worker. Those spaces are for jobs. The coordinator tab belongs in the plant's limen space, not in `workers`.
+**`--role <name>`** loads the package's preamble of that role (`templates/<name>.md`) and opens the space `<project> <name>s`. Default is worker. Those spaces are for jobs. The coordinator tab belongs in the plant's limen space, not in `workers`.
 
 **Engine and models.** The owner's newer instruction, then `spec/build.md`, picks the engine, provider, model, reasoning level, timeout, and review lane (see Policy precedence); examples in this manual are not overrides. Write `<board engine>`, `<board provider>`, `<board model>`, `<board reasoning>`, and `<board timeout>` from the board's choice for the role. Package fallbacks apply only where the board is silent: a detached job stops after 90 minutes (drop `--timeout`). `limen spawn` requires `--engine`, `--provider`, `--model` and `--thinking` and refuses without one of them; only `limen continue` without `--model` falls back, to `LIMEN_WORKER_MODEL`, then the built-in `openai-codex/gpt-6-astra:high`.
 

@@ -8,7 +8,7 @@ import { atomicWrite } from "../atomic-write.ts";
 import type { CommandText } from "../outcome.ts";
 import { checkRequirements } from "../platform/requirements.ts";
 import { hasCommit, isGitRepository, NO_COMMIT, repoRoot, workspaceRoot } from "./git.ts";
-import { formatDrift, listDrift, removeHookCopies } from "./inherit.ts";
+import { removeHookCopies } from "./inherit.ts";
 import { dropLeftovers, LEFTOVERS } from "./leftovers.ts";
 import { registerProject } from "./seat.ts";
 
@@ -93,10 +93,6 @@ async function initialize(root: string, repository: boolean, out: CommandText): 
 		await ensureIgnored(`${root}/.gitignore`);
 	}
 	out.line("ready .limen/jobs");
-	const drift = formatDrift(listDrift(root));
-	if (drift) {
-		out.line(drift);
-	}
 }
 async function ensureIgnored(path: string): Promise<void> {
 	const exists = await pathExists(path);

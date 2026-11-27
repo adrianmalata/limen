@@ -1,7 +1,7 @@
 // S4 · Steering and context injection. A running worker gets each steer once, in order, and an ended one refuses a
 // late steer; the model gets the project's guidance once, in the session's context message and never in the system
-// prompt, also after a second `limen init` over old hook copies; `limen continue` resumes the old session with the
-// parent's extensions or a replacement.
+// prompt, also after a second `limen init` over old hook copies, and the package's register, never the project's;
+// `limen continue` resumes the old session with the parent's extensions or a replacement.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -29,10 +29,13 @@ const PACKAGE = fileURLToPath(new URL("..", import.meta.url));
 const FLAGS = ["--engine", "pi", "--detached"];
 // One marker per project guidance source; the package capability frame and its cue are read from their own file.
 const STYLE = "style-marker-s4";
+// A project register, which every Limen text coming from the package leaves unread (A-039).
 const REGISTER = "register-marker-s4";
 const VISION = "vision-marker-s4";
 const BOARD = "board-body-marker-s4";
 const [, FRAME = "", CUE = ""] = readFileSync(`${PACKAGE}templates/capability.md`, "utf8").split(/\s*## \w+\s*|\s+$/);
+// A sentence of the package's agent register (`templates/registers/agent.md`, `## Shared`), which every role gets.
+const PACKAGED = "Write like a person. Plain words, specific claims, active voice, varied sentence length.";
 
 let p: Plant;
 let parent = "";
@@ -73,7 +76,7 @@ const extensions = (id: string) =>
 
 // A-086: under the bridge the system prompt reaches no model, so the guidance rides the context message; the board
 // digest is out of it until R-110 sends it after a change (A-037).
-test("a second init removes old hook copies, so a coordinator's model gets each guidance source once", async () => {
+test("a second init removes old hook copies, so a coordinator's model gets each guidance source once, the package's register and not the project's", async () => {
 	const init = limen(p, ["init"]);
 	assert.equal(init.status, 0, init.stderr);
 	// A coordinator Pi in the project loads every .ts in .pi/extensions; the stub then loads the package hooks.
@@ -93,9 +96,9 @@ test("a second init removes old hook copies, so a coordinator's model gets each 
 	child.once("exit", resolve);
 	assert.equal(await promise, 0);
 	assert.deepEqual(
-		[STYLE, REGISTER, VISION, BOARD, FRAME].map((marker) => count(firstView(coord), marker)),
-		[1, 1, 1, 0, 1],
-		"styleguide, register, vision, board, capability frame",
+		[STYLE, REGISTER, PACKAGED, VISION, BOARD, FRAME].map((marker) => count(firstView(coord), marker)),
+		[1, 0, 1, 1, 0, 1],
+		"styleguide, project register, package register, vision, board, capability frame",
 	);
 	assert.deepEqual(readdirSync(join(p.root, ".pi/extensions")), ["limen.ts"]);
 });
@@ -130,10 +133,10 @@ test("a running worker gets each steer once and in order; an ended one refuses a
 	assert.deepEqual(readdirSync(join(dir, "steer"), { recursive: true }).sort(), before);
 });
 
-test("a worker's first model call carries register, styleguide, frame and cue once, vision and board pointers, and no board body", () => {
+test("a worker's first model call carries the package's register, styleguide, frame and cue once, vision and board pointers, and no board body", () => {
 	const viewed = firstView(jobDir(p, parent));
-	const seen = [STYLE, REGISTER, FRAME, CUE].map((marker) => count(viewed, marker));
-	assert.deepEqual(seen, [1, 1, 1, 1], "styleguide, register, capability frame and cue");
+	const seen = [STYLE, REGISTER, PACKAGED, FRAME, CUE].map((marker) => count(viewed, marker));
+	assert.deepEqual(seen, [1, 0, 1, 1, 1], "styleguide, project register, package register, capability frame and cue");
 	assert.ok(viewed.includes("`spec/vision.md`"), "vision pointer");
 	assert.ok(viewed.includes("`spec/build.md`"), "board pointer");
 	const absent = [VISION, BOARD].map((marker) => count(viewed, marker));

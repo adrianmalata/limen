@@ -1,13 +1,11 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, posix, relative } from "node:path";
 import test, { type TestContext } from "node:test";
 import ts from "typescript";
 import { throughRunner } from "../src/operation.ts";
-import { templateHistoryText } from "../src/project/inherit.ts";
 import { REGISTRY } from "../src/registry.ts";
 import { importsOf } from "./imports.ts";
 import { knownFiles, knownFilesBelow } from "./known-files.ts";
@@ -1675,19 +1673,4 @@ test("R-101: no file of src/ names LIMEN_SETUP_KEEP, the setup prune's knob", as
 		named.map(({ path }) => path),
 		[],
 	);
-});
-
-// Each shipped templates/.history/<name> starts with the hash of the current templates/<name>.
-test("shipped template history starts at the current template", async () => {
-	for (const name of await readdir(join(root, "templates/.history"))) {
-		const path = join(root, "templates/.history", name);
-		if (process.env.LIMEN_WRITE_HISTORY === "1") {
-			await writeFile(path, templateHistoryText(`templates/${name}`));
-		}
-		const hash = createHash("sha256")
-			.update(await readFile(join(root, "templates", name)))
-			.digest("hex");
-		const head = (await readFile(path, "utf8")).split(" ")[0];
-		assert.equal(head, hash, `regenerate ${path}: LIMEN_WRITE_HISTORY=1 node --test test/structure.test.ts`);
-	}
 });

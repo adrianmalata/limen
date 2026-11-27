@@ -13,6 +13,7 @@ import { OLD_ENGINES, OLD_FLAGS, OLD_NAMES, OLD_ROLES } from "../../src/old-name
 import { LimenError } from "../../src/outcome.ts";
 import { checkNext, outputText, readOutcome } from "../final-line.ts";
 import {
+	editRecord,
 	engineEvents,
 	jobDir,
 	jobRecord,
@@ -290,13 +291,14 @@ test("resolvePreamble throws the removal line of the role picture in a project w
 	assert.throws(() => resolvePreamble(root, "picture"), { message: R007_REFUSALS["role picture"] });
 });
 
-test("resolvePreamble returns the project's own .agents/limen/picture.md, so a project keeps a role of that name", async (t) => {
+// A-042: role prompts always come from the package, so a project file of a removed role's name brings it back no more.
+test("resolvePreamble throws the removal line of the role picture although the project holds .agents/limen/picture.md", async (t) => {
 	const { resolvePreamble } = await import("../../src/job/spawning.ts");
 	const root = mkdtempSync(join(tmpdir(), "limen-role-"));
 	t.after(() => rmSync(root, { recursive: true, force: true }));
 	mkdirSync(join(root, ".agents/limen"), { recursive: true });
 	writeFileSync(join(root, ".agents/limen/picture.md"), "# The project's own picture role\n");
-	assert.equal(resolvePreamble(root, "picture"), `${root}/.agents/limen/picture.md`);
+	assert.throws(() => resolvePreamble(root, "picture"), { message: R007_REFUSALS["role picture"] });
 });
 
 test("spawn --role picture refuses with the removal line and leaves no job, worktree or branch", async (t) => {
@@ -308,16 +310,13 @@ test("spawn --role picture refuses with the removal line and leaves no job, work
 	assert.deepEqual(snapshot(p.root), before);
 });
 
-test("continue refuses a job of the role picture once the project's own role file is gone, and leaves .limen/ unchanged", async (t) => {
+test("continue refuses a job whose record names the role picture, and leaves .limen/ unchanged", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
-	// A job started under the project's own role file, as a picture job started before the cut ran on the template.
-	const role = join(p.root, ".agents/limen/picture.md");
-	mkdirSync(dirname(role), { recursive: true });
-	writeFileSync(role, "# The project's own picture role\n");
-	const parent = spawnJob(p, "commit", ["--role", "picture"]);
+	// No spawn starts a picture job any more, so a job recorded before the cut is planted: a finished one, renamed.
+	const parent = spawnJob(p, "commit");
 	await settled(p, parent);
-	rmSync(role);
+	await editRecord(jobDir(p, parent), () => ({ role: "picture" }));
 	const before = snapshot(p.root);
 	const run = limen(p, ["continue", parent, "x"]);
 	assert.deepEqual([run.status !== 0, outputText(run)], [true, `${R007_REFUSALS["role picture"]}\n`]);
@@ -331,13 +330,14 @@ test("resolvePreamble throws the removal line of the role scout in a project wit
 	assert.throws(() => resolvePreamble(root, "scout"), { message: SCOUT_REFUSAL });
 });
 
-test("resolvePreamble returns the project's own .agents/limen/scout.md, so a project keeps a role of that name", async (t) => {
+// A-042: role prompts always come from the package, so a project file of a removed role's name brings it back no more.
+test("resolvePreamble throws the removal line of the role scout although the project holds .agents/limen/scout.md", async (t) => {
 	const { resolvePreamble } = await import("../../src/job/spawning.ts");
 	const root = mkdtempSync(join(tmpdir(), "limen-role-"));
 	t.after(() => rmSync(root, { recursive: true, force: true }));
 	mkdirSync(join(root, ".agents/limen"), { recursive: true });
 	writeFileSync(join(root, ".agents/limen/scout.md"), "# The project's own scout role\n");
-	assert.equal(resolvePreamble(root, "scout"), `${root}/.agents/limen/scout.md`);
+	assert.throws(() => resolvePreamble(root, "scout"), { message: SCOUT_REFUSAL });
 });
 
 test("spawn --role scout refuses with the removal line and leaves no job, worktree or branch", async (t) => {
@@ -349,16 +349,13 @@ test("spawn --role scout refuses with the removal line and leaves no job, worktr
 	assert.deepEqual(snapshot(p.root), before);
 });
 
-test("continue refuses a job of the role scout once the project's own role file is gone, and leaves .limen/ unchanged", async (t) => {
+test("continue refuses a job whose record names the role scout, and leaves .limen/ unchanged", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
-	// A job started under the project's own role file, as a scout job started before the cut ran on the template.
-	const role = join(p.root, ".agents/limen/scout.md");
-	mkdirSync(dirname(role), { recursive: true });
-	writeFileSync(role, "# The project's own scout role\n");
-	const parent = spawnJob(p, "commit", ["--role", "scout"]);
+	// No spawn starts a scout job any more, so a job recorded before the cut is planted: a finished one, renamed.
+	const parent = spawnJob(p, "commit");
 	await settled(p, parent);
-	rmSync(role);
+	await editRecord(jobDir(p, parent), () => ({ role: "scout" }));
 	const before = snapshot(p.root);
 	const run = limen(p, ["continue", parent, "x"]);
 	assert.deepEqual([run.status !== 0, outputText(run)], [true, `${SCOUT_REFUSAL}\n`]);

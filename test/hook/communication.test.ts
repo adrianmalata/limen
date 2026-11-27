@@ -1,19 +1,21 @@
 // The communication hook: the context message it sends at a session's start and after a compaction, which bytes it
 // holds, the options of each send (D-114 (1), E-13), a compaction's payload of the wrong shape refused (T-32 (4)), no
-// system prompt from any handler (A-086), and a session's start built from declarations only: a `jg` on PATH changes
-// nothing (T-36).
+// system prompt from any handler (A-086), a session's start built from declarations only: a `jg` on PATH changes
+// nothing (T-36), and a turn cue and a specs reminder from the package's files alone, with no drift block (A-039, A-042).
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
+import { fileURLToPath } from "node:url";
 import limenCommunication from "../../hook/communication.ts";
 import { LimenError } from "../../src/outcome.ts";
-import { contextMessage } from "../../src/runtime/context-message.ts";
+import { contextMessage, markdownSection } from "../../src/runtime/context-message.ts";
 import { inTemporaryProject } from "../environment.ts";
 
 const JOB_ID = "2026-11-19-context-tools-1a2b3c4d";
+const PACKAGE = fileURLToPath(new URL("../..", import.meta.url));
 
 type Env = Readonly<Record<string, string | undefined>>;
 
@@ -314,6 +316,70 @@ test("T-36: a coordinator session starts with the same context with and without 
 test("T-36: a job session starts with the same context with and without a jg on PATH, and the hook never runs it", async (t) => {
 	const { plain, withJg, ran } = await startWithAndWithoutJg(t, true);
 	assert.deepEqual([withJg, ran], [plain, false]);
+});
+
+/** The text of the turn cue in a `before_agent_start` result; "" for a result without one. */
+function cueText(start: unknown): string {
+	const message = typeof start === "object" && start !== null ? Reflect.get(start, "message") : undefined;
+	const content = typeof message === "object" && message !== null ? Reflect.get(message, "content") : undefined;
+	return typeof content === "string" ? content : "";
+}
+
+/** A project register of the kind R-040 stops reading, with its own Specs and cue sections. */
+const PROJECT_REGISTER = [
+	"# Communication",
+	"",
+	"## Specs",
+	"",
+	"project-specs-marker",
+	"",
+	"## Cue: Shared",
+	"",
+	"project-cue-marker",
+	"",
+].join("\n");
+
+// A-042: drift tracking is cut, so a project's copy of a Limen text adds no advisory to any turn.
+test("a coordinator's turn cue holds no Guidance drift block when the project holds a changed register", async (t) => {
+	const { project, home } = await fixture(t);
+	await mkdir(join(project, ".agents/limen"), { recursive: true });
+	await writeFile(join(project, ".agents/limen/communication.md"), PROJECT_REGISTER);
+	environment(t, coordinatorSession(home));
+	const cue = cueText(sessionStart(project));
+	assert.deepEqual([cue.includes("<limen-project-context>"), cue.includes("Guidance drift")], [true, false]);
+});
+
+// A-039: the cue's register lines come from the package, which no project file replaces.
+test("A-039: the turn cue holds the package's shared cue and not the one of a register the project holds", async (t) => {
+	const { project, home } = await fixture(t);
+	await mkdir(join(project, ".agents/limen"), { recursive: true });
+	await writeFile(join(project, ".agents/limen/communication.md"), PROJECT_REGISTER);
+	environment(t, coordinatorSession(home));
+	const cue = cueText(sessionStart(project));
+	const shared = markdownSection(await readFile(join(PACKAGE, "templates/communication.md"), "utf8"), "Cue: Shared");
+	const body = shared.split("\n").slice(1).join("\n").trim();
+	assert.deepEqual([body.length > 0, cue.includes(body), cue.includes("project-cue-marker")], [true, true, false]);
+});
+
+// A-039: the specs reminder names the lines of the package's specs register, the text every role's message holds.
+test("A-039: after a write under spec/ the reminder names the package's specs register, not the project's register", async (t) => {
+	const { project, home } = await fixture(t);
+	await mkdir(join(project, ".agents/limen"), { recursive: true });
+	await writeFile(join(project, ".agents/limen/communication.md"), PROJECT_REGISTER);
+	environment(t, coordinatorSession(home));
+	const write = {
+		type: "tool_result",
+		toolName: "write",
+		input: { path: "spec/features/planned/F001-demo/ticket.md" },
+		content: [{ type: "text", text: "Wrote the ticket." }],
+		isError: false,
+	};
+	const result = loadHook().fire("tool_result", write, { cwd: project });
+	const text = JSON.stringify(result);
+	assert.deepEqual(
+		[text.includes(`${join(PACKAGE, "templates/registers/specs.md")} lines 1-`), text.includes("communication.md")],
+		[true, false],
+	);
 });
 
 // A-010, R-102: a text that any process could set reached every coordinator's turn as an instruction, so the cue reads

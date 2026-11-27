@@ -22,14 +22,16 @@ import {
 } from "../project/git.ts";
 import { readOptional } from "../project/inherit.ts";
 import { inheritedPlanning } from "../project/planning.ts";
-import { CONTEXT_FILE, contextMessage } from "../runtime/context-message.ts";
+import { CONTEXT_FILE, type ContextAudience, contextMessage } from "../runtime/context-message.ts";
 import {
 	defaultModel,
 	type EngineId,
 	type EngineProfile,
 	engineProfile,
+	engineRoute,
 	preflightEngine,
 	resolveSpawnEngine,
+	runsBridgeIsolated,
 } from "../runtime/engine.ts";
 import { launchWrapper } from "../runtime/launcher.ts";
 import { jobPriority, parsePriority, queuedLine } from "../runtime/start-queue.ts";
@@ -271,7 +273,12 @@ async function validateContinue(
 	const finalLabel = label ?? `${parent.record.label || parentId} · continue`;
 	const role = parent.record.role || "worker";
 	// A role a cut removed refuses here, also for a parent whose context message the continuation carries.
-	const context = carriedContext(parentDir, root, role, resolvePreamble(root, role, "record"));
+	const context = carriedContext(parentDir, root, {
+		session: "job",
+		role,
+		preamble: resolvePreamble(root, role, "record"),
+		bridgeIsolated: runsBridgeIsolated(engineRoute(provider, chosenModel)),
+	});
 	const repository = parent.repo ? workspaceRepository(root, parent.repo) : root;
 	await view.hold(`the worktree ${parent.worktree} or branch ${parent.branch} of job ${parentId}`, () => {
 		if (!existsSync(parent.worktree) && !branchExists(repository, parent.branch)) {
@@ -313,11 +320,11 @@ async function validateContinue(
 /**
  * The context message a continuation carries: its parent's `context.md` byte for byte, beside the transcript it copies,
  * so the continued session holds one message and its hook sends no second one (A-079); a parent folder published
- * before the file existed holds none, so the continuation builds one from the role's preamble (R-039's migration).
+ * before the file existed holds none, so the continuation builds one for its own audience (R-039's migration).
  */
-function carriedContext(parentDir: string, root: string, role: string, preamble: string): string | Uint8Array {
+function carriedContext(parentDir: string, root: string, audience: ContextAudience): string | Uint8Array {
 	const saved = join(parentDir, CONTEXT_FILE);
-	return existsSync(saved) ? readFileSync(saved) : contextMessage(root, { session: "job", role, preamble });
+	return existsSync(saved) ? readFileSync(saved) : contextMessage(root, audience);
 }
 /**
  * The continuation's wake route. A continuation started from a shell with no wake route (a remote executor, a plain

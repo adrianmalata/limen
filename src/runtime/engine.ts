@@ -139,6 +139,21 @@ export function engineRoute(
 	return { provider, model, bridged: provider === BRIDGE || !!model?.startsWith(`${BRIDGE}/`) };
 }
 
+/**
+ * Whether jobs run the bridge isolated (`CLAUDE_BRIDGE_ISOLATED=1`), in which it forwards no `AGENTS*` file (D-005,
+ * E-15). Off until R-048 turns isolation on and builds that variable from `runsBridgeIsolated`, so the one value decides
+ * both and the project's `AGENTS.md` never reaches a model twice.
+ */
+export const BRIDGE_ISOLATED = false;
+
+/**
+ * Whether a job on `route` runs the bridge isolated, so that its context message carries the project's `AGENTS.md`,
+ * which the bridge then forwards no more (A-042).
+ */
+export function runsBridgeIsolated(route: { readonly bridged: boolean }): boolean {
+	return route.bridged && BRIDGE_ISOLATED;
+}
+
 // `--no-extensions` hides the bridge. Name it explicitly so the model resolves while other user
 // extensions stay off. Pi loads the bridge package it installed, scoped or not.
 function bridgePath(): string | undefined {

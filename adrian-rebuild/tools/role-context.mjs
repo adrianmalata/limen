@@ -1,6 +1,7 @@
 /* PL: Moduł pomiaru kontekstu ról Limena, używany przez context-size.mjs. Rozpakowuje drzewo danego refa do katalogu
    tymczasowego, tworzy fiksturę projektu prawdziwym `limen init` (z atrapą `pi` na PATH, bo od R-020 init jej wymaga;
-   opcjonalnie z plikami prawdziwego projektu, kopiowanymi tylko do odczytu) i bierze listę ról z szablonów refa. Dla
+   opcjonalnie z plikami prawdziwego projektu, kopiowanymi tylko do odczytu) i bierze listę ról z szablonów refa (bez
+   podręcznika, także `templates/manual.md` od R-040, i bez rejestrów z `templates/registers/`). Dla
    refa z `src/runtime/context-message.ts` (od R-039) mierzy wiadomość kontekstową każdej roli z tego modułu i cue
    z hooka `communication`; dla starszego refa, jak dotąd, prompt systemowy, cue i dodatki raz na sesję z hooków
    z atrapą API silnika. Fikstura działa w trybie testowym (`LIMEN_TEST_MODE=1`). Stan: działa; test
@@ -13,9 +14,10 @@ import { pathToFileURL } from "node:url";
 
 // `templates/coordinator.md` is the preamble of a group team, titled "# Group team".
 export const GROUP_ROLES = ["coordinator"];
-// The templates of a ref that are no role's preamble: the manual, the frame, the register, the project copies' sources,
-// a group member's packet, and the Linear mirror of `rebuild-base`.
-const NOT_ROLES = new Set(["agents", "capability", "communication", "styleguide", "group-member", "linear"]);
+// The templates of a ref that are no role's preamble: the manual (`agents.md`, from R-040 on `manual.md`), the frame,
+// the register or, from R-040 on, the cue sections, the project copies' sources, a group member's packet, and the
+// Linear mirror of `rebuild-base`. The registers of R-040 lie in `templates/registers/`, which `rolesOf` never lists.
+const NOT_ROLES = new Set(["agents", "manual", "capability", "communication", "styleguide", "group-member", "linear"]);
 // The module that builds a role's context message, from R-039 on; an older ref has none.
 const CONTEXT_MODULE = "src/runtime/context-message.ts";
 const JOB_ID = "2026-01-01-size-probe-00000000";

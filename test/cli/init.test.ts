@@ -1,5 +1,5 @@
-// `limen init` checks the system requirements first, a systemd user scope among them, writes the Pi extension stub,
-// and `limen init --drop-leftovers` removes the leftover files of cut features.
+// `limen init` checks the system requirements first, a systemd user scope among them, writes the Pi extension stub and
+// prints no drift, and `limen init --drop-leftovers` removes the leftover files of cut features.
 import assert from "node:assert/strict";
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -113,23 +113,62 @@ test("limen init: in a new repository it writes the Pi extension stub and no .om
 	);
 });
 
-test("limen init --drop-leftovers drops an identical AGENTS.md, keeps a changed worker prompt and names the drop", async (t) => {
+test("limen init --drop-leftovers drops an AGENTS.md identical to the coordinator manual and names the drop", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
-	copyFileSync(template("agents.md"), join(p.root, "AGENTS.md"));
+	copyFileSync(template("manual.md"), join(p.root, "AGENTS.md"));
+	const run = limen(p, ["init", "--drop-leftovers"]);
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(
+		[existsSync(join(p.root, "AGENTS.md")), outputText(run)],
+		[false, "dropped AGENTS.md (identical copy of the package's templates/manual.md)\n"],
+	);
+});
+
+// A-042: role prompts always come from the package, so a project's changed worker prompt is read by nothing.
+test("limen init --drop-leftovers drops a changed .agents/limen/worker.md and names the drop", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
 	const worker = join(p.root, ".agents/limen/worker.md");
 	writeFileSync(worker, `${readFileSync(template("worker.md"), "utf8")}\nA project rule.\n`);
 	const run = limen(p, ["init", "--drop-leftovers"]);
 	assert.equal(run.status, 0, run.stderr);
-	assert.equal(existsSync(join(p.root, "AGENTS.md")), false);
-	assert.equal(existsSync(worker), true);
-	assert.equal(outputText(run), "dropped AGENTS.md (identical copy of the package's templates/agents.md)\n");
+	assert.deepEqual(
+		[existsSync(worker), outputText(run)],
+		[false, "dropped .agents/limen/worker.md (role texts from the package (R-040))\n"],
+	);
+});
+
+// A-042: a changed AGENTS.md is the project's own context, which the owner keeps.
+test("limen init --drop-leftovers keeps a changed AGENTS.md", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const agents = join(p.root, "AGENTS.md");
+	writeFileSync(agents, `${readFileSync(template("manual.md"), "utf8")}\nA project rule.\n`);
+	const run = limen(p, ["init", "--drop-leftovers"]);
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual([existsSync(agents), outputText(run)], [true, "no leftover files\n"]);
+});
+
+// A-042: drift tracking is cut; a leftover copy is listed once by limen status, not at every init.
+test("a plain limen init prints no drift line when the project holds a changed register", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	writeFileSync(join(p.root, ".agents/limen/communication.md"), "# Communication\n\nThe project's own register.\n");
+	const run = limen(p, ["init"]);
+	assert.equal(run.status, 0, run.stderr);
+	assert.deepEqual(
+		outputText(run)
+			.split("\n")
+			.filter((line) => /drift|overlay/i.test(line)),
+		[],
+	);
 });
 
 test("a second limen init --drop-leftovers prints no leftover files and exits 0", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
-	copyFileSync(template("agents.md"), join(p.root, "AGENTS.md"));
+	copyFileSync(template("manual.md"), join(p.root, "AGENTS.md"));
 	const first = limen(p, ["init", "--drop-leftovers"]);
 	assert.equal(first.status, 0, first.stderr);
 	const second = limen(p, ["init", "--drop-leftovers"]);

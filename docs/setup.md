@@ -59,7 +59,7 @@ You can also ask the agent to help define the vision and styleguide before it ch
 - **Project files:** It creates the files that the project owns: the vision, the board, the feature lanes, and the styleguide (see [Project files](#project-files)). It does not overwrite existing project files.
 - **Hook stub:** It creates the package-hook stub `.pi/extensions/limen.ts`. A Herdr coordinator needs that stub for communication, wake, and steering, so in an existing project, run `limen init` again before you start one.
 - **Old hook copies:** It deletes old `limen-*.ts` hook copies, so that they cannot load next to the stub.
-- **Leftover files:** `limen status` lists the files that cut features left in the project and the prompt copies that are still the same as the package. `limen init --drop-leftovers` deletes the files in that list. It keeps a prompt copy that differs from the package.
+- **Leftover files:** `limen status` lists the files that cut features left in the project, among them the project's own copies of the speech register and the role prompts, which nothing reads, and an `AGENTS.md` that is still the same as the package's coordinator manual. `limen init --drop-leftovers` deletes the files in that list. It keeps a changed `AGENTS.md`, which is the project's own context.
 
 ### The coordinator session
 
@@ -75,7 +75,7 @@ The agent you talk to is the coordinator. Give it the task in plain language. It
 - Use a Herdr space with the name of the plant (`limen`, or `alice limen`). Do not use a space with the name `workers` only.
 - The coordinator gives its own tab the name of one stable subject (`chat settings`). Limen adds ` · N running` to that name while its jobs run.
 - Worker tabs get their names from spawn labels (see [Job IDs and labels](jobs.md#job-ids-and-labels)).
-- The inherited shop manual (`templates/agents.md`) has the same layout rules. A project `AGENTS.md` replaces it.
+- The coordinator manual (`templates/manual.md`) has the same layout rules. It always comes from the package: a project `AGENTS.md` is project context beside it, never in its place.
 
 ### Project skills
 
@@ -149,7 +149,7 @@ The coordinator gives exactly one `--repo` to each job. Tickets stay in the pare
 
 ## Project files
 
-The installed `limen` package supplies the default shop manual, role prompts, speech register, and hooks. `limen init` creates only the files that the project owns:
+The installed `limen` package supplies the coordinator manual, the role prompts, the speech registers, and the hooks; no project file replaces them. `limen init` creates only the files that the project owns:
 
 ```text
 .agents/limen/styleguide.md           project coding practice
@@ -160,23 +160,9 @@ spec/features/                        planned, active, done, and dropped work
 .limen/jobs/<id>/                     runtime evidence
 ```
 
-### Overlays
-
-Optional overlays replace a package default, one file at a time:
-
-- `AGENTS.md`
-- `.agents/limen/worker.md`
-- `.agents/limen/reviewer.md`
-- `.agents/limen/communication.md`
-
-| File | Name | What happens |
-|---|---|---|
-| Same bytes as the package | Old copy | The coordinator names it. |
-| Different bytes | Overlay | You can keep it, drop it, or edit it. **Never overwrite an overlay.** |
-
 ### Hooks
 
-Limen's standing text reaches the model in one context message per session, a hidden Pi custom message of type `limen-context`, because the Claude bridge does not forward Pi's system prompt. For the coordinator it holds the capability frame, the shop manual, the speech register, the vision, and the styleguide; for a job, the capability frame, the role's prompt, the speech register, and the styleguide. The capability frame (`templates/capability.md`) tells every role that engineering time is abundant and the owner's attention is scarce; it comes from the package even when a project replaces the register. The communication hook sends the message once, when the session starts, before its first prompt and with no turn of its own, and again only after a compaction has summarised it away; a session that already holds one, after `/reload` or in a continued job, gets no second copy. The message does not change during the session, so its cached prefix stays: a change of the vision or the styleguide reaches the next session. A job's message is built when the job is published and saved as `context.md` in the job's folder. The board digest is not in it.
+Limen's standing text reaches the model in one context message per session, a hidden Pi custom message of type `limen-context`, because the Claude bridge does not forward Pi's system prompt. Every Limen text in it comes from the package. The speech register has three parts, one per audience: the agent register (`templates/registers/agent.md`) for every role, the specs register (`templates/registers/specs.md`) for the roles that write tickets, and the owner register (`templates/registers/owner.md`) for the coordinator, the one role that talks to the owner. For the coordinator the message holds the capability frame, the coordinator manual, the agent, specs and owner registers, the vision, and the styleguide; for a job, the capability frame, the role's prompt, the agent register (the keeper's also the specs register), and the styleguide. A job whose Claude bridge runs isolated, and so forwards no `AGENTS.md`, gets the project's `AGENTS.md` as the last part of its message; no job runs the bridge isolated yet. A package text that is missing is a broken install: the job's spawn or the coordinator's session start fails. The capability frame (`templates/capability.md`) tells every role that engineering time is abundant and the owner's attention is scarce. The communication hook sends the message once, when the session starts, before its first prompt and with no turn of its own, and again only after a compaction has summarised it away; a session that already holds one, after `/reload` or in a continued job, gets no second copy. The message does not change during the session, so its cached prefix stays: a change of the vision or the styleguide reaches the next session. A job's message is built when the job is published and saved as `context.md` in the job's folder. The board digest is not in it.
 
 A short note on each turn recalls the capability frame in one sentence and names the audience and the reply rules. The wake cue is in that note, not in the context message. After a write or an edit, the tool result repeats the rule that applies.
 

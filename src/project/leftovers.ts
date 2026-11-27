@@ -2,7 +2,7 @@
 // `limen init --drop-leftovers` removes them (A-042), so the owner checks the list before anything goes.
 import { lstatSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { packageRoot, TRACKED } from "./inherit.ts";
+import { packageRoot } from "./inherit.ts";
 
 /**
  * A file or directory that a cut feature left in a project; `path` is relative to the project root. With a `marker`,
@@ -12,10 +12,43 @@ import { packageRoot, TRACKED } from "./inherit.ts";
 export type Leftover = { readonly path: string; readonly feature: string; readonly marker?: string };
 
 /**
+ * The project's own context and owner files (A-042), which no entry may equal, hold or lie under, so a drop never
+ * takes one. R-054 replaces this list with the owner files.
+ */
+export const PROJECT_FILES = [
+	"AGENTS.md",
+	"CLAUDE.md",
+	"spec/vision.md",
+	".agents/limen/styleguide.md",
+	".agents/limen/limits.json",
+] as const;
+
+/**
+ * The project file that is a leftover only while it is byte-identical to the package file it copies: an `AGENTS.md`
+ * that copies the coordinator manual. A changed one is the project's own context and stays (A-042).
+ */
+const IDENTICAL_COPIES = [["AGENTS.md", "templates/manual.md"]] as const;
+
+/** Each role whose project copy `.agents/limen/<role>.md` R-040 leaves unread: the package's roles and two cut ones. */
+const ROLE_COPIES = [
+	"coordinator",
+	"group-member",
+	"judge",
+	"keeper",
+	"quality",
+	"researcher",
+	"reviewer",
+	"worker",
+	"picture",
+	"scout",
+] as const;
+const ROLE_TEXTS = "role texts from the package (R-040)";
+
+/**
  * The registry: every path a cut feature leaves behind, with the feature in plain words and the ticket that cut it,
  * e.g. the feature `finish webhooks (R-002)`. Each cut ticket appends its own entries. An entry never equals, lies
- * under or holds another entry or a `TRACKED` path (checked in `test/project/leftovers.test.ts`). First, an entry that
- * holds a tracked path would silently delete a changed copy of a template, which the drop must keep. Second, an
+ * under or holds another entry or a path of `PROJECT_FILES` (checked in `test/project/leftovers.test.ts`). First, an
+ * entry that holds a project file would silently delete a project context or owner file the drop must keep. Second, an
  * overlap lists one file twice, and the drop fails on its second removal. An entry lies outside Git's own data, except
  * a hook directly in `.git/hooks/` that Limen wrote; such an entry carries the line Limen wrote into it as its marker,
  * so the project's own hook of that name stays.
@@ -48,17 +81,21 @@ export const LEFTOVERS: readonly Leftover[] = [
 	},
 	// The coordinators' registrations, which only `limen rule` read, and the refusal each one held (D-097 (6) (b)).
 	{ path: ".limen/coordinators", feature: "seat rules (R-102)" },
+	// The project's register and role prompts, which replaced the package's; every Limen text now comes from the
+	// package, so nothing reads them, changed or not (A-039, A-042).
+	{ path: ".agents/limen/communication.md", feature: ROLE_TEXTS },
+	...ROLE_COPIES.map((role) => ({ path: `.agents/limen/${role}.md`, feature: ROLE_TEXTS })),
 ];
 
 /**
- * The registry entries present under `root`, plus every project copy that is byte-identical to the packaged template
- * it was copied from, sorted by path. It only reads the project and the package, never Git history. `lstat` with
+ * The registry entries present under `root`, plus an `AGENTS.md` that is byte-identical to the package's coordinator
+ * manual, sorted by path. It only reads the project and the package, never Git history. `lstat` with
  * `throwIfNoEntry: false` makes a missing path the one expected absence; any other error propagates.
  */
 export function listLeftovers(root: string, registry: readonly Leftover[] = LEFTOVERS): readonly Leftover[] {
 	const found = registry.filter((entry) => present(root, entry));
 	const packaged = packageRoot();
-	for (const [path, source] of TRACKED) {
+	for (const [path, source] of IDENTICAL_COPIES) {
 		if (identicalCopy(join(root, path), join(packaged, source))) {
 			found.push({ path, feature: `identical copy of the package's ${source}` });
 		}
@@ -106,8 +143,8 @@ function present(root: string, entry: Leftover): boolean {
 }
 
 /**
- * Only a regular file can be a copy; a symlink or a directory at a template's path is the project's own. The package
- * ships every tracked template, so a missing one is a broken install and throws.
+ * Only a regular file can be a copy; a symlink or a directory at the copy's path is the project's own. The package
+ * ships the file each copy copies, so a missing one is a broken install and throws.
  */
 function identicalCopy(project: string, template: string): boolean {
 	return (

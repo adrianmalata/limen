@@ -36,7 +36,13 @@ import {
 import { readOptional } from "../project/inherit.ts";
 import { inheritedPlanning, ticketPointers } from "../project/planning.ts";
 import { contextMessage } from "../runtime/context-message.ts";
-import { type EngineProfile, preflightEngine, resolveSpawnEngine } from "../runtime/engine.ts";
+import {
+	type EngineProfile,
+	engineRoute,
+	preflightEngine,
+	resolveSpawnEngine,
+	runsBridgeIsolated,
+} from "../runtime/engine.ts";
 import { launchWrapper } from "../runtime/launcher.ts";
 import { holdsProcesses, KILL_WAIT_MS, waitForProcessGroup } from "../runtime/reap.ts";
 import { DEFAULT_PRIORITY, parsePriority, queuedLine } from "../runtime/start-queue.ts";
@@ -109,19 +115,17 @@ type SpawnOptions = {
 };
 const PACKAGE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 /**
- * The project's own `.agents/limen/<role>.md`, else the package's template. With neither, a role a cut removed refuses
- * with its line from `src/old-names.ts`, by `source`: spawn's `--role`, or continue's parent record. Spawn and continue
- * call this in their validate.
+ * The package's template of the role: role prompts always come from the package, so no file of the project `_root`
+ * replaces or adds one (A-042). Without it, a role a cut removed refuses with its line from `src/old-names.ts`, by
+ * `source`: spawn's `--role`, or continue's parent record. Spawn and continue call this in their validate.
  */
-export function resolvePreamble(root: string, role: string, source: NameSource = "argument"): string {
-	const places = [`${root}/.agents/limen/${role}.md`, resolve(PACKAGE_ROOT, "templates", `${role}.md`)];
-	for (const path of places) {
-		if (existsSync(path)) {
-			return path;
-		}
+export function resolvePreamble(_root: string, role: string, source: NameSource = "argument"): string {
+	const template = resolve(PACKAGE_ROOT, "templates", `${role}.md`);
+	if (existsSync(template)) {
+		return template;
 	}
 	refuseRemovedRole(role, source);
-	const message = `no preamble for role ${role} in ${places.join(" or ")}; write .agents/limen/${role}.md to add the role`;
+	const message = `no preamble for role ${role} in ${template}`;
 	throw source === "argument" ? usageError("ROLE_UNKNOWN", message) : refused("ROLE_UNKNOWN", message);
 }
 /**
@@ -313,7 +317,12 @@ async function validateSpawn(
 	const role = options.review ? "reviewer" : (group?.role ?? options.role ?? "worker");
 	const pinnedBase = options.base ? resolveCommit(repository, options.base, "--base") : undefined;
 	const pinnedHead = options.head ? resolveCommit(repository, options.head, "--head") : undefined;
-	const context = contextMessage(root, { session: "job", role, preamble: resolvePreamble(root, role, "argument") });
+	const context = contextMessage(root, {
+		session: "job",
+		role,
+		preamble: resolvePreamble(root, role, "argument"),
+		bridgeIsolated: runsBridgeIsolated(engineRoute(options.provider, options.model)),
+	});
 	const jobsRoot = `${root}/.limen/jobs`;
 	// A project an older Limen recorded refuses here, before any write (T-38).
 	await view.jobs(jobsRoot);

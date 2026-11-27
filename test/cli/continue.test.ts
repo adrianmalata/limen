@@ -89,13 +89,14 @@ function contextEntries(p: Plant, id: string): number {
 }
 
 // A-079: the child carries the message its parent's session holds, not one built again from files that changed since.
-test("A-079: a continuation publishes its parent's context.md byte for byte, also after the project's register changed", async (t) => {
+test("A-079: a continuation publishes its parent's context.md byte for byte, also after the project's styleguide changed", async (t) => {
 	const p = await plant();
 	t.after(() => p.cleanup());
 	const parent = spawnJob(p, "say first");
 	await ended(p, parent);
-	// A changed register shows that the child carries its parent's bytes instead of building its own.
-	await writeFile(join(p.root, ".agents/limen/communication.md"), "# Communication\n\nchanged-register-marker\n");
+	// A changed styleguide, which every job's message holds, shows that the child carries its parent's bytes instead of
+	// building its own.
+	await writeFile(join(p.root, ".agents/limen/styleguide.md"), "# Styleguide\n\nchanged-styleguide-marker\n");
 	const child = startedJob(limen(p, ["continue", parent, "say next"]));
 	const saved = (id: string) => readFileSync(join(jobDir(p, id), "context.md"));
 	const published = saved(child);

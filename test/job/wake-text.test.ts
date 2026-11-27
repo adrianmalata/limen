@@ -75,7 +75,7 @@ test("the ending of a quota-exhausted job says the cap of 3 resumes was reached,
 	);
 });
 
-// D-097 (5) (i), templates/agents.md: the coordinator does not continue a job Limen resumes, unless the owner asks.
+// D-097 (5) (i), templates/manual.md: the coordinator does not continue a job Limen resumes, unless the owner asks.
 test("the completion wake of a quota job Limen resumes tells the coordinator to go on with other work and not to continue it", (t) => {
 	const { job, record } = failedJob(t, {});
 	const wake = completionWake(job, "fix login · F012", "failed", record.id, "limen/fix", "");

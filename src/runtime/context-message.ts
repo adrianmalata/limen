@@ -1,9 +1,10 @@
 // Builds a role's Limen context message in one place, because under the bridge Pi's system prompt never reaches the
-// model, so Limen's standing text rides this message instead (A-086, D-114). It reads files only and starts no
-// process, so the same files give the same bytes on any host (T-36).
+// model, so Limen's standing text rides this message instead (A-086, D-114). Every Limen text comes from the package,
+// never from a project copy (A-039, A-042), and a missing one is a broken install, so its read throws (T-01). It reads
+// files only and starts no process, so the same files give the same bytes on any host (T-36).
 import { readFileSync } from "node:fs";
-import { basename, join, relative, sep } from "node:path";
-import { inheritFile, packageRoot, readOptional } from "../project/inherit.ts";
+import { basename, join } from "node:path";
+import { packageRoot, readOptional } from "../project/inherit.ts";
 
 /** The file of a job's folder that holds the context message its session opens with (A-079). */
 export const CONTEXT_FILE = "context.md";
@@ -13,12 +14,20 @@ export const MAX_CONTEXT_LINES = 1000;
 export const STYLE_FILE = ".agents/limen/styleguide.md";
 /** The project's vision, which the coordinator gets whole and a job by a pointer in its cue. */
 export const VISION_FILE = "spec/vision.md";
-/** The project's register, which replaces the package's (A-039 cuts it, R-040). */
-export const REGISTER_FILE = ".agents/limen/communication.md";
-/** The package's register. */
-export const PACKAGED_REGISTER = "templates/communication.md";
+/** The project's own context, which a job gets only while its bridge runs isolated and so forwards none (E-15). */
+export const AGENTS_FILE = "AGENTS.md";
+/** The package's cue sections, which ride each run's cue (hook/communication.ts); R-041 rewrites them. */
+export const CUE_FILE = "templates/communication.md";
+/** The specs register: how tickets are written, for the roles that write them; the specs reminder names its lines. */
+export const SPECS_REGISTER = "templates/registers/specs.md";
 const CAPABILITY_FILE = "templates/capability.md";
-const MANUAL_FILE = "templates/agents.md";
+const MANUAL_FILE = "templates/manual.md";
+/** The owner register: how the coordinator speaks to the owner, the one role that does (A-038). */
+const OWNER_REGISTER = "templates/registers/owner.md";
+/** The agent register: how every role writes for the agent that reads its work next (A-038). */
+const AGENT_REGISTER = "templates/registers/agent.md";
+/** The job roles that write tickets beside the coordinator, so they get the specs register too (A-038). */
+const SPECS_ROLES: readonly string[] = ["keeper"];
 /**
  * The marker's role name of the coordinator's session: a job of the role `coordinator` is a group's team
  * (`templates/coordinator.md`), so the owner's coordinator is named apart from it. R-046 sets the marker's words.
@@ -27,33 +36,45 @@ const OWNER_FACING = "owner-facing coordinator";
 
 /**
  * Whose session a message opens: the owner-facing coordinator's, or a job's of `role`, whose preamble is the file
- * `preamble` that the spawn's role resolution chose (`resolvePreamble`, src/job/spawning.ts).
+ * `preamble` that the spawn's role resolution chose (`resolvePreamble`, src/job/spawning.ts), and whose bridge runs
+ * isolated when `bridgeIsolated` (`runsBridgeIsolated`, src/runtime/engine.ts).
  */
 export type ContextAudience =
 	| { readonly session: "coordinator" }
-	| { readonly session: "job"; readonly role: string; readonly preamble: string };
+	| { readonly session: "job"; readonly role: string; readonly preamble: string; readonly bridgeIsolated: boolean };
 
 /**
  * The context message of `audience` in the project `root`: a neutral marker that names the role (D-114 (3)), so it
- * never starts with `/` (E-14), then each part apart by a blank line, then the closing tag.
+ * never starts with `/` (E-14), then each part apart by a blank line, then the closing tag. The parts that never change
+ * come first and the project's files last (z. 3): the frame, the manual or the role's preamble, the registers of the
+ * role's audience, then the vision, the styleguide and, for a job whose bridge forwards none, the project's AGENTS.md.
  */
 export function contextMessage(root: string, audience: ContextAudience): string {
 	const coordinator = audience.session === "coordinator";
+	const specs = coordinator || SPECS_ROLES.includes(audience.role);
+	const agents = !coordinator && audience.bridgeIsolated;
 	const parts = [
 		boundText(capabilitySection("Frame"), `limen/${CAPABILITY_FILE}`, "Capability"),
-		coordinator ? shopManual(root) : rolePreamble(root, audience.preamble),
-		registerText(root),
+		coordinator ? packagePart(MANUAL_FILE, "Coordinator manual") : rolePreamble(audience.preamble),
+		packagePart(AGENT_REGISTER, "Agent register"),
+		specs ? packagePart(SPECS_REGISTER, "Specs register") : "",
+		coordinator ? packagePart(OWNER_REGISTER, "Owner register") : "",
 		coordinator ? boundFile(root, VISION_FILE, "Vision") : "",
 		boundFile(root, STYLE_FILE, "Styleguide"),
+		agents ? boundFile(root, AGENTS_FILE, "Project context") : "",
 	].filter(Boolean);
 	const role = coordinator ? OWNER_FACING : audience.role;
 	return [`<limen-context role="${role}">`, ...parts, "</limen-context>"].join("\n\n");
 }
 
-/** The capability frame describes Limen itself, not project speech, so a project register never replaces it. */
+/** The text of the package file at `path`; a missing one is a broken install, so the read throws (T-01). */
+export function packageText(path: string): string {
+	return readFileSync(join(packageRoot(), path), "utf8");
+}
+
+/** The capability frame's section under `heading`: the frame describes Limen itself, so it is the package's. */
 export function capabilitySection(heading: string): string {
-	const text = readOptional(join(packageRoot(), CAPABILITY_FILE)) ?? "";
-	return markdownSection(text, heading).split("\n").slice(1).join("\n").trim();
+	return markdownSection(packageText(CAPABILITY_FILE), heading).split("\n").slice(1).join("\n").trim();
 }
 
 /** The section of `text` under the level-two heading `heading`, up to the next one; "" when there is none. */
@@ -85,38 +106,17 @@ export function trimmedLines(text: string): readonly string[] {
 	return lines;
 }
 
-/**
- * The project's `AGENTS.md` reaches the coordinator's model through the bridge itself (E-1), so the package's manual
- * comes only without one.
- */
-function shopManual(root: string): string {
-	if (readOptional(join(root, "AGENTS.md")) !== undefined) {
-		return "";
-	}
-	const inherited = inheritFile(root, "AGENTS.md", MANUAL_FILE);
-	return inherited ? boundText(inherited.text, inherited.path, "Shop manual") : "";
+/** The package file at `path` as a part headed `label`, named by its path in the package. */
+function packagePart(path: string, label: string): string {
+	return boundText(packageText(path), `limen/${path}`, label);
 }
 
 /**
- * The job role's preamble, named by its path in the project, or in the package for the package's template, so no
- * absolute path enters the message. The spawn has just resolved the file, so a read that fails is an error.
+ * The job role's preamble, the package's template, named by its path in the package so no absolute path enters the
+ * message. The spawn has just resolved the file, so a read that fails is an error.
  */
-function rolePreamble(root: string, preamble: string): string {
-	const label = preamble.startsWith(`${root}${sep}`)
-		? relative(root, preamble)
-		: `limen/templates/${basename(preamble)}`;
-	return boundText(readFileSync(preamble, "utf8"), label, "Role");
-}
-
-/** The register's text above its first `## Cue:`; the cue sections ride each run's cue (hook/communication.ts). */
-function registerText(root: string): string {
-	const inherited = inheritFile(root, REGISTER_FILE, PACKAGED_REGISTER);
-	if (!inherited) {
-		return "";
-	}
-	const cueStart = inherited.text.search(/^## Cue: /m);
-	const text = cueStart < 0 ? inherited.text : inherited.text.slice(0, cueStart);
-	return boundText(text, inherited.path, "Communication");
+function rolePreamble(preamble: string): string {
+	return boundText(readFileSync(preamble, "utf8"), `limen/templates/${basename(preamble)}`, "Role");
 }
 
 function boundFile(root: string, path: string, label: string): string {

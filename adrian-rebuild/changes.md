@@ -4,7 +4,7 @@ wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: 
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
 R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025, R-097, R-099, R-026, R-030, R-033,
 R-027, R-028, R-031, R-035, R-100, R-029, R-032, R-034, R-036, R-037, R-087, R-098, R-101, R-102, R-103, R-038,
-R-111, R-039. -->
+R-111, R-039, R-040. -->
 
 # Changes
 
@@ -480,3 +480,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-01 at the close of stage 4, M-02, M-04, M-05; `## Deployment` 4.2 checks the message whole and first on the seat)
 - Commit: R-039
 - Rollback: git revert $(git log --format=%H --grep='^R-039:' adrian-rebuild --)
+
+## 2026-11-27 R-040 Role texts come from the package, in three registers
+- What: `templates/registers/owner.md`, `agent.md`, `specs.md` (new: the register split by audience, moved unchanged); `templates/communication.md` (only the `## Cue:` sections); `templates/agents.md` → `templates/manual.md` (`git mv`); `templates/.history/` removed (`git rm -r`); `src/runtime/context-message.ts` (every part from the package through `packageText`, a missing one throws; registers by role: coordinator owner, agent and specs, keeper agent and specs, every other role agent; the project's `AGENTS.md` last, for a job only when the bridge runs isolated); `src/runtime/engine.ts` (`BRIDGE_ISOLATED = false`, `runsBridgeIsolated`); `src/job/spawning.ts`, `src/job/continuation.ts` (`resolvePreamble` reads only the package, `ROLE_UNKNOWN` without the project path; the isolation value passed to the builder); `src/project/inherit.ts` (drift and its process start cut); `src/project/leftovers.ts` (the project's register and role copies listed as leftovers, `PROJECT_FILES` for the overlap guard); `src/project/setup.ts`, `hook/communication.ts` (the drift lines and block gone; the cue and the specs reminder read the package); `src/registry.ts`, `src/old-names.ts`; `docs/setup.md`, `docs/commands.md`, `CONTRIBUTING.md`; `adrian-rebuild/tools/role-context.mjs`; references `test/runtime/context-message/*.md`; tests in `test/job/spawning.test.ts` (new), `test/runtime/context-message.test.ts`, `test/hook/communication.test.ts`, `test/project/leftovers.test.ts`, `test/cli/status.test.ts`, `test/cli/init.test.ts`, `test/cli/old-names.test.ts`, `test/cli/continue.test.ts`, `test/s4-steering.test.ts`, `test/structure.test.ts`, `test/registry.test.ts`, `test/job/wake-text.test.ts`
+- Why: A-038, A-039, A-042, D-005, D-025, E-15, T-01, T-18, T-21, T-29, T-30
+- Proof: `node adrian-rebuild/tools/gate.mjs` → exit 0 (1351/1351); `node adrian-rebuild/tools/fails-before.mjs test/runtime/context-message.test.ts test/hook/communication.test.ts test/project/leftovers.test.ts test/cli/status.test.ts test/cli/init.test.ts test/cli/old-names.test.ts test/job/spawning.test.ts test/s4-steering.test.ts` → exit 0; `node adrian-rebuild/tools/check.mjs` → exit 0
+- Measurement: unmeasured (plan.md → Measurement: M-01 at the close of stage 4, M-02, M-05)
+- Commit: R-040
+- Rollback: git revert $(git log --format=%H --grep='^R-040:' adrian-rebuild --)

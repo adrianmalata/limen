@@ -1,8 +1,9 @@
-// src/runtime/context-message.ts: each role's exact message against its reference file, its marker, what it never
-// holds, its line bound, and that it is built from files alone (T-36).
+// src/runtime/context-message.ts: each role's exact message against its reference file, its marker, the registers of
+// its audience, the package as the only source of Limen's texts, the project's AGENTS.md only with an isolated bridge,
+// what it never holds, its line bound, and that it is built from files alone (T-36).
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -46,16 +47,25 @@ async function initProject(t: TestContext): Promise<string> {
 	return root;
 }
 
-/** The audience of `role` in `root`: the owner-facing coordinator for none, else the job with its resolved preamble. */
-function audience(root: string, role: string | undefined): ContextAudience {
+/**
+ * The audience of `role` in `root`: the owner-facing coordinator for none, else the job with its resolved preamble,
+ * whose bridge runs isolated only with `bridgeIsolated`, as no job's does until R-048.
+ */
+function audience(root: string, role: string | undefined, bridgeIsolated = false): ContextAudience {
 	return role === undefined
 		? { session: "coordinator" }
-		: { session: "job", role, preamble: resolvePreamble(root, role) };
+		: { session: "job", role, preamble: resolvePreamble(root, role), bridgeIsolated };
 }
 
 /** The message of every role in `root`, in the order of `ROLES`. */
 function everyMessage(root: string): string[] {
 	return ROLES.map(({ role }) => contextMessage(root, audience(root, role)));
+}
+
+/** Writes `text` at `path` under `root`, with the folders it needs. */
+async function plantFile(root: string, path: string, text: string): Promise<void> {
+	await mkdir(dirname(join(root, path)), { recursive: true });
+	await writeFile(join(root, path), text);
 }
 
 for (const { name, reference, role } of ROLES) {
@@ -94,6 +104,98 @@ test("A-037: the coordinator's message holds no board digest: the board's NOW an
 	await writeFile(join(root, "spec/build.md"), "# Build\n\n## NOW\n\n- now-marker\n\n## NEXT\n\n- next-marker\n");
 	const message = contextMessage(root, { session: "coordinator" });
 	assert.deepEqual([message.includes("now-marker"), message.includes("next-marker")], [false, false]);
+});
+
+/** The heading of each register's part, by the register's name (A-038). */
+const REGISTER_HEADINGS = {
+	agent: "\n\n## Agent register (limen/templates/registers/agent.md)\n",
+	specs: "\n\n## Specs register (limen/templates/registers/specs.md)\n",
+	owner: "\n\n## Owner register (limen/templates/registers/owner.md)\n",
+} as const;
+/** The registers of the roles that get more than the agent register, by their name in `ROLES` (A-038). */
+const WIDER_REGISTERS: Readonly<Record<string, readonly string[]>> = {
+	"owner-facing coordinator": ["agent", "specs", "owner"],
+	keeper: ["agent", "specs"],
+};
+
+test("A-038: the coordinator's message holds the owner, agent and specs registers, the keeper's agent and specs, every other role's the agent register alone", async (t) => {
+	const root = await initProject(t);
+	const held = everyMessage(root).map((message, index) => [
+		ROLES[index]?.name,
+		Object.entries(REGISTER_HEADINGS).flatMap(([name, heading]) => (message.includes(heading) ? [name] : [])),
+	]);
+	assert.deepEqual(
+		held,
+		ROLES.map(({ name }) => [name, WIDER_REGISTERS[name] ?? ["agent"]]),
+	);
+});
+
+// A-039: the register override is cut; the coordinator keeps the owner's language through the conversation itself.
+test("A-039: a project's .agents/limen/communication.md changes no role's message", async (t) => {
+	const root = await initProject(t);
+	const plain = everyMessage(root);
+	await plantFile(root, ".agents/limen/communication.md", "# Communication\n\nproject-register-marker\n");
+	assert.deepEqual(everyMessage(root), plain);
+});
+
+// A-042: role prompts always come from the package, so a project file of a role's name replaces no preamble.
+test("A-042: a project's .agents/limen/worker.md changes no role's message, the worker's included", async (t) => {
+	const root = await initProject(t);
+	const plain = everyMessage(root);
+	await plantFile(root, ".agents/limen/worker.md", "# The project's own worker role\n");
+	assert.deepEqual(everyMessage(root), plain);
+});
+
+// A-042, D-005: AGENTS.md is project context beside Limen's text, and the bridge forwards it while it runs unisolated.
+test("A-042: a project's AGENTS.md changes no role's message while no job's bridge runs isolated", async (t) => {
+	const root = await initProject(t);
+	const plain = everyMessage(root);
+	await plantFile(root, "AGENTS.md", "# Project rules\n\nproject-agents-marker\n");
+	assert.deepEqual(everyMessage(root), plain);
+});
+
+// E-15: an isolated bridge forwards no AGENTS* file, so the message carries the project's, last, as a varying part.
+test("D-005: a job whose bridge runs isolated gets the project's AGENTS.md as the last part of its message, headed like the vision", async (t) => {
+	const root = await initProject(t);
+	await plantFile(root, "AGENTS.md", "# Project rules\n\nproject-agents-marker\n");
+	const message = contextMessage(root, audience(root, "worker", true));
+	assert.equal(
+		message.slice(message.lastIndexOf("\n\n## ")),
+		"\n\n## Project context (AGENTS.md)\n# Project rules\n\nproject-agents-marker\n\n</limen-context>",
+	);
+});
+
+// A-038: the notes for the package's maintainers moved into CONTRIBUTING.md; a model has no use for them.
+test("A-038: no message holds a maintainer note of the package's register or cue file", async (t) => {
+	const root = await initProject(t);
+	const notes = ["Package default speech registers", "## Turn cue convention", "The hook selects the bodies"];
+	const found = everyMessage(root).flatMap((message, index) =>
+		notes.filter((note) => message.includes(note)).map((note) => `${ROLES[index]?.reference}: ${note}`),
+	);
+	assert.deepEqual(found, []);
+});
+
+/** The package texts a coordinator's message reads, each of which a broken install can lack. */
+const PACKAGE_TEXTS = [
+	"templates/capability.md",
+	"templates/manual.md",
+	"templates/registers/agent.md",
+	"templates/registers/specs.md",
+	"templates/registers/owner.md",
+];
+
+// A missing package text is a broken install, which a silent gap in the message would hide.
+test("T-01: a coordinator's message throws when the package lacks any text it holds, instead of leaving the part out", async (t) => {
+	const root = await initProject(t);
+	const pkg = await mkdtemp(join(tmpdir(), "limen-context-package-"));
+	t.after(() => rm(pkg, { recursive: true, force: true }));
+	await cp(join(PACKAGE, "templates"), join(pkg, "templates"), { recursive: true });
+	withEnvironment(t, { LIMEN_PACKAGE: pkg });
+	for (const path of PACKAGE_TEXTS) {
+		await rename(join(pkg, path), join(pkg, `${path}.gone`));
+		assert.throws(() => contextMessage(root, { session: "coordinator" }), { code: "ENOENT" }, path);
+		await rename(join(pkg, `${path}.gone`), join(pkg, path));
+	}
 });
 
 // z. 3: the message is the session's stable prefix, so nothing in it may vary by host, folder or time.

@@ -224,7 +224,7 @@ const SPAWN: Entry = {
 			flag: "role",
 			value: "role",
 			dashValue: true,
-			about: "use .agents/limen/<role>.md, else templates/<role>.md of the package",
+			about: "use templates/<role>.md of the package",
 		},
 		{ flag: "review", about: "start a reviewer job that reads --branch" },
 		{ flag: "base", value: "commit", dashValue: true, about: "with --review: the commit the reviewed range starts at" },

@@ -166,7 +166,9 @@ wysłane w trakcie settle liczone jako niepotwierdzone) i nowy ticket R-111; prz
 ticket.md R-111 i R-039; tam inwentarz R-111 i D-129 (nowe znalezisko A-090: dwa budzenia z jednego sweepa przy
 bezczynnej sesji ścigają się w Pi, naprawiane w R-111, rozmiar L), fakty E-20 i E-21, krok 4.14 przepisany; R-111
 zamknięty w dzień (dwie rundy recenzji PASS), potem noc do 8:00; w niej R-039 zamknięty (wiadomość kontekstowa
-`limen-context` i `context.md` joba, trzy rundy recenzji PASS, uwagi rundy 3 do R-110 i R-083). -->
+`limen-context` i `context.md` joba, trzy rundy recenzji PASS, uwagi rundy 3 do R-110 i R-083); po limicie okna 5 h
+przebieg 4 zamknął R-040 (teksty Limena tylko z pakietu, rejestr w trzech plikach według odbiorcy, dryf wycięty,
+`templates/manual.md`; trzy rundy recenzji PASS, uwagi rundy 3 do R-044, R-045 i otwartych punktów). -->
 
 
 
@@ -1957,7 +1959,7 @@ Columns:
 | R-103 | Land runs as recorded steps; its `cleaned` step closes the job's Herdr tabs | 3 | A-021, T-04, T-18, T-28, T-38, D-092, D-094, D-096 | R-037 | L | delegated | night | yes | herdr | 3.9 | done |
 | R-038 | The fake engine shows the model's view under the bridge | 4 | T-31, A-051, D-115, D-119 | R-017 | L | delegated | night | — | bridge | 4.1 | done |
 | R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16, D-114 | R-021, R-038 | L | delegated | night | yes | pi, bridge | 4.2 | done |
-| R-040 | Role texts come from the package, in three registers | 4 | A-038, A-039, A-042, D-005 | R-001, R-039 | M | delegated | night | yes | — | — | ready |
+| R-040 | Role texts come from the package, in three registers | 4 | A-038, A-039, A-042, D-005 | R-001, R-039 | M | delegated | night | yes | — | — | done |
 | R-041 | The turn cue holds only variable parts and the audience line | 4 | A-077, T-13 | R-039 | S | pair | day-after | — | pi | 4.4 | planned |
 | R-042 | The task-note mechanism is cut | 4 | A-044, A-059, D-121 | R-039 | M | delegated | night | yes | — | — | ready |
 | R-043 | Just-in-time reminders arrive in the triggering tool result | 4 | A-041, H-12 | R-039 | M | delegated | night | — | pi | 4.5 | ready |
@@ -2106,6 +2108,14 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
 - R-040, R-048: the project's `AGENTS.md` goes into the context message exactly when the job runs the bridge isolated
   (E-15, D-005); R-040 builds the rule from a launcher flag, and R-048 turns isolation on, so the file never arrives
   twice. Neither project has an `AGENTS.md` today (gate 2 §1).
+- R-044, R-045 (R-040 review round 3, note 2; present at `rebuild-base`): `resolvePreamble` accepts any
+  `templates/<name>.md`, so `--role manual`, `--role communication`, `--role capability` or `--role styleguide` loads a
+  text that is no role as a job's preamble (`resolvePreamble` in `src/job/spawning.ts`); with R-044's role table as the one list of
+  job roles (R-045 Decision 9), `--role` accepts only its roles and refuses the rest with `ROLE_UNKNOWN`.
+- R-046 (R-040 review round 1, note 6): the context message heads the manual "Coordinator manual" (T-18), while
+  the first line of `templates/manual.md` still reads "# Agent shop manual" and its line 58 "the speech register's Specs
+  section"; the literal
+  wording sets one name.
 - R-044: the switches go into the existing `limits.json`; its migration lists the modules each project uses (the
   GitHub module when connected, groups when a group record exists), and Adrian switches those on in step 4.9. Its
   criteria include (D-040, D-122 (1)): the modules header of `limen --help` has the text of D-122 (1), and each module
@@ -5842,4 +5852,27 @@ The old `.night/status.json` (`no-ticket`) predates this night's runs, so the ru
   the ignored `.limen/refusals/641201-56581511.json.641201.07e0eca95172d3f4.tmp` in the checkout; `rm` is denied to the
   sessions, so he deletes the checkout's `.limen/` folder (it fails no gate: the gate counts only files new in its run).
   Next: R-040 (protocol step 2; its criterion over `src` now meets the literal `"templates/agents.md"` in the new
-  module, the note of `## Tickets`).
+  module, the note of `## Tickets`). Commit `c3290a0`, pushed.
+- R-040 `active` at `c3290a0` (protocol step 2): its facts' places after R-039 in its Decision 11; AC-6 matches only
+  lines the ticket removes. Night default (D-054 (2) (a), its Decision 12): AC-13's and AC-14's pathspec `templates`
+  also matched `templates/spec/vision.md:3`, `templates/styleguide.md:3` and `templates/picture/CONTRACT.md:44`, which
+  `## Change` does not touch, so both are narrowed to the files the ticket changes or creates; AC-10 gains
+  `src/runtime/context-message.ts`, where R-039 moved the register's path. `check.mjs` exit 0. Next: the implementer.
+- Run 1 ended at 20:20:11 with exit 1: the five-hour limit (reset 22:30) cut R-040's first implementer, which had
+  changed nothing (`git status` held only the two files above). Runs 2 (20:50:11) and 3 (21:50:14) each ended within
+  3 s on the same limit with no tool call (`.night/launcher.log`, the runs' logs: `usage_limit_reached`,
+  `five_hour`). Run 4, the last retry, started at 23:50:16.
+- Run 4, R-040 resumed by D-102 (4): `review-guard.mjs compare --git node_modules/.rebuild-review/R-040.git` → exit 0,
+  then a fresh `rebuild-implementer` ("the previous run was cut; finish from the working tree").
+- R-040 `done` (delegated): three package registers (`templates/registers/owner.md`, `agent.md`, `specs.md`) given by
+  role, every Limen text from the package (a missing one throws), `templates/agents.md` → `templates/manual.md`, drift
+  and `templates/.history/` cut, the project's register and role copies leftovers of R-001's mechanism, the project's
+  `AGENTS.md` in a job's message only through `BRIDGE_ISOLATED` (off until R-048). The main session's gates 1351/1351
+  (307.7 s, 305.0 s, 306.9 s), each exit 0; `fails-before.mjs` on AC-15's eight files exit 0. Reviews 1–3 PASS: round 1
+  → F1–F3 (comments and one docs sentence, `ticket.md` → `## Decisions` 13), round 2 → G1 (`## Decisions` 14), round
+  3's five notes → `outcome.md` → Open points 4–6 and the note of R-044 and R-045 in `## Tickets` (`--role` accepts any
+  `templates/<name>.md`, present at `rebuild-base`); round 1's note 6 → the note of R-046. Night defaults for Adrian:
+  `outcome.md` → Deviations 1–12 (above all 2: a missing package text ends a spawn with exit 5, kept against review
+  round 1 note 5; 3: the `ROLE_UNKNOWN` words). The implementer's second gate run exited 1 on two scans of
+  `test/registry.test.ts` that read the test names its change added (fixed, not a D-029 finding; Deviations 11).
+  Next: R-042 (protocol step 2).

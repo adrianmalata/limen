@@ -257,8 +257,8 @@ export const OLD_FLAGS: readonly OldFlag[] = [
 ];
 
 /**
- * Every cut ticket that removes a role adds its entry here. A project that writes its own `.agents/limen/<role>.md`
- * keeps a role of that name, so the table is read only when no preamble for the role exists.
+ * Every cut ticket that removes a role adds its entry here. A role exists only as a package template (A-042), so the
+ * table is read only when the package holds no preamble for the role.
  */
 export const OLD_ROLES: readonly OldValue[] = [
 	{ name: "picture", feature: "the map jobs", ticket: "R-007", instead: "no role maintains the map", next: null },
