@@ -5946,3 +5946,23 @@ of his accounts, so the five-hour and weekly shares in the status file are that 
   PASS with one note on `outcome.md`, fixed by the main session; A-091 (medium, accepted-risk, for gate 5.4) records
   the lost failure. Next: D-131's change of `night.mjs` and the queue R-043, R-044, R-045, R-047, R-104–R-110, after a
   handover by D-047.
+
+Handover of 2026-11-27 (D-047, at 46 % context, after the commit `R-042:` (`13df6a1`), with the tree clean and pushed
+and no night running): `limen-rebuild-41` starts `limen-rebuild-42` with `node adrian-rebuild/tools/handover.mjs start
+42` and ends its turn. By day, Adrian at the terminal. The next session's acts, in this order:
+1. A push notification to Adrian (one line in Polish) that it takes over at D-131 and R-043; then `node
+   adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into this section.
+2. D-131: `night.mjs` waits until `rate_limit_info.resetsAt` when a run ends on `api_error: "usage_limit_reached"` (read
+   from the run's stream-json result, never its text) and does not count that run as a retry; never a start at or
+   after `--until`. Built by the main session with a test in `tools/test-night.mjs` and a `rebuild-reviewer` review in
+   `evidence/night-reset-wait/` (as `evidence/gate-out/`), a `Tools:` commit. The night logs of 2026-11-26 (runs 2 and
+   3) show the result's shape.
+3. By day, the next tickets by protocol step 1: R-043, R-044, R-045, R-047, then R-104–R-110 (R-110 after R-043 and
+   R-044), each through steps 2–7, the gate always with `--out node_modules/.rebuild-review/R-NNN.gate` (D-130). When
+   a ticket's deletions are staged, a commit of other paths names its paths or checks the index first (D-132).
+4. For Adrian, outside the sessions' reach: `.claude/agents/rebuild-implementer.md` still runs the bare gate
+   (`evidence/gate-out/outcome.md` → Open points 5); the form with `--out` would keep a failed test's name.
+5. At gate 5.4, besides item 4 of `limen-rebuild-40`'s handover: R-111 Decisions 2–8 and its Open points; R-039 and
+   R-040 `outcome.md` → Deviations (night defaults); R-042 Decision 9; A-091's `accepted-risk` (the session's reading
+   of D-130); `evidence/gate-out/outcome.md` → Open points 3–5.
+The handover after it is `limen-rebuild-43`.
