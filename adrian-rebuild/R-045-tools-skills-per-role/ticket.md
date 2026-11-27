@@ -3,7 +3,8 @@
 każdy job `--no-skills`. Gwarancją jest sprawdzenie efektu w `finalizeJob`: rola tylko do odczytu, której worktree albo
 gałąź różni się od stanu startowego, kończy się `failed`, rodzaj `read-only-violation`. Wpis koordynatora jest tylko
 zadeklarowany (D-123), stosuje go R-050. Stan: napisany 26.11 przy `8b3cc59` z inwentarza `evidence/inventories/R-045.md`;
-`ready` za R-042 i R-044 (D-125: zależność od R-042, bo oba zmieniają ścieżkę `done` w `finalizeJob`). -->
+`ready` za R-042 i R-044 (D-125: zależność od R-042, bo oba zmieniają ścieżkę `done` w `finalizeJob`); `active` przy
+`e645561`, z miejscami faktów po R-038–R-044, R-041 i R-112 w decyzji 16. -->
 
 # R-045 Tools and skills per role; a read-only role that writes fails
 
@@ -99,8 +100,8 @@ Facts at `8b3cc59` (the product code is `aa721d7`'s, the inventory's; R-038–R-
    - the file `start-state.json` in the job folder, written with `atomicWrite` and read through `src/boundary.ts`.
 4. `src/runtime/wrapper.ts`: for a read-only role, after setup and the worktree check and before the engine, it writes
    `start-state.json` unless the job already holds one; a git failure there ends the job `failed`, kind `launch`, and
-   no engine starts. `src/job/continuation.ts`: a continuation copies its parent's `start-state.json` (beside fact 5's
-   copies), so a write in an earlier run, a quota resume's included, is still a difference at the last run's end.
+   no engine starts. `src/job/continuation.ts`: a continuation copies its parent's `start-state.json` (since R-042 the
+   only file it copies from its parent; Decision 16), so a write in an earlier run, a quota resume's included, is still a difference at the last run's end.
 5. `src/job/finalize.ts`: for a read-only role, a `done` end (both paths of fact 4) becomes `failed`, kind
    `read-only-violation`, detail the difference, when `difference` is not null; a start state it cannot read, or a git
    failure at the end, is `failed`, `read-only-violation`, detail `unproven: <what could not be read>`, never `done`.
@@ -139,7 +140,8 @@ Facts at `8b3cc59` (the product code is `aa721d7`'s, the inventory's; R-038–R-
      `finish`; a worker that commits ends `done`.
    - `test/cli/continue.test.ts`: a reviewer's continuation keeps the reviewer's list and its parent's start state, so
      a parent's untracked file fails the child's `done`.
-   - `test/job/spawning.test.ts` (R-040's): `--role manual` and `--role communication` refuse with `ROLE_UNKNOWN`.
+   - `test/job/spawning.test.ts` (R-040's): `--role manual` and `--role styleguide` refuse with `ROLE_UNKNOWN`
+     (Decision 16).
 
 Files the criteria name that this ticket, R-040 or R-044 creates: `src/runtime/roles.ts`, `src/job/read-only.ts`,
 `test/runtime/roles.test.ts`, `test/runtime/engine.test.ts`, `test/job/read-only.test.ts`, `test/job/spawning.test.ts`.
@@ -172,7 +174,7 @@ Files the criteria name that this ticket, R-040 or R-044 creates: `src/runtime/r
 - AC-9: `git grep -q 'read-only-violation' -- docs/jobs.md` → exit 0.
 - AC-10: `git grep -q 'mktemp -d' -- templates/researcher.md` → exit 0.
 - AC-11: `git grep -q 'Put project skills in' -- docs/setup.md` → exit 1.
-- AC-12: `node adrian-rebuild/tools/gate.mjs` → exit 0.
+- AC-12: `node adrian-rebuild/tools/gate.mjs --out node_modules/.rebuild-review/R-045.gate` → exit 0.
 - AC-13: `npx biome check --error-on-warnings .` → exit 0; `node adrian-rebuild/tools/check.mjs` → exit 0.
 - AC-14 (judgment): no role text recommends a tool its list lacks, and none sends a write into a read-only role's
   worktree (T-36); every doc sentence describes behaviour present in the commit (T-30).
@@ -235,3 +237,18 @@ inventory's questions in `evidence/inventories/R-045.md` → section 8):
 15. 2026-11-26 D-125 (Adrian: "zgodnie z rekomendacjami"; Q-86, option 1): R-045 depends on R-042 as well as R-044:
     both change the `done` path of `finalizeJob` (`src/job/finalize.ts`), with `test/job/finalize.test.ts`,
     `src/runtime/wrapper.ts` and `test/cli/continue.test.ts`. The night re-reads R-042's changes there (D-025).
+16. 2026-11-27, at activation (`e645561`; the main session, protocol step 2, D-025): the facts' places after R-038–R-044,
+    R-041 and R-112. Fact 1: `argvFor` at `src/runtime/engine.ts:87`, still with no `--tools` and no skill flag (AC-8's
+    grep exits 1); the wrapper's call at `src/runtime/wrapper.ts:250-263`; `finish` registered at `hook/finish.ts:21-22`.
+    Fact 2: the role at `src/job/spawning.ts:318`, a continuation's at `src/job/continuation.ts:274`; R-044's table is
+    `JOB_ROLES` (`src/runtime/roles.ts:15-24`), entries `{ name, module? }`. Fact 3: the transition to `running` and the
+    setup at `src/runtime/wrapper.ts:155-195`. Fact 4: `finalizeJob` at `src/job/finalize.ts:102`, the stop paths at
+    `src/job/stopping.ts:82` and `:125` (through `requestedEnd`), `read-only-violation` at `src/job/record.ts:72`, set by
+    nothing. Fact 5 no longer holds: R-042 cut the task note, and a continuation copies no file of its parent
+    (`docs/jobs.md:53`: "an older job's `note.md` and `note.first.md`, which nothing reads or copies any more"), so
+    Change 4's copy of `start-state.json` is its only copy. Fact 6: `templates/researcher.md:7`, `docs/jobs.md:44` (the
+    kinds, now with `launch` and `internal`), `docs/setup.md:99-101` ("Project skills"), `docs/commands.md:153` ("Pi
+    extensions"). `resolvePreamble` (`src/job/spawning.ts:123-131`) accepts any `templates/<role>.md`, so `--role
+    manual` and `--role styleguide` still start a job, while `--role communication` refuses since R-041 cut its file
+    (D-134 (6)); Change 8's spawning test names `manual` and `styleguide`. The grep criteria at `HEAD`: AC-8, AC-9 and
+    AC-10 exit 1, AC-11 exits 0, each confined to a path of `## Change`. AC-12 names the gate's `--out` form (D-130).

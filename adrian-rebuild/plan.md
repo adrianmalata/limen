@@ -2055,7 +2055,7 @@ Columns:
 | R-042 | The task-note mechanism is cut | 4 | A-044, A-059, D-121 | R-039 | M | delegated | night | yes | — | — | done |
 | R-043 | Just-in-time reminders arrive in the triggering tool result | 4 | A-041, H-12 | R-039 | M | delegated | night | — | pi | 4.5 | done |
 | R-044 | Module switches; hooks load by role and module | 4 | G1.10, G1.1, G1.2, G1.9, A-082, A-040, D-122, D-124 | R-015, R-039, R-040 | M | delegated | night | yes | pi | 4.7, 4.9 | done |
-| R-045 | Tools and skills per role; a read-only role that writes fails | 4 | A-081, E-5, D-123, D-125 | R-042, R-044 | M | delegated | night | — | pi, bridge | 4.3 | ready |
+| R-045 | Tools and skills per role; a read-only role that writes fails | 4 | A-081, E-5, D-123, D-125 | R-042, R-044 | M | delegated | night | — | pi, bridge | 4.3 | active |
 | R-046 | Role prompts are literal, sourced and budgeted | 4 | T-09, T-14, T-15, T-08, T-10, T-21, A-043, A-085, A-040 | R-040, R-041, R-042, R-044 | L | pair | day-after | — | — | — | planned |
 | R-047 | The coordinator never waits | 4 | T-34 | R-039 | S | delegated | night | — | pi | 4.6 | ready |
 | R-104 | The sweep's daily prune archives every unregistered folder and waits on no job's lock; a queue entry is live only for a project's job | 4 | A-002, A-024, T-25, D-107 | R-101 | M | delegated | night | — | — | — | ready |
@@ -6173,3 +6173,6 @@ the terminal being active; context 8 % at the start; `HEAD` = `origin/adrian-reb
 - Next: by protocol step 1, R-045, R-047, R-104–R-110 (all `ready`), each through steps 2–7 with the gate's `--out`;
   R-046 (`pair`, L): its variants sheet (D-054 (3)). For gate 5.4: D-136 and E-22 (R-112's scope beyond D-133's
   tests) and R-112's Open points 1–6.
+- R-045 `active` at `e645561` (protocol step 2): its facts' places after R-038–R-044, R-041 and R-112 in its Decision 16;
+  fact 5 no longer holds (R-042: a continuation copies no file of its parent), and `--role communication` already
+  refuses (R-041), so Change 8's spawning test names `manual` and `styleguide`; AC-12 names the gate's `--out`.
