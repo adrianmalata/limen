@@ -6016,3 +6016,23 @@ the terminal being active; context 8 % at the start; `HEAD` = `origin/adrian-reb
   S, delegated, night, after R-043, `planned` until its `ticket.md`); the gate once more passed.
 - Ready in stage 4 (10): R-044, R-045, R-047, R-104–R-110 (R-110 after R-044). `planned`: R-112 (its `ticket.md` from
   an inventory of `test/hook/wake.test.ts`'s teardown), R-041 and R-046 (`pair`, `day-after`).
+
+Handover of 2026-11-27 (D-047, at 38 % context, after the commit `R-043:` (`75e8504`), with the tree clean and pushed
+and no night running): `limen-rebuild-42` starts `limen-rebuild-43` with `node adrian-rebuild/tools/handover.mjs start
+43` and ends its turn. By day, Adrian at the terminal. The next session's acts, in this order:
+1. A push notification to Adrian (one line in Polish) that it takes over at R-041's variants sheet and R-044; then
+   `node adrian-rebuild/tools/handover.mjs close-previous`, whose lines go into this section.
+2. R-041 (`pair`, S) depends only on R-039 (`done`), so its variants sheet is due by D-054 (3): two variants of the
+   turn cue on a real fragment, for Adrian to choose; then its `ticket.md` and the pair work with him.
+3. By day, the next tickets by protocol step 1: R-044, R-045 (after R-044), R-047, R-104–R-110 (R-110 after R-044),
+   each through steps 2–7, the gate with `--out node_modules/.rebuild-review/R-NNN.gate` (D-130); R-112's `ticket.md`
+   from a read-only inventory of `test/hook/wake.test.ts`'s teardown (A-092, D-133), then `ready`. R-046 (`pair`, L)
+   after R-044 and R-041. A night run only when Adrian asks (D-024; D-131's reset wait is in `night.mjs` since
+   `356807f`).
+4. For Adrian, outside the sessions' reach (unchanged): `.claude/agents/rebuild-implementer.md` still runs the bare gate
+   (`evidence/gate-out/outcome.md` → Open points 5).
+5. At gate 5.4, besides items 4 of `limen-rebuild-40`'s and 5 of `limen-rebuild-41`'s handovers: D-131's readings
+   (`evidence/night-reset-wait/ticket.md` → Decisions 2 and 3); R-043 Decisions 12 and 13 (the session's readings of
+   T-32 and `## Change`) and its Open points 1–7 (above all 6: a newline before `limen spawn` brings the vision);
+   A-092 and R-112.
+The handover after it is `limen-rebuild-44`.
