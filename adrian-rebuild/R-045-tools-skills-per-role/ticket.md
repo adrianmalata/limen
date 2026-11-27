@@ -252,3 +252,39 @@ inventory's questions in `evidence/inventories/R-045.md` → section 8):
     manual` and `--role styleguide` still start a job, while `--role communication` refuses since R-041 cut its file
     (D-134 (6)); Change 8's spawning test names `manual` and `styleguide`. The grep criteria at `HEAD`: AC-8, AC-9 and
     AC-10 exit 1, AC-11 exits 0, each confined to a path of `## Change`. AC-12 names the gate's `--out` form (D-130).
+17. 2026-11-27, review round 1 (FAIL; `review.md`), the findings to fix, the main session's reading (protocol step 6;
+    settled by T-01, T-16 and Decision 12, not asked):
+    - F1 (finding 1, blocking): `limen stop` prints the end the record holds once `finalizeJob` has ended the job, on
+      both paths (`src/job/stopping.ts:83` and `:131`): a `done:` stop of a read-only job that changed its worktree
+      prints `failed <id>: read-only-violation: <detail>` (the record's state, kind and detail), never `done`. The
+      stop still exits 0, since it ended the job as asked, and still marks the calling session as told, which is true
+      now that its output names the real end. A test in `test/cli/stop.test.ts`: such a stop of a reviewer whose script commits prints the `failed` line and leaves the record
+      `failed`, `read-only-violation`; a worker's `done:` stop still prints `done`. The round's
+      `fails-before.mjs` run names `test/cli/stop.test.ts` beside AC-7's files.
+    - F2 (finding 2, text): `docs/setup.md` → "Project skills" and `docs/commands.md` → "Pi extensions" say that
+      `--no-skills` still loads the skills an `--extension` package declares, and that the extensions Limen selects
+      (its hooks, the bridge) declare none.
+    - F3 (finding 4): the start state also holds, for each path its status lists, a hash of the file's content
+      ("missing" for a deleted path), read with the status set to list every untracked file; `difference` names a path
+      whose hash changed, so a second write to a path already dirty at the start is a difference. A test: a path
+      `--prepare` left modified, written again by the job, is a difference; left alone, none.
+    - F4 (finding 5): `readOnlyEffect` never rejects: any error while it reads the start state or the end state gives
+      the `unproven: <what could not be read>` effect, so `finalizeJob` ends the job `failed`, `read-only-violation`
+      (Decision 12). A test where the code can make such an error without a fake of git; otherwise `outcome.md` names
+      the case as shown by the code.
+    - F5 (finding 6, T-29 (3)): the read-only test of the cap and the escaping becomes two tests: one of the cap of five
+      paths, one whose escaped path (a newline in its name) is among the paths shown.
+    Not fixed: finding 3 (fails closed; `outcome.md` → Open points) and finding 7 (R-082).
+18. 2026-11-27, review round 2 (PASS; `review.md`), the last round of fixes, the main session's reading (protocol
+    step 6, D-053 (2)):
+    - G1 (finding 1): every `unproven:` detail and every launch detail of the start state passes the same escaping as
+      `difference`'s paths (`shownField`), so no text a job chose adds a line to the failure detail, the log or the
+      `limen stop` line. A test: an unreadable file whose name holds a newline gives an `unproven:` detail with the
+      newline escaped.
+    - G2 (finding 2, T-30): `docs/jobs.md` (the launch causes) and the comments at `src/runtime/wrapper.ts:399` and
+      `src/job/read-only.ts:106` say that a start state that cannot be taken or read, by git or by a read of a listed
+      path, ends the job `launch`.
+    - G3 (finding 3, T-25 (2)): `statusPaths` is built on `statusEntries`, so `src/project/git.ts` parses `git
+      status --porcelain -z` once; its callers and tests unchanged.
+    Not fixed: finding 4 (`outcome.md` → Open points, by the main session).
+

@@ -45,7 +45,7 @@ import {
 } from "../runtime/engine.ts";
 import { launchWrapper } from "../runtime/launcher.ts";
 import { holdsProcesses, KILL_WAIT_MS, waitForProcessGroup } from "../runtime/reap.ts";
-import { requireJobModules } from "../runtime/roles.ts";
+import { JOB_ROLES, jobRole, requireJobModules } from "../runtime/roles.ts";
 import { DEFAULT_PRIORITY, parsePriority, queuedLine } from "../runtime/start-queue.ts";
 import { normalizeWorkerExtensions } from "../runtime/worker-extensions.ts";
 import { hasCode } from "../system-error.ts";
@@ -117,16 +117,18 @@ type SpawnOptions = {
 const PACKAGE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 /**
  * The package's template of the role: role prompts always come from the package, so no file of the project `_root`
- * replaces or adds one (A-042). Without it, a role a cut removed refuses with its line from `src/old-names.ts`, by
- * `source`: spawn's `--role`, or continue's parent record. Spawn and continue call this in their validate.
+ * replaces or adds one (A-042). Only a role of the role table (src/runtime/roles.ts) has one, so a part file of
+ * `templates/` such as the manual is no role, and no job runs without its role's tools (R-045 Change 1). Any other role
+ * refuses: a role a cut removed with its line from `src/old-names.ts`, by `source`: spawn's `--role`, or continue's
+ * parent record. Spawn and continue call this in their validate.
  */
 export function resolvePreamble(_root: string, role: string, source: NameSource = "argument"): string {
-	const template = resolve(PACKAGE_ROOT, "templates", `${role}.md`);
-	if (existsSync(template)) {
-		return template;
+	if (jobRole(role)) {
+		return resolve(PACKAGE_ROOT, "templates", `${role}.md`);
 	}
 	refuseRemovedRole(role, source);
-	const message = `no preamble for role ${role} in ${template}`;
+	const roles = JOB_ROLES.map((entry) => entry.name);
+	const message = `${role} is no job role; a job runs as ${roles.slice(0, -1).join(", ")} or ${roles.at(-1)}`;
 	throw source === "argument" ? usageError("ROLE_UNKNOWN", message) : refused("ROLE_UNKNOWN", message);
 }
 /**

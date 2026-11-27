@@ -4,7 +4,7 @@ wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: 
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
 R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025, R-097, R-099, R-026, R-030, R-033,
 R-027, R-028, R-031, R-035, R-100, R-029, R-032, R-034, R-036, R-037, R-087, R-098, R-101, R-102, R-103, R-038,
-R-111, R-039, R-040, R-042, R-043, R-044, R-041, R-112. -->
+R-111, R-039, R-040, R-042, R-043, R-044, R-041, R-112, R-045. -->
 
 # Changes
 
@@ -528,3 +528,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: measured
 - Commit: R-112
 - Rollback: git revert $(git log --format=%H --grep='^R-112:' adrian-rebuild --)
+
+## 2026-11-27 R-045 Tools and skills per role; a read-only role that writes fails
+- What: `src/runtime/roles.ts` (each job role's `tools`, `skills` and `readOnly`; `COORDINATOR_SESSION`, declared for R-050); `src/runtime/engine.ts` (`--tools`, `--no-skills`, `--skill`; an empty list throws); `src/job/read-only.ts`, new (the start state with content hashes and the difference); `src/runtime/wrapper.ts` (the start state before the engine, `launch` when it cannot be taken); `src/job/finalize.ts` (a read-only `done` that changed its worktree or branch, or cannot prove it did not, ends `failed`, `read-only-violation`); `src/job/stopping.ts` (`limen stop` prints the record's end); `src/job/continuation.ts`, `src/job/publication.ts` (a continuation carries its parent's start state); `src/job/spawning.ts` (a role outside the table refuses); `src/project/git.ts` (one status parser); `templates/researcher.md`; `docs/jobs.md`, `docs/setup.md`, `docs/commands.md`; tests (`test/runtime/roles.test.ts`, `test/runtime/engine.test.ts`, `test/job/read-only.test.ts`, new; `test/fake-engine.mjs` and its test, `test/job/finalize.test.ts`, `test/runtime/wrapper.test.ts`, `test/cli/spawn.test.ts`, `test/cli/continue.test.ts`, `test/cli/stop.test.ts`, `test/job/spawning.test.ts`, `test/u5-engine-stream.test.ts`, a reference message)
+- Why: A-081, E-5, D-123, D-125
+- Proof: `node adrian-rebuild/tools/gate.mjs --out node_modules/.rebuild-review/R-045.gate` → exit 0 (1471/1471); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (ten files); `node adrian-rebuild/tools/check.mjs` → exit 0
+- Measurement: unmeasured (plan.md → Measurement: M-02)
+- Commit: R-045
+- Rollback: git revert $(git log --format='%H %s' adrian-rebuild -- | awk '$2 == "R-045:" {print $1}')

@@ -1,6 +1,6 @@
 // `limen spawn`: the job it starts, each refusal with the snapshot unchanged, the context message it publishes, and
 // what the job's model gets (A-086), a reminder in a tool result included (A-041); a module role's job only with its
-// module on (G1.10).
+// module on (G1.10); a review job that writes fails, and its model gets no edit or write tool (A-081).
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -422,6 +422,56 @@ test("a reviewer spawn beside a done job whose branch holds an unlanded commit s
 	const branch = jobRecord(p, done)?.branch ?? "";
 	const review = spawnJob(p, "say reviewed", ["--review", "--branch", branch]);
 	assert.equal(waitJob(p, review), "done");
+});
+
+/** The first 12 hex digits of `ref`'s commit in the plant's project. */
+const shortCommit = (p: Plant, ref: string) => git(p.root, "rev-parse", ref).slice(0, 12);
+
+// A-081, T-31 (3): the tool list is a noise guard, since bash can still write; the effect check at the end is the
+// guarantee, and it holds a read-only role only. A review job's worktree is detached at its candidate, so its commit
+// moves only its HEAD (R-045 Decision 11).
+test("A-081: a review job whose script commits ends failed, kind read-only-violation, naming HEAD's move, while a worker job whose script commits ends done", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const candidate = finishedJob(p, "commit", "done");
+	const branch = jobRecord(p, candidate)?.branch ?? "";
+	const before = shortCommit(p, branch);
+	const review = spawnJob(p, "commit", ["--review", "--branch", branch]);
+	assert.equal(waitJob(p, review), "failed");
+	const worktree = jobRecord(p, review)?.worktree ?? "";
+	assert.deepEqual(jobRecord(p, review)?.failure, {
+		kind: "read-only-violation",
+		detail: `HEAD moved ${before}..${git(worktree, "rev-parse", "HEAD").slice(0, 12)}`,
+		resetAt: null,
+	});
+});
+
+// A-081, T-31 (3), z. 14: a hook sees the call, not what it does, so a write through bash passes every tool list.
+test("A-081: a review job whose script leaves an untracked file through bash ends failed, kind read-only-violation, naming the file", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const branch = jobRecord(p, finishedJob(p, "commit", "done"))?.branch ?? "";
+	const review = spawnJob(p, "untracked notes.txt", ["--review", "--branch", branch]);
+	assert.equal(waitJob(p, review), "failed");
+	assert.deepEqual(jobRecord(p, review)?.failure, {
+		kind: "read-only-violation",
+		detail: "1 path changed: notes.txt",
+		resetAt: null,
+	});
+});
+
+// A-081, E-5: Pi's `--tools` list reaches Claude Code exactly, so a reviewer's model gets no edit or write tool.
+test("a review job's model view lists only Pi's read and bash tools and Limen's finish", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const branch = jobRecord(p, finishedJob(p, "commit", "done"))?.branch ?? "";
+	const review = spawnJob(p, "say reviewed", ["--review", "--branch", branch]);
+	assert.equal(waitJob(p, review), "done");
+	assert.deepEqual(engineViews(jobDir(p, review))[0]?.tools, [
+		"mcp__custom-tools__read",
+		"mcp__custom-tools__bash",
+		"mcp__custom-tools__finish",
+	]);
 });
 
 /** The reference of the worker's context message for a project as `limen init` leaves it, as the plant's is (A-051). */

@@ -9,7 +9,7 @@ import { runOperation, stepFailure } from "../operation.ts";
 import { LimenError, refused } from "../outcome.ts";
 import { platform } from "../platform/platform.ts";
 import { KILL_WAIT_MS, stopGraceMs, waitForProcessGroup } from "../runtime/reap.ts";
-import { finalizeJob, requestedEnd, requestedTerminal } from "./finalize.ts";
+import { finalizeJob, requestedEnd } from "./finalize.ts";
 import { SESSION_ID } from "./job.ts";
 import { appendLimenLog, type JobRecord, readRecord, transition } from "./record.ts";
 import { type JobReference, resolveJob } from "./reference.ts";
@@ -80,7 +80,7 @@ async function endJob(
 	let record = await readRecord(jobDir);
 	if (state === "starting") {
 		if (await finalizeJob(jobDir, requestedEnd(reason), { from: ["starting"] })) {
-			return `${requestedTerminal(reason)} ${id}: ${reason}`;
+			return await endLine(id, jobDir, reason);
 		}
 		record = await readRecord(jobDir);
 	}
@@ -124,11 +124,24 @@ async function endJob(
 	} while (queued && Date.now() < turn && (await stateOf(jobDir)) === "running");
 	if (!(await finalizeJob(jobDir, requestedEnd(reason), { beforeScopeEnd: () => grace }))) {
 		await markCallerDelivered(jobDir);
-		const settled = await stateOf(jobDir);
-		return queued ? `${settled} ${id}: ${reason}` : `${id} is already ${settled}`;
+		return queued ? await endLine(id, jobDir, reason) : `${id} is already ${await stateOf(jobDir)}`;
 	}
 	await markCallerDelivered(jobDir);
-	return `${requestedTerminal(reason)} ${id}: ${reason}`;
+	return await endLine(id, jobDir, reason);
+}
+/**
+ * The line of the end the record of the job `id` holds once a stop has ended it, never the end the stop asked for: a
+ * `done:` stop of a read-only role's job that changed its worktree ends `failed` (src/job/finalize.ts, A-081), and the
+ * stop marks its caller as told, so the line is what the caller learns of the end (R-045 Decision 17 F1, T-16):
+ * `failed <id>: <kind>: <detail>`, else `<state> <id>: <reason>`.
+ */
+async function endLine(id: string, jobDir: string, reason: string): Promise<string> {
+	const record = await readRecord(jobDir);
+	const failure = record?.state === "failed" ? record.failure : null;
+	if (failure) {
+		return `failed ${id}: ${failure.kind ?? "unknown"}: ${failure.detail}`;
+	}
+	return `${record?.state ?? "without a record"} ${id}: ${reason}`;
 }
 async function stateOf(jobDir: string): Promise<string> {
 	return (await readRecord(jobDir))?.state ?? "without a record";

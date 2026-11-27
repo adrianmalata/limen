@@ -98,7 +98,7 @@ The agent you talk to is the coordinator. Give it the task in plain language. It
 
 ### Project skills
 
-Put project skills in `.agents/skills/<name>/SKILL.md`. Pi also finds skills in `.pi/skills/<name>/SKILL.md` and in older flat files, `.pi/skills/<name>.md`.
+Jobs load no skill a project adds: each job's engine runs with `--no-skills`, and a role loads only the skills its entry in the role table (`src/runtime/roles.ts`) names, which no role does now. Pi's `--no-skills` still loads the skills that a package given with `--extension` declares; the extensions Limen selects itself, its hooks and the bridge, declare none, so only a package you select with `--extension` can bring a skill into a job (see Pi extensions in [Start and continue jobs](commands.md#start-and-continue-jobs)). The coordinator session, which you start by hand, still loads what Pi finds for it, such as `.agents/skills/<name>/SKILL.md`, `.pi/skills/<name>/SKILL.md` and older flat files, `.pi/skills/<name>.md`, in a project Pi trusts.
 
 ## Models
 

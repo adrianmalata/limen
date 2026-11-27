@@ -5,7 +5,9 @@
 // (src/runtime/reap.ts), with the peak CPU share a job's wrapper measured (M-09); an OOM kill those readings count
 // names a signal death's or a reaped wrapper's failure `oom` (A-052), and an end on the subscription limit of a job's
 // last resume is `quota-exhausted` (src/job/quota.ts). A side channel that fails there is written with the terminal
-// state in `sideFailures`. The
+// state in `sideFailures`. A read-only role's `done` end becomes `failed`, kind `read-only-violation`, when its
+// worktree or its own branch changed since its start state, or when that cannot be proven (src/job/read-only.ts,
+// A-081); any other end keeps its cause and logs the difference. The
 // transition is the commit point: a finisher that loses it writes nothing, and the group's events, the coordinator's
 // Herdr wake, the next round of its group and the job's tab, which read the terminal record, follow only the winner;
 // their failures go to the job's log, since nothing writes the record after a terminal state. The winner's last step,
@@ -21,6 +23,7 @@ import { jobScope } from "../runtime/launcher.ts";
 import { jobMembership, startGroupAdvance } from "./group-cabinet.ts";
 import { syncLifecycle } from "./group-events.ts";
 import { limitKind } from "./quota.ts";
+import { type Effect, readOnlyEffect } from "./read-only.ts";
 import {
 	appendLimenLog,
 	type DetectedFailure,
@@ -96,17 +99,22 @@ export async function readScope(record: JobRecord): Promise<ScopeRead> {
 }
 
 /**
- * Ends the job of `jobDir` as `end` says when it is still in a state of `options.from`; true when this call ended it,
- * false when it was in another state or another finisher already had.
+ * Ends the job of `jobDir` as `requested` says, after the read-only check of its role (`checkedEnd`), when it is
+ * still in a state of `options.from`; true when this call ended it, false when it was in another state or another
+ * finisher already had.
  */
-export async function finalizeJob(jobDir: string, end: JobEnd, options: FinalizeOptions = {}): Promise<boolean> {
-	const { state } = end;
-	const detail = end.state === "failed" ? end.failure.detail : end.detail;
+export async function finalizeJob(jobDir: string, requested: JobEnd, options: FinalizeOptions = {}): Promise<boolean> {
 	const from = options.from ?? ["starting", "running"];
 	const record = await readRecord(jobDir);
 	if (!(record && from.some((one) => one === record.state))) {
 		return false;
 	}
+	// Both `done` paths pass here, the engine's end and a `done:` stop (R-045 Decision 6).
+	const effect = await readOnlyEffect(jobDir, record);
+	const end = checkedEnd(requested, effect);
+	const { state } = end;
+	const detail = end.state === "failed" ? end.failure.detail : end.detail;
+	const readOnlyLine = requested.state !== "done" && effect?.kind === "changed" ? `read-only: ${effect.detail}` : "";
 	const sideFailures: SideFailure[] = [];
 	const commits = await countedCommits(record).catch((error: unknown) => {
 		sideFailures.push(sideFailure("commit count", error));
@@ -127,7 +135,10 @@ export async function finalizeJob(jobDir: string, end: JobEnd, options: Finalize
 			const line = inbox.length
 				? `${state}: ${detail}; ${inbox.length} steer(s) never delivered`
 				: `${state}: ${detail}`;
-			await appendLimenLog(jobDir, line).catch((error: unknown) => sideFailures.push(sideFailure("log", error)));
+			const lines = readOnlyLine ? [readOnlyLine, line] : [line];
+			for (const one of lines) {
+				await appendLimenLog(jobDir, one).catch((error: unknown) => sideFailures.push(sideFailure("log", error)));
+			}
 		},
 		set: (current) => ({
 			failure:
@@ -152,6 +163,19 @@ export async function finalizeJob(jobDir: string, end: JobEnd, options: Finalize
 		await endJobScope(jobDir, ended, options.onScopeNotEnded);
 	}
 	return true;
+}
+
+/**
+ * The end `requested` takes for a job whose read-only check gave `effect` (A-081): a `done` end of a job that changed
+ * its worktree or its own branch, or whose change cannot be proven, is `failed`, kind `read-only-violation`, with the
+ * difference or the `unproven:` detail as its detail; a `failed` end keeps its own kind, since a job has one cause
+ * (A-016 (1)), and a `stopped` end its state.
+ */
+function checkedEnd(requested: JobEnd, effect: Effect | undefined): JobEnd {
+	if (requested.state !== "done" || effect === undefined || effect.kind === "same") {
+		return requested;
+	}
+	return { state: "failed", failure: { kind: "read-only-violation", detail: effect.detail } };
 }
 
 /**

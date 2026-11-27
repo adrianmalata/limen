@@ -1,6 +1,6 @@
 // `limen stop` (src/job/stopping.ts) on a job named approximately, on a running job with no pid, on a job whose
-// wrapper moves it from starting to running while the stop runs, on a job that waits in the start queue, and the stop
-// request it records in a running job.
+// wrapper moves it from starting to running while the stop runs, on a job that waits in the start queue, the stop
+// request it records in a running job, and the end it prints, which is the record's (A-081).
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
@@ -17,6 +17,7 @@ import { withEnvironment } from "../environment.ts";
 import { outputText, readOutcome } from "../final-line.ts";
 import {
 	fakeSystemd,
+	git,
 	jobDir,
 	jobFile,
 	jobRecord,
@@ -142,6 +143,38 @@ test("a done: stop of a running job whose wrapper ends the job first ends it don
 	assert.deepEqual(
 		[line, jobRecord(p, id)?.stopRequested, terminalLines(p, id)],
 		[`${id} is already done`, "done: accepted", ["] done: done: accepted"]],
+	);
+});
+
+// R-045 Decision 17 F1, T-16: the stop's line is what its caller reads of the end, and the stop marks the caller as
+// told, so it names the end the record holds: a read-only role's `done:` stop after a write ends `failed` (A-081).
+// Each wrapper waits at the end gate LIMEN_END_GATE (D-029), whose file never appears, once its engine ended, so the
+// stop's own transition ends the job, by the order of events.
+test("a done: stop of a review job whose script committed prints the failed end its record holds, while a worker's done: stop prints done", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const held = { env: { LIMEN_END_GATE: join(p.parent, "end-gate") } };
+	const worker = spawnJob(p, "commit\nblock", [], held);
+	const candidate = spawnJob(p, "commit");
+	assert.equal(waitJob(p, candidate), "done");
+	const branch = jobRecord(p, candidate)?.branch ?? "";
+	const tip = git(p.root, "rev-parse", branch).slice(0, 12);
+	const review = spawnJob(p, "commit\nblock", ["--review", "--branch", branch], held);
+	for (const id of [worker, review]) {
+		await until(jobDir(p, id), () => existsSync(join(jobDir(p, id), "fake-blocked-1")));
+	}
+	const stop = (id: string) => limen(p, ["stop", id, "done: accepted"], { env: { LIMEN_STOP_GRACE_MS: "200" } });
+	const [workerStop, reviewStop] = [stop(worker), stop(review)];
+	const head = git(jobRecord(p, review)?.worktree ?? "", "rev-parse", "HEAD").slice(0, 12);
+	assert.deepEqual(
+		{
+			worker: [workerStop.status, outputText(workerStop), jobState(p, worker)],
+			review: [reviewStop.status, outputText(reviewStop), jobRecord(p, review)?.failure?.kind],
+		},
+		{
+			worker: [0, `done ${worker}: done: accepted\n`, "done"],
+			review: [0, `failed ${review}: read-only-violation: HEAD moved ${tip}..${head}\n`, "read-only-violation"],
+		},
 	);
 });
 

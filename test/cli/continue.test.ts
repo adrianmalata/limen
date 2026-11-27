@@ -1,6 +1,6 @@
 // `limen continue`: its start, the transcript it copies with the same mode, the context message it carries and the
 // note files it does not, its engine's environment, its refusals, and the unlanded work of its parent that it takes
-// (A-001), and the module check of its role (G1.10).
+// (A-001), the module check of its role (G1.10), and a read-only parent's start state and tools it keeps (A-081).
 import assert from "node:assert/strict";
 import { chmodSync, existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -139,6 +139,34 @@ test("a continuation of a parent folder without context.md publishes one built f
 	const child = startedJob(limen(p, ["continue", parent, "say next"]));
 	await ended(p, child);
 	assert.equal(readFileSync(join(jobDir(p, child), "context.md"), "utf8"), readFileSync(WORKER_CONTEXT, "utf8"));
+});
+
+// A-081, R-045 Decision 14: a continuation, a quota resume included, carries its parent's start state, so a write in
+// an earlier run is still a difference at the last run's end; it keeps its parent's role, and with it the role's tools.
+test("a reviewer's continuation runs with the reviewer's tool list and its parent's start state, so the untracked file its parent left fails its done", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const candidate = spawnJob(p, "commit");
+	assert.equal(waitJob(p, candidate), "done");
+	const branch = jobRecord(p, candidate)?.branch ?? "";
+	const parent = spawnJob(p, "untracked notes.txt", ["--review", "--branch", branch]);
+	await ended(p, parent);
+	const child = startedJob(limen(p, ["continue", parent, "say looked again"]));
+	assert.equal(waitJob(p, child), "failed");
+	const saved = (id: string, name: string) => readFileSync(join(jobDir(p, id), name), "utf8");
+	const argv: string[] = JSON.parse(saved(child, "fake-argv.json"));
+	assert.deepEqual(
+		{
+			tools: argv[argv.indexOf("--tools") + 1],
+			start: saved(child, "start-state.json") === saved(parent, "start-state.json"),
+			failure: jobRecord(p, child)?.failure,
+		},
+		{
+			tools: "read,bash,finish",
+			start: true,
+			failure: { kind: "read-only-violation", detail: "1 path changed: notes.txt", resetAt: null },
+		},
+	);
 });
 
 // A-044: the task note is cut, so an older parent's note files stay in its folder as content (D-057 (3)) and go no

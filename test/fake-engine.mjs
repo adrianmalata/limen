@@ -6,6 +6,8 @@
 //   a line>
 //   · edit <path> · write <path> (a call of Pi's edit or write tool with `{ path }`, which appends a line to the file
 //     or writes it, its folders made, and gives Pi's success text as its result)
+//   · untracked <path> (a bash call that writes the file <path> in the cwd, its folders made, as a write through bash
+//     does, which no tool list stops; the file is untracked unless the repository ignores it)
 //   · idle (a bash tool whose one child waits without CPU) · deaf (ignores SIGTERM from then on)
 //   · tools-on-term <n> (ignores the next SIGTERM and starts n bash tools on it, as an engine that works on in a grace)
 //   · die <SIGNAL> (ends this process by that signal, as the kernel's OOM killer ends one by SIGKILL)
@@ -19,8 +21,8 @@
 //     while a run is active is refused, and a new aborts that run first)
 //   · /<command> <args> (runs a command a hook registered, as a user typing it)
 // The task's run is Pi's first prompt: it is prepared at the start (`before_agent_start`), as Pi's prompt prepares it,
-// and makes its first model call at the first `tool`, `edit` or `write` word, each such word one call that ends in that
-// tool call, or after the last word. Until that call the session is idle, so the words before it stand for what happens
+// and makes its first model call at the first `tool`, `edit`, `write` or `untracked` word, each such word one call
+// that ends in that tool call, or after the last word. Until that call the session is idle, so the words before it stand for what happens
 // while a session waits: a wake, a command, a `block`. Every other run starts from a message a hook sends, as Pi 1.5.1
 // runs it: a user message sent while the session is idle marks it busy only after Pi's awaits before `_startRun`, so
 // two sent in one stretch both start a run, and the second fails with Pi's error and settles inside the first (E-21); a
@@ -636,13 +638,23 @@ async function toolResult(event) {
 	}
 	return { content: current.content, isError: current.isError };
 }
-/** Pi's active tools (`core/settings-manager.js:35`, `cli/args.js` `--tools`, `--no-tools`) and the hooks' own. */
+/** Pi 1.5.1's built-in tools (`core/tools/index.js:19-28`), its defaults first (`core/settings-manager.js:35`). */
+const BUILT_IN = ["read", "bash", "edit", "write", "powershell", "grep", "find", "ls"];
+/**
+ * Pi 1.5.1's active tools: none with `--no-tools`; without `--tools`, its defaults and every tool a hook registers;
+ * with it, each name it lists that is a built-in or a registered tool, since the allowlist also filters registered
+ * tools (`core/sdk.js:148-157`, `core/agent-session.js:1197-1203`). Limen's lists hold plain names, so no pattern is
+ * read.
+ */
 function activeTools() {
 	if (args.includes("--no-tools")) {
 		return [];
 	}
 	const listed = flag("--tools");
-	return listed ? listed.split(",").filter(Boolean) : ["read", "bash", "edit", "write", ...tools.keys()];
+	if (!listed) {
+		return [...BUILT_IN.slice(0, 4), ...tools.keys()];
+	}
+	return listed.split(",").filter((name) => BUILT_IN.includes(name) || tools.has(name));
 }
 
 let blocks = 0;
@@ -756,6 +768,10 @@ for (const line of task.split("\n")) {
 		await answer({ tool: { name: "bash", input: { command: value } } });
 	} else if (word === "edit" || word === "write") {
 		await answer({ tool: { name: word, input: { path: value } } });
+	} else if (word === "untracked") {
+		await answer({ tool: { name: "bash", input: { command: `printf 'a write through bash\\n' > ${value}` } } });
+		mkdirSync(dirname(resolve(cwd, value)), { recursive: true });
+		writeFileSync(resolve(cwd, value), "a write through bash\n");
 	} else if (word === "block") {
 		await block();
 	} else if (word === "idle") {

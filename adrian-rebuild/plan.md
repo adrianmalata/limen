@@ -184,7 +184,9 @@ porażka testu wake w bramce R-041 dała D-135: wyjątek od D-029 dla A-092 do c
 Przekazanie do limen-rebuild-44: inwentarz R-112 pokazał, że hook wake nie czeka na zapis rejestru projektów, który
 przeżywa jego zatrzymanie → D-136 (zatrzymanie hooka czeka na ten zapis, testy zatrzymują hook przed usunięciem
 folderu) i fakt E-22 (Pi czeka na handlery `session_shutdown`); po przerwie Adriana R-112 zamknięty (bramka
-1440/1440, recenzja PASS w pierwszej rundzie), a wyjątek D-135 zniknął z protokołu w `## Agents`. -->
+1440/1440, recenzja PASS w pierwszej rundzie), a wyjątek D-135 zniknął z protokołu w `## Agents`; R-045 zamknięty
+(narzędzia i skille według roli, rola tylko do odczytu, która coś zapisze, kończy się `failed`; recenzja FAIL, PASS,
+PASS). -->
 
 
 
@@ -1640,6 +1642,27 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   before the change shows the registry written, with no lock left, after an awaited shutdown. (3) R-112's sources add
   D-136 and E-22; its title stays. The main session carries it out (his consent in the same answer). Check: R-112's
   criteria.
+- 2026-11-27 D-137 (Adrian: "Wybieram rekomendacje"; Q-102, option (b); he is away from Saturday 15:00 to Sunday
+  about 20:00, and logged in on his phone): (1) after R-045's commit the main session hands over by D-047, and the next
+  session runs D-024's preflight and starts `night.mjs --until 08:00` by D-102 (2); (2) on Saturday by day the session
+  moves his answers from `.night/questions.md` and closes the unblocked tickets; (3) on Saturday at about 15:00 the
+  session starts `night.mjs --until 08:30`, and at that run's end, when a `night` ticket of the stage can still start,
+  `night.mjs --until 19:30` (`--until` reaches at most 18 h ahead: `HORIZON_HOURS` of `night.mjs`). His choice is his request
+  for each of these starts (D-024). Before he leaves, the laptop is set as for D-053 (4) (his settings). A night run
+  has no Remote Control, so its questions go to `.night/questions.md`. Check: `## State` and `.night/status.json` of
+  each run.
+- 2026-11-27 D-138 (Adrian: "rekomendacja"; Q-103, option (b)): `git log --grep='^R-NNN:'` matches any line of a
+  message, and the published commits `b6365c8` and `f749fae` hold a body line that starts with `R-045:` and `R-105:`,
+  so D-009's Rollback line would revert those commits too, and `check.mjs` counted them as the tickets' commits. (1)
+  `tools/changes-entries.mjs` finds a ticket's commit by its subject, as D-009 words it ("keyed by the commit subject",
+  "exactly one commit with the subject `R-NNN:`"; the main session's reading). (2) An entry's Rollback keeps D-009's
+  form while every commit its `--grep` finds has a subject that starts with `R-NNN:`; otherwise it is `git revert
+  $(git log --format='%H %s' adrian-rebuild -- | awk '$2 == "R-NNN:" {print $1}')`, which `check.mjs` requires and
+  names in its error. Built by the main session with a test and a `rebuild-reviewer` review in
+  `evidence/changes-subject/`, a `Tools:` commit right after R-045's (R-045's check runs on the working tree that holds
+  the change, and the comments cite this entry, which R-045's commit carries). A commit body of the main session
+  starts no line with `R-NNN:`, since such a line would make an older entry's Rollback collide. Check: `node --test
+  adrian-rebuild/tools/test-changes-entries.mjs`.
 
 ### Gate 2 §2, copied
 
@@ -2055,7 +2078,7 @@ Columns:
 | R-042 | The task-note mechanism is cut | 4 | A-044, A-059, D-121 | R-039 | M | delegated | night | yes | — | — | done |
 | R-043 | Just-in-time reminders arrive in the triggering tool result | 4 | A-041, H-12 | R-039 | M | delegated | night | — | pi | 4.5 | done |
 | R-044 | Module switches; hooks load by role and module | 4 | G1.10, G1.1, G1.2, G1.9, A-082, A-040, D-122, D-124 | R-015, R-039, R-040 | M | delegated | night | yes | pi | 4.7, 4.9 | done |
-| R-045 | Tools and skills per role; a read-only role that writes fails | 4 | A-081, E-5, D-123, D-125 | R-042, R-044 | M | delegated | night | — | pi, bridge | 4.3 | active |
+| R-045 | Tools and skills per role; a read-only role that writes fails | 4 | A-081, E-5, D-123, D-125 | R-042, R-044 | M | delegated | night | — | pi, bridge | 4.3 | done |
 | R-046 | Role prompts are literal, sourced and budgeted | 4 | T-09, T-14, T-15, T-08, T-10, T-21, A-043, A-085, A-040 | R-040, R-041, R-042, R-044 | L | pair | day-after | — | — | — | planned |
 | R-047 | The coordinator never waits | 4 | T-34 | R-039 | S | delegated | night | — | pi | 4.6 | ready |
 | R-104 | The sweep's daily prune archives every unregistered folder and waits on no job's lock; a queue entry is live only for a project's job | 4 | A-002, A-024, T-25, D-107 | R-101 | M | delegated | night | — | — | — | ready |
@@ -6176,3 +6199,10 @@ the terminal being active; context 8 % at the start; `HEAD` = `origin/adrian-reb
 - R-045 `active` at `e645561` (protocol step 2): its facts' places after R-038–R-044, R-041 and R-112 in its Decision 16;
   fact 5 no longer holds (R-042: a continuation copies no file of its parent), and `--role communication` already
   refuses (R-041), so Change 8's spawning test names `manual` and `styleguide`; AC-12 names the gate's `--out`.
+- R-045 `done` (delegated): the main session's gates 1466/1466 (339.7 s), 1470/1470 (382.1 s) and 1471/1471 (359.3 s),
+  `fails-before.mjs` exit 0 after each. Review round 1 FAIL (one blocking: `limen stop … "done: …"` printed `done` while
+  the record ended `failed`, `read-only-violation`, and marked the caller told) → F1–F5 (Decision 17); round 2 PASS →
+  G1–G3, the last round (Decision 18); round 3 PASS, its doc note fixed by the main session (D-053 (2)), its parser note
+  in `outcome.md` → Open points 9 (D-092). For gate 5.4: R-045 Decisions 16–18, Deviations 1–10, Open points 1–9.
+  The implementer's three HEAD-copy folders stay in the gate's private TMPDIR (`head-run-*`; `rm` is denied).
+

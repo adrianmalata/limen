@@ -22,9 +22,15 @@ const SESSION = "coord";
 /**
  * Runs the fake engine on the script `task` in a new folder, with one test extension: `body` is its factory's body with
  * `pi`, and its `note(value)` adds a JSON line to seen.jsonl; `files` are written in the folder first, by their paths
- * in it. Returns the folder, the engine's record dir.
+ * in it, and `flags` go on the engine's command line before the prompt. Returns the folder, the engine's record dir.
  */
-async function fake(t: TestContext, task: string, body: string, files: Record<string, string> = {}): Promise<string> {
+async function fake(
+	t: TestContext,
+	task: string,
+	body: string,
+	files: Record<string, string> = {},
+	flags: readonly string[] = [],
+): Promise<string> {
 	const dir = await mkdtemp(join(tmpdir(), "limen-fake-"));
 	t.after(() => rm(dir, { recursive: true, force: true }));
 	for (const [name, text] of Object.entries(files)) {
@@ -35,7 +41,7 @@ async function fake(t: TestContext, task: string, body: string, files: Record<st
 	const source = `import { appendFileSync } from "node:fs";\nconst note = (value) => appendFileSync(${seen}, \`\${JSON.stringify(value ?? null)}\\n\`);\nexport default function test(pi) {\n${body}\n}\n`;
 	await writeFile(join(dir, "test.mjs"), source);
 	await writeFile(join(dir, "task.md"), task);
-	again(dir, `@${join(dir, "task.md")}`);
+	again(dir, ...flags, `@${join(dir, "task.md")}`);
 	return dir;
 }
 /**
@@ -184,6 +190,24 @@ test("a tool_result handler's content replaces an edit's result in the next call
 		{ role: "tool", text: ["Successfully wrote to notes/a.md"], tools: ["mcp__custom-tools__write"] },
 		{ role: "tool", text: ["patched edit"], tools: ["mcp__custom-tools__edit"] },
 	]);
+});
+
+/** A test extension's line that registers a tool of `name`, as a hook registers `finish`. */
+const registers = (name: string) =>
+	`pi.registerTool({ name: "${name}", label: "${name}", description: "${name}", parameters: { type: "object" }, execute: async () => ({ content: [] }) });`;
+
+// A-081, R-045: Pi 1.5.1's active tools are its defaults and every tool an extension registers; `--tools` replaces them
+// with the names it lists that are a built-in or a registered tool (`core/sdk.js:148-157`,
+// `core/agent-session.js:1197-1203`), and the bridge serves exactly those (E-5).
+test("the model view lists Pi's defaults and each registered tool without --tools, and with it only the listed names that are a built-in or a registered tool", async (t) => {
+	const body = `${registers("finish")}\n${registers("extra")}`;
+	const plain = await fake(t, "say done", body);
+	const listed = await fake(t, "say done", body, {}, ["--tools", "read,bash,finish,nonesuch"]);
+	const served = (names: readonly string[]) => names.map((name) => `mcp__custom-tools__${name}`);
+	assert.deepEqual(
+		{ plain: views(plain)[0]?.tools, listed: views(listed)[0]?.tools },
+		{ plain: served(["read", "bash", "edit", "write", "finish", "extra"]), listed: served(["read", "bash", "finish"]) },
+	);
 });
 
 test("a run ends with agent_end, then agent_settled", async (t) => {

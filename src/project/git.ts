@@ -331,6 +331,31 @@ const STATUS = ["--no-optional-locks", "status", "--porcelain", "-z", "--untrack
 export function dirtyPaths(cwd: string): { readonly paths: readonly string[]; readonly staged: readonly string[] } {
 	return statusPaths(requireGit(cwd, STATUS).stdout);
 }
+/** One path `git status` lists: its two-letter code, the path, and for a rename or a copy the path it came from. */
+export type StatusEntry = { readonly code: string; readonly path: string; readonly from?: string };
+/**
+ * Every entry of `git status` in the checkout at `cwd`, each untracked file on its own and ignored files left out,
+ * read without refreshing its index; a failed status is the environment's (GIT_FAILED, exit 4), with git's words.
+ */
+export function statusEntries(cwd: string): readonly StatusEntry[] {
+	return parsedStatus(requireGit(cwd, STATUS).stdout);
+}
+/** The entries of the output `stdout` of a `git status --porcelain -z`: the one parser of that format (T-25 (2)). */
+function parsedStatus(stdout: string): readonly StatusEntry[] {
+	const fields = stdout.split("\0");
+	const entries: StatusEntry[] = [];
+	for (let index = 0; index < fields.length; index++) {
+		const field = fields[index] ?? "";
+		if (field.length < 4) {
+			continue;
+		}
+		const entry = { code: field.slice(0, 2), path: field.slice(3) };
+		// A rename or copy names its source path in the next field.
+		const renamed = field[0] === "R" || field[0] === "C";
+		entries.push(renamed ? { ...entry, from: fields[++index] ?? "" } : entry);
+	}
+	return entries;
+}
 /**
  * The paths `git status` lists in the worktree at `cwd`, read without refreshing its index (T-04): changes, deletions
  * and untracked files, not ignored ones (A-001). Undefined when no checkout is there: no folder, no `.git`, or one Git
@@ -437,24 +462,12 @@ function zEntries(stdout: string): ReadonlyArray<readonly [string, string]> {
 }
 /** The paths of the output of `STATUS`, and those whose change is already in the index. */
 function statusPaths(stdout: string): { readonly paths: readonly string[]; readonly staged: readonly string[] } {
-	const fields = stdout.split("\0");
-	const paths: string[] = [];
-	const staged: string[] = [];
-	for (let index = 0; index < fields.length; index++) {
-		const field = fields[index] ?? "";
-		if (field.length < 4) {
-			continue;
-		}
-		paths.push(field.slice(3));
-		if (field[0] !== " " && field[0] !== "?") {
-			staged.push(field.slice(3));
-		}
-		// A rename or copy names its source path in the next field.
-		if ((field[0] === "R" || field[0] === "C") && fields[index + 1]) {
-			paths.push(fields[++index] ?? "");
-		}
-	}
-	return { paths, staged };
+	const entries = parsedStatus(stdout);
+	return {
+		paths: entries.flatMap((entry) => (entry.from ? [entry.path, entry.from] : [entry.path])),
+		// A change already in the index has a first letter other than a space, and an untracked file has `?`.
+		staged: entries.filter((entry) => entry.code[0] !== " " && entry.code[0] !== "?").map((entry) => entry.path),
+	};
 }
 /** Paths that merging `branch` into HEAD changes: every path the branch changed since their merge base. */
 export function mergePaths(cwd: string, branch: string): ReadonlySet<string> {

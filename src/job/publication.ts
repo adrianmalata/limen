@@ -8,6 +8,7 @@ import { CONTEXT_FILE } from "../runtime/context-message.ts";
 import type { EngineId } from "../runtime/engine.ts";
 import { groupLock } from "./group-cabinet.ts";
 import { SESSION_ID } from "./job.ts";
+import { START_STATE_FILE } from "./read-only.ts";
 import { type Facts, publishRecord, writeProgress } from "./record.ts";
 
 /**
@@ -86,6 +87,8 @@ type NewJob = {
 	readonly session?: { readonly source: string; readonly name: string };
 	/** The number of a resume after the subscription limit (A-016 (5)), which the record keeps as `quotaAttempt`. */
 	readonly quotaAttempt?: number;
+	/** A read-only parent's start state, which a continuation carries (src/job/read-only.ts, R-045 Decision 14). */
+	readonly startState?: Uint8Array;
 };
 
 /**
@@ -113,6 +116,9 @@ export async function publishJob(jobDir: string, job: NewJob): Promise<void> {
 		};
 		if (job.notificationSession) {
 			files[`notify/subscribers/${job.notificationSession}`] = `${startedAt}\n`;
+		}
+		if (job.startState) {
+			files[START_STATE_FILE] = job.startState;
 		}
 		await mkdir(`${publishing}/notify/subscribers`, { recursive: true });
 		const attempt = job.quotaAttempt === undefined ? {} : { quotaAttempt: job.quotaAttempt };

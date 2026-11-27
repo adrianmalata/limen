@@ -6,13 +6,15 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
-import { finalizeJob } from "../../src/job/finalize.ts";
-import { readRecord, type Scope } from "../../src/job/record.ts";
+import { finalizeJob, requestedEnd } from "../../src/job/finalize.ts";
+import { type JobRecord, readRecord, type Scope } from "../../src/job/record.ts";
 import { withEnvironment } from "../environment.ts";
 import {
 	failingSystemdRun,
 	fakeCgroup,
 	fakeSystemd,
+	git,
+	repository,
 	SCOPE_READINGS,
 	scopeProcess,
 	systemdCalls,
@@ -268,4 +270,114 @@ test("finalizeJob of a team's coordinator writes a line in the job's log when th
 		readFileSync(join(job, "log"), "utf8"),
 		/\] the group's next round could not start: systemd-run did not run .+: it ended with exit code 1\n/,
 	);
+});
+
+/**
+ * A running job `name` of `role` in `folder` whose worktree is a new repository on `main`, clean at its one commit,
+ * and the job folder's `start-state.json` as docs/jobs.md describes it: that commit as HEAD, no branch of its own (a
+ * reviewer's), no path in `git status`. A writer's job holds the file too, which its end does not read.
+ */
+async function roleJob(folder: string, name: string, role: string): Promise<{ job: string; worktree: string }> {
+	const worktree = join(folder, `${name}-worktree`);
+	await repository(worktree);
+	const job = join(folder, name);
+	const base = git(worktree, "rev-parse", "HEAD");
+	await writeRecord(job, { state: "running", identity: IDENTITY, role, worktree, branch: "main", base });
+	writeFileSync(join(job, "start-state.json"), `${JSON.stringify({ head: base, branch: null, status: [] })}\n`);
+	return { job, worktree };
+}
+
+/** The record of the job folder `job`, which the test wrote. */
+async function recordOf(job: string): Promise<JobRecord> {
+	const record = await readRecord(job);
+	assert.ok(record, `${job} holds a record`);
+	return record;
+}
+
+/** The first 12 hex digits of HEAD in `worktree`. */
+const head = (worktree: string) => git(worktree, "rev-parse", "HEAD").slice(0, 12);
+
+// A-081: the tool list is a noise guard, since bash can still write; the effect check at the end is the guarantee, and
+// it holds a read-only role only, so a worker's commit is its work.
+test("A-081: a reviewer's done end after a commit in its worktree ends failed, kind read-only-violation, naming HEAD's move, and a worker's done end after a commit stays done", async (t) => {
+	const { folder } = await jobFolder(t);
+	const reviewer = await roleJob(folder, "reviewer", "reviewer");
+	const worker = await roleJob(folder, "worker", "worker");
+	const before = head(reviewer.worktree);
+	for (const { worktree } of [reviewer, worker]) {
+		git(worktree, "commit", "-q", "--allow-empty", "-m", "a write");
+	}
+	await finalizeJob(reviewer.job, { state: "done", detail: "pi exited 0" });
+	await finalizeJob(worker.job, { state: "done", detail: "pi exited 0" });
+	const [ended, kept] = [await recordOf(reviewer.job), await recordOf(worker.job)];
+	assert.deepEqual(
+		{ reviewer: [ended.state, ended.failure], worker: [kept.state, kept.failure, kept.commits?.length] },
+		{
+			reviewer: [
+				"failed",
+				{ kind: "read-only-violation", detail: `HEAD moved ${before}..${head(reviewer.worktree)}`, resetAt: null },
+			],
+			worker: ["done", null, 1],
+		},
+	);
+});
+
+// R-045 Decision 12: a silent false success is critical, so an end that cannot be compared is never done.
+test("a reviewer's done end with no start state, a damaged one, or a worktree git cannot read ends failed, kind read-only-violation, detail unproven", async (t) => {
+	const { folder } = await jobFolder(t);
+	const missing = await roleJob(folder, "missing", "reviewer");
+	rmSync(join(missing.job, "start-state.json"));
+	const damaged = await roleJob(folder, "damaged", "reviewer");
+	writeFileSync(join(damaged.job, "start-state.json"), "{");
+	// A `.git` file that names no repository stops git at once, so it never reads a repository above the worktree.
+	const gone = await roleJob(folder, "gone", "reviewer");
+	rmSync(join(gone.worktree, ".git"), { recursive: true, force: true });
+	writeFileSync(join(gone.worktree, ".git"), "gitdir: /nonexistent\n");
+	const failures = [];
+	for (const { job } of [missing, damaged, gone]) {
+		await finalizeJob(job, { state: "done", detail: "pi exited 0" });
+		const { state, failure } = await recordOf(job);
+		failures.push([state, failure?.kind, failure?.detail.split(": ").slice(0, 2).join(": ")]);
+	}
+	assert.deepEqual(failures, [
+		["failed", "read-only-violation", `unproven: ${join(missing.job, "start-state.json")} is missing`],
+		["failed", "read-only-violation", `unproven: ${join(damaged.job, "start-state.json")}`],
+		["failed", "read-only-violation", `unproven: the worktree ${gone.worktree} cannot be read`],
+	]);
+});
+
+// Fact 4 of R-045: a stop whose reason starts with `done:` ends the job done through the same end as the engine's.
+test("a done: stop of a reviewer that committed ends failed, kind read-only-violation", async (t) => {
+	const { folder } = await jobFolder(t);
+	const { job, worktree } = await roleJob(folder, "reviewer", "reviewer");
+	const before = head(worktree);
+	git(worktree, "commit", "-q", "--allow-empty", "-m", "a write");
+	await finalizeJob(job, requestedEnd("done: reviewed"));
+	const { state, failure } = await recordOf(job);
+	assert.deepEqual(
+		[state, failure?.kind, failure?.detail],
+		["failed", "read-only-violation", `HEAD moved ${before}..${head(worktree)}`],
+	);
+});
+
+// A-016 (1): one cause per job, so a failed end keeps its kind and a stopped end its state; the log keeps the write.
+test("a reviewer's failed end keeps its kind and a stopped end its state, and each logs read-only: with the difference", async (t) => {
+	const { folder } = await jobFolder(t);
+	const failed = await roleJob(folder, "failed", "reviewer");
+	const stopped = await roleJob(folder, "stopped", "reviewer");
+	for (const { worktree } of [failed, stopped]) {
+		writeFileSync(join(worktree, "notes.txt"), "a write through bash\n");
+	}
+	await finalizeJob(failed.job, { state: "failed", failure: { kind: "timeout", detail: "timeout after 3000ms" } });
+	await finalizeJob(stopped.job, { state: "stopped", detail: "stopped by request" });
+	const ends = [];
+	for (const { job } of [failed, stopped]) {
+		const { state, failure } = await recordOf(job);
+		const logged = readFileSync(join(job, "log"), "utf8").includes("] read-only: 1 path changed: notes.txt\n");
+		ends.push([state, failure?.kind ?? null, logged]);
+	}
+	assert.deepEqual(ends, [
+		["failed", "timeout", true],
+		["stopped", null, true],
+	]);
 });

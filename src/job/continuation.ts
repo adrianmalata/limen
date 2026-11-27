@@ -53,6 +53,7 @@ import {
 import { syncLifecycle } from "./group-events.ts";
 import { isTerminal, parseDuration } from "./job.ts";
 import { publishJob } from "./publication.ts";
+import { carriedStartState } from "./read-only.ts";
 import { type JobRecord, readRecord } from "./record.ts";
 import { type JobReference, jobsLock, newJobId, referenceWord, resolveJob } from "./reference.ts";
 import { normalizeLabel, recordVersions, resolvePreamble, waitForHandshake } from "./spawning.ts";
@@ -200,6 +201,7 @@ type ContinuationRecord = {
 	readonly group: ContinuationGroup | undefined;
 	readonly route: WakeRouting;
 	readonly quotaAttempt: number | undefined;
+	readonly startState: Uint8Array | undefined;
 };
 /** A published continuation, ready to start as a detached wrapper. */
 type Continuation = {
@@ -232,6 +234,12 @@ type ContinuePlan = {
 	readonly role: string;
 	/** The context message the continuation publishes: its parent's, or one built for a parent that has none. */
 	readonly context: string | Uint8Array;
+	/**
+	 * The start state of a read-only parent, which the continuation publishes byte for byte, so a write in an earlier
+	 * run, a quota resume's included, is still a difference at the last run's end (R-045 Decision 14); none for a
+	 * parent that holds none, whose continuation's wrapper takes its own.
+	 */
+	readonly startState: Uint8Array | undefined;
 	readonly repository: string;
 	readonly route: WakeRouting;
 };
@@ -316,6 +324,7 @@ async function validateContinue(
 		label: finalLabel,
 		role,
 		context,
+		startState: carriedStartState(parentDir),
 		repository,
 		route: wakeRouting(parent, membership),
 	};
@@ -377,6 +386,7 @@ async function publishContinue(plan: ContinuePlan): Promise<ContinuedRecord> {
 		group,
 		route: plan.route,
 		quotaAttempt: plan.options.quotaAttempt,
+		startState: plan.startState,
 	});
 	return { id, jobDir, group };
 }
@@ -590,6 +600,7 @@ async function publishContinuation(record: ContinuationRecord): Promise<void> {
 		...(coordinatorPane ? { originPane: coordinatorPane } : {}),
 		...(record.group ? { group: { id: record.group.id, team: record.group.team } } : {}),
 		...(record.quotaAttempt === undefined ? {} : { quotaAttempt: record.quotaAttempt }),
+		...(record.startState === undefined ? {} : { startState: record.startState }),
 	});
 }
 async function restoreParentWorktree(

@@ -5,7 +5,7 @@
 // the scope, an exhaustion whose scope cannot be ended still kills its process group, a TERM or a signal without a
 // stop request ends a job failed, a TERM after the engine ended changes nothing, the tests' end gate holds a wrapper
 // only in test mode, the engine's argv appends nothing to Pi's system prompt, a job folder without its context
-// message starts no engine, and the 80 % steer's text per role.
+// message starts no engine, a read-only role's start state before its engine, and the 80 % steer's text per role.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -25,6 +25,7 @@ import { withEnvironment } from "../environment.ts";
 import {
 	engineEvents,
 	fakeSystemd,
+	git,
 	jobDir,
 	jobFile,
 	jobRecord,
@@ -313,6 +314,44 @@ test("a job whose folder holds no context.md when its engine would start ends fa
 			},
 			"",
 		],
+	);
+});
+
+/** A worker job of `p` that committed once and ended done: a candidate a review job reads, by its id and branch. */
+function candidateJob(p: Plant): { readonly id: string; readonly branch: string } {
+	const id = spawnJob(p, "commit");
+	assert.equal(waitJob(p, id), "done");
+	return { id, branch: jobRecord(p, id)?.branch ?? "" };
+}
+
+// A-081, R-045 Decision 7: a read-only role's start state is taken after setup and before its engine, so the commit its
+// script makes first is not in it; a writer's job takes none.
+test("a review job's wrapper writes start-state.json at its candidate's commit before its engine runs, and a worker job writes none", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const worker = candidateJob(p);
+	const review = spawnJob(p, "commit", ["--review", "--branch", worker.branch]);
+	waitJob(p, review);
+	const start: { head?: string } = JSON.parse(jobFile(p, review, "start-state.json") || "{}");
+	assert.deepEqual(
+		{ head: start.head, worker: existsSync(join(jobDir(p, worker.id), "start-state.json")) },
+		{ head: git(p.root, "rev-parse", worker.branch), worker: false },
+	);
+});
+
+// R-045 Decision 12, D-095: a start state git cannot take leaves nothing to compare the end with, so no engine starts.
+// The --prepare command makes the worktree's `.git` file name no repository, which stops git at once.
+test("a review job whose start state git cannot take ends failed, kind launch, naming the worktree, and starts no engine", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	const { branch } = candidateJob(p);
+	const broken = "printf 'gitdir: /nonexistent\\n' > .git";
+	const review = spawnJob(p, "say never", ["--review", "--branch", branch, "--prepare", broken]);
+	assert.equal(waitJob(p, review), "failed");
+	const { failure, worktree } = jobRecord(p, review) ?? {};
+	assert.deepEqual(
+		[failure?.kind, failure?.detail.split(": ").slice(0, 1).join(""), jobFile(p, review, "fake-argv.json")],
+		["launch", `the start state of the worktree ${worktree} could not be taken`, ""],
 	);
 });
 

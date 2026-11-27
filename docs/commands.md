@@ -154,6 +154,9 @@ Spawn requires `--engine`, `--provider`, `--model` and `--thinking`: without one
 
 Every Pi job keeps `--no-extensions` and all required Limen hooks. The selected list is published with the job in its record's `extensions`; startup checks that its targets still exist. A missing legacy record means no extras. A malformed record or unavailable target is an error.
 
+A job's tools are its role's list in the role table (`src/runtime/roles.ts`), which Limen passes to Pi as `--tools`. That list also filters the tools an extension registers, so an extension's tool reaches a job only when its role's list names it, and no list names a tool of a selected
+extension now: a selected extension still loads, for example to add a model route, but its tools stay out of the job. Its skills do not: Limen passes `--no-skills`, which still loads the skills a package given with `--extension` declares. The extensions Limen selects itself, its hooks and the bridge, declare none.
+
 For ordinary jobs, `continue` inherits the parent's list when no `--extension` is given. Supplied flags replace the whole list, even if an old path is unavailable; the parent record stays unchanged. Repeat the chosen `--provider`, `--model` and `--thinking` flags: continuation does not inherit those choices. An ordinary fresh `spawn`, including `spawn --branch`, has no user extras unless selected. Group members instead inherit the fixed recorded team list; they cannot replace it. There is no clear-list flag.
 
 Only paths are retained, not extension source or dependency versions. Later edits or upgrades at those paths affect later launches. See [extension trust and model routes](setup.md#personal-model-routes-and-pi-extensions) before selecting third-party code.

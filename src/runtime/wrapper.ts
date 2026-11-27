@@ -9,6 +9,7 @@ import { promptStartNotice } from "../integrations/coordinator-wake.ts";
 import { finalizeJob, isFailedStopReason, type JobEnd, requestedEnd } from "../job/finalize.ts";
 import { jobMembership } from "../job/group-cabinet.ts";
 import { formatDuration } from "../job/job.ts";
+import { recordStartState } from "../job/read-only.ts";
 import {
 	appendLimenLog,
 	type DetectedFailure,
@@ -31,6 +32,7 @@ import { hookSet } from "./hook-set.ts";
 import { setUpJob, worktreeMissing } from "./job-setup.ts";
 import { jobScope } from "./launcher.ts";
 import { processIdentity, stopGraceMs } from "./reap.ts";
+import { type JobRole, jobRole } from "./roles.ts";
 import { type CpuSample, peakAfter, type StallWatch, stallStep, stallTickMs, toolStallMs } from "./stalled-tool.ts";
 import { enterStartQueue, waitForStart } from "./start-queue.ts";
 import { createStreamParser, type StreamEvent } from "./stream.ts";
@@ -195,10 +197,10 @@ export async function runInternalJob(): Promise<void> {
 	if (transport("LIMEN_SETUP") === "1") {
 		await setUpJob(jobDir, worktree, childEnvironment);
 	}
-	const missing = worktreeMissing(worktree) ?? contextMissing(jobDir);
-	if (missing) {
+	const launch = await launchable(jobDir, worktree, record);
+	if (typeof launch === "string") {
 		const options = { shutdownDeadline };
-		await finalizeJob(jobDir, { state: "failed", failure: { kind: "launch", detail: missing } }, options);
+		await finalizeJob(jobDir, { state: "failed", failure: { kind: "launch", detail: launch } }, options);
 		return;
 	}
 	// The timeout and a group deadline count from engine start, so time in the start queue never counts against them.
@@ -250,6 +252,8 @@ export async function runInternalJob(): Promise<void> {
 	const args = argvFor(profile, {
 		jobDir,
 		label,
+		tools: launch.tools,
+		skills: launch.skills,
 		extensions: [
 			...hookSet({ session: "job", member: Boolean(await jobMembership(jobDir)) }).map((hook) => `${HOOK}/${hook}.ts`),
 			...(await readWorkerExtensions(jobDir, record)),
@@ -388,6 +392,25 @@ export async function runInternalJob(): Promise<void> {
 		await atomicWrite(`${jobDir}/result`, `${seen.assistant}\n`).catch(() => {});
 	}
 	await finalizeJob(jobDir, engineEnding(result, seen, current, profile.id), options);
+}
+/**
+ * The role table's entry of the job's role when its engine can start, or why it cannot, which ends the job `failed`,
+ * kind `launch` (D-095): its worktree is missing or is no Git checkout, its folder holds no context message, its role
+ * has no entry in the role table, so it would have no tool list (A-081, E-5), or the start state of a read-only role,
+ * which the job's end compares with, cannot be taken, by git or by a read of a path its status lists
+ * (src/job/read-only.ts). The start state is taken here, after setup, so a file `--prepare` left is no write of the
+ * job (R-045 Decision 7).
+ */
+async function launchable(jobDir: string, worktree: string, record: JobRecord | undefined): Promise<JobRole | string> {
+	const missing = worktreeMissing(worktree) ?? contextMissing(jobDir);
+	if (missing) {
+		return missing;
+	}
+	const role = jobRole(record?.role);
+	if (!(record && role)) {
+		return `the job's role ${record?.role ?? "none"} has no entry in the role table, so the engine did not start`;
+	}
+	return (await recordStartState(jobDir, record)) ?? role;
 }
 /**
  * Why the engine cannot start without its context message (A-086): the job's folder holds no `context.md`, as a folder

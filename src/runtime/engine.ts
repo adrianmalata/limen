@@ -1,10 +1,11 @@
 import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { exception } from "../config.ts";
 import type { JobRecord } from "../job/record.ts";
 import { refuseRemovedEngine } from "../old-names.ts";
-import { environmentError, refused, usageError } from "../outcome.ts";
+import { environmentError, LimenError, refused, usageError } from "../outcome.ts";
 
 export type EngineId = "pi";
 export type EngineProfile = {
@@ -25,7 +26,12 @@ export type EngineArgv = {
 	readonly thinking?: string;
 	readonly continueValue?: string;
 	readonly taskFile?: string;
+	/** The job role's tools and skills from the role table (src/runtime/roles.ts), never from a settings file (T-03). */
+	readonly tools: readonly string[];
+	readonly skills: readonly string[];
 };
+/** The package's root, which a role's skill path is relative to: root-owned on the seat (A-025). */
+const PACKAGE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 export const ENGINES: { readonly [K in EngineId]: EngineProfile } = {
 	pi: {
 		id: "pi",
@@ -85,6 +91,15 @@ export function preflightEngine(profile: EngineProfile, model?: string, provider
 }
 
 export function argvFor(profile: EngineProfile, slots: EngineArgv): string[] {
+	// E-5: with no Pi tool the bridge gives Claude Code its own Bash, Read and Write back, so no role runs without one.
+	if (slots.tools.length === 0) {
+		throw new LimenError({
+			class: "internal",
+			code: "NO_TOOLS",
+			message: "the job's role names no tool, so the engine would run with Claude Code's own tools",
+			next: null,
+		});
+	}
 	const args: string[] = ["--mode", "json"];
 	if (profile.projectTrust) {
 		args.push("--approve");
@@ -93,6 +108,12 @@ export function argvFor(profile: EngineProfile, slots: EngineArgv): string[] {
 		args.push("--auto-approve");
 	}
 	args.push("--no-extensions", "--session-dir", `${slots.jobDir}/session`);
+	// A-081, E-6: `--tools` replaces Pi's defaults and a settings file's `defaultTools` and filters the tools a hook
+	// or an extension registers; `--no-skills` loads only the `--skill` paths, the role's own.
+	args.push("--tools", slots.tools.join(","), "--no-skills");
+	for (const skill of slots.skills) {
+		args.push("--skill", resolve(PACKAGE_ROOT, skill));
+	}
 	if (profile.sessionName) {
 		args.push("--name", `limen: ${slots.label}`);
 	}
