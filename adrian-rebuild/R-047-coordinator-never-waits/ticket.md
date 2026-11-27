@@ -2,7 +2,8 @@
 odmawia w Bash `sleep` 30 s lub dłuższego (także czasu, którego nie umie odczytać), a powód odmowy kończy się zdaniem
 T-34 o budzeniu; polityka siedzi w jednym nowym module `src/runtime/mistake-guard.ts`, który R-060 rozszerzy o timery.
 Instrukcja koordynatora zastępuje „Never poll with `sleep`.” tym samym zdaniem. Stan: napisany 26.11 przy `aa721d7` z
-inwentarza `evidence/inventories/R-047.md`; `ready` za R-039. -->
+inwentarza `evidence/inventories/R-047.md`; `active` od 27.11 przy `0db0f37`, z miejscami faktów po R-038–R-045 i R-112
+w decyzji 10. -->
 
 # R-047 The coordinator never waits
 
@@ -116,7 +117,7 @@ Files the criteria name that this ticket or R-039 creates: `test/runtime/mistake
 - AC-6: `git grep -q 'Limen wakes you when a job ends; end your turn instead of waiting.' -- templates` → exit 0.
 - AC-7: `git grep -q 'Never poll with' -- templates` → exit 1.
 - AC-8: `git grep -q 'tool_call' -- hook/wake.ts` → exit 0.
-- AC-9: `node adrian-rebuild/tools/gate.mjs` → exit 0.
+- AC-9: `node adrian-rebuild/tools/gate.mjs --out node_modules/.rebuild-review/R-047.gate` → exit 0.
 - AC-10: `npx biome check --error-on-warnings .` → exit 0; `node adrian-rebuild/tools/check.mjs` → exit 0.
 - AC-11 (judgment): the guard acts only in the coordinator's session, refuses only a `sleep` of 30 s or more (or one it
   cannot read), starts no process and writes nothing, and its reason ends with T-34's sentence verbatim, the same constant
@@ -156,3 +157,17 @@ inventory's questions in `evidence/inventories/R-047.md` → section 8):
 8. No record of the refusal (Q8 (a)): T-38; the session's error tool result is the trace.
 9. The module's name: "mistake guard" is T-34's and T-42's term (T-18: one word per thing); "guard" alone already names
    the adapter's shape checks.
+10. 2026-11-27, at activation (`0db0f37`; the night's main session, protocol step 2, D-025): the facts' places after
+    R-038–R-045 and R-112. Fact 1: the one `tool_call` handler is `hook/group-peer.ts:105-116`; `PiToolCallEvent = {
+    readonly toolName: string }` at `src/runtime/pi-api.ts:50`, its guard at `:355`, the handler's return type `PiBlock`
+    at `:102` and `on("tool_call", …)` at `:170`; the contract fixture declares `input` at
+    `test/runtime/pi-contract.test.ts:52` and the block return at `:106`. Fact 2: the job return is at
+    `hook/wake.ts:1129-1131`, before `registerCommand`; since R-044 a job's hook set holds no `wake` at all
+    (`src/runtime/hook-set.ts:20-25`), and the project stub still loads it in the coordinator
+    (`templates/limen-extension.ts:8`), so Change 2's handler goes after `:1129-1131` and the `LIMEN_JOB=1` test stays
+    the job's case. Fact 3: R-040 moved the manual to `templates/manual.md`, whose line 113 ends with "Never poll with
+    `sleep`."; the coordinator's reference file of R-039 is `test/runtime/context-message/owner-facing-coordinator.md`
+    (line 119 holds the same sentence); T-34's sentence is still in no file of `src`, `hook` or `templates`. Fact 4:
+    unchanged (`adrian-rebuild/tools/same-task.mjs:51-56`). `docs/setup.md` → Hooks is at `:183-189`. The grep criteria
+    at `HEAD`: AC-6 and AC-8 exit 1, AC-7 exits 0 on the one line the ticket replaces (`templates/manual.md:113`). AC-9
+    names the gate's `--out` form (D-130).
