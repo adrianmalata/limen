@@ -168,7 +168,9 @@ bezczynnej sesji ścigają się w Pi, naprawiane w R-111, rozmiar L), fakty E-20
 zamknięty w dzień (dwie rundy recenzji PASS), potem noc do 8:00; w niej R-039 zamknięty (wiadomość kontekstowa
 `limen-context` i `context.md` joba, trzy rundy recenzji PASS, uwagi rundy 3 do R-110 i R-083); po limicie okna 5 h
 przebieg 4 zamknął R-040 (teksty Limena tylko z pakietu, rejestr w trzech plikach według odbiorcy, dryf wycięty,
-`templates/manual.md`; trzy rundy recenzji PASS, uwagi rundy 3 do R-044, R-045 i otwartych punktów). -->
+`templates/manual.md`; trzy rundy recenzji PASS, uwagi rundy 3 do R-044, R-045 i otwartych punktów); R-042 (wycięcie
+notatki zadania) zaimplementowany i po dwóch rundach recenzji PASS, ale bramka po ostatniej poprawce padła na
+nieznanym teście z uciętym wyjściem, więc `blocked` na pytaniu Q-91, a noc skończyła się powodem `no-ticket`. -->
 
 
 
@@ -1551,6 +1553,22 @@ Adrian's decisions, dated. The hard constraints of `input/prompt.md` hold until 
   size is L (was M). The hook makes at most one send per idle sweep, and the other due wakes go as follow-ups from the
   run's `before_agent_start`. R-038's fake reproduces E-21 (T-28 (5)), and a test on it fails before the fix. Check:
   R-111 `ticket.md` → Decision 1; `audit.md` → A-090.
+- 2026-11-27 D-130 (Adrian: "dla Q-91 wybieram rekomendację"; Q-91, option 1, from the night of 2026-11-26/27): a
+  gate whose failing test is unknown cannot become a D-029 finding, so `gate.mjs` gains `--out <file>`: the whole
+  output of `npm run check` and the gate's own lines, written atomically (D-018), with its exit code unchanged; built
+  by the main session with its test and reviewed by `rebuild-reviewer` (a `Tools:` commit, as D-105 (1)); Adrian adds
+  `node adrian-rebuild/tools/gate.mjs --out <file>` to `.claude/settings.local.json`. Then one gate run on R-042's tree
+  with `--out`: a failure names its test, which becomes the finding and R-042 waits for its fix; a pass is R-042's gate,
+  and the lost failure becomes an occurrence in R-042 `outcome.md` → Open points and a finding "a gate test failed
+  once, its name unknown". Check: `node --test adrian-rebuild/tools/test-gate.mjs`; R-042 `ticket.md` → Decision 13.
+- 2026-11-27 D-131 (Adrian, 2026-11-27 about 00:25, during the night: "zapisz tę poprawkę na później, bo to dobry
+  pomysł"; the main session's proposal from that night's runs 2 and 3, which ended within 3 s on the five-hour limit
+  before its reset at 22:30, so two of three retries were spent): when a run of `night.mjs` ends on a subscription
+  limit, read from the run's stream-json result (`api_error: "usage_limit_reached"` with
+  `api_error_params.rate_limit_info.resetsAt` and `rateLimitType`), never from its text (z. 2), the runner waits until
+  `resetsAt` and does not count that run as a used retry; it still never starts a run at or after `--until`. Built by
+  the main session with a test in `tools/test-night.mjs` and a `rebuild-reviewer` review, as D-026 was. Check: `node
+  --test adrian-rebuild/tools/test-night.mjs`.
 
 ### Gate 2 §2, copied
 
@@ -1961,7 +1979,7 @@ Columns:
 | R-039 | The Limen context message: one per session, frozen, saved, sent again after compaction | 4 | A-086, A-037, A-079, A-051, T-36, E-13, E-16, D-114 | R-021, R-038 | L | delegated | night | yes | pi, bridge | 4.2 | done |
 | R-040 | Role texts come from the package, in three registers | 4 | A-038, A-039, A-042, D-005 | R-001, R-039 | M | delegated | night | yes | — | — | done |
 | R-041 | The turn cue holds only variable parts and the audience line | 4 | A-077, T-13 | R-039 | S | pair | day-after | — | pi | 4.4 | planned |
-| R-042 | The task-note mechanism is cut | 4 | A-044, A-059, D-121 | R-039 | M | delegated | night | yes | — | — | ready |
+| R-042 | The task-note mechanism is cut | 4 | A-044, A-059, D-121 | R-039 | M | delegated | night | yes | — | — | blocked |
 | R-043 | Just-in-time reminders arrive in the triggering tool result | 4 | A-041, H-12 | R-039 | M | delegated | night | — | pi | 4.5 | ready |
 | R-044 | Module switches; hooks load by role and module | 4 | G1.10, G1.1, G1.2, G1.9, A-082, A-040, D-122, D-124 | R-015, R-039, R-040 | M | delegated | night | yes | pi | 4.7, 4.9 | ready |
 | R-045 | Tools and skills per role; a read-only role that writes fails | 4 | A-081, E-5, D-123, D-125 | R-042, R-044 | M | delegated | night | — | pi, bridge | 4.3 | ready |
@@ -2885,7 +2903,9 @@ Protocol per ticket (rebuild stage 5):
    → `## Decisions`, takes a new `snapshot --git` with the same `--out` once it has changed a reserved path (D-035),
    and resumes the same agent with `SendMessage` to its ID. `pair`: the main session implements with
    Adrian.
-4. The main session runs `node adrian-rebuild/tools/gate.mjs` itself; its run counts, not a subagent's report. For a
+4. The main session runs `node adrian-rebuild/tools/gate.mjs --out node_modules/.rebuild-review/R-NNN.gate` itself, so
+   a failing test can be named from the file whatever the tool output shows (D-130); its run counts, not a subagent's
+   report. For a
    change of mechanism it also runs `node adrian-rebuild/tools/fails-before.mjs`, which must exit 0 (the new and
    changed tests fail at HEAD), and puts its output into the draft `outcome.md` under `## Fails before`. When either
    fails after `DONE`, the main session resumes the implementer with the output; a second failure of the same step goes
@@ -2967,7 +2987,7 @@ Every stage:
 |---|---|
 | everyone: reading | `git status`, `git diff`, `git log`, `git show`, `git ls-files`, `git rev-parse`, `git cat-file`, `git grep`, `git for-each-ref`, `ls`, `cat`, `head`, `tail`, `wc`, `grep`, `find` (without `-delete` and `-exec`), `sed -n`, `sort`, `uniq`, `cmp`, `diff`, `file`, `command -v` |
 | reviewer: checks | `node --test <test file>`, `node bin/limen <args>` on a test fixture (never the full gate, D-015) |
-| main session, implementer: checks | `node adrian-rebuild/tools/gate.mjs`, `npm run check`, `npm run typecheck`, `npx tsc --noEmit`, `npx biome check --error-on-warnings <path>`, `node --test <test file>`, `node adrian-rebuild/tools/check.mjs`, `node --test adrian-rebuild/tools/test-changes-entries.mjs`, `node --test adrian-rebuild/tools/test-review-guard.mjs`, `node --test adrian-rebuild/tools/test-fails-before.mjs`, `node --test adrian-rebuild/tools/test-review-verdict.mjs`, `node --test adrian-rebuild/tools/test-night.mjs`, `node --test adrian-rebuild/tools/test-tool-calls.mjs`, `node --test adrian-rebuild/tools/test-handover.mjs`, `node --test adrian-rebuild/tools/test-ticket-rules.mjs`, `node --test adrian-rebuild/tools/test-decision-guard.mjs`, `node --test adrian-rebuild/tools/test-gate.mjs`, `sh adrian-rebuild/tools/test-pre-push.sh`, `node bin/limen <args>` on a test fixture |
+| main session, implementer: checks | `node adrian-rebuild/tools/gate.mjs`, `node adrian-rebuild/tools/gate.mjs --out <file>` (D-130), `npm run check`, `npm run typecheck`, `npx tsc --noEmit`, `npx biome check --error-on-warnings <path>`, `node --test <test file>`, `node adrian-rebuild/tools/check.mjs`, `node --test adrian-rebuild/tools/test-changes-entries.mjs`, `node --test adrian-rebuild/tools/test-review-guard.mjs`, `node --test adrian-rebuild/tools/test-fails-before.mjs`, `node --test adrian-rebuild/tools/test-review-verdict.mjs`, `node --test adrian-rebuild/tools/test-night.mjs`, `node --test adrian-rebuild/tools/test-tool-calls.mjs`, `node --test adrian-rebuild/tools/test-handover.mjs`, `node --test adrian-rebuild/tools/test-ticket-rules.mjs`, `node --test adrian-rebuild/tools/test-decision-guard.mjs`, `node --test adrian-rebuild/tools/test-gate.mjs`, `sh adrian-rebuild/tools/test-pre-push.sh`, `node bin/limen <args>` on a test fixture |
 | main session, implementer: changes | `npx biome format --write <path>`, `npm ci`; `git rm <path>`, `git rm -r <path>` and `git mv <old> <new>` on the paths a ticket's `## Change` names (the cuts of stage 1, R-042 and R-059 replace files, R-083 renames test files, and others); every deletion and move goes through them, so the list stays the same every night (D-014) |
 | main session only | `node adrian-rebuild/tools/review-guard.mjs snapshot --out <file>`, `snapshot --git --out <file>`, `diff --out <file>`, `compare <file>` and `compare --git <file> <ticket.md>`; `node adrian-rebuild/tools/fails-before.mjs`; `node adrian-rebuild/tools/review-verdict.mjs <reply> <ticket.md>`; `git restore --source=HEAD -- <path>` and `git apply --include=<path> <diff>` (after a void review); `git add <paths>` (`git add -A -- <paths>` for deletions and renames), `git commit`, `git push origin adrian-rebuild`; `sh adrian-rebuild/tools/install-hooks.sh` (after a move or a new clone); `node adrian-rebuild/tools/handover.mjs start <n>` and `node adrian-rebuild/tools/handover.mjs close-previous` (by day, D-047); at the close of a stage `git tag <tag> <sha>` (local), the gate-time tool of R-011 (`node adrian-rebuild/tools/gate-time.mjs --out <file>`) and, from stage 4, `node adrian-rebuild/tools/context-size.mjs <ref>` |
 
@@ -5875,4 +5895,42 @@ The old `.night/status.json` (`no-ticket`) predates this night's runs, so the ru
   `outcome.md` → Deviations 1–12 (above all 2: a missing package text ends a spawn with exit 5, kept against review
   round 1 note 5; 3: the `ROLE_UNKNOWN` words). The implementer's second gate run exited 1 on two scans of
   `test/registry.test.ts` that read the test names its change added (fixed, not a D-029 finding; Deviations 11).
-  Next: R-042 (protocol step 2).
+  Next: R-042 (protocol step 2). Commit `353c2bd`, pushed.
+- R-042 `active` at `353c2bd` (protocol step 2): its facts' places after R-039 and R-040 in its Decision 8; every match
+  of AC-10–AC-16 at `HEAD` is a line the ticket removes. `check.mjs` exit 0. Next: the implementer.
+- R-042 `blocked` (delegated), Q-91: the implementer's `DONE` (`compare --git` exit 0); the main session's gate
+  1365/1365 (302.9 s), `fails-before.mjs` on AC-17's seven files exit 0. Review round 1 PASS with three notes → F1
+  (two rebuild tool comments of inventory section 5, `adrian-rebuild/tools/fake-pi-rpc.mjs` and
+  `same-task-session.mjs`, which `## Change` item 9 now names: night default, `ticket.md` → `## Decisions` 9) and F2
+  (the 80 % steer's role proven end to end: s3's timeout job is a reviewer; it failed with the wrapper's role dropped)
+  (Decision 10); gate 1365/1365 (306.3 s), `fails-before.mjs test/s3-finish-wake.test.ts` exit 0. Round 2 PASS with
+  two notes → G1 (the two comments' "one reader" claim, Decision 11), one left with R-082. After G1, which changed no
+  file a test runs, the gate exited 1, and its failing test is unknown: the Bash tool cut the output before it and kept
+  no copy, and no allowed command saves the gate's output (Decision 12). Not run again (D-029); `.night/questions.md`
+  → Q-91 (recommended: `gate.mjs --out <file>` by day with its allow-list entry, then one run). Review round 3 waits.
+  The whole change stays uncommitted in the working tree, the two `git rm` staged; no commit was made after it, so
+  `HEAD` stays `353c2bd` and the snapshot `node_modules/.rebuild-review/R-042.git` is retaken after this entry (D-035),
+  so the day session's `compare --git` by D-102 (4) starts from the tree as left here.
+- End of the night (run 4, about 02:45): no ticket can start, because R-042's change fills the working tree (stash and
+  commit are no options, the gate not being green), so the reason is `no-ticket` in `.night/status.json`. Gate 5.4 is
+  not due: stage 4 has R-042 `blocked`, eleven `ready` tickets (R-043, R-044, R-045, R-047, R-104–R-110) and the pair
+  tickets R-041 and R-046. Night defaults for Adrian: R-040 `outcome.md` → Deviations 1–12, R-042 `ticket.md` →
+  Decision 9 and `outcome.md` → Deviations.
+- Next by day: Q-91's answer into R-042's `ticket.md` → `## Decisions`; then `review-guard.mjs compare --git
+  node_modules/.rebuild-review/R-042.git adrian-rebuild/R-042-cut-task-note/ticket.md` (D-102 (4)) and R-042 from its
+  gate on (protocol step 4), review round 3 and step 7; then the queue: R-043, R-044, R-045, R-047, R-104–R-110.
+
+`limen-rebuild-41`, after the night (2026-11-27, by day): the runner's end woke the session at 02:38 (`status.json`:
+`no-ticket`; R-039 and R-040 `done`, R-042 `blocked` on Q-91); a push to Adrian; `review-guard.mjs compare --git
+node_modules/.rebuild-review/R-042.git …` → exit 0 on the tree the night left. Adrian moved the WSL login to another
+of his accounts, so the five-hour and weekly shares in the status file are that account's from now on.
+- Q-91 → D-130 (Adrian: "dla Q-91 wybieram rekomendację"), in R-042 `ticket.md` → Decision 13 and `.night/questions.md`
+  (resolved); D-131 from the night's proposal (the runner waits for `resetsAt`), kept in the session's memory until the
+  lock was released. Adrian added `Bash(node adrian-rebuild/tools/gate.mjs *)` to `.claude/settings.local.json` and
+  removed the checkout's `.limen/` folder himself.
+- `gate.mjs --out` built by the main session (`evidence/gate-out/`): review round 1 void (`.claude/settings.local.json`
+  changed during it: Adrian's entry), its notes fixed as F1–F3; round 2 PASS → G1–G5; round 3 PASS, its notes to the
+  open points. `## Commands` and protocol step 4 name the form with `--out`. The `Tools:` commit follows this one.
+- Next: one gate run on R-042's tree with `--out node_modules/.rebuild-review/R-042.gate` (D-130), then R-042 from its
+  review round 3; then D-131's change of `night.mjs`; then the queue R-043, R-044, R-045, R-047, R-104–R-110. A
+  handover by D-047 after R-042's commit (context 43 % now; the dirty tree blocks `handover.mjs` until then).
