@@ -2084,7 +2084,7 @@ Columns:
 | R-045 | Tools and skills per role; a read-only role that writes fails | 4 | A-081, E-5, D-123, D-125 | R-042, R-044 | M | delegated | night | — | pi, bridge | 4.3 | done |
 | R-046 | Role prompts are literal, sourced and budgeted | 4 | T-09, T-14, T-15, T-08, T-10, T-21, A-043, A-085, A-040 | R-040, R-041, R-042, R-044 | L | pair | day-after | — | — | — | planned |
 | R-047 | The coordinator never waits | 4 | T-34 | R-039 | S | delegated | night | — | pi | 4.6 | done |
-| R-104 | The sweep's daily prune archives every unregistered folder and waits on no job's lock; a queue entry is live only for a project's job | 4 | A-002, A-024, T-25, D-107 | R-101 | M | delegated | night | — | — | — | ready |
+| R-104 | The sweep's daily prune archives every unregistered folder and waits on no job's lock; a queue entry is live only for a project's job | 4 | A-002, A-024, T-25, D-107 | R-101 | M | delegated | night | — | — | — | active |
 | R-105 | The T-04 and T-26 scans follow what their rules name | 4 | T-04, T-26, D-107, D-116 | R-032, R-104 | M | delegated | night | — | — | — | ready |
 | R-106 | A watcher outside the agents' account keeps a copy of `main` and alerts on its forced update or deletion | 4 | A-006, §7, D-110, D-117 | R-033 | S | delegated | night | — | systemd | 4.10 | ready |
 | R-107 | The exit 4 of systemd 259's `is-active` reads as not active | 4 | A-029, E-18, D-112 | R-026 | S | delegated | night | — | systemd | 4.13 | ready |
@@ -6281,3 +6281,6 @@ Night run of 2026-11-27/28 (until 08:00; `night.mjs` run 1 started at 21:47:25, 
   Review round 1 PASS with five notes: Open point 2 rewritten in T-17's form by the main session, note 3 (the import
   test's name) to R-060's notes in `## Tickets`, the rest unchanged with reasons (`review.md`). For the morning:
   Decision 11 (`outcome.md` → Night defaults); for gate 5.4: R-047's Deviations 1–3 and Open points 1–4.
+- R-104 `active` at `767ac6f` (protocol step 2): its facts' places in its Decision 8 (the prune, retire and queue
+  modules unchanged since the ticket; `src/job/record.ts` shifted by R-042; the prune's doc bullet moved by four
+  lines); AC-10 names the gate's `--out`.

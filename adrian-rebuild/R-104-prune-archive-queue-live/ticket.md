@@ -3,7 +3,7 @@
 czysty folder jest kasowany); pod lockiem jobów bierze locki folderów jedną próbą, jak retire; pusty
 `.limen/jobs/<id>/` obok wycofanego joba nie wywraca już dziennych kroków; wpis kolejki startowej jest żywy tylko dla
 joba zarejestrowanego projektu. Stan: napisany 26.11 przy `cbe6f1a` z inwentarza `evidence/inventories/R-104.md`;
-`ready` na noc. -->
+`active` od 27.11 w nocy przy `767ac6f`, z miejscami faktów w decyzji 8. -->
 
 # R-104 The sweep's daily prune archives every unregistered folder and waits on no job's lock; a queue entry is live only for a project's job
 
@@ -92,7 +92,7 @@ Facts at `c3bbc5c` (the read-only inventory `evidence/inventories/R-104.md`):
 - AC-7: `git grep -q 'worktree root with no checkout' -- docs/jobs.md` → exit 1.
 - AC-8: `git grep -q 'registeredProjects' -- src/runtime/start-queue.ts` → exit 0.
 - AC-9: `node adrian-rebuild/tools/fails-before.mjs` → exit 0, its output in `outcome.md` → `## Fails before`.
-- AC-10: `node adrian-rebuild/tools/gate.mjs` → exit 0.
+- AC-10: `node adrian-rebuild/tools/gate.mjs --out node_modules/.rebuild-review/R-104.gate` → exit 0.
 - AC-11: `npx biome check --error-on-warnings .` → exit 0; `node adrian-rebuild/tools/check.mjs` → exit 0.
 - AC-12 (judgment): the daily prune deletes nothing Git does not hold elsewhere; no move under the jobs lock waits for
   another lock; an empty job folder beside a retired job leaves the daily steps a success; every reader of the start
@@ -130,3 +130,15 @@ inventory's questions in `evidence/inventories/R-104.md` → section 9):
    (d)'s "move", so no `rmdir`.
 6. "One of the project's jobs" is `<root>/.limen/jobs/<id>` for a registered root, as real paths (Q6 (a)): D-107 (5).
 7. The waiting wrapper judges only the other entries by the rule (Q7 (a)): Q-59's harm is holding other jobs' starts.
+8. 2026-11-27, at activation (`767ac6f`; the night's main session, protocol step 2, D-025): the facts' places after
+   R-039–R-045, R-112 and R-047. `src/runtime/pruning.ts`, `src/runtime/retiring.ts`, `src/runtime/start-queue.ts`,
+   `src/runtime/sweeping.ts`, `src/lock.ts`, `src/project/seat.ts`, `src/operation.ts`, `test/runtime/pruning.test.ts`,
+   `test/cli/sweep.test.ts` and `test/runtime/start-queue.test.ts` are unchanged since `c3bbc5c`, so facts 1, 2 and 4
+   stand at their places, but for `worktreeChanges`, now `src/project/git.ts:365-375`. Fact 3: R-042 added three lines
+   to `src/job/record.ts` before them, so the writers that check the folder and then take its lock are at `:658-663`
+   (`transition`), `:699-703` (`writeMarker`) and `:824-831` (`writeAnyState`), and `archivedJobs`' month filter at
+   `:355` and `:460-463`; `src/job/stopping.ts:58` stands. Change 6's `docs/commands.md:309` is now the prune's bullet
+   at `docs/commands.md:313` (line 309 is the sweep's paragraph); `docs/jobs.md:143`, `:149` and `:191` stand. The grep
+   criteria at `HEAD`: AC-5 and AC-8 exit 1; AC-6 exits 0 only on the lines the ticket changes
+   (`src/runtime/pruning.ts:466`, `test/runtime/pruning.test.ts:167` and `:184`), AC-7 only on `docs/jobs.md:143` and
+   `:149`. AC-10 names the gate's `--out` form (D-130).
