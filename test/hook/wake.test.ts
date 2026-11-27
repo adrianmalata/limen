@@ -2,11 +2,12 @@
 // and progress files, which stop no wake and no status line, are named once, and are forgotten at a session start,
 // a tick that ends no dead job (T-04), a wake the subscription limit kept from a coordinator's turn, owed until the
 // sweep releases it (A-016 (2)), one advisory wake per source and session (the D-092 note), a wake settled only by
-// the run it entered (A-089), one wake that starts a run per idle sweep, the others its follow-ups (A-090), and the
-// count of a wake that entered no run.
+// the run it entered (A-089), one wake that starts a run per idle sweep, the others its follow-ups (A-090), the
+// count of a wake that entered no run, and a stop that ends once the hook's registration of its project is
+// written (A-092).
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -121,16 +122,6 @@ async function until(check: () => boolean, limit = 10_000): Promise<void> {
 	}
 }
 
-/** A project in a new folder in the OS temporary folder, in the environment of a coordinator outside Herdr. */
-async function hookProject(t: TestContext, prefix: string): Promise<{ readonly root: string; readonly jobs: string }> {
-	const root = await mkdtemp(join(tmpdir(), prefix));
-	t.after(() => rm(root, { recursive: true, force: true }));
-	const home = join(root, "home");
-	withEnvironment(t, { LIMEN_JOB: "", LIMEN_HOME: home, HOME: home, HERDR_TAB_ID: "", HERDR_PANE_ID: "" });
-	await mkdir(join(root, ".agents", "limen"), { recursive: true });
-	return { root, jobs: join(root, ".limen", "jobs") };
-}
-
 /** What a coordinator's hook showed and sent: its notes, every status line it set, and its wakes. */
 type Coordinator = {
 	readonly notes: string[];
@@ -140,11 +131,45 @@ type Coordinator = {
 	fire(event: string, payload: unknown): void;
 	/** Starts the session `session` in the same hook, as Pi's `session_start` of another session does. */
 	newSession(session: string): void;
-	shutdown(): void;
+	/** Calls the hook's `session_shutdown` handler; Pi awaits the promise it returns before a session ends (E-22). */
+	shutdown(): Promise<void>;
 };
 
-/** A new instance of the hook on a fake `pi`, started for the session `session` in `root`; it ends after `t`. */
-function startCoordinator(t: TestContext, root: string, session: string): Coordinator {
+/** A project of `hookProject`: its root, its jobs folder, and how a test starts a coordinator's hook in it. */
+type HookProject = {
+	readonly root: string;
+	readonly jobs: string;
+	/** A new instance of the hook on a fake `pi`, started for the session `session` in the project. */
+	startCoordinator(session: string): Coordinator;
+};
+
+/**
+ * A project in a new folder in the OS temporary folder, in the environment of a coordinator outside Herdr. After the
+ * test, every coordinator started in it stops, each shutdown awaited, before the folder goes, and the environment
+ * comes back last: a hook that still runs writes below the folder, in the seat folder of the test's home (A-092).
+ */
+async function hookProject(t: TestContext, prefix: string): Promise<HookProject> {
+	const root = await mkdtemp(join(tmpdir(), prefix));
+	const started: Coordinator[] = [];
+	t.after(async () => {
+		for (const coordinator of started) {
+			await coordinator.shutdown();
+		}
+		await rm(root, { recursive: true, force: true });
+	});
+	const home = join(root, "home");
+	withEnvironment(t, { LIMEN_JOB: "", LIMEN_HOME: home, HOME: home, HERDR_TAB_ID: "", HERDR_PANE_ID: "" });
+	await mkdir(join(root, ".agents", "limen"), { recursive: true });
+	const startCoordinator = (session: string) => {
+		const coordinator = newCoordinator(root, session);
+		started.push(coordinator);
+		return coordinator;
+	};
+	return { root, jobs: join(root, ".limen", "jobs"), startCoordinator };
+}
+
+/** A new instance of the hook on a fake `pi`, started for the session `session` in `root`. */
+function newCoordinator(root: string, session: string): Coordinator {
 	const handlers = new Map<unknown, unknown>();
 	const notes: string[] = [];
 	const statuses: Array<string | undefined> = [];
@@ -164,7 +189,6 @@ function startCoordinator(t: TestContext, root: string, session: string): Coordi
 		typeof start === "function" && typeof shutdown === "function",
 		"the hook handles the session's start and end",
 	);
-	t.after(() => shutdown({}, {}));
 	const newSession = (id: string) =>
 		start(
 			{},
@@ -198,9 +222,21 @@ async function sweeps(coordinator: Coordinator, ticks: number): Promise<void> {
 	await until(() => coordinator.statuses.length >= seen + ticks);
 }
 
+// The hook's session start registered its project in the seat folder without waiting, and its shutdown returned before
+// that write ended, so a test that removed its folder next met the files the write still made (D-136).
+test("A-092: once the hook's shutdown has settled, the seat folder holds only the registry, which lists the project once", async (t) => {
+	const { root, startCoordinator } = await hookProject(t, "limen-wake-registered-");
+	await startCoordinator("wake-registered-session").shutdown();
+	// Read at once, with no turn of the event loop that would let a write still running end first.
+	const seat = join(root, "home", ".limen");
+	const names = existsSync(seat) ? readdirSync(seat) : [];
+	const projects = names.includes("projects") ? readFileSync(join(seat, "projects"), "utf8") : "";
+	assert.deepEqual({ names, projects }, { names: ["projects"], projects: `${root}\n` });
+});
+
 // T-01: a damaged record is reported, once per session; the sweep goes on to the other jobs.
 test("a damaged record before a finished job: the finished job's wake still comes, and the hook names the damage once", async (t) => {
-	const { root, jobs } = await hookProject(t, "limen-wake-damaged-");
+	const { jobs, startCoordinator } = await hookProject(t, "limen-wake-damaged-");
 	const session = "wake-damaged-session";
 	const damaged = "2026-11-21-damaged-0001";
 	const finished = "2026-11-21-finished-0002";
@@ -215,7 +251,7 @@ test("a damaged record before a finished job: the finished job's wake still come
 		await writeFile(join(jobs, id, "notify", "ready"), "1\n");
 		await writeFile(join(jobs, id, "notify", "subscribers", session), `${new Date().toISOString()}\n`);
 	}
-	const coordinator = startCoordinator(t, root, session);
+	const coordinator = startCoordinator(session);
 	await until(() => coordinator.wakes.some((wake) => wake.includes(finished)));
 	// Two more sweeps read the damaged record again; it is still named once.
 	await sweeps(coordinator, 2);
@@ -227,15 +263,15 @@ test("a damaged record before a finished job: the finished job's wake still come
 // T-01: what the hook found damaged belongs to one session; a new session reads every file again and names only what
 // is still damaged.
 test("a record repaired after the hook named its damage is not named again after a new session start", async (t) => {
-	const { root, jobs } = await hookProject(t, "limen-wake-repaired-");
+	const { jobs, startCoordinator } = await hookProject(t, "limen-wake-repaired-");
 	const id = "2026-11-21-repaired-0003";
 	await mkdir(join(jobs, id), { recursive: true });
 	await writeFile(join(jobs, id, "record.json"), '{"version": 1, "state": 7}\n');
-	const first = startCoordinator(t, root, "wake-repaired-session-1");
+	const first = startCoordinator("wake-repaired-session-1");
 	await until(() => damageNotes(first).some((note) => note.includes(id)));
 	await writeRecord(join(jobs, id), { state: "done", label: "repaired", finishedAt: new Date().toISOString() });
-	first.shutdown();
-	const second = startCoordinator(t, root, "wake-repaired-session-2");
+	await first.shutdown();
+	const second = startCoordinator("wake-repaired-session-2");
 	await sweeps(second, 3);
 	assert.deepEqual(damageNotes(second), []);
 });
@@ -249,11 +285,11 @@ async function runningJob(jobs: string, id: string, label: string, progress: str
 
 // T-01: the status line reads each running job's progress on every tick; a damaged one counts as none.
 test("a damaged progress.json: the status line still shows every running job, and the hook names the damage once", async (t) => {
-	const { root, jobs } = await hookProject(t, "limen-wake-progress-");
+	const { jobs, startCoordinator } = await hookProject(t, "limen-wake-progress-");
 	const damaged = "2026-11-21-alpha-0004";
 	await runningJob(jobs, damaged, "alpha", "{ not json\n");
 	await runningJob(jobs, "2026-11-21-beta-0005", "beta", '{"activity":"tool","lastTool":"bash","toolCalls":3}\n');
-	const coordinator = startCoordinator(t, root, "wake-progress-session");
+	const coordinator = startCoordinator("wake-progress-session");
 	await until(() => coordinator.statuses.some((status) => status?.startsWith("limen 2 · ")));
 	await sweeps(coordinator, 2);
 	const status = coordinator.statuses.findLast((line) => line !== undefined) ?? "";
@@ -265,7 +301,7 @@ test("a damaged progress.json: the status line still shows every running job, an
 
 // T-01: a job's progress tells the completion wake only whether the job produced nothing; a damaged one holds no wake.
 test("a finished job whose progress.json is damaged still gets its completion wake, and the hook names the damage once", async (t) => {
-	const { root, jobs } = await hookProject(t, "limen-wake-finished-progress-");
+	const { jobs, startCoordinator } = await hookProject(t, "limen-wake-finished-progress-");
 	const session = "wake-finished-progress-session";
 	const id = "2026-11-21-finished-0006";
 	const job = join(jobs, id);
@@ -274,7 +310,7 @@ test("a finished job whose progress.json is damaged still gets its completion wa
 	await mkdir(join(job, "notify", "subscribers"), { recursive: true });
 	await writeFile(join(job, "notify", "ready"), "1\n");
 	await writeFile(join(job, "notify", "subscribers", session), `${new Date().toISOString()}\n`);
-	const coordinator = startCoordinator(t, root, session);
+	const coordinator = startCoordinator(session);
 	await until(() => coordinator.wakes.some((wake) => wake.includes(id)));
 	await sweeps(coordinator, 2);
 	const damage = damageNotes(coordinator);
@@ -285,12 +321,12 @@ test("a finished job whose progress.json is damaged still gets its completion wa
 // T-04, D-094 (1): the tick ran the reaper inside the coordinator's Pi process; only the seat sweep finalizes a job
 // now.
 test("the hook's tick does not end a running job whose wrapper is dead, however many ticks pass", async (t) => {
-	const { root, jobs } = await hookProject(t, "limen-wake-dead-");
+	const { root, jobs, startCoordinator } = await hookProject(t, "limen-wake-dead-");
 	withEnvironment(t, { ...(await fakeSystemd(root)), LIMEN_REAP_CONFIRM_MS: "1" });
 	const id = "2026-11-24-dead-0007";
 	const identity = { pid: 2_147_483_646, born: "1", bootId: platform.bootId() ?? null };
 	await writeRecord(join(jobs, id), { state: "running", label: "dead", identity, startedAt: new Date().toISOString() });
-	const coordinator = startCoordinator(t, root, "wake-dead-session");
+	const coordinator = startCoordinator("wake-dead-session");
 	await sweeps(coordinator, 4);
 	assert.equal(readRecordSync(join(jobs, id))?.state, "running");
 });
@@ -316,11 +352,11 @@ async function jobFor(jobs: string, id: string, session: string, fields: Partial
 // A-044: the task note is cut, so the items an older record holds in openChecks no longer make a done job's toast ask
 // for a decision (R-042 Decision 2).
 test("the toast of a done job whose older record holds open checks is the plain done toast", async (t) => {
-	const { root, jobs } = await hookProject(t, "limen-wake-open-checks-");
+	const { jobs, startCoordinator } = await hookProject(t, "limen-wake-open-checks-");
 	const session = "wake-open-checks-session";
 	const id = "2026-11-27-checked-0008";
 	await jobFor(jobs, id, session, { openChecks: ["Tests: not proven. No run."] });
-	const coordinator = startCoordinator(t, root, session);
+	const coordinator = startCoordinator(session);
 	await until(() => coordinator.wakes.some((wake) => wake.includes(id)));
 	assert.deepEqual(
 		coordinator.notes.filter((note) => note.includes(`(${id})`)),
@@ -363,16 +399,16 @@ const OWED = { since: "2026-11-24T14:10:00.000Z", resetAt: "2099-01-01T15:00:00.
 // A-016 (2), D-097 (5) (h): a turn that errored spent one of the two attempts, so two turns inside one limit stopped
 // the wake for good.
 test("a completion wake whose turn ends on the subscription limit spends no attempt and is owed on its job with the reset the turn named", async (t) => {
-	const { root, jobs } = await hookProject(t, "limen-wake-owed-");
+	const { jobs, startCoordinator } = await hookProject(t, "limen-wake-owed-");
 	const session = "wake-owed-session";
 	const job = await jobFor(jobs, "2026-11-24-owed-0008", session);
-	const coordinator = startCoordinator(t, root, session);
+	const coordinator = startCoordinator(session);
 	assert.deepEqual(await owedAfterLimitTurn(coordinator, job, session), { reset: true, since: true, attempts: false });
 });
 
 // D-097 (5) (h), review round 1, F7: every wake's claim lies in its job's folder, so an advisory is owed the same way.
 test("an advisory wake whose turn ends on the subscription limit spends no attempt and is owed on its running job", async (t) => {
-	const { root, jobs } = await hookProject(t, "limen-wake-owed-advisory-");
+	const { jobs, startCoordinator } = await hookProject(t, "limen-wake-owed-advisory-");
 	const session = "wake-owed-advisory-session";
 	const at = new Date().toISOString();
 	const job = await jobFor(jobs, "2026-11-24-advised-0010", session, {
@@ -382,7 +418,7 @@ test("an advisory wake whose turn ends on the subscription limit spends no attem
 		startedAt: at,
 		advisory: { text: "tool stall observation uncertain: CPU or process identity unavailable", at },
 	});
-	const coordinator = startCoordinator(t, root, session);
+	const coordinator = startCoordinator(session);
 	// A record without a source holds the wrapper's note, whose receipt is the stall's (D-092 note).
 	const owed = await owedAfterLimitTurn(coordinator, job, `_advisory.stall.${session}`);
 	assert.deepEqual([owed, readRecordSync(job)?.state], [{ reset: true, since: true, attempts: false }, "running"]);
@@ -391,7 +427,7 @@ test("an advisory wake whose turn ends on the subscription limit spends no attem
 // The D-092 note (Q-43): the receipt was one per job and session, so a job whose queue diagnosis a session heard got
 // no stall note after it in that session.
 test("a stall advisory reaches a session that already heard the same job's queue diagnosis", async (t) => {
-	const { root, jobs } = await hookProject(t, "limen-wake-sources-");
+	const { jobs, startCoordinator } = await hookProject(t, "limen-wake-sources-");
 	const session = "wake-sources-session";
 	const at = new Date().toISOString();
 	const queue = { text: "queued for 31m without a start: CPU 10% idle (gate 25%)", at, source: "queue" } as const;
@@ -402,7 +438,7 @@ test("a stall advisory reaches a session that already heard the same job's queue
 		startedAt: at,
 		advisory: queue,
 	});
-	const coordinator = startCoordinator(t, root, session);
+	const coordinator = startCoordinator(session);
 	await until(() => coordinator.wakes.length === 1);
 	await until(() => existsSync(join(job, "notify", "claims", `_advisory.queue.${session}`, "accepted")));
 	turn(coordinator, coordinator.wakes[0] ?? "", {});
@@ -418,21 +454,21 @@ test("a stall advisory reaches a session that already heard the same job's queue
 
 // A-016 (2): the wake waits on the record, not in the coordinator's session, until the seat sweep releases it.
 test("a wake of a job whose record owes one is held", async (t) => {
-	const { root, jobs } = await hookProject(t, "limen-wake-held-");
+	const { jobs, startCoordinator } = await hookProject(t, "limen-wake-held-");
 	const session = "wake-held-session";
 	await jobFor(jobs, "2026-11-24-held-0011", session, { owedWake: OWED });
-	const coordinator = startCoordinator(t, root, session);
+	const coordinator = startCoordinator(session);
 	await sweeps(coordinator, 4);
 	assert.deepEqual([coordinator.wakes, damageNotes(coordinator)], [[], []]);
 });
 
 // A-016 (2), (3): the sweep's release removes the field (test/runtime/resuming.test.ts); the hook then delivers.
 test("a held wake is delivered once its job's record no longer owes it, as the sweep's release leaves the record", async (t) => {
-	const { root, jobs } = await hookProject(t, "limen-wake-released-");
+	const { jobs, startCoordinator } = await hookProject(t, "limen-wake-released-");
 	const session = "wake-released-session";
 	const id = "2026-11-24-released-0012";
 	const job = await jobFor(jobs, id, session, { owedWake: OWED });
-	const coordinator = startCoordinator(t, root, session);
+	const coordinator = startCoordinator(session);
 	await sweeps(coordinator, 2);
 	const held = coordinator.wakes.length;
 	await writeRecord(job, { state: "done", label: "finished", finishedAt: "2026-11-24T14:00:00.000Z" });
@@ -443,10 +479,10 @@ test("a held wake is delivered once its job's record no longer owes it, as the s
 // D-097 (5) (h), review round 2, G3: the limit mark of a run was cleared only when the run settled, so a session that
 // ended between a limit's message_end and its settle left the mark to the next session's first run.
 test("a limit end of an earlier session owes nothing in the next one: an errored turn there spends its attempt, and a limit turn there owes the wake", async (t) => {
-	const { root, jobs } = await hookProject(t, "limen-wake-stale-limit-");
+	const { jobs, startCoordinator } = await hookProject(t, "limen-wake-stale-limit-");
 	const [earlier, later] = ["wake-stale-limit-session-1", "wake-stale-limit-session-2"];
 	const job = await jobFor(jobs, "2026-11-24-stale-0013", later);
-	const coordinator = startCoordinator(t, root, earlier);
+	const coordinator = startCoordinator(earlier);
 	await sweeps(coordinator, 1);
 	coordinator.fire("message_end", {
 		message: { role: "assistant", content: [], stopReason: "error", errorMessage: LIMIT_TEXT },
@@ -469,10 +505,10 @@ test("a limit end of an earlier session owes nothing in the next one: an errored
 
 // A-068: the seat's extension sent the coordinator a turn after its own limit; nothing in Limen replaces it.
 test("a coordinator's own turn that ends on the subscription limit, with no wake in it, writes no owed wake and wakes nothing", async (t) => {
-	const { root, jobs } = await hookProject(t, "limen-wake-own-limit-");
+	const { jobs, startCoordinator } = await hookProject(t, "limen-wake-own-limit-");
 	const id = "2026-11-24-quiet-0009";
 	await writeRecord(join(jobs, id), { state: "done", label: "quiet", finishedAt: new Date().toISOString() });
-	const coordinator = startCoordinator(t, root, "wake-own-limit-session");
+	const coordinator = startCoordinator("wake-own-limit-session");
 	await sweeps(coordinator, 1);
 	turn(coordinator, "the owner's message", { stopReason: "error", errorMessage: LIMIT_TEXT });
 	await sweeps(coordinator, 4);
@@ -690,10 +726,10 @@ const LOST = "wake entered no run while the session stayed idle for 30 s; unsucc
 // it, and it waited unseen until the session ended.
 test("a wake that enters no run is counted unconfirmed, with its reason in the job's log, once the session has been quiet for 30 s", async (t) => {
 	mockClock(t);
-	const { root, jobs } = await hookProject(t, "limen-wake-lost-");
+	const { jobs, startCoordinator } = await hookProject(t, "limen-wake-lost-");
 	const session = "wake-lost-session";
 	const job = await jobFor(jobs, "2026-11-26-lost-0015", session);
-	const coordinator = startCoordinator(t, root, session);
+	const coordinator = startCoordinator(session);
 	await turnsUntil(() => existsSync(join(job, "notify", "claims", session, "accepted")));
 	// The session reads idle throughout, and no run starts: the wake never enters.
 	const beforeBound = nextSweep(coordinator);
@@ -710,10 +746,10 @@ test("a wake that enters no run is counted unconfirmed, with its reason in the j
 // the last run's start or settle, not only at the send.
 test("a wake that enters no run is not counted while a run settled less than 30 s ago, and is counted once that settle is 30 s old", async (t) => {
 	mockClock(t);
-	const { root, jobs } = await hookProject(t, "limen-wake-lost-run-");
+	const { jobs, startCoordinator } = await hookProject(t, "limen-wake-lost-run-");
 	const session = "wake-lost-run-session";
 	const job = await jobFor(jobs, "2026-11-26-late-0016", session);
-	const coordinator = startCoordinator(t, root, session);
+	const coordinator = startCoordinator(session);
 	await turnsUntil(() => existsSync(join(job, "notify", "claims", session, "accepted")));
 	// Another run, which the wake did not enter, settles 15 s after the send.
 	const settled = nextSweep(coordinator);

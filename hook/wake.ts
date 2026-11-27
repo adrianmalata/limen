@@ -135,6 +135,8 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 	let injectedThisSweep = false;
 	// When a run of this session last started or settled; the count of a wake that entered no run waits from here.
 	let runSeenAt = 0;
+	// Settles once every registration of the project in the seat folder that a session start began has settled.
+	let registrations: Promise<void> = Promise.resolve();
 	type PendingDelivery = {
 		readonly claim: string;
 		readonly delivered: string;
@@ -953,7 +955,11 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 			} catch {
 				return;
 			}
-			void registerProject(root).catch(() => {});
+			// The start does not wait for the registry's lock; the shutdown returns once this write has settled, and Pi
+			// awaits that handler before it ends the session (E-22), so no write in the seat folder outlives the hook
+			// (A-092, D-136).
+			const registration = registerProject(root).catch(() => {});
+			registrations = registrations.then(() => registration);
 			active = true;
 			sessionGeneration += 1;
 			session = context;
@@ -1099,9 +1105,9 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 	);
 	pi.on(
 		"session_shutdown",
-		recorded(() => {
+		recorded((): Promise<void> => {
 			if (!active && !sweepTimer) {
-				return;
+				return registrations;
 			}
 			watcher?.close();
 			watcher = undefined;
@@ -1117,6 +1123,7 @@ export default function limenWake(pi: Pick<PiApi, "on" | "sendUserMessage" | "re
 			limitEnd = undefined;
 			retire(false);
 			releaseHerdr();
+			return registrations;
 		}),
 	);
 	if (transport("LIMEN_JOB") === "1") {

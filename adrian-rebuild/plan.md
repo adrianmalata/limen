@@ -183,7 +183,8 @@ zamknięty (trzy rundy recenzji: FAIL, PASS, PASS); R-041 zamknięty według D-1
 porażka testu wake w bramce R-041 dała D-135: wyjątek od D-029 dla A-092 do czasu R-112, który idzie następny.
 Przekazanie do limen-rebuild-44: inwentarz R-112 pokazał, że hook wake nie czeka na zapis rejestru projektów, który
 przeżywa jego zatrzymanie → D-136 (zatrzymanie hooka czeka na ten zapis, testy zatrzymują hook przed usunięciem
-folderu) i fakt E-22 (Pi czeka na handlery `session_shutdown`); R-112 `active`. -->
+folderu) i fakt E-22 (Pi czeka na handlery `session_shutdown`); po przerwie Adriana R-112 zamknięty (bramka
+1440/1440, recenzja PASS w pierwszej rundzie), a wyjątek D-135 zniknął z protokołu w `## Agents`. -->
 
 
 
@@ -2065,7 +2066,7 @@ Columns:
 | R-109 | The alerts' unit sends over IPv4 first | 4 | A-066, D-108, D-112 | R-033 | S | delegated | night | — | systemd | 4.11 | ready |
 | R-110 | A continuation reuses its parent's context message; change notices and the board digest come only on a change | 4 | A-079, A-037, A-051, D-114, D-120, D-126 | R-039, R-042, R-043, R-044 | M | delegated | night | — | pi | 4.2 | ready |
 | R-111 | A wake is settled only by the run it entered; an idle sweep starts one run | 4 | A-089, A-090, D-128, D-129 | R-038 | L | delegated | night | — | pi | 4.14 | done |
-| R-112 | The wake hook's tests stop the hook before they remove its folder | 4 | A-092, D-133, D-136, E-22 | R-043 | S | delegated | night | — | — | — | active |
+| R-112 | The wake hook's tests stop the hook before they remove its folder | 4 | A-092, D-133, D-136, E-22 | R-043 | S | delegated | night | — | — | — | done |
 | R-048 | Jobs run the bridge isolated: no `--approve`, `--offline`, a private `TMPDIR`, an explicit Claude Code path | 5 | A-025, E-3, E-4, E-15, D-005, D-017 | R-040, R-087 | M | delegated | night | — | pi, bridge | 5.8, 5.9 | planned |
 | R-049 | Agents run only root-owned code; Pi, bridge and Claude Code versions are declared | 5 | A-025, T-32, T-36, D-017 | R-017, R-020, R-048 | L | delegated | night | yes | pi | 5.3, 5.5, 5.6, 5.10, 5.20 | planned |
 | R-050 | The registered coordinator and its start script | 5 | A-033, A-061, A-029, §2, D-017 | R-026, R-033, R-034, R-049 | L | delegated | night | yes | pi, herdr, systemd | 5.4, 5.11, 5.20 | planned |
@@ -2989,10 +2990,7 @@ Protocol per ticket (rebuild stage 5):
    and `compare --git` exits 0, without waiting for the task's completion notification (D-059). A test that failed
    even once without a change of the code it runs
    is a finding: nobody runs it again to get a green gate (z. 17); by day the main session asks Adrian, at night it
-   writes a question in `.night/questions.md` and the ticket waits (D-029). Until R-112 (D-135): a gate that fails only
-   on `test/hook/wake.test.ts` with `ENOTEMPTY` on the `rmdir` of its temporary `home/.limen` is recorded in the
-   ticket's `outcome.md` as an occurrence of A-092 (the output line and the count) and runs once more; any other
-   failure, or a second failure of that file in the same ticket, follows D-029.
+   writes a question in `.night/questions.md` and the ticket waits (D-029).
 5. Review: `node adrian-rebuild/tools/review-guard.mjs snapshot --out node_modules/.rebuild-review/R-NNN.before` and
    `node adrian-rebuild/tools/review-guard.mjs diff --out node_modules/.rebuild-review/R-NNN.diff` (an ignored
    directory, like the gate's helper, so the guard does not see the files; `--out` creates it and writes atomically,
@@ -6165,3 +6163,13 @@ the terminal being active; context 8 % at the start; `HEAD` = `origin/adrian-reb
   implementer's), steps 5–7, and at the commit `## Change` item 3 (D-135's sentence out of `## Agents` step 4; A-092's
   `Note`). Then R-045, R-047, R-104–R-110 (all `ready`), and R-046's variants sheet (D-054 (3)). Context 20 % at the
   stop.
+- Resumed by day (Adrian: "działaj dalej"): `compare --git` → exit 1, naming only `HEAD` and the two refs of
+  `adrian-rebuild`, which the main session's State commit `b810179` (parent `216a1c2`, only `plan.md`) moved after the
+  step-3 compare; nothing else changed, so the step-3 compare stands (R-112 `review.md` → Round 1). The bullet above
+  expected exit 0 wrongly: a compare after a State commit reads it against a snapshot taken before that commit.
+- R-112 `done` (delegated, D-136): the main session's gate 1440/1440 (325.5 s), no `ENOTEMPTY`; `fails-before.mjs`
+  exit 0; review round 1 PASS with four notes, none fixed (`review.md`; note 2 → `outcome.md` → Open points 6, D-092).
+  D-135's exception left `## Agents` step 4, and A-092's `Note` names the cause.
+- Next: by protocol step 1, R-045, R-047, R-104–R-110 (all `ready`), each through steps 2–7 with the gate's `--out`;
+  R-046 (`pair`, L): its variants sheet (D-054 (3)). For gate 5.4: D-136 and E-22 (R-112's scope beyond D-133's
+  tests) and R-112's Open points 1–6.

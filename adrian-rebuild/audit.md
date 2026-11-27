@@ -8,7 +8,7 @@ w R-007); 26.11 doszło A-089 (budzenie wysłane w trakcie settle liczone jako n
 i wysyłane ponownie; decyzja fix w R-111) oraz A-090 (dwa budzenia z jednego sweepa przy bezczynnej sesji ścigają się
 w Pi, drugie ginie; decyzja fix w R-111); A-091 (test bramki padł raz w nocy, nazwa nieznana;
 accepted-risk po D-130); A-092 (test wake usuwa swój katalog przed zatrzymaniem hooka i padł raz w bramce R-043; fix
-w R-112 po D-133); razem fix 81, accepted-risk 1, rejected 9, rejected / fix 1; pole Final dojdzie w etapie 6. -->
+w R-112 po D-133; reprodukcja R-112 pokazała przyczynę: zapis rejestru projektów bez `await`, D-136); razem fix 81, accepted-risk 1, rejected 9, rejected / fix 1; pole Final dojdzie w etapie 6. -->
 
 # Audit of Limen at `rebuild-base`
 
@@ -1806,7 +1806,7 @@ intents: `evidence/audit-pass2/history.md`.
 - Candidates: none (found in rebuild stage 5, R-043, 2026-11-27)
 - Status: new
 - History: Related: A-087 (a lock-contention test that failed now and then until R-019), A-089 (a wake test that hung once until R-111), A-091 (a lost gate failure).
-- Note: Added in rebuild stage 5 (2026-11-27, `plan.md` D-133) from one gate failure; the cause is the implementer's reading until R-112's reproduction shows it.
+- Note: Added in rebuild stage 5 (2026-11-27, `plan.md` D-133) from one gate failure. R-112's reproduction showed the cause (`plan.md` D-136): the hook's session start began the project's registration in the seat folder without awaiting it, and its `session_shutdown` handler returned before that write ended, so stopping the hook first would not have been enough; R-112 makes the shutdown wait for it and stops the hook before the removal.
 - Decision: fix — R-112 (D-133).
 
 ## Pass 2: hypotheses from the owner's analysis
