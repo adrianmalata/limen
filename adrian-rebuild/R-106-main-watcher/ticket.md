@@ -2,7 +2,8 @@
 własną kopię `main` i co minutę pobiera ją bez wymuszonej aktualizacji, a na wymuszoną aktualizację albo usunięcie
 `main` na GitHubie wysyła alert na telefon i zachowuje historię, którą trzymał. Według D-117 to krok przebiegu alertów
 na koncie alertów, z adresami i kluczami tylko z plików roota (credentials), z liniami `main:forced`, `main:deleted`
-i `main:unwatched`. Stan: napisany 26.11 przy `87906e1` z inwentarza `evidence/inventories/R-106.md`; `ready` na noc. -->
+i `main:unwatched`. Stan: napisany 26.11 przy `87906e1` z inwentarza `evidence/inventories/R-106.md`; `active` od
+28.11 w nocy przy `1644a7b`, z miejscami faktów w decyzji 7. -->
 
 # R-106 A watcher outside the agents' account keeps a copy of `main` and alerts on its forced update or deletion
 
@@ -110,7 +111,7 @@ Facts at `c3bbc5c` (the read-only inventory `evidence/inventories/R-106.md`, sec
 - AC-4: `git grep -q 'main:forced' -- seat/main-watch.ts seat/alerts.ts` → exit 0.
 - AC-5: `git grep -q 'main:forced' -- docs/seat/README.md` → exit 0.
 - AC-6: `node adrian-rebuild/tools/fails-before.mjs` → exit 0, its output in `outcome.md` → `## Fails before`.
-- AC-7: `node adrian-rebuild/tools/gate.mjs` → exit 0.
+- AC-7: `node adrian-rebuild/tools/gate.mjs --out node_modules/.rebuild-review/R-106.gate` → exit 0.
 - AC-8: `npx biome check --error-on-warnings .` → exit 0; `node adrian-rebuild/tools/check.mjs` → exit 0.
 - AC-9 (judgment): no git call of the watcher can force-update or remove its held copy; the address, the key and the
   host keys come only from root-owned credentials; nothing the agents' account can write decides what is watched or
@@ -152,3 +153,12 @@ the kept ref, the wording and seat step 4.10; the main session's reading of the 
    first.
 6. The main session adds `ssh` (the OpenSSH client, for the alerts account) to `## System requirements` in the ticket's
    commit, as R-033 added its tools.
+7. 2026-11-28, at activation (`1644a7b`; the night's main session, protocol step 2, D-025): the facts' places after
+   R-039–R-045, R-112, R-047, R-104 and R-105. `seat/alerts.ts`, `seat/units.ts`, `test/seat/alerts.test.ts`,
+   `test/seat/deploy.test.ts`, `test/seat/units.test.ts` and `src/integrations/github-claims.ts` are unchanged since
+   `c3bbc5c`, so facts 1, 2, 3 and 5 and the fetch of fact 4 (`github-claims.ts:663`) stand. R-105 moved one import of
+   `seat/deploy.ts` (`startingJob` from `src/runtime/liveness.ts`), so its `units` step is at `seat/deploy.ts:504`.
+   Fact 4: `isAncestor` is now `src/project/git.ts:519-525` (exits 0 and 1, anything else `GIT_FAILED`), and the runner
+   with no timeout `git` at `:735`. Change 5's docs: `docs/seat/README.md` → `## Alerts` at `:25`;
+   `docs/seat/agent-setup.md` → phase 6 is `## 6 · Phone: Moshi and the alerts` (`:152`). The grep criteria at `HEAD`:
+   AC-4 and AC-5 exit 1. AC-7 names the gate's `--out` form (D-130).

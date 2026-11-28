@@ -2086,7 +2086,7 @@ Columns:
 | R-047 | The coordinator never waits | 4 | T-34 | R-039 | S | delegated | night | — | pi | 4.6 | done |
 | R-104 | The sweep's daily prune archives every unregistered folder and waits on no job's lock; a queue entry is live only for a project's job | 4 | A-002, A-024, T-25, D-107 | R-101 | M | delegated | night | — | — | — | done |
 | R-105 | The T-04 and T-26 scans follow what their rules name | 4 | T-04, T-26, D-107, D-116 | R-032, R-104 | M | delegated | night | — | — | — | done |
-| R-106 | A watcher outside the agents' account keeps a copy of `main` and alerts on its forced update or deletion | 4 | A-006, §7, D-110, D-117 | R-033 | S | delegated | night | — | systemd | 4.10 | ready |
+| R-106 | A watcher outside the agents' account keeps a copy of `main` and alerts on its forced update or deletion | 4 | A-006, §7, D-110, D-117 | R-033 | S | delegated | night | — | systemd | 4.10 | active |
 | R-107 | The exit 4 of systemd 259's `is-active` reads as not active | 4 | A-029, E-18, D-112 | R-026 | S | delegated | night | — | systemd | 4.13 | ready |
 | R-108 | The stall rule follows every pending tool of a message | 4 | A-059, E-19, D-112 | R-036 | S | delegated | night | — | pi | 4.12 | ready |
 | R-109 | The alerts' unit sends over IPv4 first | 4 | A-066, D-108, D-112 | R-033 | S | delegated | night | — | systemd | 4.11 | ready |
@@ -6310,3 +6310,6 @@ Night run of 2026-11-27/28 (until 08:00; `night.mjs` run 1 started at 21:47:25, 
   5 is corrected in `## Tickets`. The main session's gates 1514/1514 (349.2 s), 1518/1518 (348.1 s), 1519/1519
   (348.3 s), `fails-before.mjs` exit 0 after each. For the morning: Decision 10 (`outcome.md` → Night defaults); for
   gate 5.4: R-105's Deviations and Open points.
+- R-106 `active` at `1644a7b` (protocol step 2): its facts' places in its Decision 7 (the alerts' modules and tests
+  unchanged; `isAncestor` and the deploy script's `units` step moved a few lines with R-045's and R-105's edits); AC-7
+  names the gate's `--out`.
