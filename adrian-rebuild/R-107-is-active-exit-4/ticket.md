@@ -2,7 +2,8 @@
 dla unitu, którego menedżer nie zna (scope, który się nie zaczął albo został zebrany), a `scopeState` uznaje tylko kod
 3, więc koniec joba bez scope'u loguje fałszywe „was not ended: exit code 4”, a sweep liczy `stuck` aż do alertu. Kody
 3 i 4 dostają jedną regułę, w której decyduje wypisane słowo; fałszywy `systemctl` planta odpowiada jak systemd 259.
-Stan: napisany 26.11 przy `cbe6f1a` z inwentarza `evidence/inventories/R-107.md`; `ready` na noc. -->
+Stan: napisany 26.11 przy `cbe6f1a` z inwentarza `evidence/inventories/R-107.md`; `active` od 28.11 w nocy przy
+`0a23047`, z miejscami faktów w decyzji 4. -->
 
 # R-107 The exit 4 of systemd 259's `is-active` reads as not active
 
@@ -79,7 +80,7 @@ empty, so the lines are also `a0.3.0`'s):
 - AC-4: `git grep -q 'E-18' -- src/platform/linux.ts test/plant.ts` → exit 0.
 - AC-5: `node adrian-rebuild/tools/fails-before.mjs test/plant.ts test/platform/linux.test.ts test/job/finalize.test.ts test/runtime/reap.test.ts` → exit 0, its output in `outcome.md` → `## Fails before` (the changed plant is copied with the
   tests, so the unchanged `finalize.test.ts` runs on it).
-- AC-6: `node adrian-rebuild/tools/gate.mjs` → exit 0.
+- AC-6: `node adrian-rebuild/tools/gate.mjs --out node_modules/.rebuild-review/R-107.gate` → exit 0.
 - AC-7: `npx biome check --error-on-warnings .` → exit 0; `node adrian-rebuild/tools/check.mjs` → exit 0.
 - AC-8 (judgment): exits 3 and 4 share one rule in one function, in which the printed word decides; every other exit
   is still a failure with its detail (T-01); no caller of `unitAnswer` changes.
@@ -109,3 +110,15 @@ inventory's questions in `evidence/inventories/R-107.md` → section 9):
 2. The plant's fake answers as systemd 259 as well (Q2 (b)): the whole suite then meets the seat's answer, and the
    finalize test proves the end path that wrote the false line (T-31: the fake shows what the engine does).
 3. Seat step 4.13 reads the job logs (Q3, D-118 (1)); `## Deployment` 4.13 is already amended.
+4. 2026-11-28, at activation (`0a23047`; the night's main session, protocol step 2, D-025): the facts' places after
+   R-039–R-045, R-112, R-047 and R-104–R-106. `src/platform/linux.ts` and `test/platform/linux.test.ts` are unchanged
+   since `c3bbc5c`: `NOT_ACTIVE` at `:51-52`, `ENDED_STATES` at `:53-57`, `scopeState` at `:239-249` (its "one place"
+   comment just above), `unitAnswer` at `:276-279`, `callFailure` at `:327-336`; `answeringSystemctl` at
+   `test/platform/linux.test.ts:265-279`. Fact 2: `endJobScope` is `src/job/finalize.ts:205-215`, its line at `:210`;
+   `onScopeNotEnded` at `src/runtime/wrapper.ts:243`; `endLeftoverScopes` is `src/runtime/reap.ts:206-243`, where a
+   gone scope clears `stuck` at `:217-221` (the `:276-281` of Change 4 and `## Migration`), `terminateScope` at `:251`
+   (a `failed` state is `not ended` at `:258`), `notEnded` at `:186-195`; `STUCK_ESCALATION` at
+   `src/job/record.ts:861`, `appendLimenLog` at `:1201`; the alerts' `stuck` event at `seat/alerts.ts:139-144`. Fact 4:
+   the plant's fake `systemctl` is `test/plant.ts:184-231` (its comment at `:184-193`, `is-active`'s `inactive` and exit
+   3 at `:212-215`); the finalize test is `test/job/finalize.test.ts:226`. AC-4 exits 1 at `HEAD`. AC-6 names the gate's
+   `--out` form (D-130).

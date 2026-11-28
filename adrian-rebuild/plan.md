@@ -2088,7 +2088,7 @@ Columns:
 | R-104 | The sweep's daily prune archives every unregistered folder and waits on no job's lock; a queue entry is live only for a project's job | 4 | A-002, A-024, T-25, D-107 | R-101 | M | delegated | night | — | — | — | done |
 | R-105 | The T-04 and T-26 scans follow what their rules name | 4 | T-04, T-26, D-107, D-116 | R-032, R-104 | M | delegated | night | — | — | — | done |
 | R-106 | A watcher outside the agents' account keeps a copy of `main` and alerts on its forced update or deletion | 4 | A-006, §7, D-110, D-117 | R-033 | S | delegated | night | — | systemd | 4.10 | done |
-| R-107 | The exit 4 of systemd 259's `is-active` reads as not active | 4 | A-029, E-18, D-112 | R-026 | S | delegated | night | — | systemd | 4.13 | ready |
+| R-107 | The exit 4 of systemd 259's `is-active` reads as not active | 4 | A-029, E-18, D-112 | R-026 | S | delegated | night | — | systemd | 4.13 | active |
 | R-108 | The stall rule follows every pending tool of a message | 4 | A-059, E-19, D-112 | R-036 | S | delegated | night | — | pi | 4.12 | ready |
 | R-109 | The alerts' unit sends over IPv4 first | 4 | A-066, D-108, D-112 | R-033 | S | delegated | night | — | systemd | 4.11 | ready |
 | R-110 | A continuation reuses its parent's context message; change notices and the board digest come only on a change | 4 | A-079, A-037, A-051, D-114, D-120, D-126 | R-039, R-042, R-043, R-044 | M | delegated | night | — | pi | 4.2 | ready |
@@ -6325,3 +6325,6 @@ Night run of 2026-11-27/28 (until 08:00; `night.mjs` run 1 started at 21:47:25, 
   row is in `## System requirements`. The main session's gates 1544/1544 (353.4 s) and 1551/1551 (347.0 s),
   `fails-before.mjs` exit 0 after each. For the morning: Decision 8 and `outcome.md` → Night defaults; for gate 5.4:
   R-106's Deviations and Open points 1–8.
+- R-107 `active` at `0a23047` (protocol step 2): its facts' places in its Decision 4 (the Linux adapter and its test
+  unchanged; the end paths, the plant's fake and the finalize test moved with R-045, R-104–R-106); AC-6 names the
+  gate's `--out`.
