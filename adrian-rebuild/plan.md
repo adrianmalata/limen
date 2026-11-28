@@ -2090,7 +2090,7 @@ Columns:
 | R-106 | A watcher outside the agents' account keeps a copy of `main` and alerts on its forced update or deletion | 4 | A-006, §7, D-110, D-117 | R-033 | S | delegated | night | — | systemd | 4.10 | done |
 | R-107 | The exit 4 of systemd 259's `is-active` reads as not active | 4 | A-029, E-18, D-112 | R-026 | S | delegated | night | — | systemd | 4.13 | done |
 | R-108 | The stall rule follows every pending tool of a message | 4 | A-059, E-19, D-112 | R-036 | S | delegated | night | — | pi | 4.12 | done |
-| R-109 | The alerts' unit sends over IPv4 first | 4 | A-066, D-108, D-112 | R-033 | S | delegated | night | — | systemd | 4.11 | active |
+| R-109 | The alerts' unit sends over IPv4 first | 4 | A-066, D-108, D-112 | R-033 | S | delegated | night | — | systemd | 4.11 | done |
 | R-110 | A continuation reuses its parent's context message; change notices and the board digest come only on a change | 4 | A-079, A-037, A-051, D-114, D-120, D-126 | R-039, R-042, R-043, R-044 | M | delegated | night | — | pi | 4.2 | ready |
 | R-111 | A wake is settled only by the run it entered; an idle sweep starts one run | 4 | A-089, A-090, D-128, D-129 | R-038 | L | delegated | night | — | pi | 4.14 | done |
 | R-112 | The wake hook's tests stop the hook before they remove its folder | 4 | A-092, D-133, D-136, E-22 | R-043 | S | delegated | night | — | — | — | done |
@@ -6343,3 +6343,6 @@ Night run of 2026-11-27/28 (until 08:00; `night.mjs` run 1 started at 21:47:25, 
   Deviations 1–3 and Open points 1–5.
 - R-109 `active` at `172e2a8` (protocol step 2): its facts' places after R-106 in its Decision 5 (the service now has
   R-106's `watch` credential line); AC-7 names the gate's `--out`.
+- R-109 `done` (delegated): no `BLOCKED`; the main session's gate 1562/1562 (356.5 s), `fails-before.mjs` exit 0;
+  review round 1 PASS with one guessed note (Node's family autoselection may still fall over to IPv6), which is
+  `outcome.md` → Open point 2 for gate 5.4 and step 4.11.

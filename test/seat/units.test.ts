@@ -26,6 +26,8 @@ test("limen-alerts.service renders as its golden text: a oneshot run of /usr/bin
 			"Type=oneshot",
 			"User=alerts-test",
 			"ExecStart=/usr/bin/node /opt/limen/seat/alerts.ts run",
+			// D-108: the relay refuses the seat's IPv6 sender for its daily quota, so Node tries its IPv4 address first.
+			"Environment=NODE_OPTIONS=--dns-result-order=ipv4first",
 			"LoadCredential=topic:/etc/limen/alerts-topic",
 			"LoadCredential=watch:/etc/limen/watch",
 			"StateDirectory=limen-alerts",

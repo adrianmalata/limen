@@ -18,6 +18,12 @@ export const WATCH_FOLDER = "/etc/limen/watch";
 export const WATCH_CREDENTIAL = "watch";
 /** What the service runs, by absolute paths: root's Node and the deployed checkout (A-025, D-010, the D-080 note). */
 const ALERTS_RUN = "/usr/bin/node /opt/limen/seat/alerts.ts run";
+/**
+ * The run's Node tries a name's IPv4 address first (D-108): the ntfy relay refuses the seat's IPv6 sender for its daily
+ * quota and takes IPv4. Unquoted, since the value holds no white space, quote, backslash or `%`, which systemd's
+ * quoting is for.
+ */
+const ALERTS_NODE_OPTIONS = "NODE_OPTIONS=--dns-result-order=ipv4first";
 /** A system account's name as `useradd` takes it by default, so a unit's `User=` holds nothing else. */
 const ACCOUNT = /^[a-z_][a-z0-9_-]{0,31}$/;
 /** The first line of each alerts unit; at most 100 characters, as every line Limen generates (T-10). */
@@ -53,6 +59,7 @@ export function alertsUnits(account: string): readonly UnitDefinition[] {
 						["Type", "oneshot"],
 						["User", account],
 						["ExecStart", ALERTS_RUN],
+						["Environment", ALERTS_NODE_OPTIONS],
 						["LoadCredential", `topic:${TOPIC_FILE}`],
 						["LoadCredential", `${WATCH_CREDENTIAL}:${WATCH_FOLDER}`],
 						["StateDirectory", "limen-alerts"],

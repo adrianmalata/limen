@@ -4,7 +4,7 @@ wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: 
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
 R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025, R-097, R-099, R-026, R-030, R-033,
 R-027, R-028, R-031, R-035, R-100, R-029, R-032, R-034, R-036, R-037, R-087, R-098, R-101, R-102, R-103, R-038,
-R-111, R-039, R-040, R-042, R-043, R-044, R-041, R-112, R-045, R-047, R-104, R-105, R-106, R-107, R-108. -->
+R-111, R-039, R-040, R-042, R-043, R-044, R-041, R-112, R-045, R-047, R-104, R-105, R-106, R-107, R-108, R-109. -->
 
 # Changes
 
@@ -584,3 +584,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-10; `## Deployment` 4.12 on the seat's Pi)
 - Commit: R-108
 - Rollback: git revert $(git log --format=%H --grep='^R-108:' adrian-rebuild --)
+
+## 2026-11-28 R-109 The alerts' unit sends over IPv4 first
+- What: `seat/units.ts` (`Environment=NODE_OPTIONS=--dns-result-order=ipv4first` in `limen-alerts.service`, D-108); `test/seat/units.test.ts` (the golden text); `docs/seat/README.md`
+- Why: A-066, D-108, D-112
+- Proof: `node adrian-rebuild/tools/gate.mjs --out node_modules/.rebuild-review/R-109.gate` → exit 0 (1562/1562); `node adrian-rebuild/tools/fails-before.mjs` → exit 0; `node adrian-rebuild/tools/check.mjs` → exit 0
+- Measurement: unmeasured (plan.md → Measurement: M-10; `## Deployment` 4.11 removes the drop-in and checks no HTTP 429)
+- Commit: R-109
+- Rollback: git revert $(git log --format=%H --grep='^R-109:' adrian-rebuild --)
