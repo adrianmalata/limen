@@ -1,5 +1,5 @@
 // The spawn of a job (T-26 (2)): `limen spawn`, keeper, group start and the GitHub jobs start one through
-// `startSpawn`, and continue shares its role's preamble, handshake and versions. A spawn is an operation of T-38
+// `startSpawn`, and continue shares its handshake and versions. A spawn is an operation of T-38
 // (src/operation.ts): its validate makes every check, builds the job's context message (src/runtime/context-message.ts)
 // and writes nothing, its apply names and publishes the job, its context message with it, under the jobs lock after
 // reading again what the checks relied on, and only then are the GitHub review's branch and the worktree made and the
@@ -9,11 +9,9 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { WrapperValues } from "../config.ts";
 import { herdrBinary, openWatchTab } from "../integrations/herdr.ts";
 import { hunkBinary } from "../integrations/hunk.ts";
-import { type NameSource, refuseRemovedRole } from "../old-names.ts";
 import { type Checked, cleanedUp, type Operation, type StateView, stepFailure, validated } from "../operation.ts";
 import { type CommandText, environmentError, JOB_STARTED, refused, type Success, usageError } from "../outcome.ts";
 import { type ProcessEnd, platform, type ScopedProcess } from "../platform/platform.ts";
@@ -36,16 +34,10 @@ import {
 import { readOptional } from "../project/inherit.ts";
 import { inheritedPlanning, ticketPointers } from "../project/planning.ts";
 import { contextMessage } from "../runtime/context-message.ts";
-import {
-	type EngineProfile,
-	engineRoute,
-	preflightEngine,
-	resolveSpawnEngine,
-	runsBridgeIsolated,
-} from "../runtime/engine.ts";
+import { type EngineProfile, preflightEngine, resolveSpawnEngine } from "../runtime/engine.ts";
 import { launchWrapper } from "../runtime/launcher.ts";
 import { holdsProcesses, KILL_WAIT_MS, waitForProcessGroup } from "../runtime/reap.ts";
-import { JOB_ROLES, jobRole, requireJobModules } from "../runtime/roles.ts";
+import { jobAudience, requireJobModules } from "../runtime/roles.ts";
 import { DEFAULT_PRIORITY, parsePriority, queuedLine } from "../runtime/start-queue.ts";
 import { normalizeWorkerExtensions } from "../runtime/worker-extensions.ts";
 import { hasCode } from "../system-error.ts";
@@ -114,23 +106,6 @@ type SpawnOptions = {
 	role?: string;
 	extensions: string[];
 };
-const PACKAGE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
-/**
- * The package's template of the role: role prompts always come from the package, so no file of the project `_root`
- * replaces or adds one (A-042). Only a role of the role table (src/runtime/roles.ts) has one, so a part file of
- * `templates/` such as the manual is no role, and no job runs without its role's tools (R-045 Change 1). Any other role
- * refuses: a role a cut removed with its line from `src/old-names.ts`, by `source`: spawn's `--role`, or continue's
- * parent record. Spawn and continue call this in their validate.
- */
-export function resolvePreamble(_root: string, role: string, source: NameSource = "argument"): string {
-	if (jobRole(role)) {
-		return resolve(PACKAGE_ROOT, "templates", `${role}.md`);
-	}
-	refuseRemovedRole(role, source);
-	const roles = JOB_ROLES.map((entry) => entry.name);
-	const message = `${role} is no job role; a job runs as ${roles.slice(0, -1).join(", ")} or ${roles.at(-1)}`;
-	throw source === "argument" ? usageError("ROLE_UNKNOWN", message) : refused("ROLE_UNKNOWN", message);
-}
 /**
  * The worktree a spawn's validate chose, before the job has an id: the id names the new worktree's folder, and, with
  * no `--branch`, the job's own branch `limen/<id>`, so its apply places it (`worktreePlan`).
@@ -322,12 +297,10 @@ async function validateSpawn(
 	requireJobModules(place.root, { role, repo: place.repo });
 	const pinnedBase = options.base ? resolveCommit(repository, options.base, "--base") : undefined;
 	const pinnedHead = options.head ? resolveCommit(repository, options.head, "--head") : undefined;
-	const context = contextMessage(root, {
-		session: "job",
-		role,
-		preamble: resolvePreamble(root, role, "argument"),
-		bridgeIsolated: runsBridgeIsolated(engineRoute(options.provider, options.model)),
-	});
+	const context = contextMessage(
+		root,
+		jobAudience(root, { role, provider: options.provider, model: options.model }, "argument"),
+	);
 	const jobsRoot = `${root}/.limen/jobs`;
 	// A project an older Limen recorded refuses here, before any write (T-38).
 	await view.jobs(jobsRoot);

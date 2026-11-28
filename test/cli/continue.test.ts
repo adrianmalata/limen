@@ -3,15 +3,18 @@
 // (A-001), the module check of its role (G1.10), and a read-only parent's start state and tools it keeps (A-081).
 import assert from "node:assert/strict";
 import { chmodSync, existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { test } from "node:test";
+import { type TestContext, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { isTerminal } from "../../src/job/job.ts";
+import type { Module } from "../../src/project/modules.ts";
+import type { BridgeView } from "../../src/runtime/bridge-view.ts";
 import { processIdentity } from "../../src/runtime/reap.ts";
 import { outputText, readOutcome } from "../final-line.ts";
 import {
 	editRecord,
+	engineViews,
 	git,
 	jobDir,
 	jobRecord,
@@ -139,6 +142,131 @@ test("a continuation of a parent folder without context.md publishes one built f
 	const child = startedJob(limen(p, ["continue", parent, "say next"]));
 	await ended(p, child);
 	assert.equal(readFileSync(join(jobDir(p, child), "context.md"), "utf8"), readFileSync(WORKER_CONTEXT, "utf8"));
+});
+
+/** The reference files of each role's context message (A-051), beside which the continuation's goldens lie. */
+const REFERENCES = fileURLToPath(new URL("../runtime/context-message", import.meta.url));
+/** The instruction of each continuation below, a script line of the fake engine. */
+const NEXT = "say next";
+/** The notice of a changed styleguide (A-037's words), in its tag pair. */
+const STYLE_NOTICE =
+	"<limen-notice>\nchanged .agents/limen/styleguide.md, new text from the next session\n</limen-notice>";
+/** The turn cue in a prompt, which R-041 rewrote and the goldens leave out. */
+const CUE = /\n\n<limen-turn-cue>\n[\s\S]*?\n<\/limen-turn-cue>/;
+
+/** The text of the record at `index` of a model call's view, its text blocks joined; "" for none. */
+function recordText(view: BridgeView | undefined, index: number): string {
+	return view?.messages.at(index)?.text.join("\n") ?? "";
+}
+
+/** How many times the records of `view` hold `text`. */
+function heldCount(view: BridgeView | undefined, text: string): number {
+	const records = (view?.messages ?? []).flatMap((record) => record.text);
+	return records.join("\n").split(text).length - 1;
+}
+
+/** A finished parent of `p` spawned with `flags` on the script `say first`. */
+function spawned(flags: readonly string[]): (p: Plant) => Promise<string> {
+	return async (p) => {
+		const id = spawnJob(p, "say first", flags);
+		assert.equal(waitJob(p, id), "done");
+		return id;
+	};
+}
+
+/** A finished reviewer of `p`, whose candidate is a worker's commit. */
+async function reviewerParent(p: Plant): Promise<string> {
+	const candidate = spawnJob(p, "commit");
+	assert.equal(waitJob(p, candidate), "done");
+	return spawned(["--review", "--branch", jobRecord(p, candidate)?.branch ?? ""])(p);
+}
+
+/**
+ * A finished job of a group's team, the role `coordinator`. Only `limen group start` spawns one, and its rounds need a
+ * registered lead, so a worker's finished job is made a team's: its record's role, its `context.md` and the context
+ * message its transcript holds, each the team's reference message.
+ */
+async function teamParent(p: Plant): Promise<string> {
+	const id = await spawned([])(p);
+	const dir = jobDir(p, id);
+	const team = readFileSync(join(REFERENCES, "group-team.md"), "utf8");
+	await editRecord(dir, () => ({ role: "coordinator" }));
+	await writeFile(join(dir, "context.md"), team);
+	const transcript = join(dir, "session", "fake.jsonl");
+	const entries = readFileSync(transcript, "utf8")
+		.split("\n")
+		.filter(Boolean)
+		.map((line) => JSON.parse(line))
+		.map((entry) => (entry.customType === "limen-context" ? { ...entry, content: team } : entry));
+	await writeFile(transcript, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+	return id;
+}
+
+/**
+ * Each job role of R-039's list: its name, its reference file's name, the modules its plant switches on (R-044), and
+ * the start of its finished parent.
+ */
+const CONTINUED: ReadonlyArray<{
+	readonly name: string;
+	readonly reference: string;
+	readonly modules: readonly Module[];
+	readonly parent: (p: Plant) => Promise<string>;
+}> = [
+	{ name: "worker", reference: "worker", modules: [], parent: spawned([]) },
+	{ name: "reviewer", reference: "reviewer", modules: [], parent: reviewerParent },
+	{ name: "judge", reference: "judge", modules: ["research"], parent: spawned(["--role", "judge"]) },
+	{ name: "keeper", reference: "keeper", modules: [], parent: spawned(["--role", "keeper"]) },
+	{ name: "researcher", reference: "researcher", modules: ["research"], parent: spawned(["--role", "researcher"]) },
+	{ name: "quality", reference: "quality", modules: ["quality"], parent: spawned(["--role", "quality"]) },
+	{ name: "group team", reference: "group-team", modules: ["group"], parent: teamParent },
+];
+
+/** The first model call of a continuation of a finished parent that `parent` starts in `p`, after `change`. */
+async function continuedView(
+	t: TestContext,
+	modules: readonly Module[],
+	parent: (p: Plant) => Promise<string>,
+	change: (p: Plant) => Promise<void>,
+): Promise<BridgeView | undefined> {
+	const p = await plant({ modules });
+	t.after(() => p.cleanup());
+	const id = await parent(p);
+	await change(p);
+	const child = startedJob(limen(p, ["continue", id, NEXT]));
+	assert.equal(waitJob(p, child), "done");
+	return engineViews(jobDir(p, child))[0];
+}
+
+/** Adds a rule to the project's styleguide after the parent ended. */
+const changeStyleguide = (p: Plant) =>
+	appendFile(join(p.root, ".agents/limen/styleguide.md"), "\nA rule added after the parent ended.\n");
+
+for (const { name, reference, modules, parent } of CONTINUED) {
+	// A golden that is missing is written from the call and the test fails, so a new or regenerated golden is read
+	// before it is committed: delete it and run this file to write it again. The parent's turn between the message and
+	// the prompt, whose task differs by role, and the turn cue are left out (R-110 Decision 20).
+	test(`A-051: a ${name}'s continuation after a styleguide change opens its first model call with the ${name}'s message, then the task and one notice, ${reference}-continuation.md`, async (t) => {
+		const view = await continuedView(t, modules, parent, changeStyleguide);
+		const context = readFileSync(join(REFERENCES, `${reference}.md`), "utf8");
+		const prompt = recordText(view, -1).replace(CUE, "");
+		assert.deepEqual(
+			{ path: view?.path, first: view?.messages[0]?.text, held: heldCount(view, context), prompt },
+			{ path: "rebuild", first: [context], held: 1, prompt: `${NEXT}\n\n${STYLE_NOTICE}` },
+		);
+		const golden = `${recordText(view, 0)}\n\n${prompt}`;
+		const path = join(REFERENCES, `${reference}-continuation.md`);
+		if (!existsSync(path)) {
+			await writeFile(path, golden);
+			assert.fail(`wrote the missing golden ${path}; read it, then run the test again`);
+		}
+		assert.equal(golden, readFileSync(path, "utf8"));
+	});
+}
+
+// A-079: the child compares its parent's frozen message with the files now, so with nothing changed it is told nothing.
+test("A-079: a worker's continuation with no file changed since its parent makes its first model call with no notice", async (t) => {
+	const view = await continuedView(t, [], spawned([]), () => Promise.resolve());
+	assert.deepEqual([recordText(view, -1).replace(CUE, ""), heldCount(view, "<limen-notice>")], [NEXT, 0]);
 });
 
 // A-081, R-045 Decision 14: a continuation, a quota resume included, carries its parent's start state, so a write in

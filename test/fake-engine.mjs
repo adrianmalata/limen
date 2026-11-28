@@ -34,7 +34,8 @@
 // A hook's handler that throws is reported on stderr as Pi reports an extension error, and the run goes on.
 // `block` writes fake-blocked-<n> and waits for one write to the FIFO fake-gate. Records: fake-argv.json, fake-env.json
 // (the name of every variable of its environment, never a value), fake-task.txt, fake-system.txt (the system prompt
-// the task's before_agent_start returned, Pi's side), fake-context.txt (the hidden context messages it returned),
+// the task's before_agent_start returned, Pi's side), fake-context.txt (the hidden context messages its handlers
+// returned, joined by a line break, nothing for a handler that returned none),
 // fake-events.jsonl (its first event the `pid` of this engine process, so a test can tell whether the engine still
 // runs), fake-view.jsonl, and the Pi-shaped transcript in --session-dir (test/fake-session.mjs).
 import { execFileSync, spawn, spawnSync } from "node:child_process";
@@ -697,9 +698,10 @@ await fire("session_start", { type: "session_start", reason: "startup" });
 // The task's run as Pi's first prompt prepares it; its model calls follow the script's words.
 const taskRun = await prepare({ messageType: "user", prompt: task });
 writeFileSync(join(dir, "fake-system.txt"), taskRun.results.map((result) => result?.systemPrompt ?? "").join("\n"));
+// Only the handlers that returned a message add one, so a handler that returns none with this run adds no empty line.
 writeFileSync(
 	join(dir, "fake-context.txt"),
-	taskRun.results.map((result) => result?.message?.content ?? "").join("\n"),
+	taskRun.results.flatMap((result) => (result?.message ? [result.message.content ?? ""] : [])).join("\n"),
 );
 emit({ type: "agent_start" });
 const decisions = [];

@@ -75,7 +75,7 @@ const extensions = (id: string) =>
 	argv(id).flatMap((value, index, all) => (value === "--extension" ? [all[index + 1] ?? ""] : []));
 
 // A-086: under the bridge the system prompt reaches no model, so the guidance rides the context message; the board
-// digest is out of it until R-110 sends it after a change (A-037).
+// rides the run as its digest, which a session's first run gets (A-037).
 test("a second init removes old hook copies, so a coordinator's model gets each guidance source once, the package's register and not the project's", async () => {
 	const init = limen(p, ["init"]);
 	assert.equal(init.status, 0, init.stderr);
@@ -97,10 +97,19 @@ test("a second init removes old hook copies, so a coordinator's model gets each 
 	assert.equal(await promise, 0);
 	assert.deepEqual(
 		[STYLE, REGISTER, PACKAGED, VISION, BOARD, FRAME].map((marker) => count(firstView(coord), marker)),
-		[1, 0, 1, 1, 0, 1],
+		[1, 0, 1, 1, 1, 1],
 		"styleguide, project register, package register, vision, board, capability frame",
 	);
 	assert.deepEqual(readdirSync(join(p.root, ".pi/extensions")), ["limen.ts"]);
+});
+
+/** The board digest of the board the first test commits: its NOW under one heading, in its tag pair (A-037). */
+const DIGEST = `<limen-board>\n## Board digest (spec/build.md)\n## NOW\n\n- ${BOARD}\n</limen-board>`;
+
+// D-120: the digest rides the run as the cue does, so it ends the run's prompt and the frozen prefix stays.
+test("A-037: a coordinator's first model call ends with the board digest, right after the turn cue", () => {
+	const prompt = (engineViews(coord)[0]?.messages.at(-1)?.text ?? []).join("\n");
+	assert.equal(prompt.endsWith(`\n</limen-turn-cue>\n\n${DIGEST}`), true, prompt.slice(-300));
 });
 
 test("A-086: the system prompt a coordinator's hooks return holds none of the guidance sources", () => {

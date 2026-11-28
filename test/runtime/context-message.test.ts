@@ -1,16 +1,16 @@
 // src/runtime/context-message.ts: each role's exact message against its reference file, its marker, the registers of
 // its audience, the package as the only source of Limen's texts, the project's AGENTS.md only with an isolated bridge,
-// what it never holds, its line bound, that it is built from files alone (T-36), and the module parts it holds only for
-// the modules switched on (G1.10, A-040).
+// what it never holds, its line bound, that it is built from files alone (T-36), the module parts it holds only for
+// the modules switched on (G1.10, A-040), and the paths whose part changed since a message was built (A-037).
 import assert from "node:assert/strict";
 import { existsSync, readdirSync } from "node:fs";
-import { copyFile, cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { appendFile, copyFile, cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
-import { resolvePreamble } from "../../src/job/spawning.ts";
-import { type ContextAudience, contextMessage } from "../../src/runtime/context-message.ts";
+import { type ContextAudience, changedSince, contextMessage } from "../../src/runtime/context-message.ts";
+import { resolvePreamble } from "../../src/runtime/roles.ts";
 import { withEnvironment } from "../environment.ts";
 
 const PACKAGE = fileURLToPath(new URL("../..", import.meta.url));
@@ -360,4 +360,92 @@ test("T-36: the module that builds the message imports no process module", async
 		imports.filter((name) => name === "node:child_process" || name === "child_process"),
 		[],
 	);
+});
+
+/** For each role of `ROLES`, the paths whose part changed in `root` since its message of `frozen` was built. */
+function everyChange(root: string, frozen: readonly string[]): string[][] {
+	return ROLES.map(({ role }, index) => changedSince(frozen[index] ?? "", root, audience(root, role)));
+}
+
+// A-037, A-079: a session whose files did not change gets no notice.
+test("A-037: no role's message names a path while every file it was built from is unchanged", async (t) => {
+	const root = await initProject(t);
+	assert.deepEqual(
+		everyChange(root, everyMessage(root)),
+		ROLES.map(() => []),
+	);
+});
+
+// A-037: the styleguide is a part of every role's message, so each one names it, and nothing else.
+test("A-037: after the styleguide changed every role's message names .agents/limen/styleguide.md alone", async (t) => {
+	const root = await initProject(t);
+	const frozen = everyMessage(root);
+	await appendFile(join(root, ".agents/limen/styleguide.md"), "\nA rule added in the session.\n");
+	assert.deepEqual(
+		everyChange(root, frozen),
+		ROLES.map(() => [".agents/limen/styleguide.md"]),
+	);
+});
+
+// A-037: the frame's `## Cue` is the turn cue's anchor, outside every part, so an edit there names nothing; an edit of
+// the `## Frame` that the capability part holds names the file.
+test("A-037: an edit below the capability file's ## Cue names nothing, and one in its ## Frame names the file", async (t) => {
+	const root = await initProject(t);
+	const pkg = await mkdtemp(join(tmpdir(), "limen-context-package-"));
+	t.after(() => rm(pkg, { recursive: true, force: true }));
+	await cp(join(PACKAGE, "templates"), join(pkg, "templates"), { recursive: true });
+	withEnvironment(t, { LIMEN_PACKAGE: pkg });
+	const capability = join(pkg, "templates/capability.md");
+	const frozen = contextMessage(root, { session: "coordinator" });
+	await appendFile(capability, "\nA sentence below the cue's anchor.\n");
+	const belowCue = changedSince(frozen, root, { session: "coordinator" });
+	const text = await readFile(capability, "utf8");
+	await writeFile(capability, text.replace("## Cue", "A sentence in the frame.\n\n## Cue"));
+	assert.deepEqual(
+		[belowCue, changedSince(frozen, root, { session: "coordinator" })],
+		[[], ["limen/templates/capability.md"]],
+	);
+});
+
+// A-037: a part the message holds whose file is gone names its path, the coordinator's vision part and a job's line.
+test("A-037: a removed vision names spec/vision.md for the coordinator's vision part and for a worker's vision line", async (t) => {
+	const root = await initProject(t);
+	const coordinator = contextMessage(root, audience(root, undefined));
+	const worker = contextMessage(root, audience(root, "worker"));
+	await rm(join(root, "spec/vision.md"));
+	assert.deepEqual(
+		[changedSince(coordinator, root, audience(root, undefined)), changedSince(worker, root, audience(root, "worker"))],
+		[["spec/vision.md"], ["spec/vision.md"]],
+	);
+});
+
+/** The coordinator's and the worker's messages in `root`, and the paths each names after `change`. */
+async function namedAfter(root: string, change: () => Promise<void>): Promise<string[][]> {
+	const frozen = [contextMessage(root, audience(root, undefined)), contextMessage(root, audience(root, "worker"))];
+	await change();
+	return [
+		changedSince(frozen[0] ?? "", root, audience(root, undefined)),
+		changedSince(frozen[1] ?? "", root, audience(root, "worker")),
+	];
+}
+
+// A-040: a module switched on in the session adds parts the frozen message lacks, each named by its package path.
+test("A-040: the picture module switched on since names each part it adds, for the coordinator and a worker", async (t) => {
+	const root = await initProject(t);
+	const on = () => plantFile(root, ".agents/limen/limits.json", '{ "modules": { "picture": true } }\n');
+	assert.deepEqual(await namedAfter(root, on), [
+		["limen/templates/modules/picture/manual.md", "limen/templates/modules/picture/specs.md"],
+		["limen/templates/modules/picture/worker.md"],
+	]);
+});
+
+// A-040: a module switched off in the session leaves parts in the frozen message that the role no longer gets.
+test("A-040: the picture module switched off since names each part it held, for the coordinator and a worker", async (t) => {
+	const root = await initProject(t);
+	await plantFile(root, ".agents/limen/limits.json", '{ "modules": { "picture": true } }\n');
+	const off = () => plantFile(root, ".agents/limen/limits.json", '{ "modules": {} }\n');
+	assert.deepEqual(await namedAfter(root, off), [
+		["limen/templates/modules/picture/manual.md", "limen/templates/modules/picture/specs.md"],
+		["limen/templates/modules/picture/worker.md"],
+	]);
 });

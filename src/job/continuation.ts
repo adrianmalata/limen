@@ -27,13 +27,11 @@ import {
 	type EngineId,
 	type EngineProfile,
 	engineProfile,
-	engineRoute,
 	preflightEngine,
 	resolveSpawnEngine,
-	runsBridgeIsolated,
 } from "../runtime/engine.ts";
 import { launchWrapper } from "../runtime/launcher.ts";
-import { requireJobModules } from "../runtime/roles.ts";
+import { jobAudience, requireJobModules } from "../runtime/roles.ts";
 import { jobPriority, parsePriority, queuedLine } from "../runtime/start-queue.ts";
 import { normalizeWorkerExtensions, readWorkerExtensions } from "../runtime/worker-extensions.ts";
 import { finalizeJob } from "./finalize.ts";
@@ -56,7 +54,7 @@ import { publishJob } from "./publication.ts";
 import { carriedStartState } from "./read-only.ts";
 import { type JobRecord, readRecord } from "./record.ts";
 import { type JobReference, jobsLock, newJobId, referenceWord, resolveJob } from "./reference.ts";
-import { normalizeLabel, recordVersions, resolvePreamble, waitForHandshake } from "./spawning.ts";
+import { normalizeLabel, recordVersions, waitForHandshake } from "./spawning.ts";
 import { worktreeJobs } from "./unlanded.ts";
 import { currentNotificationSession, herdrWakePane } from "./watching.ts";
 
@@ -284,12 +282,7 @@ async function validateContinue(
 	// R-044 Decisions 6 and 20 G1).
 	requireJobModules(root, { role, repo: parent.repo });
 	// A role a cut removed refuses here, also for a parent whose context message the continuation carries.
-	const context = carriedContext(parentDir, root, {
-		session: "job",
-		role,
-		preamble: resolvePreamble(root, role, "record"),
-		bridgeIsolated: runsBridgeIsolated(engineRoute(provider, chosenModel)),
-	});
+	const context = carriedContext(parentDir, root, jobAudience(root, { role, provider, model: chosenModel }, "record"));
 	const repository = parent.repo ? workspaceRepository(root, parent.repo) : root;
 	await view.hold(`the worktree ${parent.worktree} or branch ${parent.branch} of job ${parentId}`, () => {
 		if (!existsSync(parent.worktree) && !branchExists(repository, parent.branch)) {

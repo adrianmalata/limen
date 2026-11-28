@@ -4,7 +4,7 @@ wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: 
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
 R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025, R-097, R-099, R-026, R-030, R-033,
 R-027, R-028, R-031, R-035, R-100, R-029, R-032, R-034, R-036, R-037, R-087, R-098, R-101, R-102, R-103, R-038,
-R-111, R-039, R-040, R-042, R-043, R-044, R-041, R-112, R-045, R-047, R-104, R-105, R-106, R-107, R-108, R-109. -->
+R-111, R-039, R-040, R-042, R-043, R-044, R-041, R-112, R-045, R-047, R-104, R-105, R-106, R-107, R-108, R-109, R-110. -->
 
 # Changes
 
@@ -592,3 +592,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-10; `## Deployment` 4.11 removes the drop-in and checks no HTTP 429)
 - Commit: R-109
 - Rollback: git revert $(git log --format=%H --grep='^R-109:' adrian-rebuild --)
+
+## 2026-11-28 R-110 A continuation reuses its parent's context message; change notices and the board digest come only on a change
+- What: `src/runtime/context-message.ts` (`changedSince`: the paths whose part changed since a frozen message); `hook/communication.ts` (two `before_agent_start` handlers after the cue's: `limen-notice`, one line per changed path once per context, coordinator and jobs; `limen-board`, the NOW and NEXT digest in the coordinator only when its text changed; both read what was delivered from the session's context); `src/runtime/roles.ts` (`jobAudience`, `resolvePreamble` from `src/job/spawning.ts`); `src/job/spawning.ts`, `src/job/continuation.ts`; `test/fake-engine.mjs`; `docs/setup.md`, `docs/jobs.md`; tests (`test/runtime/context-message.test.ts`, `test/hook/communication.test.ts`, `test/cli/continue.test.ts` with seven continuation goldens in `test/runtime/context-message/`, `test/s4-steering.test.ts`, `test/runtime/roles.test.ts`, `test/cli/old-names.test.ts`; `test/job/spawning.test.ts` removed)
+- Why: A-079, A-037, A-051, D-114, D-120, D-126
+- Proof: `node adrian-rebuild/tools/gate.mjs --out node_modules/.rebuild-review/R-110.gate` → exit 0 (1588/1588); `node adrian-rebuild/tools/fails-before.mjs test/runtime/context-message.test.ts test/hook/communication.test.ts test/cli/continue.test.ts test/s4-steering.test.ts` → exit 0; `node adrian-rebuild/tools/check.mjs` → exit 0
+- Measurement: unmeasured (plan.md → Measurement: M-04; `## Deployment` 4.2)
+- Commit: R-110
+- Rollback: git revert $(git log --format=%H --grep='^R-110:' adrian-rebuild --)

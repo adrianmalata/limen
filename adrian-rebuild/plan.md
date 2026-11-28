@@ -2091,7 +2091,7 @@ Columns:
 | R-107 | The exit 4 of systemd 259's `is-active` reads as not active | 4 | A-029, E-18, D-112 | R-026 | S | delegated | night | — | systemd | 4.13 | done |
 | R-108 | The stall rule follows every pending tool of a message | 4 | A-059, E-19, D-112 | R-036 | S | delegated | night | — | pi | 4.12 | done |
 | R-109 | The alerts' unit sends over IPv4 first | 4 | A-066, D-108, D-112 | R-033 | S | delegated | night | — | systemd | 4.11 | done |
-| R-110 | A continuation reuses its parent's context message; change notices and the board digest come only on a change | 4 | A-079, A-037, A-051, D-114, D-120, D-126 | R-039, R-042, R-043, R-044 | M | delegated | night | — | pi | 4.2 | active |
+| R-110 | A continuation reuses its parent's context message; change notices and the board digest come only on a change | 4 | A-079, A-037, A-051, D-114, D-120, D-126 | R-039, R-042, R-043, R-044 | M | delegated | night | — | pi | 4.2 | done |
 | R-111 | A wake is settled only by the run it entered; an idle sweep starts one run | 4 | A-089, A-090, D-128, D-129 | R-038 | L | delegated | night | — | pi | 4.14 | done |
 | R-112 | The wake hook's tests stop the hook before they remove its folder | 4 | A-092, D-133, D-136, E-22 | R-043 | S | delegated | night | — | — | — | done |
 | R-048 | Jobs run the bridge isolated: no `--approve`, `--offline`, a private `TMPDIR`, an explicit Claude Code path | 5 | A-025, E-3, E-4, E-15, D-005, D-017 | R-040, R-087 | M | delegated | night | — | pi, bridge | 5.8, 5.9 | planned |
@@ -2227,6 +2227,12 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
 - R-040, R-048: the project's `AGENTS.md` goes into the context message exactly when the job runs the bridge isolated
   (E-15, D-005); R-040 builds the rule from a launcher flag, and R-048 turns isolation on, so the file never arrives
   twice. Neither project has an `AGENTS.md` today (gate 2 §1).
+- R-048 (R-110 `review.md` → Round 1; R-110 Decision 21): R-110's notice compares a continuation's frozen message, the
+  parent's, with the parts built for the child's route, so a continuation whose route's bridge isolation differs from
+  its parent's gets a false notice on its first run: `AGENTS.md` when the child runs isolated and the parent did not,
+  `.agents/limen/styleguide.md` in the reverse case (the frozen `AGENTS.md` part reads as the end of the styleguide's);
+  when R-048 turns isolation on, the comparison takes the isolation the frozen message was built with, or R-048 shows
+  that a parent and its continuation never differ in it.
 - R-044, R-045 (R-040 review round 3, note 2; present at `rebuild-base`): `resolvePreamble` accepts any
   `templates/<name>.md`, so `--role manual`, `--role communication`, `--role capability` or `--role styleguide` loads a
   text that is no role as a job's preamble (`resolvePreamble` in `src/job/spawning.ts`); with R-044's role table as the one list of
@@ -6349,3 +6355,12 @@ Night run of 2026-11-27/28 (until 08:00; `night.mjs` run 1 started at 21:47:25, 
 - R-110 `active` at `e0e2bcc` (protocol step 2, started before 08:00): its facts' places in its Decision 20; R-039
   removed `boardDigest`, so the digest is built again from its text at `aa721d7`; the cue is the one
   `before_agent_start` handler today; AC-9 names the gate's `--out`.
+- R-110 `done` (delegated): no `BLOCKED`. Review round 1: the first reply was rejected by `review-verdict.mjs` (`FAIL`
+  with no blocking finding, then "Correction: line 1 is PASS"), a fresh reviewer → PASS; the notes of both → F1–F5
+  (Decision 21: one `jobAudience` with `resolvePreamble` in `src/runtime/roles.ts`, so the hook no longer loads the
+  spawn module; two `docs/setup.md` sentences; three tests assert the first run; two comments); round 2 PASS → G1–G2
+  (Decision 22, the last round, `## Change` item 9: the `resolvePreamble` tests in `test/runtime/roles.test.ts`,
+  `test/job/spawning.test.ts` removed by `git rm -f`, two headers as at `HEAD`); round 3 PASS, its two `outcome.md`
+  notes fixed by the main session. A note for R-048 in `## Tickets` (a continuation whose isolation differs from its
+  parent's gets a false notice). The main session's gates 1588/1588 (365.5 s, 357.0 s, 361.8 s), AC-5's
+  `fails-before.mjs` exit 0 after each. For gate 5.4: R-110's Deviations 1–7 and Open points.

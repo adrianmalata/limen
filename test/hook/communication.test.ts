@@ -1,7 +1,9 @@
 // hook/communication.ts: the context message it sends, the turn cue it returns, the reminders in a tool result.
 import assert from "node:assert/strict";
+import childProcess from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -9,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import limenCommunication from "../../hook/communication.ts";
 import { LimenError } from "../../src/outcome.ts";
 import { contextMessage, markdownSection } from "../../src/runtime/context-message.ts";
+import { resolvePreamble } from "../../src/runtime/roles.ts";
 import { inTemporaryProject } from "../environment.ts";
 import { writeRecord } from "../plant.ts";
 
@@ -72,30 +75,58 @@ async function fixture(t: TestContext) {
 	return { project, bin, home, marker, job };
 }
 
+/** A custom message the hook sent or a handler returned: its type, its content and whether the chat shows it. */
+type Message = { readonly customType: string; readonly content: string; readonly display: boolean };
 /** One message the hook sent, with the options of its send. */
-type Sent = {
-	readonly customType: string;
-	readonly content: string;
-	readonly display: boolean;
-	readonly options: unknown;
-};
+type Sent = Message & { readonly options: unknown };
 
-/** A fresh copy of the hook on a fake `pi`: the messages it sent, and a call of its handler of an event, as Pi's. */
+/** The payload of a run's start from a prompt, as Pi gives it to `before_agent_start`. */
+const PROMPT = { type: "before_agent_start", prompt: "Hello.", systemPrompt: "Base prompt." };
+
+/**
+ * A fresh copy of the hook on a fake `pi`: the messages it sent, its handlers of each event in the order it registered
+ * them, a call of the one handler of an event, and a run's start, which calls every `before_agent_start` handler in
+ * that order and gives what each returned, as Pi collects them (core/extensions/runner.js:1137-1153).
+ */
 function loadHook() {
-	const handlers = new Map<string, unknown>();
+	const handlers = new Map<string, unknown[]>();
 	const sent: Sent[] = [];
 	limenCommunication({
-		on: (name: string, handler: unknown) => handlers.set(name, handler),
+		on: (name: string, handler: unknown) => handlers.set(name, [...(handlers.get(name) ?? []), handler]),
 		sendMessage: (message, options) => {
 			sent.push({ ...message, options });
 		},
 	});
 	const fire = (name: string, event: unknown, context: unknown): unknown => {
-		const handler = handlers.get(name);
+		const [handler, ...more] = handlers.get(name) ?? [];
 		assert.ok(typeof handler === "function", `the hook handles ${name}`);
+		assert.equal(more.length, 0, `the hook handles ${name} once`);
 		return handler(event, context);
 	};
-	return { handlers, sent, fire };
+	const fireEach = (name: string, event: unknown, context: unknown): Promise<unknown[]> =>
+		Promise.all(
+			(handlers.get(name) ?? []).map((handler) => {
+				assert.ok(typeof handler === "function", `a handler of ${name}`);
+				return handler(event, context);
+			}),
+		);
+	const start = (context: unknown, event: unknown = PROMPT): Promise<unknown[]> =>
+		fireEach("before_agent_start", event, context);
+	return { handlers, sent, fire, fireEach, start };
+}
+
+/** The messages a run's `before_agent_start` handlers returned, in their order: each result's `message`. */
+function messagesOf(results: readonly unknown[]): Message[] {
+	return results.flatMap((result) => {
+		const message = typeof result === "object" && result !== null ? Reflect.get(result, "message") : undefined;
+		if (typeof message !== "object" || message === null) {
+			return [];
+		}
+		const [customType, content, display] = ["customType", "content", "display"].map((name) =>
+			Reflect.get(message, name),
+		);
+		return [{ customType: String(customType), content: String(content), display: display === true }];
+	});
 }
 
 /** A session's context in `cwd` whose compaction-aware entries are those `entries` holds when Pi asks. */
@@ -156,7 +187,7 @@ test("a job's session_start sends the context.md of its folder byte for byte", a
 
 /** A payload of each event the hook handles, as Pi gives it. */
 const PAYLOADS: Readonly<Record<string, unknown>> = {
-	before_agent_start: { type: "before_agent_start", prompt: "Hello.", systemPrompt: "Base prompt." },
+	before_agent_start: PROMPT,
 	message_end: { type: "message_end", message: { role: "assistant", content: [], stopReason: "stop" } },
 	session_start: START,
 	session_compact: compact("manual"),
@@ -175,11 +206,11 @@ test("A-086: no handler of the hook returns a systemPrompt", async (t) => {
 	const results = await Promise.all(
 		[...hook.handlers.keys()].map(async (name) => {
 			assert.ok(Object.hasOwn(PAYLOADS, name), `a payload of ${name}`);
-			return [name, await hook.fire(name, PAYLOADS[name], context)] as const;
+			return (await hook.fireEach(name, PAYLOADS[name], context)).map((result) => [name, result] as const);
 		}),
 	);
 	assert.deepEqual(
-		results.filter(([, result]) => typeof result === "object" && result !== null && "systemPrompt" in result),
+		results.flat().filter(([, result]) => typeof result === "object" && result !== null && "systemPrompt" in result),
 		[],
 	);
 });
@@ -288,9 +319,9 @@ test("BAD_DATA: a session_compact without willRetry before any session_start is 
 	);
 });
 
-/** The `before_agent_start` result of a fresh copy of the hook: what a new session's first prompt gets. */
-function sessionStart(project: string): unknown {
-	return loadHook().fire("before_agent_start", PAYLOADS.before_agent_start, { cwd: project });
+/** The `before_agent_start` results of a fresh copy of the hook, whose session holds no entry yet. */
+function sessionStart(project: string): Promise<unknown[]> {
+	return loadHook().start(sessionContext(project, () => []));
 }
 
 /**
@@ -300,9 +331,9 @@ function sessionStart(project: string): unknown {
 async function startWithAndWithoutJg(t: TestContext, job: boolean) {
 	const { project, bin, home, marker } = await fixture(t);
 	environment(t, { ...(job ? jobSession(project, home) : coordinatorSession(home)), PATH: process.env.PATH });
-	const plain = sessionStart(project);
+	const plain = await sessionStart(project);
 	process.env.PATH = `${bin}:${process.env.PATH ?? ""}`;
-	const withJg = sessionStart(project);
+	const withJg = await sessionStart(project);
 	return { plain, withJg, ran: existsSync(marker) };
 }
 
@@ -316,11 +347,9 @@ test("T-36: a job session starts with the same context with and without a jg on 
 	assert.deepEqual([withJg, ran], [plain, false]);
 });
 
-/** The text of the turn cue in a `before_agent_start` result; "" for a result without one. */
-function cueText(start: unknown): string {
-	const message = typeof start === "object" && start !== null ? Reflect.get(start, "message") : undefined;
-	const content = typeof message === "object" && message !== null ? Reflect.get(message, "content") : undefined;
-	return typeof content === "string" ? content : "";
+/** The text of the turn cue among a run's `before_agent_start` results; "" when none returned one. */
+function cueText(results: readonly unknown[]): string {
+	return messagesOf(results).find(({ customType }) => customType === "limen-turn-cue")?.content ?? "";
 }
 
 /** A project register of the kind R-040 stops reading, with its own Specs and cue sections. */
@@ -343,7 +372,7 @@ test("a coordinator's turn cue holds no Guidance drift block when the project ho
 	await mkdir(join(project, ".agents/limen"), { recursive: true });
 	await writeFile(join(project, ".agents/limen/communication.md"), PROJECT_REGISTER);
 	environment(t, coordinatorSession(home));
-	const cue = cueText(sessionStart(project));
+	const cue = cueText(await sessionStart(project));
 	assert.deepEqual([cue.includes("<limen-turn-cue>"), cue.includes("Guidance drift")], [true, false]);
 });
 
@@ -351,10 +380,10 @@ test("a coordinator's turn cue holds no Guidance drift block when the project ho
 test("A-039: a register the project holds leaves the coordinator's turn cue unchanged", async (t) => {
 	const { project, home } = await fixture(t);
 	environment(t, coordinatorSession(home));
-	const plain = cueText(sessionStart(project));
+	const plain = cueText(await sessionStart(project));
 	await mkdir(join(project, ".agents/limen"), { recursive: true });
 	await writeFile(join(project, ".agents/limen/communication.md"), PROJECT_REGISTER);
-	assert.equal(cueText(sessionStart(project)), plain);
+	assert.equal(cueText(await sessionStart(project)), plain);
 });
 
 /** The capability frame's one-sentence anchor, the turn cue's last line (A-043). */
@@ -378,14 +407,14 @@ async function expectedCue(lines: readonly string[]): Promise<string> {
 test("A-077: a coordinator's turn cue with no variable line is its audience line and the frame's anchor", async (t) => {
 	const { project, home } = await fixture(t);
 	environment(t, coordinatorSession(home));
-	assert.equal(cueText(sessionStart(project)), await expectedCue([OWNER_AUDIENCE]));
+	assert.equal(cueText(await sessionStart(project)), await expectedCue([OWNER_AUDIENCE]));
 });
 
 test("A-077: a job's turn cue is its audience line, the ticket line of its task and the frame's anchor", async (t) => {
 	const { project, home, job } = await fixture(t);
 	await writeFile(join(job, "task.md"), `Implement the ticket.\n\nTicket: ${TICKET}\n`);
 	environment(t, jobSession(project, home));
-	assert.equal(cueText(sessionStart(project)), await expectedCue([AGENT_AUDIENCE, `Ticket: ${TICKET}`]));
+	assert.equal(cueText(await sessionStart(project)), await expectedCue([AGENT_AUDIENCE, `Ticket: ${TICKET}`]));
 });
 
 // D-134 (2): the line states the fact alone; what to do after a failed turn is the owner register's.
@@ -395,9 +424,8 @@ test("D-134: the cue after a turn that ended in error says it failed with its re
 	const hook = loadHook();
 	const failed = { role: "assistant", content: [], stopReason: "error", errorMessage: "provider overloaded" };
 	hook.fire("message_end", { type: "message_end", message: failed }, { cwd: project });
-	const cues = [1, 2].map(() =>
-		cueText(hook.fire("before_agent_start", PAYLOADS.before_agent_start, { cwd: project })),
-	);
+	const context = sessionContext(project, () => []);
+	const cues = [cueText(await hook.start(context)), cueText(await hook.start(context))];
 	assert.deepEqual(cues, [
 		await expectedCue([OWNER_AUDIENCE, "Last turn failed (error: provider overloaded)."]),
 		await expectedCue([OWNER_AUDIENCE]),
@@ -409,27 +437,26 @@ test("A-077: a wake prompt gets the same turn cue as an owner prompt", async (t)
 	const { project, home } = await fixture(t);
 	environment(t, coordinatorSession(home));
 	const wake = { type: "before_agent_start", prompt: "Limen job 2026-11-19-x-1a2b3c4d ended.", systemPrompt: "Base." };
-	assert.equal(cueText(loadHook().fire("before_agent_start", wake, { cwd: project })), cueText(sessionStart(project)));
+	const context = sessionContext(project, () => []);
+	assert.equal(cueText(await loadHook().start(context, wake)), cueText(await sessionStart(project)));
 });
 
 // T-13: the coordinator answers in the owner's language, so its cue names no fixed language; agents write English.
 test('T-13: the coordinator\'s turn cue holds no "English", and a job\'s holds "Plain technical English."', async (t) => {
 	const { project, home } = await fixture(t);
 	environment(t, coordinatorSession(home));
-	const owner = cueText(sessionStart(project));
+	const owner = cueText(await sessionStart(project));
 	// The job's variables name the same variables as the coordinator's, which the test gives back after it.
 	assign(jobSession(project, home));
-	const agent = cueText(sessionStart(project));
+	const agent = cueText(await sessionStart(project));
 	assert.deepEqual([owner.includes("English"), agent.includes("Plain technical English.")], [false, true]);
 });
 
 test("D-134: the turn cue is a hidden custom message of type limen-turn-cue", async (t) => {
 	const { project, home } = await fixture(t);
 	environment(t, coordinatorSession(home));
-	const start = sessionStart(project);
-	const message = typeof start === "object" && start !== null ? Reflect.get(start, "message") : undefined;
-	const field = (name: string) => (typeof message === "object" && message !== null ? Reflect.get(message, name) : "");
-	assert.deepEqual([field("customType"), field("display")], ["limen-turn-cue", false]);
+	const [cue] = messagesOf(await sessionStart(project));
+	assert.deepEqual([cue?.customType, cue?.display], ["limen-turn-cue", false]);
 });
 
 // D-134 (3): a job's message points at the vision, and every job role's text forbids board edits.
@@ -438,7 +465,7 @@ test("D-134: a job's turn cue names neither the vision nor the board of a projec
 	await vision(project);
 	await writeFile(join(project, "spec", "build.md"), "# Build\n");
 	environment(t, jobSession(project, home));
-	const cue = cueText(sessionStart(project));
+	const cue = cueText(await sessionStart(project));
 	assert.deepEqual([cue.includes("spec/vision.md"), cue.includes("spec/build.md")], [false, false]);
 });
 
@@ -700,7 +727,7 @@ test("a Bash result that brings the vision keeps its structuredContent", async (
 test("a Bash command that creates a planned ticket leaves no touch line in the next turn cue", async (t) => {
 	const { hook, project } = await coordinatorWithVision(t);
 	hook.fire("tool_result", toolResult("bash", { command: "mkdir -p spec/features/planned/F002-y" }), { cwd: project });
-	const cue = cueText(hook.fire("before_agent_start", PAYLOADS.before_agent_start, { cwd: project }));
+	const cue = cueText(await hook.start(sessionContext(project, () => [])));
 	assert.deepEqual([cue.includes("<limen-turn-cue>"), cue.includes("Last turn")], [true, false]);
 });
 
@@ -719,8 +746,7 @@ test("a coordinator's turn cue holds no seat-rules block when the seat folder ho
 	await mkdir(join(home, ".limen", "rules", rule.name), { recursive: true });
 	await writeFile(join(home, ".limen", "rules", rule.name, "rule.json"), JSON.stringify(rule));
 	environment(t, coordinatorSession(home));
-	const start = sessionStart(project);
-	const cue = typeof start === "object" && start !== null ? JSON.stringify(Reflect.get(start, "message")) : "";
+	const cue = JSON.stringify(messagesOf(await sessionStart(project)));
 	assert.deepEqual(
 		[cue.includes("<limen-turn-cue>"), cue.includes("Seat-wide rules"), cue.includes(rule.text)],
 		[true, false, false],
@@ -732,10 +758,9 @@ test("a job's first before_agent_start message is the turn cue alone, the same a
 	const { project, home } = await fixture(t);
 	environment(t, jobSession(project, home));
 	const hook = loadHook();
-	const [first, next] = [1, 2].map(() =>
-		cueText(hook.fire("before_agent_start", PAYLOADS.before_agent_start, { cwd: project })),
-	);
-	assert.deepEqual([first, first?.endsWith("</limen-turn-cue>")], [next, true]);
+	const context = sessionContext(project, () => [held(workerMessage(project))]);
+	const [first, next] = [messagesOf(await hook.start(context)), messagesOf(await hook.start(context))];
+	assert.deepEqual([first, first.map(({ content }) => content.endsWith("</limen-turn-cue>"))], [next, [true]]);
 });
 
 // A-044: the hook kept a job's first note as note.first.md and logged each change of note.md.
@@ -744,8 +769,234 @@ test("a job's tool_result after a write of note.md leaves no note.first.md and n
 	environment(t, jobSession(project, home));
 	await writeFile(join(job, "log"), "");
 	const hook = loadHook();
-	hook.fire("before_agent_start", PAYLOADS.before_agent_start, { cwd: project });
+	await hook.start(sessionContext(project, () => []));
 	await writeFile(join(job, "note.md"), "- Done means: tests pass.\n");
 	hook.fire("tool_result", PAYLOADS.tool_result, { cwd: project });
 	assert.deepEqual([existsSync(join(job, "note.first.md")), await readFile(join(job, "log"), "utf8")], [false, ""]);
+});
+
+/** The context message of a worker in `project`, as the spawn of the fixture's job, which has no record, builds it. */
+function workerMessage(project: string): string {
+	const preamble = resolvePreamble(project, "worker");
+	return contextMessage(project, { session: "job", role: "worker", preamble, bridgeIsolated: false });
+}
+
+/**
+ * One run of `hook` in `project` whose session's compaction-aware context holds `entries`: the messages its handlers
+ * returned, in their order, which the context holds after it as custom message entries, as Pi enters them with the
+ * run's prompt (E-11, E-16).
+ */
+async function runIn(hook: ReturnType<typeof loadHook>, project: string, entries: object[]): Promise<Message[]> {
+	const messages = messagesOf(await hook.start(sessionContext(project, () => entries)));
+	entries.push(...messages.map((message) => ({ type: "custom_message", ...message })));
+	return messages;
+}
+
+/** The type of each message, in order. */
+const typesOf = (messages: readonly Message[]) => messages.map(({ customType }) => customType);
+
+/** Writes the project's board with the line `now` under `## NOW` and one ticket under `## NEXT`. */
+async function board(project: string, now: string): Promise<void> {
+	await mkdir(join(project, "spec"), { recursive: true });
+	await writeFile(join(project, "spec", "build.md"), `# Build\n\n## NOW\n\n- ${now}\n\n## NEXT\n\n- F002 next\n`);
+}
+
+/** The board digest of the board `board` writes with `now`: its NOW and NEXT under one heading, in its tag pair. */
+function digest(now: string): string {
+	const sections = ["## NOW", "", `- ${now}`, "", "## NEXT", "", "- F002 next"];
+	return ["<limen-board>", "## Board digest (spec/build.md)", ...sections, "</limen-board>"].join("\n");
+}
+
+/** The coordinator's context message in `project`. */
+const coordinatorMessage = (project: string) => contextMessage(project, { session: "coordinator" });
+
+/**
+ * A coordinator's hook in a project with a board, and its session's context, which holds the context message of the
+ * bytes `bytes`, built now.
+ */
+async function coordinatorWithBoard(t: TestContext) {
+	const { project, home } = await fixture(t);
+	await board(project, "F001 now");
+	environment(t, coordinatorSession(home));
+	const bytes = coordinatorMessage(project);
+	const entries: object[] = [held(bytes)];
+	return { hook: loadHook(), project, bytes, entries };
+}
+
+// A-037, D-120: the digest rides the run as the cue does, so it ends the run's prompt and adds no request.
+test("A-037: a coordinator's first run returns the board digest as a hidden limen-board message, last, after the cue", async (t) => {
+	const { hook, project, entries } = await coordinatorWithBoard(t);
+	const messages = await runIn(hook, project, entries);
+	assert.deepEqual(
+		[messages.map(({ customType, display }) => [customType, display]), messages.at(-1)?.content],
+		[
+			[
+				["limen-turn-cue", false],
+				["limen-board", false],
+			],
+			digest("F001 now"),
+		],
+	);
+});
+
+// T-15, A-037: the digest is compared as text with the last one the context holds, so an unchanged board sends none.
+test("A-037: a coordinator's second run with the same board returns no digest", async (t) => {
+	const { hook, project, entries } = await coordinatorWithBoard(t);
+	const first = await runIn(hook, project, entries);
+	const second = await runIn(hook, project, entries);
+	assert.deepEqual([first.at(-1)?.content, typesOf(second)], [digest("F001 now"), ["limen-turn-cue"]]);
+});
+
+test("A-037: after a change of the board's NOW the coordinator's next run returns the new digest", async (t) => {
+	const { hook, project, entries } = await coordinatorWithBoard(t);
+	await runIn(hook, project, entries);
+	await board(project, "F003 now");
+	const messages = await runIn(hook, project, entries);
+	assert.deepEqual(
+		[typesOf(messages), messages.at(-1)?.content],
+		[["limen-turn-cue", "limen-board"], digest("F003 now")],
+	);
+});
+
+// A-051, z. 4: what a compaction summarised is gone from the context the model holds, so the digest comes again.
+test("A-037: after a compaction that summarised the digest the coordinator's next run returns it again", async (t) => {
+	const { hook, project, bytes, entries } = await coordinatorWithBoard(t);
+	await runIn(hook, project, entries);
+	entries.splice(0, entries.length, COMPACTION, held(bytes));
+	const again = await runIn(hook, project, entries);
+	assert.deepEqual([typesOf(again), again.at(-1)?.content], [["limen-turn-cue", "limen-board"], digest("F001 now")]);
+});
+
+// T-23: the board digest is the coordinator's; a job works on one ticket and never edits the board.
+test("T-23: a job's run in a project with a board returns no board digest", async (t) => {
+	const { project, home } = await fixture(t);
+	await board(project, "F001 now");
+	environment(t, jobSession(project, home));
+	assert.deepEqual(typesOf(await runIn(loadHook(), project, [held(workerMessage(project))])), ["limen-turn-cue"]);
+});
+
+/** The project's styleguide, a part of every role's context message. */
+const STYLE = ".agents/limen/styleguide.md";
+/** The notice of a changed styleguide (A-037's words), in its tag pair. */
+const STYLE_NOTICE = `<limen-notice>\nchanged ${STYLE}, new text from the next session\n</limen-notice>`;
+
+/** Writes the fixture's styleguide, one rule under its heading. */
+async function styleguide(project: string): Promise<void> {
+	await mkdir(join(project, ".agents/limen"), { recursive: true });
+	await writeFile(join(project, STYLE), "# Styleguide\n\nThe first rule.\n");
+}
+
+/** Adds a rule to the fixture's styleguide, as an edit during a session does. */
+function editStyleguide(project: string): Promise<void> {
+	return appendFile(join(project, STYLE), "\nA rule added in the session.\n");
+}
+
+/**
+ * A hook in the session the variables `session` gives name, and its session's context, which holds the context message
+ * of the bytes `bytes` that `message` built before the project's styleguide changed.
+ */
+async function changedStyleguide(
+	t: TestContext,
+	session: (project: string, home: string) => Env,
+	message: (project: string) => string,
+) {
+	const { project, home } = await fixture(t);
+	await styleguide(project);
+	environment(t, session(project, home));
+	const bytes = message(project);
+	const entries: object[] = [held(bytes)];
+	await editStyleguide(project);
+	return { hook: loadHook(), project, home, bytes, entries };
+}
+
+/** The variables of a coordinator's session, in the shape `changedStyleguide` takes. */
+const coordinatorOf = (_project: string, home: string) => coordinatorSession(home);
+
+/** The styleguide's notice as a run returns it: a hidden custom message of type limen-notice. */
+const NOTICE_MESSAGE: Message = { customType: "limen-notice", content: STYLE_NOTICE, display: false };
+
+// A-037 "(coordinator and jobs)": a change during the session is named, and its text waits for the next session.
+test("A-037: in the coordinator a run after the styleguide changed returns one hidden limen-notice that names it, after the cue", async (t) => {
+	const { hook, project, entries } = await changedStyleguide(t, coordinatorOf, coordinatorMessage);
+	const messages = await runIn(hook, project, entries);
+	assert.deepEqual([typesOf(messages), messages.at(-1)], [["limen-turn-cue", "limen-notice"], NOTICE_MESSAGE]);
+});
+
+test("A-037: in a job a run after the styleguide changed returns one hidden limen-notice that names it, after the cue", async (t) => {
+	const { hook, project, entries } = await changedStyleguide(t, jobSession, workerMessage);
+	const messages = await runIn(hook, project, entries);
+	assert.deepEqual([typesOf(messages), messages.at(-1)], [["limen-turn-cue", "limen-notice"], NOTICE_MESSAGE]);
+});
+
+// A-037: the notice stays in the context, so a path comes once per context, also when its file changes again.
+test("A-037: a path comes in one notice per context: the next run, and one after a second change of the file, return none", async (t) => {
+	const { hook, project, entries } = await changedStyleguide(t, jobSession, workerMessage);
+	const first = await runIn(hook, project, entries);
+	const next = await runIn(hook, project, entries);
+	await appendFile(join(project, STYLE), "\nA second rule added in the session.\n");
+	const after = await runIn(hook, project, entries);
+	assert.deepEqual(
+		[first.at(-1), typesOf(next), typesOf(after)],
+		[NOTICE_MESSAGE, ["limen-turn-cue"], ["limen-turn-cue"]],
+	);
+});
+
+// z. 4: the context the model holds after a compaction lacks the notice the compaction summarised.
+test("A-037: after a compaction removed the notice the next run names the changed path again", async (t) => {
+	const { hook, project, bytes, entries } = await changedStyleguide(t, jobSession, workerMessage);
+	await runIn(hook, project, entries);
+	entries.splice(0, entries.length, COMPACTION, held(bytes));
+	assert.deepEqual((await runIn(hook, project, entries)).at(-1)?.content, STYLE_NOTICE);
+});
+
+// z. 3: the notice and the digest are appended after the history; the frozen message, the session's prefix, stays.
+test("D-114 (1): runs that return notices and digests send no context message and leave the limen-context entry's bytes", async (t) => {
+	const { hook, project, bytes, entries } = await changedStyleguide(t, coordinatorOf, coordinatorMessage);
+	await board(project, "F001 now");
+	const first = await runIn(hook, project, entries);
+	const returned = [...first, ...(await runIn(hook, project, entries))];
+	await board(project, "F003 now");
+	returned.push(...(await runIn(hook, project, entries)));
+	assert.deepEqual(
+		[typesOf(first), hook.sent, typesOf(returned).filter((type) => type === "limen-context"), entries[0]],
+		[["limen-turn-cue", "limen-notice", "limen-board"], [], [], held(bytes)],
+	);
+});
+
+/** The `child_process` functions that start a process, each counting its calls for the test `t`. */
+function countedStarts(t: TestContext) {
+	const names = ["spawn", "spawnSync", "exec", "execSync", "execFile", "execFileSync", "fork"] as const;
+	const started = names.map((name) => t.mock.method(childProcess, name));
+	// The modules that import these names by name see the counting ones only after the named exports are synced.
+	syncBuiltinESMExports();
+	t.after(() => {
+		for (const method of started) {
+			method.mock.restore();
+		}
+		syncBuiltinESMExports();
+	});
+	return () => started.map((method) => method.mock.callCount());
+}
+
+// T-36: the notice rebuilds the parts of the context message on every run, which reads files only.
+test("T-36: a coordinator's run that returns a notice and a digest, and a job's that returns a notice, start no process", async (t) => {
+	const { project, home } = await fixture(t);
+	await styleguide(project);
+	await board(project, "F001 now");
+	environment(t, coordinatorSession(home));
+	const frozen = [coordinatorMessage(project), workerMessage(project)];
+	await editStyleguide(project);
+	const calls = countedStarts(t);
+	const coordinator = typesOf(await runIn(loadHook(), project, [held(frozen[0] ?? "")]));
+	// The job's variables name the same variables as the coordinator's, which the test gives back after it.
+	assign(jobSession(project, home));
+	const job = typesOf(await runIn(loadHook(), project, [held(frozen[1] ?? "")]));
+	assert.deepEqual(
+		[coordinator, job, calls()],
+		[
+			["limen-turn-cue", "limen-notice", "limen-board"],
+			["limen-turn-cue", "limen-notice"],
+			[0, 0, 0, 0, 0, 0, 0],
+		],
+	);
 });

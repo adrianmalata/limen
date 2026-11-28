@@ -1,17 +1,21 @@
 import { readFileSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { transport } from "../src/config.ts";
-import { readRecordSync } from "../src/job/record.ts";
+import { type JobRecord, readRecordSync } from "../src/job/record.ts";
 import { readOptional } from "../src/project/inherit.ts";
 import { moduleTitle } from "../src/project/modules.ts";
 import { ticketPointers } from "../src/project/planning.ts";
 import {
 	boundLines,
+	boundText,
 	CONTEXT_FILE,
+	type ContextAudience,
 	capabilitySection,
+	changedSince,
 	contextMessage,
 	enabledModules,
 	holdsSpecs,
+	markdownSection,
 	moduleFiles,
 	packageName,
 	packageText,
@@ -28,18 +32,30 @@ import {
 	type PiContextEntry,
 	type PiCustomMessage,
 	type PiPart,
+	type PiStartResult,
 	type PiToolResultEvent,
 	piContext,
 	piContextEntries,
 	piEvent,
 	recorded,
 } from "../src/runtime/pi-api.ts";
+import { jobAudience } from "../src/runtime/roles.ts";
 import { assistantStopReason } from "../src/runtime/stream.ts";
 
 /** The custom type of the context message (D-114 (1), T-16): a `limen-*` custom message, never a user message. */
 const CONTEXT_TYPE = "limen-context";
 /** The custom type of the turn cue and the name of its tag pair (D-134 (1)), a `limen-*` custom message as well. */
 const CUE_TYPE = "limen-turn-cue";
+/** The custom type and tag pair of the notice of the files changed since the context message was built (A-037). */
+const NOTICE_TYPE = "limen-notice";
+/** The custom type and tag pair of the coordinator's board digest (A-037, T-23). */
+const BOARD_TYPE = "limen-board";
+/** The end of a notice's line after `changed <path>`, A-037's words; R-046 sets the final ones. */
+const NOTICE_END = ", new text from the next session";
+/** The notice's line of one path starts with this word. */
+const NOTICE_START = "changed ";
+/** The board, whose NOW and NEXT the digest holds. */
+const BOARD_FILE = "spec/build.md";
 /** The audience line of the coordinator's cue: it answers the owner in the owner's language (T-13). */
 const OWNER_AUDIENCE = "Audience: owner. Answer in the language of the owner's last message.";
 /** The audience line of a job's cue: every job writes for agents and records, in English (T-13). */
@@ -73,10 +89,12 @@ const VISION_ASK: Ask = { kind: "vision", paths: [] };
  * bridge (E-1): the hook sends it once, at the session's start, and again only after a compaction removed it from the
  * model's context, always the bytes the session holds (A-037). The per-turn note is a short cue that repeats no
  * register section: its audience line carries the language that the registers' rule names (T-13), then come the lines
- * that apply and the frame's anchor (A-077). A tool result, the one message of a role of its own (E-1), carries the
- * text of the guidance that applies to what the call wrote, each section once until a compaction or a new session
- * start (A-041): the styleguide after a code edit, the specs register after an edit under spec/, with the specs file
- * of each module that is on, and the vision once a planned ticket is written (H-12).
+ * that apply and the frame's anchor (A-077). After the cue a run gets the notice of the files changed since the
+ * context message was built, and in the coordinator the board digest last, each only when the context the model holds
+ * lacks it (A-037, D-120). A tool result, the one message of a role of its own (E-1), carries the text of the guidance
+ * that applies to what the call wrote, each section once until a compaction or a new session start (A-041): the
+ * styleguide after a code edit, the specs register after an edit under spec/, with the specs file of each module that
+ * is on, and the vision once a planned ticket is written (H-12).
  */
 export default function limenCommunication(pi: Pick<PiApi, "on" | "sendMessage">): void {
 	let lastTouch: string | undefined;
@@ -94,6 +112,24 @@ export default function limenCommunication(pi: Pick<PiApi, "on" | "sendMessage">
 			lastFailure = undefined;
 			const cue = turnCue(root, job, touched, failed);
 			return { message: { customType: CUE_TYPE, content: cue, display: false } };
+		}),
+	);
+	// Pi collects each handler's message in the order the handlers were registered, after the run's prompt, so the
+	// prompt ends with the cue, then the notice, then the digest (D-120). Neither keeps state of its own: what the model
+	// was told is what the session's compaction-aware context holds, so a `/reload` repeats nothing and a compaction
+	// repeats what it summarised.
+	pi.on(
+		"before_agent_start",
+		recorded((raw: unknown, rawContext: unknown) => {
+			piEvent("before_agent_start", raw);
+			return changeNotice(piContext("before_agent_start", rawContext, ["cwd", "sessionManager"]));
+		}),
+	);
+	pi.on(
+		"before_agent_start",
+		recorded((raw: unknown, rawContext: unknown) => {
+			piEvent("before_agent_start", raw);
+			return boardDigest(piContext("before_agent_start", rawContext, ["cwd", "sessionManager"]));
 		}),
 	);
 	pi.on(
@@ -212,14 +248,116 @@ function contextOf(content: string): PiCustomMessage {
 
 /** The content of the context message the session's compaction-aware context holds; undefined when it holds none. */
 function heldContext(entries: readonly PiContextEntry[]): string | undefined {
-	const entry = entries.find((one) => one.type === "custom_message" && one.customType === CONTEXT_TYPE);
-	if (entry === undefined) {
-		return undefined;
-	}
+	const entry = entries.find((one) => isCustom(one, CONTEXT_TYPE));
+	return entry === undefined ? undefined : contentText(entry);
+}
+
+/** Whether `entry` is a custom message of the type `customType`, one a hook sent or returned. */
+function isCustom(entry: PiContextEntry, customType: string): boolean {
+	return entry.type === "custom_message" && entry.customType === customType;
+}
+
+/** The text of a custom message entry: its string, or its text parts joined by a line break. */
+function contentText(entry: PiContextEntry): string {
 	const content = entry.content ?? "";
 	return typeof content === "string"
 		? content
 		: content.flatMap((part) => (part.type === "text" ? [part.text ?? ""] : [])).join("\n");
+}
+
+/** `lines` between the opening and the closing tag of `type`, one per line, as the cue's (D-114 (3)). */
+function tagPair(type: string, lines: readonly string[]): string {
+	return [`<${type}>`, ...lines, `</${type}>`].join("\n");
+}
+
+/** A hidden custom message of `customType` that a `before_agent_start` handler returns with the run (D-120, E-11). */
+function withRun(customType: string, content: string): PiStartResult {
+	return { message: { customType, content, display: false } };
+}
+
+/**
+ * The run's notice of the files changed since the session's context message was built (A-037, A-079), in the
+ * coordinator's session and in a job's: the paths whose part of the message the context holds differs from the
+ * part built now, less every path a notice in that context already names, one line each; none when the context holds
+ * no message or no path is left. A continuation's context holds its parent's message, so its first run names every
+ * file changed since the parent's publication, and the parent's notices, which its copied context holds, not again.
+ */
+function changeNotice(context: Pick<PiContext, "cwd" | "sessionManager">): PiStartResult | undefined {
+	const entries = piContextEntries("before_agent_start", context);
+	const frozen = heldContext(entries);
+	if (frozen === undefined) {
+		return undefined;
+	}
+	const root = sessionRoot(context.cwd);
+	const named = new Set(entries.flatMap(noticedPaths));
+	const paths = changedSince(frozen, root, sessionAudience(root)).filter((path) => !named.has(path));
+	if (!paths.length) {
+		return undefined;
+	}
+	const lines = paths.map((path) => `${NOTICE_START}${path}${NOTICE_END}`);
+	return withRun(NOTICE_TYPE, tagPair(NOTICE_TYPE, lines));
+}
+
+/** The paths a notice entry names, one per line of `changeNotice`'s form; none for any other entry. */
+function noticedPaths(entry: PiContextEntry): string[] {
+	if (!isCustom(entry, NOTICE_TYPE)) {
+		return [];
+	}
+	return contentText(entry)
+		.split("\n")
+		.filter((line) => line.startsWith(NOTICE_START) && line.endsWith(NOTICE_END))
+		.map((line) => line.slice(NOTICE_START.length, -NOTICE_END.length));
+}
+
+/**
+ * The audience whose message this session holds: the coordinator, or a job, built from its record by the function its
+ * publication used (`jobAudience`, src/runtime/roles.ts).
+ */
+function sessionAudience(root: string): ContextAudience {
+	if (transport("LIMEN_JOB") !== "1") {
+		return { session: "coordinator" };
+	}
+	const record = sessionRecord(root);
+	const job = { role: record?.role, provider: record?.route.provider, model: record?.route.model };
+	return jobAudience(root, job, "record");
+}
+
+/** The record of this job session's job in the project at `root`; undefined when its folder holds none. */
+function sessionRecord(root: string): JobRecord | undefined {
+	return readRecordSync(join(root, ".limen", "jobs", transport("LIMEN_JOB_ID") ?? ""));
+}
+
+/**
+ * The coordinator's board digest (A-037, T-23): the NOW and NEXT of the board in their tag pair, returned with the run
+ * when the context holds no digest or its last one has another text (T-15's text comparison), so a session's first run
+ * gets it, an unchanged board sends nothing, and after a compaction that summarised it, it comes again. None in a job,
+ * and none for a project whose board holds neither section. Its text is today's, until R-073 gives it `limen status`'s
+ * function (T-37 (3)).
+ */
+function boardDigest(context: Pick<PiContext, "cwd" | "sessionManager">): PiStartResult | undefined {
+	if (transport("LIMEN_JOB") === "1") {
+		return undefined;
+	}
+	const text = digestText(sessionRoot(context.cwd));
+	if (!text) {
+		return undefined;
+	}
+	const content = tagPair(BOARD_TYPE, [text]);
+	const last = piContextEntries("before_agent_start", context).findLast((entry) => isCustom(entry, BOARD_TYPE));
+	return last !== undefined && contentText(last) === content ? undefined : withRun(BOARD_TYPE, content);
+}
+
+/** The board's `## NOW` and `## NEXT` sections under one heading, within the line bound; "" with neither. */
+function digestText(root: string): string {
+	const board = readOptional(join(root, BOARD_FILE));
+	if (board === undefined) {
+		return "";
+	}
+	const body = ["NOW", "NEXT"]
+		.map((heading) => markdownSection(board, heading))
+		.filter(Boolean)
+		.join("\n\n");
+	return boundText(body, BOARD_FILE, "Board digest");
 }
 
 /**
@@ -248,7 +386,7 @@ function turnCue(root: string, job: boolean, lastTouch: string | undefined, fail
 		job ? "" : boardAdvisory(root),
 		capabilitySection("Cue"),
 	].filter(Boolean);
-	return [`<${CUE_TYPE}>`, ...lines, `</${CUE_TYPE}>`].join("\n");
+	return tagPair(CUE_TYPE, lines);
 }
 
 /** The cue's line on the ticket the job's task names; "" when it names none. */
@@ -258,7 +396,7 @@ function ticketLine(root: string): string {
 }
 
 function boardAdvisory(cwd: string): string {
-	const board = readOptional(join(cwd, "spec/build.md"));
+	const board = readOptional(join(cwd, BOARD_FILE));
 	if (board === undefined) {
 		return "";
 	}
@@ -359,8 +497,7 @@ function sessionHoldsSpecs(root: string): boolean {
 	if (transport("LIMEN_JOB") !== "1") {
 		return holdsSpecs({ session: "coordinator" });
 	}
-	const record = readRecordSync(join(root, ".limen", "jobs", transport("LIMEN_JOB_ID") ?? ""));
-	return holdsSpecs({ session: "job", role: record?.role || "worker" });
+	return holdsSpecs({ session: "job", role: sessionRecord(root)?.role || "worker" });
 }
 
 /**

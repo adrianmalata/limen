@@ -285,7 +285,7 @@ test("picture build --out and picture serve --dir refuse with one removal line b
 });
 
 test("resolvePreamble throws the removal line of the role picture in a project without .agents/limen/picture.md", async (t) => {
-	const { resolvePreamble } = await import("../../src/job/spawning.ts");
+	const { resolvePreamble } = await import("../../src/runtime/roles.ts");
 	const root = mkdtempSync(join(tmpdir(), "limen-role-"));
 	t.after(() => rmSync(root, { recursive: true, force: true }));
 	assert.throws(() => resolvePreamble(root, "picture"), { message: R007_REFUSALS["role picture"] });
@@ -293,7 +293,7 @@ test("resolvePreamble throws the removal line of the role picture in a project w
 
 // A-042: role prompts always come from the package, so a project file of a removed role's name brings it back no more.
 test("resolvePreamble throws the removal line of the role picture although the project holds .agents/limen/picture.md", async (t) => {
-	const { resolvePreamble } = await import("../../src/job/spawning.ts");
+	const { resolvePreamble } = await import("../../src/runtime/roles.ts");
 	const root = mkdtempSync(join(tmpdir(), "limen-role-"));
 	t.after(() => rmSync(root, { recursive: true, force: true }));
 	mkdirSync(join(root, ".agents/limen"), { recursive: true });
@@ -324,7 +324,7 @@ test("continue refuses a job whose record names the role picture, and leaves .li
 });
 
 test("resolvePreamble throws the removal line of the role scout in a project without .agents/limen/scout.md", async (t) => {
-	const { resolvePreamble } = await import("../../src/job/spawning.ts");
+	const { resolvePreamble } = await import("../../src/runtime/roles.ts");
 	const root = mkdtempSync(join(tmpdir(), "limen-role-"));
 	t.after(() => rmSync(root, { recursive: true, force: true }));
 	assert.throws(() => resolvePreamble(root, "scout"), { message: SCOUT_REFUSAL });
@@ -332,7 +332,7 @@ test("resolvePreamble throws the removal line of the role scout in a project wit
 
 // A-042: role prompts always come from the package, so a project file of a removed role's name brings it back no more.
 test("resolvePreamble throws the removal line of the role scout although the project holds .agents/limen/scout.md", async (t) => {
-	const { resolvePreamble } = await import("../../src/job/spawning.ts");
+	const { resolvePreamble } = await import("../../src/runtime/roles.ts");
 	const root = mkdtempSync(join(tmpdir(), "limen-role-"));
 	t.after(() => rmSync(root, { recursive: true, force: true }));
 	mkdirSync(join(root, ".agents/limen"), { recursive: true });

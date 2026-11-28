@@ -132,6 +132,9 @@ lines are pointers to today's code):
      starts during a run.
    - `test/cli/continue.test.ts`: item 6's goldens, and one case with no change and no notice.
    - `test/s4-steering.test.ts`: in the fake's model view the coordinator's first call ends with the digest.
+9. Added at review round 2 (Decision 22, T-29 (1), (6)): `resolvePreamble` moved to `src/runtime/roles.ts` (Decision 21
+   F1), so its tests move to `test/runtime/roles.test.ts`, and `test/job/spawning.test.ts`, which then tests nothing of
+   `src/job/spawning.ts`, is deleted with `git rm`.
 
 Files the criteria name that this ticket or R-039 creates: `src/runtime/context-message.ts`,
 `test/runtime/context-message.test.ts`.
@@ -245,3 +248,37 @@ inventory's questions in `evidence/inventories/R-110.md` → section 11):
     `test/s4-steering.test.ts:78` names R-110 for the digest. Change 6: R-041 is done, and the goldens still leave the
     cue out, so each golden checks the continuation's message, task and notice alone (T-29 (3)). The grep criteria at
     `HEAD`: AC-6, AC-7 and AC-8 exit 1. AC-9 names the gate's `--out` form (D-130).
+21. 2026-11-28, review round 1 (PASS; `review.md`; the first reply was rejected by `review-verdict.mjs` and a fresh
+    reviewer ran again, and the notes of both replies are taken), the findings to fix (protocol step 6; the main
+    session's reading, settled by T-25 (2), T-29 (3), (5), T-30 and A-085, not asked):
+    - F1 (T-25 (2)): the audience of a job's message (its role, `worker` when the record names none, the role's
+      preamble, the bridge isolation of its route) is built by one exported function, which spawn
+      (`src/job/spawning.ts:325-330`), the continuation (`src/job/continuation.ts:287-292`) and the hook
+      (`hook/communication.ts:318-331`) call, so the hook compares the parts publication built; `resolvePreamble`
+      moves with it out of `src/job/spawning.ts`, so the hook no longer imports the spawn module. The function's module
+      is a module of `src/runtime/` that owns the role table or the context message, the implementer's choice, named in
+      `outcome.md`; spawn's and continue's refusals keep their codes and words.
+    - F2 (A-085, T-30): `docs/setup.md` → Hooks says what the code does: a job's notice names a vision only when
+      `spec/vision.md` appears or goes (a job's vision part is the pointer line), and the digest comes again only after
+      the text of its `## NOW` or `## NEXT` section changed.
+    - F3 (T-29 (3)): the three hook tests that run a first run and then check that a later run sends nothing
+      (`test/hook/communication.test.ts:844-848`, `:932-940`, `:950-960`) also assert the first run's message, so each
+      fails at `HEAD`.
+    - F4 (T-29 (5), (6)): the opening comment of `test/hook/communication.test.ts` goes back to its one line at `HEAD`.
+    - F5 (T-30): the comment `// A-037 "(coordinator and jobs)": …` moves from above `NOTICE_MESSAGE`'s doc comment to
+      above the test it explains.
+    - No change, to `outcome.md` → Open points: a `</limen-board>` line in `spec/build.md` would close the digest's tag
+      early (guessed; a board reaches `main` only through land, and the text went unwrapped into the system prompt at
+      `aa721d7`); a project file whose body holds a later part's heading after a blank line splits the held part (a
+      notice for an unchanged file, noise only); the continuation reads bridge isolation from the child's route while
+      the frozen message is the parent's (no effect while `BRIDGE_ISOLATED` is off; a note for R-048 in `## Tickets`);
+      the T-36 test and the guard tests of `outcome.md` → Deviations 1 pass at `HEAD` by design.
+22. 2026-11-28, review round 2 (PASS; `review.md`), the findings to fix, the last round of fixes (protocol step 6;
+    the main session's reading, settled by T-29 (1), (5), (6), not asked; a test's place is category A (b) of D-054
+    (2)):
+    - G1 (note 1): `## Change` item 9: the tests of `resolvePreamble` in `test/job/spawning.test.ts` move into
+      `test/runtime/roles.test.ts`, the file of its module, and `test/job/spawning.test.ts` is removed with `git rm`;
+      the count of tests stays.
+    - G2 (note 3, as F4): the opening comments of `test/cli/continue.test.ts` and `test/s4-steering.test.ts` go back to
+      their text at `HEAD`.
+    - Note 2 (the R-048 note names one direction only) is the main session's: corrected in `plan.md` → `## Tickets`.

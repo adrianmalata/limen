@@ -4,6 +4,7 @@
 // files only and starts no process, so the same files give the same bytes on any host (T-36). A module's text for a
 // part is the package file `templates/modules/<module>/<the part's file name>`, a part of its own right after that
 // part, only while the module is on in the project (G1.10, A-040): the file's existence is its declaration (R-044).
+// The message is frozen for its session, so the same parts, built again, name the files that changed since (A-037).
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { packageRoot, readOptional } from "../project/inherit.ts";
@@ -42,8 +43,8 @@ const OWNER_FACING = "owner-facing coordinator";
 
 /**
  * Whose session a message opens: the owner-facing coordinator's, or a job's of `role`, whose preamble is the file
- * `preamble` that the spawn's role resolution chose (`resolvePreamble`, src/job/spawning.ts), and whose bridge runs
- * isolated when `bridgeIsolated` (`runsBridgeIsolated`, src/runtime/engine.ts).
+ * `preamble` of the role's template, and whose bridge runs isolated when `bridgeIsolated`, as `jobAudience`
+ * (src/runtime/roles.ts) builds it for spawn, continue and the communication hook.
  */
 export type ContextAudience =
 	| { readonly session: "coordinator" }
@@ -59,40 +60,100 @@ export function holdsSpecs(audience: SpecsAudience): boolean {
 	return audience.session === "coordinator" || SPECS_ROLES.includes(audience.role);
 }
 
+/** The tag that closes every message, after the last part. */
+const CLOSING_TAG = "</limen-context>";
+
+/**
+ * One part a message can hold: the line that heads it, which this module writes (`## <label> (<path>)`, or a job's
+ * vision line, which is a part and its own heading), the path that names its file as the heading does, and its text
+ * now, the heading included; "" when the role gets no such part now.
+ */
+type Part = { readonly heading: string; readonly path: string; readonly text: string };
+
 /**
  * The context message of `audience` in the project `root`: a neutral marker that names the role (D-114 (3)), so it
- * never starts with `/` (E-14), then each part apart by a blank line, then the closing tag. The parts that never change
- * come first and the project's files last (z. 3): the frame, the manual or the role's preamble, the registers of the
- * role's audience, then the vision (the coordinator's whole, a job's as one line that points at it), the styleguide
- * and, for a job whose bridge forwards none, the project's AGENTS.md. Right after each part come the parts of the
- * modules on in the project, in the order of the modules (`moduleFiles`).
+ * never starts with `/` (E-14), then each part that has text, apart by a blank line, then the closing tag.
  */
 export function contextMessage(root: string, audience: ContextAudience): string {
+	const texts = messageParts(root, audience).flatMap(({ text }) => (text ? [text] : []));
+	const role = audience.session === "coordinator" ? OWNER_FACING : audience.role;
+	return [`<limen-context role="${role}">`, ...texts, CLOSING_TAG].join("\n\n");
+}
+
+/**
+ * The paths of the parts of `audience`'s message in the project `root` that changed since `frozen`, a message built for
+ * the same audience, was built, in the message's order (A-037, A-079): a part whose text now is not the text `frozen`
+ * holds under its heading, a part with text now whose heading `frozen` lacks (a new file, a module switched on), and a
+ * part `frozen` holds that has no text now (a removed file, a module switched off). It finds the parts of `frozen` by
+ * the headings this module writes, and parses no other text, so an edit outside every part, such as the capability
+ * file's `## Cue`, names nothing. It reads files only (T-36).
+ */
+export function changedSince(frozen: string, root: string, audience: ContextAudience): string[] {
+	const parts = messageParts(root, audience);
+	const held = heldTexts(frozen, parts);
+	return parts.flatMap((part, index) => ((held[index] ?? "") === part.text ? [] : [part.path]));
+}
+
+/**
+ * Every part a message of `audience` can hold, in its order, each with its text in the project `root` now. The parts
+ * that never change come first and the project's files last (z. 3): the frame, the manual or the role's preamble, the
+ * registers of the role's audience, then the vision (the coordinator's whole, a job's as one line that points at it),
+ * the styleguide and, for a job whose bridge forwards none, the project's AGENTS.md. Right after each part come the
+ * parts of every module that has a file for it, in the order of the modules (`moduleFiles`), with text only while the
+ * module is on and the part they follow has text.
+ */
+function messageParts(root: string, audience: ContextAudience): Part[] {
 	const coordinator = audience.session === "coordinator";
-	const specs = holdsSpecs(audience);
 	const agents = !coordinator && audience.bridgeIsolated;
-	const modules = enabledModules(root);
 	// Each part with the file it comes from, whose name names the module files that follow it.
-	const parts: ReadonlyArray<readonly [string, string]> = [
-		[boundText(capabilitySection("Frame"), packageName(CAPABILITY_FILE), "Capability"), CAPABILITY_FILE],
+	const parts: ReadonlyArray<readonly [Part, string]> = [
+		[boundPart(capabilitySection("Frame"), packageName(CAPABILITY_FILE), "Capability"), CAPABILITY_FILE],
 		coordinator
 			? [packagePart(MANUAL_FILE, "Coordinator manual"), MANUAL_FILE]
 			: [rolePreamble(audience.preamble), audience.preamble],
 		[packagePart(AGENT_REGISTER, "Agent register"), AGENT_REGISTER],
-		[specs ? packagePart(SPECS_REGISTER, "Specs register") : "", SPECS_REGISTER],
-		[coordinator ? packagePart(OWNER_REGISTER, "Owner register") : "", OWNER_REGISTER],
-		[coordinator ? boundFile(root, VISION_FILE, "Vision") : visionLine(root), VISION_FILE],
-		[boundFile(root, STYLE_FILE, "Styleguide"), STYLE_FILE],
-		[agents ? boundFile(root, AGENTS_FILE, "Project context") : "", AGENTS_FILE],
+		...(holdsSpecs(audience) ? [[packagePart(SPECS_REGISTER, "Specs register"), SPECS_REGISTER] as const] : []),
+		...(coordinator ? [[packagePart(OWNER_REGISTER, "Owner register"), OWNER_REGISTER] as const] : []),
+		[coordinator ? projectPart(root, VISION_FILE, "Vision") : visionPart(root), VISION_FILE],
+		[projectPart(root, STYLE_FILE, "Styleguide"), STYLE_FILE],
+		...(agents ? [[projectPart(root, AGENTS_FILE, "Project context"), AGENTS_FILE] as const] : []),
 	];
-	const texts = parts
-		.filter(([text]) => text)
-		.flatMap(([text, file]) => [
-			text,
-			...moduleFiles(basename(file), modules).map(({ module, path }) => packagePart(path, moduleTitle(module))),
-		]);
-	const role = coordinator ? OWNER_FACING : audience.role;
-	return [`<limen-context role="${role}">`, ...texts, "</limen-context>"].join("\n\n");
+	const on = enabledModules(root);
+	return parts.flatMap(([part, file]) => [part, ...moduleParts(basename(file), part, on)]);
+}
+
+/** The parts of the modules that have a file named `file`, each with text only while it is on and `after` has text. */
+function moduleParts(file: string, after: Part, on: readonly Module[]): Part[] {
+	return moduleFiles(file, MODULES).map(({ module, path }) => {
+		const name = packageName(path);
+		const title = moduleTitle(module);
+		const text = after.text && on.includes(module) ? boundText(packageText(path), name, title) : "";
+		return { heading: headingOf(title, name), path: name, text };
+	});
+}
+
+/**
+ * The text `frozen` holds for each of `parts`, by index; undefined for a part whose heading it lacks. The parts of a
+ * message keep the order of `parts`, so each heading is looked for after the one before it, at the start of a part; a
+ * part runs to the next part found or to the closing tag.
+ */
+function heldTexts(frozen: string, parts: readonly Part[]): (string | undefined)[] {
+	const starts: number[] = [];
+	let from = 0;
+	for (const { heading } of parts) {
+		const at = frozen.indexOf(`\n\n${heading}\n`, from);
+		starts.push(at < 0 ? -1 : at + 2);
+		from = at < 0 ? from : at + 2;
+	}
+	const closing = frozen.lastIndexOf(`\n\n${CLOSING_TAG}`);
+	const end = closing < 0 ? frozen.length : closing;
+	return starts.map((start, index) => {
+		if (start < 0) {
+			return undefined;
+		}
+		const next = starts.slice(index + 1).find((later) => later > start);
+		return frozen.slice(start, next === undefined ? end : next - 2);
+	});
 }
 
 /** The modules on in the project at `root`, in the order of the modules (src/project/modules.ts). */
@@ -177,33 +238,48 @@ export function trimmedLines(text: string): readonly string[] {
 	return lines;
 }
 
+/**
+ * `text` under the heading `## <label> (<path>)`, cut to the line bound with its notice (`boundLines`); "" when `text`
+ * has no line. The board digest of the communication hook has the same shape (A-037).
+ */
+export function boundText(text: string, path: string, label: string): string {
+	const lines = trimmedLines(text);
+	if (!lines.length) {
+		return "";
+	}
+	return `${headingOf(label, path)}\n${boundLines(lines, path)}`;
+}
+
 /** The package file at `path` as a part headed `label`, named by its path in the package. */
-function packagePart(path: string, label: string): string {
-	return boundText(packageText(path), packageName(path), label);
+function packagePart(path: string, label: string): Part {
+	return boundPart(packageText(path), packageName(path), label);
 }
 
 /**
  * The job role's preamble, the package's template, named by its path in the package so no absolute path enters the
  * message. The spawn has just resolved the file, so a read that fails is an error.
  */
-function rolePreamble(preamble: string): string {
-	return boundText(readFileSync(preamble, "utf8"), packageName(`templates/${basename(preamble)}`), "Role");
+function rolePreamble(preamble: string): Part {
+	return boundPart(readFileSync(preamble, "utf8"), packageName(`templates/${basename(preamble)}`), "Role");
 }
 
-/** `VISION_LINE` while the project at `root` holds a vision file; "" when it holds none, which adds no part. */
-function visionLine(root: string): string {
-	return projectText(root, VISION_FILE) === undefined ? "" : VISION_LINE;
+/** A job's vision part, `VISION_LINE`, which is its own heading, with text while the project at `root` holds a vision. */
+function visionPart(root: string): Part {
+	const text = projectText(root, VISION_FILE) === undefined ? "" : VISION_LINE;
+	return { heading: VISION_LINE, path: VISION_FILE, text };
 }
 
-function boundFile(root: string, path: string, label: string): string {
-	const text = projectText(root, path);
-	return text === undefined ? "" : boundText(text, path, label);
+/** The project's file at `path` below `root` as a part headed `label`; with no text while the project holds none. */
+function projectPart(root: string, path: string, label: string): Part {
+	return boundPart(projectText(root, path) ?? "", path, label);
 }
 
-function boundText(text: string, path: string, label: string): string {
-	const lines = trimmedLines(text);
-	if (!lines.length) {
-		return "";
-	}
-	return `## ${label} (${path})\n${boundLines(lines, path)}`;
+/** `text` as the part headed `label` that names `path` (`boundText`). */
+function boundPart(text: string, path: string, label: string): Part {
+	return { heading: headingOf(label, path), path, text: boundText(text, path, label) };
+}
+
+/** The heading of a part: its label, then the path that names its file. */
+function headingOf(label: string, path: string): string {
+	return `## ${label} (${path})`;
 }

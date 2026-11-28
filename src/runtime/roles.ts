@@ -3,8 +3,15 @@
 // role starts only while its module is on (G1.10): spawn and continue check it in their validate (src/job/spawning.ts,
 // src/job/continuation.ts), the two functions every job start passes, with the workspace module for a job in a
 // workspace repository (`requireJobModules`). The table is the one list of job roles, so a role outside it starts no
-// job (`resolvePreamble`, src/job/spawning.ts), and a project file cannot widen a role (T-03).
+// job (`resolvePreamble`), and a project file cannot widen a role (T-03). A job's context message takes its audience
+// from here too (`jobAudience`), so spawn, continue and the communication hook build the same parts (T-25 (2)).
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { type NameSource, refuseRemovedRole } from "../old-names.ts";
+import { refused, usageError } from "../outcome.ts";
 import { type Module, requireModule } from "../project/modules.ts";
+import type { ContextAudience } from "./context-message.ts";
+import { engineRoute, runsBridgeIsolated } from "./engine.ts";
 
 /**
  * What a session's engine is given (A-081, E-5, E-6): Pi's `--tools` allowlist, which also filters the tools a hook
@@ -60,6 +67,49 @@ export const COORDINATOR_SESSION: SessionTools = {
 /** The table's entry of `role`, the role a record or a spawn names; undefined for a role outside the table. */
 export function jobRole(role: string | null | undefined): JobRole | undefined {
 	return JOB_ROLES.find((entry) => entry.name === role);
+}
+
+const PACKAGE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
+/**
+ * The package's template of the role: role prompts always come from the package, so no file of the project `_root`
+ * replaces or adds one (A-042). Only a role of the role table has one, so a part file of `templates/` such as the
+ * manual is no role, and no job runs without its role's tools (R-045 Change 1). Any other role refuses: a role a cut
+ * removed with its line from `src/old-names.ts`, by `source`: spawn's `--role`, or continue's parent record. Spawn and
+ * continue call this in their validate, through `jobAudience`.
+ */
+export function resolvePreamble(_root: string, role: string, source: NameSource = "argument"): string {
+	if (jobRole(role)) {
+		return resolve(PACKAGE_ROOT, "templates", `${role}.md`);
+	}
+	refuseRemovedRole(role, source);
+	const roles = JOB_ROLES.map((entry) => entry.name);
+	const message = `${role} is no job role; a job runs as ${roles.slice(0, -1).join(", ")} or ${roles.at(-1)}`;
+	throw source === "argument" ? usageError("ROLE_UNKNOWN", message) : refused("ROLE_UNKNOWN", message);
+}
+
+/**
+ * The audience of the context message of a job in the project at `root` (A-086): its role, a worker's when `job` names
+ * none, as a record from before roles does; the role's preamble (`resolvePreamble`, whose refusal `source` words); and
+ * whether the bridge of the route that `job`'s provider and model give runs isolated (`runsBridgeIsolated`). Spawn
+ * and continue publish the message built for it, and the communication hook builds it again from the job's record, so
+ * the hook compares the parts publication built (A-037).
+ */
+export function jobAudience(
+	root: string,
+	job: {
+		readonly role: string | null | undefined;
+		readonly provider: string | null | undefined;
+		readonly model: string | null | undefined;
+	},
+	source: NameSource,
+): ContextAudience {
+	const role = job.role || "worker";
+	return {
+		session: "job",
+		role,
+		preamble: resolvePreamble(root, role, source),
+		bridgeIsolated: runsBridgeIsolated(engineRoute(job.provider ?? undefined, job.model ?? undefined)),
+	};
 }
 
 /** Refuses with MODULE_OFF a job of `role` while its module is off in the project at `root`; any other role passes. */
