@@ -2,7 +2,7 @@
 trzyma jedną aktywność, więc koniec jednego narzędzia ustawia `wait`, choć drugie (np. `sleep`) dalej trwa, i reguła
 zawieszenia go nie widzi. Oczekujące narzędzia są trzymane po `toolCallId` w czystej funkcji modułu reguły, klucz
 postępu obejmuje ten zbiór, a test odtwarza zapis i `sleep` w jednej wiadomości. Stan: napisany 26.11 przy `cbe6f1a`
-z inwentarza `evidence/inventories/R-108.md`; `ready` na noc. -->
+z inwentarza `evidence/inventories/R-108.md`; `active` od 28.11 w nocy przy `ab68dbd`, z miejscami faktów w decyzji 8. -->
 
 # R-108 The stall rule follows every pending tool of a message
 
@@ -88,7 +88,7 @@ Facts at `c3bbc5c` (the read-only inventory `evidence/inventories/R-108.md`; no 
 - AC-5: `git grep -q toolCallId -- src/runtime/stream.ts` → exit 0.
 - AC-6: `git grep -q 'one message' -- docs/jobs.md` → exit 0.
 - AC-7: `node adrian-rebuild/tools/fails-before.mjs` → exit 0, its output in `outcome.md` → `## Fails before`.
-- AC-8: `node adrian-rebuild/tools/gate.mjs` → exit 0.
+- AC-8: `node adrian-rebuild/tools/gate.mjs --out node_modules/.rebuild-review/R-108.gate` → exit 0.
 - AC-9: `npx biome check --error-on-warnings .` → exit 0; `node adrian-rebuild/tools/check.mjs` → exit 0.
 - AC-10 (judgment): the stall rule applies while any tool of the job is pending and to no job while none is; a tool's
   start or end restarts the window; the tool cap, the timeout, the 80 % steer and the progress file behave as at HEAD.
@@ -124,3 +124,14 @@ inventory's questions in `evidence/inventories/R-108.md` → section 8):
 6. Q6 and Q7 stay out of scope (`## Out of scope`): D-112 (2) and R-036 Decision 2 settle them.
 7. The places of the tests (Q8) and the fake word `parallel` (Q9) follow T-29 (1); the stream's test file keeps its
    name until R-083 (T-29 (6)).
+8. 2026-11-28, at activation (`ab68dbd`; the night's main session, protocol step 2, D-025): the facts' places after
+   R-038–R-045, R-112, R-047 and R-104–R-107. `src/runtime/stream.ts`, `src/runtime/stalled-tool.ts` and
+   `test/runtime/stalled-tool.test.ts` are unchanged since `c3bbc5c` (facts 2 and 4 stand). Fact 3: R-039–R-045 grew
+   `src/runtime/wrapper.ts`: `pendingTool` is at `:334-336` (inside `tickContext`), `Seen` at `:535`, `recordEvents` at
+   `:549-590` (a start sets `activity = "tool"` at `:557`), `scopeSamples` at `:630` with `observe` at `:672` and its
+   `stallStep` call at `:679`; `runInternalJob` starts at `:73`, its "split pending" suppressions just above (fact 6).
+   Fact 5: R-038's fake engine (`test/fake-engine.mjs`) emits each tool call of a model call in pi-agent-core's order
+   at `:572-590` (start, result, end; still with no `toolCallId`), `idle` at `:778` and `tools-on-term` at `:132-133`,
+   its words in the header at `:3-24`; the stall tests are `test/runtime/wrapper.test.ts:650-770` (the `idle` stall at
+   `:652`) and `test/s3-finish-wake.test.ts:135-145`. Fact 7: `docs/jobs.md:208` stands. The grep criteria at `HEAD`:
+   AC-5 and AC-6 exit 1. AC-8 names the gate's `--out` form (D-130).

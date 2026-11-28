@@ -2089,7 +2089,7 @@ Columns:
 | R-105 | The T-04 and T-26 scans follow what their rules name | 4 | T-04, T-26, D-107, D-116 | R-032, R-104 | M | delegated | night | — | — | — | done |
 | R-106 | A watcher outside the agents' account keeps a copy of `main` and alerts on its forced update or deletion | 4 | A-006, §7, D-110, D-117 | R-033 | S | delegated | night | — | systemd | 4.10 | done |
 | R-107 | The exit 4 of systemd 259's `is-active` reads as not active | 4 | A-029, E-18, D-112 | R-026 | S | delegated | night | — | systemd | 4.13 | done |
-| R-108 | The stall rule follows every pending tool of a message | 4 | A-059, E-19, D-112 | R-036 | S | delegated | night | — | pi | 4.12 | ready |
+| R-108 | The stall rule follows every pending tool of a message | 4 | A-059, E-19, D-112 | R-036 | S | delegated | night | — | pi | 4.12 | active |
 | R-109 | The alerts' unit sends over IPv4 first | 4 | A-066, D-108, D-112 | R-033 | S | delegated | night | — | systemd | 4.11 | ready |
 | R-110 | A continuation reuses its parent's context message; change notices and the board digest come only on a change | 4 | A-079, A-037, A-051, D-114, D-120, D-126 | R-039, R-042, R-043, R-044 | M | delegated | night | — | pi | 4.2 | ready |
 | R-111 | A wake is settled only by the run it entered; an idle sweep starts one run | 4 | A-089, A-090, D-128, D-129 | R-038 | L | delegated | night | — | pi | 4.14 | done |
@@ -6331,3 +6331,5 @@ Night run of 2026-11-27/28 (until 08:00; `night.mjs` run 1 started at 21:47:25, 
 - R-107 `done` (delegated): no `BLOCKED`; the main session's gate 1553/1553 (348.7 s), AC-5's `fails-before.mjs`
   exit 0; review round 1 PASS with no findings. For gate 5.4: R-107's Open points (an exit 4 with `inactive` that is
   a real call failure reads as `gone`, as the ticket's Risk says).
+- R-108 `active` at `ab68dbd` (protocol step 2): its facts' places in its Decision 8 (the parser and the policy module
+  unchanged; the wrapper, the fake engine and the stall tests moved with R-038–R-045); AC-8 names the gate's `--out`.
