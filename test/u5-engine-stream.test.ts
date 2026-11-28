@@ -1,11 +1,12 @@
 // U5: the engine's launch argv and JSON stream. A pi-claude route names Pi's bridge. Lines split across chunks still
-// parse once; only an assistant stop reason of error or aborted marks a failed turn.
+// parse once; only an assistant stop reason of error or aborted marks a failed turn; a tool's start and end carry the
+// call's id.
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import { argvFor, ENGINES } from "../src/runtime/engine.ts";
-import { createStreamParser } from "../src/runtime/stream.ts";
+import { createStreamParser, toolCallText } from "../src/runtime/stream.ts";
 
 test("a pi-claude route loads Pi's installed bridge package", async (t) => {
 	const home = await realpath(await mkdtemp(`${tmpdir()}/limen-home-`));
@@ -49,4 +50,41 @@ test("only an assistant's error or aborted stop reason reaches the result; other
 	for (const [line, event] of rows) {
 		assert.deepEqual(parser.push(`${line}\n`), event ? [event] : [], line);
 	}
+});
+
+// E-19, R-108: Pi runs the tools of one message at once and tags each start and end with the call's toolCallId, by
+// which the stall rule tells the calls of one message apart.
+test("a tool's start and end carry Pi's toolCallId as their id when it is a non-empty string, and no id otherwise", () => {
+	const parser = createStreamParser();
+	const rows: ReadonlyArray<readonly [object, unknown]> = [
+		[
+			{ type: "tool_execution_start", toolCallId: "call-1", toolName: "write", args: { path: "note.md" } },
+			{ kind: "tool", name: "write", detail: "note.md", id: "call-1" },
+		],
+		[
+			{ type: "tool_execution_end", toolCallId: "call-1", toolName: "write" },
+			{ kind: "activity", name: "wait", id: "call-1" },
+		],
+		[
+			{ type: "tool_execution_start", toolCallId: 2, toolName: "bash", args: { command: "sleep 600" } },
+			{ kind: "tool", name: "bash", detail: "sleep 600" },
+		],
+		[
+			{ type: "tool_execution_end", toolCallId: "", toolName: "bash" },
+			{ kind: "activity", name: "wait" },
+		],
+		[
+			{ type: "tool_execution_end", toolName: "bash" },
+			{ kind: "activity", name: "wait" },
+		],
+	];
+	for (const [line, event] of rows) {
+		assert.deepEqual(parser.push(`${JSON.stringify(line)}\n`), [event], JSON.stringify(line));
+	}
+});
+
+// R-108: the job log and the stall's detail name a tool call by this one text (T-25 (2)).
+test("a tool call's text is its name and its detail joined by a space, and its name alone when it has no detail", () => {
+	assert.equal(toolCallText({ kind: "tool", name: "bash", detail: "sleep 600" }), "bash sleep 600");
+	assert.equal(toolCallText({ kind: "tool", name: "write" }), "write");
 });

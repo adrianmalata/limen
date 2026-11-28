@@ -1,14 +1,16 @@
 // The stall rule (A-059): while a tool is pending, a job is stalled when, for the whole window, the CPU time of its
-// systemd user scope grew by less than 2 % of the window's wall time and the tool made no progress. The scope holds
-// every process of the job (R-026), a build detached with `setsid` included, so a tool that waits on a build that works
-// keeps its job, and a lone `sleep` does not; the wrapper, Pi and the bridge's `claude` run in it too, so idle is a
-// threshold, not no change at all (R-036 Decision 1). A job's wrapper (src/runtime/wrapper.ts) samples the scope's CPU
-// time at every tick from its engine's start to its end, also while no tool runs, for the peak CPU share its record
-// keeps (M-09). The rule and the peak are pure functions over those samples; the clock and the window are the
-// caller's.
+// systemd user scope grew by less than 2 % of the window's wall time and no tool made progress. The scope holds every
+// process of the job (R-026), a build detached with `setsid` included, so a tool that waits on a build that works keeps
+// its job, and a lone `sleep` does not; the wrapper, Pi and the bridge's `claude` run in it too, so idle is a
+// threshold, not no change at all (R-036 Decision 1). Pi runs the tools of one message at once (E-19), so the pending
+// tools are a set of calls kept by Pi's `toolCallId`, and a tool is pending while one call is left (R-108). A job's
+// wrapper (src/runtime/wrapper.ts) samples the scope's CPU time at every tick from its engine's start to its end, also
+// while no tool runs, for the peak CPU share its record keeps (M-09). The pending calls, the rule and the peak are pure
+// functions over the stream's events and those samples; the clock and the window are the caller's.
 import { testKnob } from "../config.ts";
 import { limitMs } from "../project/limits.ts";
 import { machineShare } from "./queue-diagnosis.ts";
+import { type StreamEvent, toolCallText } from "./stream.ts";
 
 const DEFAULT_TOOL_STALL_MS = 3 * 60_000;
 const DEFAULT_TICK_MS = 3_000;
@@ -36,8 +38,60 @@ export function stallTickMs(): number {
 export type CpuSample = { readonly at: number; readonly usage: number };
 
 /**
- * What the rule keeps of one pending tool: its progress key, and its samples since that key holds, oldest first, from
- * the newest one that lies a whole window before the last.
+ * A tool call that started and has not ended: Pi's `toolCallId`, null for a start that carried none; `count`, the job's
+ * tool count at its start; and its tool with the detail, as the stall's detail names it.
+ */
+export type PendingCall = { readonly id: string | null; readonly count: number; readonly tool: string };
+
+/** The pending tool, as the stall's detail names it, and the progress key of the pending calls. */
+export type PendingProgress = { readonly tool: string; readonly key: string };
+
+/**
+ * The pending calls, in start order, after one event of the engine's stream; `count` is the job's tool count after the
+ * event, so a start's own number. A start adds its call. An end removes the call its id names; an end with no id ends
+ * every pending call, as the one activity of R-036 did, and the job's time limit bounds a call whose end is lost
+ * (R-108 Decision 4). A `think` event empties the set, so the rule never acts while the engine waits on the model
+ * (Decision 5). Any other event leaves the set.
+ */
+export function pendingAfter(
+	pending: readonly PendingCall[],
+	event: StreamEvent,
+	count: number,
+): readonly PendingCall[] {
+	if (event.kind === "tool") {
+		return [...pending, { id: event.id ?? null, count, tool: toolCallText(event) }];
+	}
+	if (event.kind !== "activity" || event.name === "tool") {
+		return pending;
+	}
+	if (event.name === "think" || event.id === undefined) {
+		return [];
+	}
+	return pending.filter((call) => call.id !== event.id);
+}
+
+/**
+ * The stall's pending tool and progress key, undefined when no call is pending. The tool is the last started of the
+ * pending calls (R-108 Decision 3). The key is the job's tool count `tools`, the pending calls' ids in start order (a
+ * call with no id by its `count`) and `output`, the wrapper's count of stderr chunks and non-JSON stdout lines, so each
+ * start, each end and each output is progress (R-036 fact 3, R-108 Decision 2).
+ */
+export function pendingProgress(
+	pending: readonly PendingCall[],
+	tools: number,
+	output: number,
+): PendingProgress | undefined {
+	const last = pending.at(-1);
+	if (last === undefined) {
+		return undefined;
+	}
+	const calls = pending.map((call) => call.id ?? String(call.count)).join(",");
+	return { tool: last.tool, key: `${tools}:${calls}:${output}` };
+}
+
+/**
+ * What the rule keeps while a tool is pending: the progress key, and the samples since that key holds, oldest first,
+ * from the newest one that lies a whole window before the last.
  */
 export type StallWatch = { readonly key: string; readonly samples: readonly CpuSample[] };
 
@@ -46,10 +100,10 @@ export type StallStep = { readonly watch: StallWatch | undefined; readonly stall
 
 /**
  * One tick of the stall rule: `sample` is the scope's CPU time read now, undefined when the read failed, and `key` the
- * pending tool's progress key, undefined when no tool is pending. No pending tool and a failed read keep no watch, so
- * the window starts again at the next sample, as it does for a changed key; a failed read is never evidence of a stall
- * (T-01). The job is stalled once a sample under the same key lies a whole window before `sample` and the CPU time grew
- * since then by less than `IDLE_PERCENT` of the wall time between them.
+ * pending calls' progress key (`pendingProgress`), undefined when no tool is pending. No pending tool and a failed read
+ * keep no watch, so the window starts again at the next sample, as it does for a changed key; a failed read is never
+ * evidence of a stall (T-01). The job is stalled once a sample under the same key lies a whole window before `sample`
+ * and the CPU time grew since then by less than `IDLE_PERCENT` of the wall time between them.
  */
 export function stallStep(
 	watch: StallWatch | undefined,

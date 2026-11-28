@@ -662,6 +662,22 @@ test("a job whose tool waits while its scope's CPU time stands still ends failed
 	});
 });
 
+// E-19, R-108: Pi runs the tools of one message at once, so a write can end while a `sleep` of its message still runs;
+// the wrapper kept one activity, which that end set to `wait`, so the rule left the `sleep` alone and only the job's
+// time limit ended it.
+test("a job whose write ends while a bash tool of its message waits on an idle scope ends failed, kind stall, naming the bash tool", async (t) => {
+	const p = await plant();
+	t.after(() => p.cleanup());
+	writeFileSync(join(p.root, ".agents/limen/limits.json"), '{"toolStall":"1s"}\n');
+	const id = spawnJob(p, "parallel", ["--timeout", "10s"]);
+	assert.equal(waitJob(p, id), "failed");
+	assert.deepEqual(jobRecord(p, id)?.failure, {
+		kind: "stall",
+		detail: "stalled tool bash sleep 600: scope CPU idle and no tool progress for 1s",
+		resetAt: null,
+	});
+});
+
 // A-059: a tool that waits on a build that works in the job's scope, detached from the tool or not, keeps the job. The
 // idle job is the clock: its tool starts after the busy job's, so its stall shows that the window passed for both, by
 // the order of events, not by time (T-31 (4)). The test's own process raises the busy scope's CPU time, so nothing

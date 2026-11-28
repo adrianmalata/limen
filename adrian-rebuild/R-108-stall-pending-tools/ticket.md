@@ -135,3 +135,10 @@ inventory's questions in `evidence/inventories/R-108.md` → section 8):
    its words in the header at `:3-24`; the stall tests are `test/runtime/wrapper.test.ts:650-770` (the `idle` stall at
    `:652`) and `test/s3-finish-wake.test.ts:135-145`. Fact 7: `docs/jobs.md:208` stands. The grep criteria at `HEAD`:
    AC-5 and AC-6 exit 1. AC-8 names the gate's `--out` form (D-130).
+9. 2026-11-28, review round 1 (PASS; `review.md`), the findings to fix (protocol step 6; the main session's reading,
+   settled by T-25 (2) and T-29 (5), not asked):
+   - F1 (note 3, T-25 (2)): the text of a tool call, its name and its detail joined by a space (the name alone with no
+     detail), has one definition, an exported function of `src/runtime/stream.ts`, the module of the stream event;
+     `src/runtime/stalled-tool.ts` (`:62`) and `src/runtime/wrapper.ts` (`:575` and the log line) call it.
+   - F2 (note 5, T-29 (5) and (6)): the opening comment of `test/runtime/wrapper.test.ts` gets no added line: it goes
+     back to its text at `HEAD`, and what the new test checks stays in its name and the comment above it.

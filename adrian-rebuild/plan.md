@@ -2089,7 +2089,7 @@ Columns:
 | R-105 | The T-04 and T-26 scans follow what their rules name | 4 | T-04, T-26, D-107, D-116 | R-032, R-104 | M | delegated | night | — | — | — | done |
 | R-106 | A watcher outside the agents' account keeps a copy of `main` and alerts on its forced update or deletion | 4 | A-006, §7, D-110, D-117 | R-033 | S | delegated | night | — | systemd | 4.10 | done |
 | R-107 | The exit 4 of systemd 259's `is-active` reads as not active | 4 | A-029, E-18, D-112 | R-026 | S | delegated | night | — | systemd | 4.13 | done |
-| R-108 | The stall rule follows every pending tool of a message | 4 | A-059, E-19, D-112 | R-036 | S | delegated | night | — | pi | 4.12 | active |
+| R-108 | The stall rule follows every pending tool of a message | 4 | A-059, E-19, D-112 | R-036 | S | delegated | night | — | pi | 4.12 | done |
 | R-109 | The alerts' unit sends over IPv4 first | 4 | A-066, D-108, D-112 | R-033 | S | delegated | night | — | systemd | 4.11 | ready |
 | R-110 | A continuation reuses its parent's context message; change notices and the board digest come only on a change | 4 | A-079, A-037, A-051, D-114, D-120, D-126 | R-039, R-042, R-043, R-044 | M | delegated | night | — | pi | 4.2 | ready |
 | R-111 | A wake is settled only by the run it entered; an idle sweep starts one run | 4 | A-089, A-090, D-128, D-129 | R-038 | L | delegated | night | — | pi | 4.14 | done |
@@ -2376,6 +2376,9 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
 - R-083 (D-115 (3)): T-31 (4)'s scan for real waiting in tests is R-083's: it defines real waiting over the whole of
   `test/` (the author's `waitJob`, `within` and `until` wait on real processes by design, which T-31 keeps) and brings
   its count to zero.
+- R-083 (R-108 `review.md` → Round 2, note 1; T-29 (5), (6)): R-108 added a line to the opening comments of
+  `test/u5-engine-stream.test.ts` and `test/runtime/stalled-tool.test.ts` (each 2 lines at `ab68dbd`, 3 after it);
+  R-083, which renames the stream's test file, gives each of the two one opening line on what it tests.
 - R-082 (D-080; R-025 `outcome.md` → Open points): scan (b)3 holds a test by the command it runs, not by its code, so
   the unit tests that run no command (the parser's, the lock's, the runner's, the resolver's) leave
   `WITHOUT_SNAPSHOT` and their codes are proved by a command's refusal test that compares the snapshot.
@@ -6333,3 +6336,8 @@ Night run of 2026-11-27/28 (until 08:00; `night.mjs` run 1 started at 21:47:25, 
   a real call failure reads as `gone`, as the ticket's Risk says).
 - R-108 `active` at `ab68dbd` (protocol step 2): its facts' places in its Decision 8 (the parser and the policy module
   unchanged; the wrapper, the fake engine and the stall tests moved with R-038–R-045); AC-8 names the gate's `--out`.
+- R-108 `done` (delegated): no `BLOCKED`. Review round 1 PASS → F1–F2 (Decision 9: one `toolCallText` in
+  `src/runtime/stream.ts`, T-25 (2); the wrapper test's header as at `HEAD`); round 2 PASS, its `outcome.md` note fixed
+  by the main session, its note on two test files' headers to R-083's notes in `## Tickets`. The main session's gates
+  1561/1561 (349.8 s) and 1562/1562 (347.1 s), `fails-before.mjs` exit 0 after each. For gate 5.4: R-108's
+  Deviations 1–3 and Open points 1–5.

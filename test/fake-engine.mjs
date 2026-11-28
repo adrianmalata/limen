@@ -9,6 +9,7 @@
 //   · untracked <path> (a bash call that writes the file <path> in the cwd, its folders made, as a write through bash
 //     does, which no tool list stops; the file is untracked unless the repository ignores it)
 //   · idle (a bash tool whose one child waits without CPU) · deaf (ignores SIGTERM from then on)
+//   · parallel (a write and idle's bash started in one message, as Pi runs them (E-19); the write ends, the bash waits)
 //   · tools-on-term <n> (ignores the next SIGTERM and starts n bash tools on it, as an engine that works on in a grace)
 //   · die <SIGNAL> (ends this process by that signal, as the kernel's OOM killer ends one by SIGKILL)
 //   · rate-limit <type> <resetAtMs> (emits the bridge's `kendex:rate-limit` on `pi.events`, E-9)
@@ -776,6 +777,12 @@ for (const line of task.split("\n")) {
 		await block();
 	} else if (word === "idle") {
 		emit({ type: "tool_execution_start", toolName: "bash", args: { command: "sleep 600" } });
+		await new Promise((resolve) => spawn("sleep", ["600"], { stdio: "ignore" }).once("exit", resolve));
+	} else if (word === "parallel") {
+		// pi-agent-core's parallel order (E-19): every start of the message first, then each end as its tool finishes.
+		emit({ type: "tool_execution_start", toolCallId: "call-1", toolName: "write", args: { path: "note.md" } });
+		emit({ type: "tool_execution_start", toolCallId: "call-2", toolName: "bash", args: { command: "sleep 600" } });
+		emit({ type: "tool_execution_end", toolCallId: "call-1", toolName: "write" });
 		await new Promise((resolve) => spawn("sleep", ["600"], { stdio: "ignore" }).once("exit", resolve));
 	} else if (word === "deaf") {
 		deaf = true;

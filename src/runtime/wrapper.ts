@@ -33,9 +33,20 @@ import { setUpJob, worktreeMissing } from "./job-setup.ts";
 import { jobScope } from "./launcher.ts";
 import { processIdentity, stopGraceMs } from "./reap.ts";
 import { type JobRole, jobRole } from "./roles.ts";
-import { type CpuSample, peakAfter, type StallWatch, stallStep, stallTickMs, toolStallMs } from "./stalled-tool.ts";
+import {
+	type CpuSample,
+	type PendingCall,
+	type PendingProgress,
+	peakAfter,
+	pendingAfter,
+	pendingProgress,
+	type StallWatch,
+	stallStep,
+	stallTickMs,
+	toolStallMs,
+} from "./stalled-tool.ts";
 import { enterStartQueue, waitForStart } from "./start-queue.ts";
-import { createStreamParser, type StreamEvent } from "./stream.ts";
+import { createStreamParser, type StreamEvent, toolCallText } from "./stream.ts";
 import { readWorkerExtensions } from "./worker-extensions.ts";
 
 // Coordinators and `limen picture serve` read the job folder; a streamed delta must not rewrite the same word many
@@ -272,7 +283,7 @@ export async function runInternalJob(): Promise<void> {
 		assistant: "",
 		stop: "",
 		stopAt: 0,
-		tool: "",
+		pending: [],
 		lastTool: "",
 		toolCalls: 0,
 		progress: 0,
@@ -329,11 +340,10 @@ export async function runInternalJob(): Promise<void> {
 	});
 	await appendLimenLog(jobDir, `worker started, time limit ${formatDuration(timeoutMs)}`);
 	let engineEnded = false;
-	// The stall's tool and its progress key: the tool count, the last tool with its detail, and the count of stderr
-	// chunks and non-JSON stdout lines, so any of them moving is progress (R-036 fact 3).
+	// The stall's tool and its progress key, from the pending calls: the tool count, the pending calls, and the count of
+	// stderr chunks and non-JSON stdout lines, so any of them moving is progress (R-036 fact 3, R-108).
 	const tickContext: TickContext = {
-		pendingTool: () =>
-			seen.activity === "tool" ? { tool: seen.tool, key: `${tools}:${seen.tool}:${seen.progress}` } : undefined,
+		pendingTool: () => pendingProgress(seen.pending, tools, seen.progress),
 		ended: () => exhausted !== undefined || engineEnded,
 		stall: (detail) => exhaust({ kind: "stall", detail }),
 		windowMs: () => runningLimit(toolStallMs, exhaust),
@@ -539,8 +549,8 @@ type Seen = {
 	stop: string;
 	/** When the last assistant message came, the time a limit's text names its reset after (E-9). */
 	stopAt: number;
-	/** The last tool with its detail, for the stall rule and its messages. */
-	tool: string;
+	/** The tool calls started and not ended, in start order, for the stall rule and its messages (R-108). */
+	pending: readonly PendingCall[];
 	/** The last tool's name and the tool count, as the progress file shows them. */
 	lastTool: string;
 	toolCalls: number;
@@ -553,14 +563,16 @@ async function recordEvents(
 	seen: Seen,
 ): Promise<void> {
 	for (const event of events) {
+		const count = event.kind === "tool" ? nextCount() : seen.toolCalls;
+		// Before the event's writes, so a tick between them reads the calls this event leaves pending.
+		seen.pending = pendingAfter(seen.pending, event, count);
 		if (event.kind === "tool") {
 			seen.activity = "tool";
-			seen.tool = event.detail ? `${event.name} ${event.detail}` : event.name;
 			seen.lastTool = event.name;
 			seen.activityAt = Date.now();
-			seen.toolCalls = nextCount();
+			seen.toolCalls = count;
 			await writeProgress(jobDir, { activity: "tool", lastTool: seen.lastTool, toolCalls: seen.toolCalls });
-			await appendFile(`${jobDir}/log`, event.detail ? `${event.name} ${event.detail}\n` : `${event.name}\n`);
+			await appendFile(`${jobDir}/log`, `${toolCallText(event)}\n`);
 		} else if (event.kind === "activity") {
 			// Every streamed delta reports activity; an unchanged one refreshes the file at most once a second.
 			if (seen.activity !== event.name || Date.now() - seen.activityAt >= ACTIVITY_REFRESH_MS) {
@@ -608,8 +620,11 @@ function unreadLine(detail: string | undefined): string | undefined {
 
 /** What a tick of the scope's samples needs of the wrapper, read at the tick. */
 type TickContext = {
-	/** The pending tool, as the stall's detail names it, with its progress key (R-036 fact 3); undefined for none. */
-	readonly pendingTool: () => { readonly tool: string; readonly key: string } | undefined;
+	/**
+	 * The last started of the pending calls, as the stall's detail names it, with the calls' progress key (R-036 fact 3,
+	 * R-108); undefined while no call is pending.
+	 */
+	readonly pendingTool: () => PendingProgress | undefined;
 	/** Whether the job's end is decided: a limit exhausted it, or its engine ended. */
 	readonly ended: () => boolean;
 	/** Ends the stalled job with the stall's detail. */

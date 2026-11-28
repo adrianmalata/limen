@@ -1,9 +1,14 @@
 export type Activity = "think" | "tool" | "wait";
+/**
+ * One event of Pi's `--mode json` stream as the wrapper reads it. A tool's start (`tool`) and its end (`activity`
+ * `wait`) carry `id`, the call's `toolCallId`, when Pi sends it as a non-empty string: Pi runs the tools of one message
+ * at once (E-19), so only the id tells which call ended (R-108).
+ */
 export type StreamEvent =
 	| { readonly kind: "log"; readonly line: string }
 	| { readonly kind: "assistant"; readonly text: string; readonly stopReason?: string }
-	| { readonly kind: "tool"; readonly name: string; readonly detail?: string }
-	| { readonly kind: "activity"; readonly name: Activity };
+	| { readonly kind: "tool"; readonly name: string; readonly detail?: string; readonly id?: string }
+	| { readonly kind: "activity"; readonly name: Activity; readonly id?: string };
 export function createStreamParser(): { push(chunk: string): StreamEvent[]; flush(): StreamEvent[] } {
 	let buffer = "";
 	const take = (line: string): StreamEvent | undefined => {
@@ -41,10 +46,10 @@ function interpret(event: unknown): StreamEvent | undefined {
 	const tool = "toolName" in event && typeof event.toolName === "string" ? event.toolName.trim() : "";
 	if (event.type === "tool_execution_start" && tool) {
 		const detail = "args" in event ? toolDetail(event.args) : "";
-		return { kind: "tool", name: tool, ...(detail ? { detail } : {}) };
+		return { kind: "tool", name: tool, ...(detail ? { detail } : {}), ...callId(event) };
 	}
 	if (event.type === "tool_execution_end") {
-		return { kind: "activity", name: "wait" };
+		return { kind: "activity", name: "wait", ...callId(event) };
 	}
 	if (event.type === "message_end") {
 		const message = "message" in event ? event.message : undefined;
@@ -98,6 +103,19 @@ export function assistantStopReason(message: unknown): string {
 			? message.errorMessage.replace(/\s+/g, " ").trim()
 			: "";
 	return detail ? `${reason}: ${detail}` : reason;
+}
+/**
+ * A tool call's text: its name, and its detail after a space when it has one. The job log and the stall's detail name a
+ * call by it, so both say the same (R-108, T-25 (2)).
+ */
+export function toolCallText(event: Extract<StreamEvent, { readonly kind: "tool" }>): string {
+	return event.detail ? `${event.name} ${event.detail}` : event.name;
+}
+/** The `id` of a tool's start or end: the call's `toolCallId` when Pi sends a non-empty string (R-108), else none. */
+function callId(event: object): { readonly id?: string } {
+	return "toolCallId" in event && typeof event.toolCallId === "string" && event.toolCallId
+		? { id: event.toolCallId }
+		: {};
 }
 function toolDetail(args: unknown): string {
 	if (!args || typeof args !== "object") {
