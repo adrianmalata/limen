@@ -15,7 +15,7 @@ import type { Parsed } from "../parser.ts";
 import { branchCommit, branchExists, commitHasFile, limenRoot, workspaceRepository } from "../project/git.ts";
 import { moduleOn, requireModule } from "../project/modules.ts";
 import { landTicketCheck, TICKET_PATH } from "../project/ticket-check.ts";
-import { ownerState } from "../runtime/reap.ts";
+import { ownerState } from "../runtime/liveness.ts";
 import { requireJobModules } from "../runtime/roles.ts";
 
 type Route = { readonly engine: string; readonly provider: string; readonly model: string; readonly thinking: string };

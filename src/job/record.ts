@@ -259,6 +259,19 @@ export type JobRecord = Facts & {
  * commit of `limen ticket done`) and when it landed.
  */
 export type Landed = { readonly sha: string; readonly at: string };
+/** The end of the time of a `limen ticket done` marker, which knows only the ticket's day: midnight UTC. */
+const DAY_ONLY = "T00:00:00.000Z";
+/**
+ * The time `limen ticket done` writes into its `landed` marker for the day `day` (YYYY-MM-DD), the one definition that
+ * `isDayOnly` and the readers of the marker share (T-25 (2); R-098, review round 3, note 2).
+ */
+export function dayOnlyTime(day: string): string {
+	return `${day}${DAY_ONLY}`;
+}
+/** Whether the time `at` of a `landed` marker holds a day only, as `dayOnlyTime` writes it. */
+export function isDayOnly(at: string): boolean {
+	return at.endsWith(DAY_ONLY);
+}
 /** The marker of an abandoned job: the branch that holds its whole worktree, the branch's commit, and when. */
 export type Abandoned = { readonly branch: string; readonly commit: string; readonly at: string };
 /**

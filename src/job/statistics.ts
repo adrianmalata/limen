@@ -15,10 +15,10 @@ import { LimenError, usageError } from "../outcome.ts";
 import { limenRoot } from "../project/git.ts";
 import { localDay } from "../project/lanes.ts";
 import { everRan, isTerminal } from "./job.ts";
-import { isDayOnly } from "./landing.ts";
 import {
 	archivedJobs,
 	FAILURE_KINDS,
+	isDayOnly,
 	type JobRecord,
 	jobFolderNames,
 	jobFolders,
@@ -272,10 +272,10 @@ function sameBranch(a: JobRecord, b: JobRecord): boolean {
 
 /**
  * The lead time of `land` and its parts (M-06); undefined for a land by `limen ticket done`, the record migrated or not,
- * whose `landed` time holds a day only (`isDayOnly`, defined where `limen ticket done` writes it, T-25 (2)): the ticket's
- * day at midnight UTC, where every other land holds the time of its merge or its closing commit (D-098 (5) (d)). A
- * closing commit made at exactly midnight UTC is then left out too: a number is missing and named on `Not read`, none
- * is guessed (D-057 (4)).
+ * whose `landed` time holds a day only (`isDayOnly`, defined with the `landed` marker in src/job/record.ts, T-25 (2)):
+ * the ticket's day at midnight UTC, where every other land holds the time of its merge or its closing commit (D-098 (5)
+ * (d)). A closing commit made at exactly midnight UTC is then left out too: a number is missing and named on `Not
+ * read`, none is guessed (D-057 (4)).
  */
 export function leadTimeOf(land: Land): LeadTime | undefined {
 	if (isDayOnly(land.landed.at)) {

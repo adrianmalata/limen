@@ -8,7 +8,7 @@ import { type LimenError, refused, usageError } from "../outcome.ts";
 import { platform } from "../platform/platform.ts";
 import { limenRoot } from "../project/git.ts";
 import { startLimen } from "../runtime/launcher.ts";
-import { ownerState } from "../runtime/reap.ts";
+import { ownerState } from "../runtime/liveness.ts";
 import { isTerminal, SESSION_ID } from "./job.ts";
 import { readRecord } from "./record.ts";
 

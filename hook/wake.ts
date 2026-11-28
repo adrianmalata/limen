@@ -51,6 +51,7 @@ import { removedCommand } from "../src/old-names.ts";
 import { LimenError } from "../src/outcome.ts";
 import { unlandedBranches } from "../src/project/git.ts";
 import { registerProject } from "../src/project/seat.ts";
+import { ownerState } from "../src/runtime/liveness.ts";
 import { sleepRefusal } from "../src/runtime/mistake-guard.ts";
 import {
 	type PiApi,
@@ -62,7 +63,6 @@ import {
 	piEvent,
 	recorded,
 } from "../src/runtime/pi-api.ts";
-import { ownerState } from "../src/runtime/reap.ts";
 
 const CACHE_REFRESH_MS = 30_000;
 const SWEEP_MS = 500;

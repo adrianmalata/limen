@@ -6,7 +6,7 @@ import { existsSync } from "node:fs";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { dayOnlyTime } from "../../src/job/landing.ts";
+import { dayOnlyTime } from "../../src/job/record.ts";
 import { lockPath, withLock } from "../../src/lock.ts";
 import { outputText, readOutcome } from "../final-line.ts";
 import {

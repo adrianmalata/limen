@@ -4,7 +4,7 @@ wycofania; wpis wchodzi do commitu swojego ticketu. Stan: etap 5 w toku; wpisy: 
 R-003, R-004, R-005, R-006, R-007, R-009, R-012, R-013, R-014, R-090, R-091, R-015, R-016, R-018, R-017, R-020,
 R-019, R-021, R-022, R-093, R-094, R-089, R-023, R-095, R-096, R-092, R-024, R-025, R-097, R-099, R-026, R-030, R-033,
 R-027, R-028, R-031, R-035, R-100, R-029, R-032, R-034, R-036, R-037, R-087, R-098, R-101, R-102, R-103, R-038,
-R-111, R-039, R-040, R-042, R-043, R-044, R-041, R-112, R-045, R-047, R-104. -->
+R-111, R-039, R-040, R-042, R-043, R-044, R-041, R-112, R-045, R-047, R-104, R-105. -->
 
 # Changes
 
@@ -552,3 +552,11 @@ computed when it is read. `check.mjs` checks both (`tools/changes-entries.mjs`).
 - Measurement: unmeasured (plan.md → Measurement: M-09)
 - Commit: R-104
 - Rollback: git revert $(git log --format=%H --grep='^R-104:' adrian-rebuild --)
+
+## 2026-11-28 R-105 The T-04 and T-26 scans follow what their rules name
+- What: `test/structure.test.ts` (the T-04 scan walks each read command's transitive imports for state transitions and wait primitives, with the lists `MIXED_COMMAND_FILES` (R-065, R-058) and `READ_WAITS` compared both ways; the T-26 launch scan counts `startOutsideJob`, aliased or not, and every `startInScope` outside the launcher; fixture cases); `src/runtime/liveness.ts`, new (`ownerState`, `startingJob` from `src/runtime/reap.ts`); `src/runtime/queue-reading.ts`, new (the start queue's read half from `src/runtime/start-queue.ts`); `src/job/listing.ts` (`queuedText`); `src/job/record.ts` (`isDayOnly`, `dayOnlyTime`); their callers (`src/runtime/queue-report.ts`, `src/runtime/pruning.ts`, `src/job/landing.ts`, `src/job/statistics.ts`, `src/job/group-cabinet.ts`, `src/job/group-rounds.ts`, `src/job/migration.ts`, `src/picture/activity.ts`, `src/commands/keeper.ts`, `hook/wake.ts`, `seat/deploy.ts`); tests (`test/runtime/liveness.test.ts`, `test/runtime/queue-reading.test.ts`, new; `test/plant.ts`, `test/runtime/reap.test.ts`, `test/runtime/start-queue.test.ts`, `test/runtime/wrapper.test.ts`, `test/boundary.test.ts`, `test/cli/ticket.test.ts`, `test/job/statistics.test.ts`, `test/lock.test.ts`)
+- Why: T-04, T-26, D-107, D-116
+- Proof: `node adrian-rebuild/tools/gate.mjs --out node_modules/.rebuild-review/R-105.gate` → exit 0 (1519/1519); `node adrian-rebuild/tools/fails-before.mjs` → exit 0 (ten test files); `node adrian-rebuild/tools/check.mjs` → exit 0
+- Measurement: measured
+- Commit: R-105
+- Rollback: git revert $(git log --format='%H %s' adrian-rebuild -- | awk '$2 == "R-105:" {print $1}')

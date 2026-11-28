@@ -1,6 +1,5 @@
-// src/runtime/reap.ts: whether a job's recorded process runs (its pid, start time and boot, A-056), whether a job holds
-// any process, its wrapper or its scope (R-032), and the reaper, which ends a running job whose wrapper is gone only
-// once the job's scope, or its wrapper's group, is gone (A-005).
+// src/runtime/reap.ts: whether a job holds any process, its wrapper or its scope (R-032), and the reaper, which ends a
+// running job whose wrapper is gone only once the job's scope, or its wrapper's group, is gone (A-005).
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
@@ -13,9 +12,19 @@ import { folderLive } from "../../src/job/migration.ts";
 import { type Identity, type JobRecord, readRecord, type Scope } from "../../src/job/record.ts";
 import { platform } from "../../src/platform/platform.ts";
 import { jobScope } from "../../src/runtime/launcher.ts";
-import { holdsProcesses, liveJob, ownerState, reapDeadJobs } from "../../src/runtime/reap.ts";
+import { ownerState } from "../../src/runtime/liveness.ts";
+import { holdsProcesses, liveJob, reapDeadJobs } from "../../src/runtime/reap.ts";
 import { withEnvironment } from "../environment.ts";
-import { failingSystemctl, fakeCgroup, fakeSystemd, SCOPE_READINGS, scopeProcess, writeRecord } from "../plant.ts";
+import {
+	failingSystemctl,
+	fakeCgroup,
+	fakeSystemd,
+	OTHER_BOOT,
+	own,
+	SCOPE_READINGS,
+	scopeProcess,
+	writeRecord,
+} from "../plant.ts";
 
 /** A sleeping child, its exit and its recorded identity; the test kills it when it ends. */
 async function sleeper(t: TestContext) {
@@ -25,13 +34,6 @@ async function sleeper(t: TestContext) {
 	const [exited, info] = [once(child, "exit"), await platform.processInfo(child.pid ?? 0)];
 	assert.ok(info.kind === "present", "the child is present");
 	return { child, exited, info };
-}
-
-/** This process's identity, as the transition to running records it. */
-async function own(): Promise<Identity> {
-	const info = await platform.processInfo(process.pid);
-	assert.ok(info.kind === "present", "this process is present");
-	return { pid: process.pid, born: info.process.born, bootId: platform.bootId() ?? null };
 }
 
 /** The identity of a wrapper that was killed alone, as the transition to running recorded it: its process is gone. */
@@ -124,12 +126,6 @@ test("the reaper keeps a live owner and finalizes a dead owner and a stranger at
 	assert.deepEqual([(await readRecord(owner))?.state, (await readRecord(stranger))?.state], ["failed", "failed"]);
 });
 
-test("A-056: a missing identity, or a pid without its start time, is unknown and never alive", async () => {
-	const self = await own();
-	assert.equal(await ownerState(null), "unknown");
-	assert.equal(await ownerState({ ...self, born: null }), "unknown", "a live pid without its start time");
-});
-
 // The transition to running writes the identity in the same write as the state, so no startup grace keeps it alive.
 // The pid without its start time is this live process, so the job's scope, which holds no process, is what ends.
 test("A-056: the reaper ends a running job whose identity is unknown once confirmed, also one that started just now", async (t) => {
@@ -143,18 +139,6 @@ test("A-056: the reaper ends a running job whose identity is unknown once confir
 	assert.deepEqual([(await readRecord(young))?.state, (await readRecord(pidOnly))?.state], ["running", "running"]);
 	await reapDeadJobs(jobs, seen, now + 11_000);
 	assert.deepEqual([(await readRecord(young))?.state, (await readRecord(pidOnly))?.state], ["failed", "failed"]);
-});
-
-const OTHER_BOOT = "00000000-0000-4000-8000-000000000000";
-
-test("a recorded boot id that is not the current boot makes the owner dead, though its pid and start time match", async (t) => {
-	const self = await own();
-	if (self.bootId === null) {
-		t.skip("the system gives no boot id");
-		return;
-	}
-	assert.equal(await ownerState(self), "alive");
-	assert.equal(await ownerState({ ...self, bootId: OTHER_BOOT }), "dead");
 });
 
 // The pid and start time are this live process's: only the boot differs, so no group of this boot is the job's.

@@ -1,13 +1,11 @@
-// Whether the process a job record names still runs (A-056), the reaper that ends a running job whose process is gone
-// (A-005), and the one grace between a TERM and a KILL of a stop, an exhaustion, a reap and a TERM the job's wrapper
-// forwards to its engine (A-020). The identity is the record's `{pid, born, bootId}`, written in the transition to
-// running: a missing part means unknown, never alive, so nothing keeps a job running on it; another boot, or another
-// start time under the pid, means dead. What the system cannot describe (a process query that gives no answer) is not
-// dead, as in src/lock.ts. A dead wrapper can leave its engine running, so the reaper ends what is left of the job, its
-// scope or its wrapper's group, before it writes `failed`; while that is not gone, the job stays running, with a line
-// in its log and its `stuck` one attempt longer (R-032). The seat sweep (src/runtime/sweeping.ts) is the reaper's one
-// caller, and it also ends the scope a finished job left behind (`endLeftoverScopes`). Whether a job holds any process
-// at all, its wrapper or its scope, is `holdsProcesses`, which the callers outside the reaper ask.
+// The reaper that ends a running job whose process is gone (A-005), and the one grace between a TERM and a KILL of a
+// stop, an exhaustion, a reap and a TERM the job's wrapper forwards to its engine (A-020). Whether the process a job
+// record names still runs is src/runtime/liveness.ts's (A-056). A dead wrapper can leave its engine running, so the
+// reaper ends what is left of the job, its scope or its wrapper's group, before it writes `failed`; while that is not
+// gone, the job stays running, with a line in its log and its `stuck` one attempt longer (R-032). The seat sweep
+// (src/runtime/sweeping.ts) is the reaper's one caller, and it also ends the scope a finished job left behind
+// (`endLeftoverScopes`). Whether a job holds any process at all, its wrapper or its scope, is `holdsProcesses`, which
+// the callers outside the reaper ask.
 import { testKnob } from "../config.ts";
 import { finalizeJob, readScope } from "../job/finalize.ts";
 import { isTerminal } from "../job/job.ts";
@@ -23,6 +21,7 @@ import {
 } from "../job/record.ts";
 import { platform, type ScopeSignal, type ScopeState } from "../platform/platform.ts";
 import { jobScope } from "./launcher.ts";
+import { otherBoot, ownerCheck, ownerState, startingJob } from "./liveness.ts";
 import { claimRecovery } from "./recovery.ts";
 
 export const STARTUP_GRACE_MS = 10 * 60_000;
@@ -33,69 +32,11 @@ export const KILL_WAIT_MS = 1_000;
 /** How often a wait for a scope or a group to be gone reads it again: an exit raises no event. */
 const GONE_POLL_MS = 100;
 
-/** `alive`: the recorded process runs; `dead`: it is gone; `unknown`: the record does not say which process it is. */
-export type OwnerState = "alive" | "dead" | "unknown";
-/** What a check of the recorded process found, and why, in the words of the reaper's log line. */
-type OwnerCheck = { readonly state: OwnerState; readonly why: string };
-
-/** Why each process a check found gone is gone, by its `pid born bootId`: that identity never returns. */
-const gone = new Map<string, string>();
-
-/** Whether the process `identity` names runs now. Every check reads the process again, except one already found gone. */
-export async function ownerState(identity: Identity | null): Promise<OwnerState> {
-	return (await ownerCheck(identity)).state;
-}
-
-/** `ownerState` with its reason. */
-async function ownerCheck(identity: Identity | null): Promise<OwnerCheck> {
-	if (identity?.pid == null) {
-		return { state: "unknown", why: "no wrapper pid recorded" };
-	}
-	const { pid, born, bootId } = identity;
-	if (born === null) {
-		return { state: "unknown", why: `wrapper ${pid} has no start time recorded` };
-	}
-	const key = `${pid} ${born} ${bootId}`;
-	const known = gone.get(key);
-	if (known !== undefined) {
-		return { state: "dead", why: known };
-	}
-	const why = await deadBecause(pid, born, bootId);
-	if (why === undefined) {
-		return { state: "alive", why: `wrapper ${pid} runs` };
-	}
-	gone.set(key, why);
-	return { state: "dead", why };
-}
-
-/** Why the process `pid`, started at `born` in the boot `bootId`, is gone; undefined while it runs or none can say. */
-async function deadBecause(pid: number, born: string, bootId: string | null): Promise<string | undefined> {
-	if (otherBoot(bootId)) {
-		return `wrapper ${pid} ran in another boot`;
-	}
-	const outcome = platform.processAlive(pid) ? await platform.processInfo(pid) : undefined;
-	if (outcome?.kind === "unavailable" || (outcome?.kind === "present" && outcome.process.born === born)) {
-		return;
-	}
-	return outcome?.kind === "present" ? `wrapper ${pid} is another process now` : `wrapper ${pid} is not running`;
-}
-
-/** Whether the recorded boot id names a boot other than the current one; a boot id nobody gives is no other boot. */
-function otherBoot(bootId: string | null): boolean {
-	const current = platform.bootId();
-	return bootId !== null && current !== undefined && bootId !== current;
-}
-
 /** This process's identity, which the transition to running records: a part the system does not give is null. */
 export async function processIdentity(): Promise<Identity> {
 	const own = await platform.processInfo(process.pid);
 	const born = own.kind === "present" ? own.process.born : null;
 	return { pid: process.pid, born, bootId: platform.bootId() ?? null };
-}
-
-/** A job its spawner is still setting up: published, not yet running, and the publishing process is alive. */
-export function startingJob(record: JobRecord | undefined): boolean {
-	return record?.state === "starting" && record.spawnerPid !== null && platform.processAlive(record.spawnerPid);
 }
 
 /** Whether `startedAt` lies within the startup grace before `now`. */

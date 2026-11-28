@@ -7,7 +7,7 @@ import { atomicWrite } from "../atomic-write.ts";
 import { herdrPrompt } from "../integrations/coordinator-wake.ts";
 import { herdrBinary } from "../integrations/herdr.ts";
 import type { CommandText } from "../outcome.ts";
-import { ownerState } from "../runtime/reap.ts";
+import { ownerState } from "../runtime/liveness.ts";
 import { startContinue } from "./continuation.ts";
 import {
 	type GroupMember,

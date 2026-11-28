@@ -19,7 +19,8 @@ import { branchTip, committerTime, isGitRepository, limenRoot } from "../project
 import { landClosingCommits } from "../project/lanes.ts";
 import { PLANT_LIMITS } from "../project/limits.ts";
 import { MODULES, type Module } from "../project/modules.ts";
-import { holdsProcesses, STARTUP_GRACE_MS, startingJob } from "../runtime/reap.ts";
+import { startingJob } from "../runtime/liveness.ts";
+import { holdsProcesses, STARTUP_GRACE_MS } from "../runtime/reap.ts";
 import { JOB_ROLES } from "../runtime/roles.ts";
 import { hasCode } from "../system-error.ts";
 import { hexEndOf, TOKEN, tokenOf } from "./id.ts";

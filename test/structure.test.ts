@@ -204,9 +204,9 @@ const RUNTIME = ["src", "hook", "bin", "seat"] as const;
 
 // T-27 (2): data from outside becomes a typed value only in src/boundary.ts. A ratchet until R-082 brings the count to
 // zero: the 41 sites at R-015's commit, the parent of R-016, less the 3 that R-016 moved into src/boundary.ts (the
-// readers of src/outcome.ts, src/project/limits.ts and `startGate` in src/runtime/start-queue.ts), less the 4 sites of
-// job files that R-021 moved into the record's validators (src/job/record.ts), less the transcript reader that R-024
-// moved onto the validators (src/job/usage.ts), less the reader of a seat rule that R-102 removed.
+// readers of src/outcome.ts, src/project/limits.ts and `startGate`, now in src/runtime/queue-reading.ts), less the 4
+// sites of job files that R-021 moved into the record's validators (src/job/record.ts), less the transcript reader that
+// R-024 moved onto the validators (src/job/usage.ts), less the reader of a seat rule that R-102 removed.
 const JSON_PARSE = 41 - 3 - 4 - 1 - 1;
 test("T-27: JSON.parse appears in src/, hook/, bin/ and seat/ outside src/boundary.ts at most its baseline count", async () => {
 	let all = 0;
@@ -1079,8 +1079,9 @@ test("T-20 (4): the module of every handler that takes an argument of type job, 
 
 /**
  * The functions that change a job's state or write its record (A-019, T-04's Check): the record's one writer, the end
- * of a job, the markers, the first record, the reaper, the seat sweep's `stuck`, and the owed wake that the wake hook
- * writes and the sweep releases (R-034).
+ * of a job, the markers, the first record, the reaper, the seat sweep's `stuck`, the owed wake that the wake hook
+ * writes and the sweep releases (R-034), and a Limen hook's refusal and rate limit, which src/job/record.ts writes
+ * through `transition` (R-105).
  */
 const STATE_TRANSITIONS: ReadonlySet<string> = new Set([
 	"transition",
@@ -1091,12 +1092,202 @@ const STATE_TRANSITIONS: ReadonlySet<string> = new Set([
 	"confirmDeadJobs",
 	"writeStuck",
 	"writeOwedWake",
+	"recordRefusal",
+	"recordRateLimit",
+]);
+/** The functions of the lock module that wait for a lock another process holds, up to the module's 60 s bound. */
+const LOCK_WAITS: ReadonlySet<string> = new Set(["withLock", "moveLockedFolder"]);
+/**
+ * Node's module of timers that return a promise, with and without its `node:` prefix: each of its timers (`setTimeout`,
+ * `setInterval`, `scheduler.wait`) is a wait when awaited, so any import of it counts, whatever it names.
+ */
+const TIMER_PROMISES: ReadonlySet<string> = new Set(["node:timers/promises", "timers/promises"]);
+
+/** A read command of the registry and the file of its handler. */
+type ReadCommand = { readonly command: string; readonly file: string };
+/**
+ * What the walk of a read command's imports found in one module: an import of a state-transition function, a wait
+ * (D-116 (1)), or an import the walk cannot follow, whose names or module it cannot see (`hidden`).
+ */
+type Reached = {
+	readonly read: ReadCommand;
+	readonly module: string;
+	readonly kind: "transition" | "wait" | "hidden";
+	readonly what: string;
+};
+
+/**
+ * Each wait of the code `text` at `path` (D-116 (1)): an import from `TIMER_PROMISES`, by its names, its default, a
+ * namespace or a star; a call of `setTimeout` or `setInterval` inside a `new Promise(…)`, which its caller awaits;
+ * and an import of a function of the lock module that waits for the lock. Each counts whatever its bound, since a bound
+ * is the reason an exception names.
+ */
+function moduleWaits(path: string, text: string): string[] {
+	const waits = new Set<string>();
+	for (const { form, module, names, typeOnly } of importsOf(path, text)) {
+		const timers = module !== undefined && TIMER_PROMISES.has(module);
+		const lock = module !== undefined && importedFile(path, module) === LOCK_MODULE;
+		if (timers && !typeOnly && (form === "namespace" || form === "star")) {
+			waits.add(`imports every name of ${module}`);
+		}
+		for (const name of typeOnly ? [] : names) {
+			if (timers) {
+				waits.add(`imports ${name} from ${module}`);
+			} else if (lock && LOCK_WAITS.has(name)) {
+				waits.add(`imports ${name} from ${LOCK_MODULE}`);
+			}
+		}
+	}
+	const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+	const visit = (node: ts.Node, inPromise: boolean): void => {
+		const callee = inPromise && ts.isCallExpression(node) ? calleeName(node) : undefined;
+		if (callee === "setTimeout" || callee === "setInterval") {
+			waits.add(`calls ${callee} in a promise`);
+		}
+		const promise = ts.isNewExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "Promise";
+		ts.forEachChild(node, (child) => visit(child, inPromise || promise));
+	};
+	visit(source, false);
+	return [...waits];
+}
+
+/** What one import of the file `path` reaches, of `Reached`'s kinds, and the file the walk goes on to, if any. */
+function importReach(
+	path: string,
+	imported: ReturnType<typeof importsOf>[number],
+	sources: ReadonlyMap<string, string>,
+): { readonly found: ReadonlyArray<readonly [Reached["kind"], string]>; readonly next?: string } {
+	if (imported.module === undefined) {
+		return { found: [["hidden", `imports a module it computes: ${imported.code}`]] };
+	}
+	const target = importedFile(path, imported.module);
+	if (target === undefined) {
+		return { found: [] };
+	}
+	const found: Array<readonly [Reached["kind"], string]> = imported.names
+		.filter((name) => STATE_TRANSITIONS.has(name))
+		.map((name) => ["transition", `imports ${name}`] as const);
+	if (imported.form === "namespace" || imported.form === "star") {
+		found.push(["hidden", `imports every name of ${target}: ${imported.code}`]);
+	}
+	if (!sources.has(target)) {
+		return { found: [...found, ["hidden", `imports ${target}, which is no file of src/ that git knows`]] };
+	}
+	return { found, next: target };
+}
+
+/**
+ * What each read command of `reads` reaches through the imports of its handler's file, over the files of src/ that git
+ * knows, `sources`, by their path from the root. The walk reads each file once, so a cycle ends, and follows every
+ * import of a file, `import { type X, f }` and `export … from` included, but an `import type`, which runs no code, and
+ * a `node:` module. It finds each import of a name of `STATE_TRANSITIONS`, each wait of `moduleWaits`, and each import
+ * it cannot follow: a namespace or star import of a file, which hides the names it takes, a file `sources` lacks, and a
+ * module the code computes.
+ */
+function readReach(reads: readonly ReadCommand[], sources: ReadonlyMap<string, string>): Reached[] {
+	const found: Reached[] = [];
+	for (const read of reads) {
+		const seen = new Set([read.file]);
+		const queue = [read.file];
+		for (let module = queue.shift(); module !== undefined; module = queue.shift()) {
+			const text = sources.get(module);
+			if (text === undefined) {
+				found.push({ read, module, kind: "hidden", what: "is no file of src/ that git knows" });
+				continue;
+			}
+			found.push(...moduleWaits(module, text).map((what) => ({ read, module, kind: "wait" as const, what })));
+			for (const imported of importsOf(module, text).filter(({ typeOnly }) => !typeOnly)) {
+				const { found: reached, next } = importReach(module, imported, sources);
+				found.push(...reached.map(([kind, what]) => ({ read, module, kind, what })));
+				if (next !== undefined && !seen.has(next)) {
+					seen.add(next);
+					queue.push(next);
+				}
+			}
+		}
+	}
+	return found;
+}
+
+/**
+ * The command files that hold read and change commands, whose read commands reach a state-transition function through
+ * the modules of the change commands, each with the ticket that ends it (D-116 (2)): a ratchet that may only shrink. An
+ * entry covers what the read commands of its file reach, transitions and waits alike, until its ticket splits the file.
+ */
+const MIXED_COMMAND_FILES: ReadonlyMap<string, string> = new Map([
+	["src/commands/ticket.ts", "R-065"],
+	["src/commands/github.ts", "R-058"],
 ]);
 /**
- * Each state-transition function that the module of a read command's handler, or a `src/` module it imports directly,
- * imports, as `<command>: <file> imports <function>`.
+ * The modules with a wait that a read command outside `MIXED_COMMAND_FILES` reaches (D-116 (1)), each with its reason:
+ * a bounded reading of an outside system that T-04 names (D-107 (3)), or a wait that only a change operation of the
+ * module runs, named with that operation. A walk over modules cannot tell which function of a module a read calls, so
+ * a lock's entry is backed at run time by the T-04 read test of test/registry.test.ts, whose read-only .limen/ and
+ * seat folder refuse any lock a read takes.
  */
-async function readTransitions(): Promise<string[]> {
+const READ_WAITS: ReadonlyMap<string, string> = new Map([
+	[
+		"src/runtime/queue-reading.ts",
+		"`readLoad`'s 2 s sample of the machine's CPU for `limen seat queue`, a bounded reading T-04 names (D-107 (3))",
+	],
+	["src/integrations/herdr.ts", "the 1 s wait before the one retry of a job tab's close (`closeJobTab`)"],
+	[
+		"src/job/group-cabinet.ts",
+		"`groupLock`, which a group's launch, events and rounds, a job's publication and a queued job's start take",
+	],
+	[
+		"src/job/record.ts",
+		"the job's lock that the record's writers take: `transition`, `writeMarker`, `writeStuck` and `writeOwedWake`",
+	],
+	["src/job/reference.ts", "the jobs lock under which `withNewJobId` names a new job"],
+	["src/lock.ts", "the poll of a lock another process holds, which only `withLock` and `moveLockedFolder` run"],
+	["src/operation.ts", "the lock under which a change command's `apply` checks its facts again and writes (T-38 (2))"],
+	["src/platform/linux.ts", "the poll until a command it starts in a new user scope runs (`startInScope`)"],
+	["src/project/seat.ts", "the registry's lock of `updateRegisteredProjects`: `limen init`, the wake hook, the sweep"],
+	["src/project/series.ts", "the ticket-number lock under which `limen ticket new` takes its number (A-055)"],
+]);
+
+/** A finding of the walk as `<command>: <module> <what>`. */
+const reachedText = ({ read, module, what }: Reached): string => `${read.command}: ${module} ${what}`;
+
+/**
+ * The findings of `reached` other than waits that `mixed` does not cover, `unlisted`, and each entry of `mixed` whose
+ * read commands reach no state-transition function, `stale`.
+ */
+function unlistedTransitions(
+	reached: readonly Reached[],
+	mixed: ReadonlyMap<string, string>,
+): { readonly unlisted: string[]; readonly stale: string[] } {
+	const unlisted = reached.filter(
+		({ read, kind }) => kind === "hidden" || (kind === "transition" && !mixed.has(read.file)),
+	);
+	const stale = [...mixed].filter(
+		([file]) => !reached.some(({ read, kind }) => kind === "transition" && read.file === file),
+	);
+	return {
+		unlisted: [...new Set(unlisted.map(reachedText))].sort(),
+		stale: stale.map(([file, ticket]) => `${file} (${ticket})`),
+	};
+}
+
+/**
+ * The waits of `reached` that neither `mixed` nor `waits` covers, `unlisted`, and each entry of `waits` that no read
+ * command outside `mixed` reaches, `stale`.
+ */
+function unlistedWaits(
+	reached: readonly Reached[],
+	mixed: ReadonlyMap<string, string>,
+	waits: ReadonlyMap<string, string>,
+): { readonly unlisted: string[]; readonly stale: string[] } {
+	const outside = reached.filter(({ read, kind }) => kind === "wait" && !mixed.has(read.file));
+	return {
+		unlisted: [...new Set(outside.filter(({ module }) => !waits.has(module)).map(reachedText))].sort(),
+		stale: [...waits.keys()].filter((module) => !outside.some((found) => found.module === module)),
+	};
+}
+
+/** The read commands of the registry, each with the file of its handler, as src/registry.ts imports it. */
+async function readCommands(): Promise<ReadCommand[]> {
 	const registry = await readFile(join(root, "src", "registry.ts"), "utf8");
 	const modules = new Map(
 		importsOf("src/registry.ts", registry).flatMap(({ module, names }) => {
@@ -1104,30 +1295,201 @@ async function readTransitions(): Promise<string[]> {
 			return file === undefined ? [] : names.map((name) => [name, file] as const);
 		}),
 	);
-	const found: string[] = [];
-	for (const entry of REGISTRY.filter(({ kind }) => kind === "read")) {
-		const module = modules.get(entry.handler.name);
-		assert.ok(module, `the registry imports the handler of ${entry.name}`);
-		const text = await readFile(join(root, module), "utf8");
-		for (const file of [module, ...domainModules(module, text)]) {
-			const code = file === module ? text : await readFile(join(root, file), "utf8");
-			for (const { names, typeOnly } of importsOf(file, code)) {
-				found.push(
-					...names
-						.filter((name) => !typeOnly && STATE_TRANSITIONS.has(name))
-						.map((name) => `${entry.name}: ${file} imports ${name}`),
-				);
-			}
-		}
-	}
-	return found;
+	return REGISTRY.filter(({ kind }) => kind === "read").map((entry) => {
+		const file = modules.get(entry.handler.name);
+		assert.ok(file, `the registry imports the handler of ${entry.name}`);
+		return { command: entry.name, file };
+	});
 }
 
-// T-04 → Check, R-032 Decision 16: a read command that does not import what writes a job's state cannot write it from
-// its own code or from the domain module it calls; the T-04 read test of test/registry.test.ts holds the rest. Its one
-// exception, `rule`, whose file held `rule set` and `rule timer` too, went with the seat rules (R-102).
-test("T-04: the module of every read command's handler and the src/ modules it imports import no state-transition function", async () => {
-	assert.deepEqual(await readTransitions(), []);
+/** What the read commands of the registry reach, over the files of src/ that git knows. */
+async function registryReach(): Promise<Reached[]> {
+	const sources = new Map((await knownSources(["src"])).map(({ path, text }) => [path, text] as const));
+	return readReach(await readCommands(), sources);
+}
+
+// T-04 → Check, R-032 Decision 16: a read command whose modules import nothing that writes a job's state cannot write
+// it from its own code; the T-04 read test of test/registry.test.ts holds the rest. The walk proves the modules a read
+// command's handler loads, not its process, which loads every command's module through src/main.ts's registry.
+test("T-04: no read command's handler reaches a state-transition function through its imports, but those of the mixed command files", async () => {
+	assert.deepEqual(unlistedTransitions(await registryReach(), MIXED_COMMAND_FILES), { unlisted: [], stale: [] });
+});
+
+// T-04, D-116 (1): a read never waits without a bound, and each bound is named; no wall-clock test.
+test("T-04: no read command's handler reaches a wait through its imports, but the named bounded readings and waits of change operations", async () => {
+	assert.deepEqual(unlistedWaits(await registryReach(), MIXED_COMMAND_FILES, READ_WAITS), { unlisted: [], stale: [] });
+});
+
+/** What the walk finds from the handler file src/commands/read.ts of the read command `read` over the files `files`. */
+function walked(files: Readonly<Record<string, string>>): string[] {
+	const read = { command: "read", file: "src/commands/read.ts" };
+	return readReach([read], new Map(Object.entries(files))).map(
+		({ module, kind, what }) => `${module}: ${kind}: ${what}`,
+	);
+}
+
+test("the read walk finds a state-transition function two imports below the handler", () => {
+	const files = {
+		"src/commands/read.ts": 'import { a } from "../job/a.ts";\n',
+		"src/job/a.ts": 'import { b } from "./b.ts";\n',
+		"src/job/b.ts": 'import { transition } from "./record.ts";\n',
+		"src/job/record.ts": "export function transition() {}\n",
+	};
+	assert.deepEqual(walked(files), ["src/job/b.ts: transition: imports transition"]);
+});
+
+test("the read walk reads each file of an import cycle once", () => {
+	const files = {
+		"src/commands/read.ts": 'import { a } from "../job/a.ts";\n',
+		"src/job/a.ts": 'import { b } from "./b.ts";\nimport { finalizeJob } from "./finalize.ts";\n',
+		"src/job/b.ts": 'import { a } from "./a.ts";\n',
+		"src/job/finalize.ts": "export function finalizeJob() {}\n",
+	};
+	assert.deepEqual(walked(files), ["src/job/a.ts: transition: imports finalizeJob"]);
+});
+
+test("the read walk follows a re-export with export … from", () => {
+	const files = {
+		"src/commands/read.ts": 'export { a } from "../job/a.ts";\n',
+		"src/job/a.ts": 'import { writeMarker } from "./record.ts";\n',
+		"src/job/record.ts": "export function writeMarker() {}\n",
+	};
+	assert.deepEqual(walked(files), ["src/job/a.ts: transition: imports writeMarker"]);
+});
+
+test("the read walk skips an import type, which runs no code", () => {
+	const files = {
+		"src/commands/read.ts": 'import type { A } from "../job/a.ts";\n',
+		"src/job/a.ts": 'import { transition } from "./record.ts";\n',
+	};
+	assert.deepEqual(walked(files), []);
+});
+
+test("the read walk follows an import whose names include an inline type specifier", () => {
+	const files = {
+		"src/commands/read.ts": 'import { type A, a } from "../job/a.ts";\n',
+		"src/job/a.ts": 'import { transition } from "./record.ts";\n',
+		"src/job/record.ts": "export function transition() {}\n",
+	};
+	assert.deepEqual(walked(files), ["src/job/a.ts: transition: imports transition"]);
+});
+
+test("the read walk finds a namespace import of a file of src/, which hides the names it takes", () => {
+	const files = {
+		"src/commands/read.ts": 'import * as a from "../job/a.ts";\n',
+		"src/job/a.ts": "export const a = 1;\n",
+	};
+	assert.deepEqual(walked(files), [
+		'src/commands/read.ts: hidden: imports every name of src/job/a.ts: import * as a from "../job/a.ts";',
+	]);
+});
+
+test("the read walk skips a node: module and finds nothing in it", () => {
+	const files = { "src/commands/read.ts": 'import * as fs from "node:fs";\nimport { join } from "node:path";\n' };
+	assert.deepEqual(walked(files), []);
+});
+
+test("the read walk finds an import of a file git does not know", () => {
+	const files = { "src/commands/read.ts": 'import { a } from "../job/untracked.ts";\n' };
+	assert.deepEqual(walked(files), [
+		"src/commands/read.ts: hidden: imports src/job/untracked.ts, which is no file of src/ that git knows",
+	]);
+});
+
+test("the read walk finds a wait in an import of setTimeout from node:timers/promises", () => {
+	const files = {
+		"src/commands/read.ts": 'import { a } from "../job/a.ts";\n',
+		"src/job/a.ts": 'import { setTimeout as delay } from "node:timers/promises";\n',
+	};
+	assert.deepEqual(walked(files), ["src/job/a.ts: wait: imports setTimeout from node:timers/promises"]);
+});
+
+test("the read walk finds a wait in every import from node:timers/promises or timers/promises, whatever its form or name", () => {
+	const files = {
+		"src/commands/read.ts": [
+			'import { a } from "../job/a.ts";',
+			'import { b } from "../job/b.ts";',
+			'import { c } from "../job/c.ts";',
+			'import { d } from "../job/d.ts";',
+		].join("\n"),
+		"src/job/a.ts": 'import { scheduler, setInterval } from "timers/promises";\n',
+		"src/job/b.ts": 'import timers from "node:timers/promises";\n',
+		"src/job/c.ts": 'import * as timers from "timers/promises";\n',
+		"src/job/d.ts": 'export * from "node:timers/promises";\n',
+	};
+	assert.deepEqual(walked(files), [
+		"src/job/a.ts: wait: imports scheduler from timers/promises",
+		"src/job/a.ts: wait: imports setInterval from timers/promises",
+		"src/job/b.ts: wait: imports default from node:timers/promises",
+		"src/job/c.ts: wait: imports every name of timers/promises",
+		"src/job/d.ts: wait: imports every name of node:timers/promises",
+	]);
+});
+
+test("the read walk finds a wait in a setTimeout called inside a promise, and none in a timer outside one", () => {
+	const files = {
+		"src/commands/read.ts": 'import { a } from "../job/a.ts";\nimport { b } from "../job/b.ts";\n',
+		"src/job/a.ts": "export const a = () => new Promise((resolve) => setTimeout(resolve, 10));\n",
+		"src/job/b.ts": "export const b = () => setInterval(() => {}, 10);\n",
+	};
+	assert.deepEqual(walked(files), ["src/job/a.ts: wait: calls setTimeout in a promise"]);
+});
+
+// The names are written out, not read from LOCK_WAITS, so a name that leaves the set fails its own case.
+for (const name of ["withLock", "moveLockedFolder"]) {
+	test(`the read walk finds a wait in an import of ${name} from the lock module`, () => {
+		const files = {
+			"src/commands/read.ts": 'import { a } from "../job/a.ts";\n',
+			"src/job/a.ts": `import { type Guarded, lockPath, ${name} } from "../lock.ts";\n`,
+			"src/lock.ts": `export function ${name}() {}\nexport function lockPath() {}\n`,
+		};
+		assert.deepEqual(walked(files), [`src/job/a.ts: wait: imports ${name} from src/lock.ts`]);
+	});
+}
+
+/** A finding of the read command `command`, whose handler is `src/commands/<file>.ts`, in `module`. */
+function finding(command: string, file: string, module: string, kind: Reached["kind"], what: string): Reached {
+	return { read: { command, file: `src/commands/${file}.ts` }, module, kind, what };
+}
+
+/** The mixed command file of the comparison's tests, which holds `ticket check`. */
+const COMPARED_MIXED: ReadonlyMap<string, string> = new Map([["src/commands/ticket.ts", "R-065"]]);
+/**
+ * Findings of each kind for the comparison's tests of unlisted findings: of `show` and `status`, and of `ticket check`,
+ * whose file `COMPARED_MIXED` lists; the wait in src/job/e.ts is the one the wait test lists as an exception.
+ */
+const COMPARED: readonly Reached[] = [
+	finding("show", "show", "src/job/a.ts", "transition", "imports transition"),
+	finding("ticket check", "ticket", "src/job/b.ts", "transition", "imports writeMarker"),
+	finding("status", "status", "src/job/c.ts", "wait", "imports withLock from src/lock.ts"),
+	finding("ticket check", "ticket", "src/job/d.ts", "wait", "calls setTimeout in a promise"),
+	finding("status", "status", "src/job/e.ts", "wait", "calls setTimeout in a promise"),
+	finding("ticket check", "ticket", "src/job/f.ts", "hidden", "imports every name of src/job/g.ts"),
+];
+
+test("the comparison with the mixed command files finds each transition and hidden import that no entry covers", () => {
+	assert.deepEqual(unlistedTransitions(COMPARED, COMPARED_MIXED).unlisted, [
+		"show: src/job/a.ts imports transition",
+		"ticket check: src/job/f.ts imports every name of src/job/g.ts",
+	]);
+});
+
+test("the comparison with the wait exceptions finds each wait that neither a mixed command file nor an exception covers", () => {
+	const waits = new Map([["src/job/e.ts", "a reason"]]);
+	assert.deepEqual(unlistedWaits(COMPARED, COMPARED_MIXED, waits).unlisted, [
+		"status: src/job/c.ts imports withLock from src/lock.ts",
+	]);
+});
+
+test("the comparison with the mixed command files finds an entry whose read commands reach no transition", () => {
+	const reached = [finding("ticket check", "ticket", "src/job/d.ts", "wait", "calls setTimeout in a promise")];
+	assert.deepEqual(unlistedTransitions(reached, COMPARED_MIXED).stale, ["src/commands/ticket.ts (R-065)"]);
+});
+
+test("the comparison with the wait exceptions finds an entry that no read command outside the mixed command files reaches", () => {
+	const reached = [finding("ticket check", "ticket", "src/job/d.ts", "wait", "calls setTimeout in a promise")];
+	const waits = new Map([["src/job/d.ts", "a reason"]]);
+	assert.deepEqual(unlistedWaits(reached, COMPARED_MIXED, waits).stale, ["src/job/d.ts"]);
 });
 
 /** The one module of the job id's form (T-25 (2), T-20 (1), (6)): its date and slug, its token, its older 4-hex end. */
@@ -1515,7 +1877,10 @@ test("the print scan finds console output and stream writes, and skips the wrapp
 
 /** The one module that starts Limen's own CLI and reads its final line (D-061 (4)). */
 const LAUNCHER = "src/runtime/launcher.ts";
-/** The functions of node:child_process that start a process. */
+/**
+ * The functions that start a process from its program and a list of its words: those of node:child_process, and the
+ * launcher's `startOutsideJob`, which starts one in a user scope of its own (R-105).
+ */
 const STARTERS: ReadonlySet<string> = new Set([
 	"spawn",
 	"spawnSync",
@@ -1524,7 +1889,13 @@ const STARTERS: ReadonlySet<string> = new Set([
 	"execFile",
 	"execFileSync",
 	"fork",
+	"startOutsideJob",
 ]);
+/**
+ * The platform's start of a process in a user scope, which takes its program and words in one object; only the
+ * launcher calls it, which names Limen's scopes (A-029), so every other call counts, whatever it starts (R-105).
+ */
+const SCOPE_START = "startInScope";
 /**
  * What names Limen's own CLI in code: a path that ends in its entry point `bin/limen`, that path in parts, or the
  * setting of its path; a sentence that mentions `bin/limen` names no process to start.
@@ -1551,16 +1922,44 @@ function calleeName(call: ts.CallExpression): string | undefined {
 }
 
 /**
+ * The starter of `STARTERS` that each local name stands for when the code imports one under another name, as
+ * `startOutsideJob` for `start` in `import { startOutsideJob as start }`: a renamed starter starts a process all the
+ * same.
+ */
+function starterAliases(source: ts.SourceFile): ReadonlyMap<string, string> {
+	const aliases = new Map<string, string>();
+	const visit = (node: ts.Node): void => {
+		if (ts.isImportSpecifier(node) && node.propertyName !== undefined && STARTERS.has(node.propertyName.text)) {
+			aliases.set(node.name.text, node.propertyName.text);
+		}
+		ts.forEachChild(node, visit);
+	};
+	visit(source);
+	return aliases;
+}
+
+/** The name of the function a call calls, by `calleeName`, or the starter a called local name stands for. */
+function startedName(call: ts.CallExpression, aliases: ReadonlyMap<string, string>): string | undefined {
+	const name = calleeName(call);
+	return name !== undefined && ts.isIdentifier(call.expression) ? (aliases.get(name) ?? name) : name;
+}
+
+/**
  * Each start of Limen's own CLI in the code `text` at `path`, as `<path>:<line>: <function>`: a call of a function that
- * starts a process whose program, or a word of its literal list of arguments, names the CLI, itself or through a
- * variable the file declares.
+ * starts a process, also under a name the file imports it as, whose program, or a word of its literal list of
+ * arguments, names the CLI, itself or through a variable the file declares; and every call of the platform's start in
+ * a user scope (`SCOPE_START`).
  */
 function cliLaunches(path: string, text: string): string[] {
 	const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
 	const values = declaredValues(source);
+	const aliases = starterAliases(source);
 	const found: string[] = [];
 	const visit = (node: ts.Node): void => {
-		const callee = ts.isCallExpression(node) ? calleeName(node) : undefined;
+		const callee = ts.isCallExpression(node) ? startedName(node, aliases) : undefined;
+		if (callee === SCOPE_START) {
+			found.push(`${path}:${source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1}: ${callee}`);
+		}
 		if (ts.isCallExpression(node) && callee !== undefined && STARTERS.has(callee)) {
 			const [program, list] = node.arguments;
 			const words = list !== undefined && ts.isArrayLiteralExpression(list) ? [...list.elements] : [];
@@ -1580,7 +1979,7 @@ function cliLaunches(path: string, text: string): string[] {
 
 // T-26 (4), D-061 (4): a caller that starts Limen's CLI by hand reads its text for people or nothing at all; one module
 // starts it and reads the final line through the client function.
-test("T-26: outside src/runtime/launcher.ts no file of src/ starts Limen's own CLI", async () => {
+test("T-26: outside src/runtime/launcher.ts no file of src/ starts Limen's own CLI or a process in a user scope of the platform's", async () => {
 	const found = (await knownSources(["src"]))
 		.filter(({ path }) => path !== LAUNCHER && path.endsWith(".ts"))
 		.flatMap(({ path, text }) => cliLaunches(path, text));
@@ -1603,6 +2002,32 @@ test("the launch scan finds a start of bin/limen directly, through a variable an
 		"src/job/a.ts:4: spawnSync",
 		"src/job/a.ts:5: execFileSync",
 	]);
+});
+
+test("the launch scan finds a start of bin/limen through the launcher's startOutsideJob, and skips one of another program", () => {
+	const fixture = [
+		'const limen = fileURLToPath(new URL("../../bin/limen", import.meta.url));',
+		'await startOutsideJob(process.execPath, [limen, "group", "advance", id], { env: process.env });',
+		'await startOutsideJob(process.execPath, ["--eval", closer], { env: process.env });',
+	].join("\n");
+	assert.deepEqual(cliLaunches("src/job/a.ts", fixture), ["src/job/a.ts:2: startOutsideJob"]);
+});
+
+test("the launch scan finds a start of bin/limen through startOutsideJob imported under another name", () => {
+	const fixture = [
+		'import { startOutsideJob as start } from "../runtime/launcher.ts";',
+		'const limen = fileURLToPath(new URL("../../bin/limen", import.meta.url));',
+		'await start(process.execPath, [limen, "group", "advance", id], { env: process.env });',
+	].join("\n");
+	assert.deepEqual(cliLaunches("src/job/a.ts", fixture), ["src/job/a.ts:3: startOutsideJob"]);
+});
+
+test("the launch scan finds every call of the platform's startInScope, whatever its object starts", () => {
+	const fixture = [
+		"const words = [cli, ...args];",
+		'await platform.startInScope({ unit: "limen-run-1.scope", command: process.execPath, args: words, env });',
+	].join("\n");
+	assert.deepEqual(cliLaunches("src/job/a.ts", fixture), ["src/job/a.ts:2: startInScope"]);
 });
 
 /** The parser of command words (T-19, D-044), the one file that may read them. */

@@ -180,3 +180,34 @@ inventory's technical questions (`evidence/inventories/R-105.md` → section 9),
    `src/integrations/herdr.ts:61`. Fact 5: the read test is `test/registry.test.ts:848`, `readOnly` at `:835-846`; the
    queue's timers are at `start-queue.ts:174` (the 2 s sample), `:317` and `:763`. The grep criteria at `HEAD`: AC-7, AC-8
    and AC-9 exit 0 only on the lines the ticket changes, AC-10 exits 1. AC-12 names the gate's `--out` form (D-130).
+10. 2026-11-28, after the implementer's `DONE` (night defaults, for Adrian to confirm in the morning; D-054 (2) (b),
+    technical choices inside `## Change` that `taste.md` does not settle, proposed by the implementer and taken by the
+    main session): (1) the transitive walk lives in `test/structure.test.ts` beside the other scans, with its fixture
+    tests there; (2) a mixed command file's entry (`src/commands/ticket.ts` → R-065, `src/commands/github.ts` → R-058)
+    covers the waits its read commands reach as well as its transitions, so when R-058 or R-065 removes the entry, the
+    waits those reads still reach are listed by reason or cut in that ticket (a note in `plan.md` → `## Tickets`); (3)
+    the queue's ordering function is exported from `src/runtime/queue-reading.ts` as `startOrder`; (4) the start-queue
+    fixtures that `test/runtime/start-queue.test.ts` and `test/runtime/queue-reading.test.ts` share live in
+    `test/plant.ts`. Also taken: `limen status`'s Herdr and systemd probes get no wait entry, since they are
+    `spawnSync` calls with a timeout, none of Change 1 (b)'s three forms, so an entry would match nothing and fail as
+    stale (`outcome.md` → Deviations 1).
+11. 2026-11-28, review round 1 (PASS; `review.md`), the findings to fix (protocol step 6; the main session's reading,
+    settled by T-29 (3), T-25 (2) and the ticket's Change 1 and 4, not asked):
+    - F1 (note 1, T-29 (3)): each of the two comparison fixtures (`test/structure.test.ts:1420-1441` and `:1443-1451`)
+      is split so that one test checks `unlistedTransitions` and another `unlistedWaits`; each fails on a fault of its
+      own function only.
+    - F2 (note 3, T-25 (2)): `own()` and `OTHER_BOOT`, now in both `test/runtime/reap.test.ts` and
+      `test/runtime/liveness.test.ts`, are defined once in `test/plant.ts` and imported by both.
+    - F3 (note 4, Change 1 (b) and Change 4 read as the scans' intent): `moduleWaits` counts every import from
+      `node:timers/promises` or `timers/promises` (named, default, namespace or star, of `setTimeout`, `setInterval` or
+      `scheduler`) as a wait primitive; the T-26 launch scan follows an aliased import of `startOutsideJob` (`import {
+      startOutsideJob as start }`); one fixture case each, failing on the scan before this round.
+    - Note 5 (the stale R-102 note of Change 5) is the main session's: corrected in `plan.md` → `## Tickets` notes.
+12. 2026-11-28, review round 2 (PASS; `review.md`), the findings to fix, the last round of fixes (protocol step 6;
+    settled by T-29 (3) and T-25 (2), not asked):
+    - G1 (note 1): the fixture "the read walk finds a wait in an import of withLock or moveLockedFolder from the lock
+      module" (`test/structure.test.ts:1438-1445`) checks each name: one case per name of `LOCK_WAITS`, each failing
+      when that name leaves the set.
+    - G2 (note 3): `test/lock.test.ts` imports `OTHER_BOOT` from `test/plant.ts` instead of its own copy (`:20`).
+    - Note 2 (`## Fails before` from before round 1) is the main session's: its run after round 1's gate is in
+      `outcome.md`.

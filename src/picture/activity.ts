@@ -4,7 +4,7 @@ import type { GroupRun } from "../job/group-cabinet.ts";
 import { isTerminal } from "../job/job.ts";
 import { type JobRecord, jobFolders, progressPath, readProgress, readRecord, recordPath } from "../job/record.ts";
 import { platform } from "../platform/platform.ts";
-import { ownerState, startingJob } from "../runtime/reap.ts";
+import { ownerState, startingJob } from "../runtime/liveness.ts";
 
 export type LiveState = "starting" | "working" | "waiting" | "quiet" | "dead" | "done" | "failed" | "stopped";
 export type LiveJob = {

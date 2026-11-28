@@ -11,13 +11,13 @@ import { type Guarded, type LockRecord, lockPath, ownerGone, withLock } from "..
 import { EXIT_CODES, LimenError } from "../src/outcome.ts";
 import { platform } from "../src/platform/platform.ts";
 import { withEnvironment } from "./environment.ts";
+import { OTHER_BOOT } from "./plant.ts";
 
 const LOCK_MODULE = new URL("../src/lock.ts", import.meta.url).href;
 /** A pid above every Linux pid_max, so no process ever has it. */
 const GONE_PID = 999_999_999;
 const TOKEN = "a".repeat(32);
 const SINCE = "2026-11-20T00:00:00.000Z";
-const OTHER_BOOT = "00000000-0000-4000-8000-000000000000";
 
 /** A new folder in the OS temporary folder, removed after the test `t`. */
 function folder(t: TestContext): string {

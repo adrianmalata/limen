@@ -1,9 +1,10 @@
 // The shared throwaway plant every scenario runs on: a temp Git repo after a real `limen init`, an environment built
 // from an allow-list in test mode, the scripted fake engine (test/fake-engine.mjs) as `pi`, the tests' systemd-run,
-// systemctl and systemd-analyze (`SYSTEMD_RUN`, `SYSTEMCTL`, `SYSTEMD_ANALYZE`), and a fetch sink that records every
-// request a Limen process makes. Scenarios wait on file events and FIFOs; nothing here sleeps, and only a process's
-// exit, which raises no file event, is read again on a short interval (`waitJob`, and cleanup's listing of the plant's
-// processes).
+// systemctl and systemd-analyze (`SYSTEMD_RUN`, `SYSTEMCTL`, `SYSTEMD_ANALYZE`), a fetch sink that records every
+// request a Limen process makes, a seat with its start queue for the queue's tests (`queueSeat`), and this process's
+// identity as a job's live owner (`own`). Scenarios wait on file events and FIFOs; nothing here sleeps, and only a
+// process's exit, which raises no file event, is read again on a short interval (`waitJob`, and cleanup's listing of
+// the plant's processes).
 import { type ChildProcess, execFileSync, spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { existsSync, readFileSync, watch } from "node:fs";
@@ -15,12 +16,14 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { atomicWrite } from "../src/atomic-write.ts";
 import { TERMINAL_STATES } from "../src/job/job.ts";
-import { emptyRecord, type JobRecord, readRecordSync, serialized } from "../src/job/record.ts";
+import { emptyRecord, type Identity, type JobRecord, readRecordSync, serialized } from "../src/job/record.ts";
 import { platform } from "../src/platform/platform.ts";
 import { PLANT_LIMITS } from "../src/project/limits.ts";
 import type { Module } from "../src/project/modules.ts";
 import type { BridgeView } from "../src/runtime/bridge-view.ts";
+import { GATE_FILE } from "../src/runtime/queue-reading.ts";
 import { hasCode } from "../src/system-error.ts";
+import { withEnvironment } from "./environment.ts";
 import { readOutcome } from "./final-line.ts";
 
 export const LIMEN = fileURLToPath(new URL("../bin/limen", import.meta.url));
@@ -651,6 +654,71 @@ export async function editRecord(dir: string, fields: (record: JobRecord) => Par
 		throw new Error(`${dir} holds no record to edit`);
 	}
 	await atomicWrite(join(dir, "record.json"), serialized({ ...record, ...fields(record) }));
+}
+
+/** This process's identity, as the transition to running records it: a live owner for the tests of liveness. */
+export async function own(): Promise<Identity> {
+	const info = await platform.processInfo(process.pid);
+	if (info.kind !== "present") {
+		throw new Error(`this process ${process.pid} is not present: ${info.kind}`);
+	}
+	return { pid: process.pid, born: info.process.born, bootId: platform.bootId() ?? null };
+}
+
+/** A boot id that is not the current boot's, for a record whose owner ran before a reboot. */
+export const OTHER_BOOT = "00000000-0000-4000-8000-000000000000";
+
+/**
+ * A seat in the OS temporary folder for one test of the start queue, made this process's seat (`LIMEN_HOME`), its gate
+ * file holding `gate` (none when undefined), with one registered project, `<seat>/repo`, whose jobs the tests queue;
+ * its path. The tests of the queue's read half and of its waiting wrappers share it.
+ */
+export async function queueSeat(t: TestContext, gate?: string): Promise<string> {
+	const home = await mkdtemp(join(tmpdir(), "limen-start-gate-"));
+	t.after(() => rm(home, { recursive: true, force: true }));
+	await mkdir(join(home, ".limen"));
+	await writeFile(join(home, ".limen", "projects"), `${join(home, "repo")}\n`);
+	if (gate !== undefined) {
+		await writeFile(join(home, ".limen", GATE_FILE), gate);
+	}
+	withEnvironment(t, { LIMEN_HOME: home });
+	return home;
+}
+
+/**
+ * The start queue of a seat for one test with three entries: a live one, whose wrapper is this process and whose job
+ * runs; a dead one, whose wrapper is gone; and a malformed one. Returns the folder of the entries.
+ */
+export async function threeQueueEntries(t: TestContext): Promise<string> {
+	const home = await queueSeat(t);
+	const entries = join(home, ".limen", "start-queue", "entries");
+	await mkdir(entries, { recursive: true });
+	const job = (id: string) => join(home, "repo", ".limen", "jobs", id);
+	await writeRecord(job("2026-11-24-live-1a2b3c4d"), { state: "running" });
+	const entry = (id: string, pid: number) => ({ id, jobDir: job(id), label: id, priority: 2, queuedAt: 1, pid });
+	await writeFile(join(entries, "live.json"), JSON.stringify(entry("2026-11-24-live-1a2b3c4d", process.pid)));
+	await writeFile(join(entries, "dead.json"), JSON.stringify(entry("2026-11-24-dead-5e6f7a8b", 2_147_483_646)));
+	await writeFile(join(entries, "malformed.json"), "{ not json\n");
+	return entries;
+}
+
+/** The test's folder that holds the seat whose start queue keeps its entries in `entries`. */
+export const seatOfQueueEntries = (entries: string): string => dirname(dirname(dirname(entries)));
+
+/**
+ * Writes, into the start queue of the seat at `home`, the entry of a job whose wrapper is this process, whose record
+ * runs and whose folder is no job of a project the seat registers (`<seat>/elsewhere`), first in start order (priority
+ * 1, queued at 1); its file's name.
+ */
+export async function foreignQueueEntry(home: string): Promise<string> {
+	const foreign = "2026-11-26-foreign-9a8b7c6d";
+	const dir = join(home, "elsewhere", ".limen", "jobs", foreign);
+	await writeRecord(dir, { state: "running" });
+	const entries = join(home, ".limen", "start-queue", "entries");
+	await mkdir(entries, { recursive: true });
+	const entry = { id: foreign, jobDir: dir, label: foreign, priority: 1, queuedAt: 1, pid: process.pid };
+	await writeFile(join(entries, `${foreign}.json`), JSON.stringify(entry));
+	return `${foreign}.json`;
 }
 
 /** The state of the job's record, or "" while it has none. */

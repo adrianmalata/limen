@@ -2085,7 +2085,7 @@ Columns:
 | R-046 | Role prompts are literal, sourced and budgeted | 4 | T-09, T-14, T-15, T-08, T-10, T-21, A-043, A-085, A-040 | R-040, R-041, R-042, R-044 | L | pair | day-after | — | — | — | planned |
 | R-047 | The coordinator never waits | 4 | T-34 | R-039 | S | delegated | night | — | pi | 4.6 | done |
 | R-104 | The sweep's daily prune archives every unregistered folder and waits on no job's lock; a queue entry is live only for a project's job | 4 | A-002, A-024, T-25, D-107 | R-101 | M | delegated | night | — | — | — | done |
-| R-105 | The T-04 and T-26 scans follow what their rules name | 4 | T-04, T-26, D-107, D-116 | R-032, R-104 | M | delegated | night | — | — | — | active |
+| R-105 | The T-04 and T-26 scans follow what their rules name | 4 | T-04, T-26, D-107, D-116 | R-032, R-104 | M | delegated | night | — | — | — | done |
 | R-106 | A watcher outside the agents' account keeps a copy of `main` and alerts on its forced update or deletion | 4 | A-006, §7, D-110, D-117 | R-033 | S | delegated | night | — | systemd | 4.10 | ready |
 | R-107 | The exit 4 of systemd 259's `is-active` reads as not active | 4 | A-029, E-18, D-112 | R-026 | S | delegated | night | — | systemd | 4.13 | ready |
 | R-108 | The stall rule follows every pending tool of a message | 4 | A-059, E-19, D-112 | R-036 | S | delegated | night | — | pi | 4.12 | ready |
@@ -2369,7 +2369,9 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
   only in the form of a job id, as R-099's G1 does for the refusal.
 - R-058, R-065 (D-116 (2)): R-105's read-command ratchet lists `src/commands/github.ts` with R-058 and
   `src/commands/ticket.ts` with R-065, each a command file that holds read and change commands; each ticket's criteria
-  include that its entry is gone from that ratchet, which then fails on a stale entry.
+  include that its entry is gone from that ratchet, which then fails on a stale entry. Since R-105 (its Decision 10
+  (2), a night default) the entry also covers the waits those read commands reach, so the ticket that removes it lists
+  each wait they still reach by reason in the scan's wait list (`READ_WAITS`, `test/structure.test.ts`) or cuts it.
 - R-083 (D-115 (3)): T-31 (4)'s scan for real waiting in tests is R-083's: it defines real waiting over the whole of
   `test/` (the author's `waitJob`, `within` and `until` wait on real processes by design, which T-31 keeps) and brings
   its count to zero.
@@ -2408,7 +2410,9 @@ Notes for the tickets (facts a ticket needs that its row cannot hold):
 - R-081 (R-026 `outcome.md` → Open points): `SECURITY.md:9` still describes the escaped-descendant check of the
   removed `src/runtime/contain.ts`; the job's scope replaces it.
 - R-102 (R-032 `ticket.md` → `## Decisions` 16): the T-04 import scan of `test/structure.test.ts` lists `rule` as an
-  exception that names R-102; when R-102 moves `rule`, the exception goes, and the scan passes without it.
+  exception that names R-102; when R-102 moves `rule`, the exception goes, and the scan passes without it. Done: R-102
+  removed the exception with `rule` (`a26d5f4`); since R-105 the scan's only lists are its mixed command files (R-058,
+  R-065) and its wait exceptions.
 - R-087 (R-032 `ticket.md` → `## Decisions` 17): R-032 adds the test knob `LIMEN_LINGER_DIR` (the linger folder,
   `src/config.ts`), so R-087's count of 13 test knobs is 14; R-087's test mode covers it as the others.
 - R-082 (R-032 `review.md` → Round 3, note 5, D-092): on the sweep's path each start-queue entry file is still read with
@@ -6297,3 +6301,12 @@ Night run of 2026-11-27/28 (until 08:00; `night.mjs` run 1 started at 21:47:25, 
 - R-105 `active` at `e5f9ba1` (protocol step 2): its facts' places in its Decision 9; R-104's queue rule adds
   `liveEntry`, `projectJob` and `realPath` to the read half that moves, and its `registeredProjects` comes from the
   seat module, whose registry write's lock is a wait exception of a change operation; AC-12 names the gate's `--out`.
+- R-105 `done` (delegated): the implementer's `DONE` with four proposed night defaults → Decision 10 (D-054 (2) (b):
+  the walk in `test/structure.test.ts`, a mixed command file's entry covers its reads' waits too (a note for R-058 and
+  R-065 in `## Tickets`), `startOrder`, the shared queue fixtures in `test/plant.ts`). Review round 1 PASS → F1–F3
+  (Decision 11: split comparison fixtures, `own()` and `OTHER_BOOT` once, every `timers/promises` import and an aliased
+  `startOutsideJob` in the scans); round 2 PASS → G1–G2 (Decision 12, the last round: one lock case per name, the
+  third `OTHER_BOOT`); round 3 PASS, its note on `outcome.md` fixed by the main session. The stale R-102 note of Change
+  5 is corrected in `## Tickets`. The main session's gates 1514/1514 (349.2 s), 1518/1518 (348.1 s), 1519/1519
+  (348.3 s), `fails-before.mjs` exit 0 after each. For the morning: Decision 10 (`outcome.md` → Night defaults); for
+  gate 5.4: R-105's Deviations and Open points.

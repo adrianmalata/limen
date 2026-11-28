@@ -4,8 +4,7 @@ import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
-import { dayOnlyTime } from "../../src/job/landing.ts";
-import { emptyRecord, type JobRecord } from "../../src/job/record.ts";
+import { dayOnlyTime, emptyRecord, type JobRecord } from "../../src/job/record.ts";
 import { landsOf, leadTimeOf, projectStatistics } from "../../src/job/statistics.ts";
 import { plant, writeRecord } from "../plant.ts";
 

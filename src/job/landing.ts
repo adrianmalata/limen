@@ -49,7 +49,7 @@ import {
 import { landTicketCheck } from "../project/ticket-check.ts";
 import { deleteLandedBranches, keptLine } from "../runtime/pruning.ts";
 import { isTerminal, jobFeatures, recordedBranch } from "./job.ts";
-import { type JobRecord, type LandClosed, type Landed, textFile, writeMarker } from "./record.ts";
+import { dayOnlyTime, type JobRecord, type LandClosed, type Landed, textFile, writeMarker } from "./record.ts";
 import { type JobArgument, resolveJob } from "./reference.ts";
 import { hasWork, type JobReader, jobStandings } from "./unlanded.ts";
 
@@ -505,22 +505,6 @@ export async function ticketDoneJobs(
 		const standing = standings.get(id);
 		return standing?.kind === "finished" ? [{ id, holdsWork: hasWork(standing.work) }] : [];
 	});
-}
-
-/** The end of the time of a `limen ticket done` marker, which knows only the ticket's day: midnight UTC. */
-const DAY_ONLY = "T00:00:00.000Z";
-
-/**
- * The time `limen ticket done` writes into its `landed` marker for the day `day` (YYYY-MM-DD), the one definition that
- * `isDayOnly` and the readers of the marker share (T-25 (2); R-098, review round 3, note 2).
- */
-export function dayOnlyTime(day: string): string {
-	return `${day}${DAY_ONLY}`;
-}
-
-/** Whether the time `at` of a `landed` marker holds a day only, as `dayOnlyTime` writes it. */
-export function isDayOnly(at: string): boolean {
-	return at.endsWith(DAY_ONLY);
 }
 
 /**

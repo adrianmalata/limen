@@ -1,36 +1,31 @@
-// src/runtime/start-queue.ts: the seat's start gate and the wait's two thresholds come from <seat>/start-gate.json and
-// their defaults only; a wait past the first threshold gets one diagnosis and goes on, and one past the second ends
-// failed; a queued job whose folder or record is gone leaves the queue, at whichever of its record checks meets the
-// removal; a record check that fails for another reason than ENOENT ends the wait with that failure; the queue as
-// `limen seat queue` reads it removes no entry, which the seat sweep removes (R-032); and only the gate and the jobs
-// ahead hold a job, whatever the seat folder holds (R-102).
+// src/runtime/start-queue.ts: a wait past the first threshold gets one diagnosis and goes on, and one past the second
+// ends failed; a queued job whose folder or record is gone leaves the queue, at whichever of its record checks meets
+// the removal; a record check that fails for another reason than ENOENT ends the wait with that failure; the seat
+// sweep removes the dead and foreign entries (R-032, R-104); and only the gate and the jobs ahead hold a job, whatever
+// the seat folder holds (R-102).
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { type JobRecord, readRecordSync, recordPath } from "../../src/job/record.ts";
 import { withLock } from "../../src/lock.ts";
 import { LimenError } from "../../src/outcome.ts";
 import { queueDiagnosis } from "../../src/runtime/queue-diagnosis.ts";
-import {
-	enterStartQueue,
-	GATE_FILE,
-	type QueueEnd,
-	queueEntries,
-	removeDeadEntries,
-	startGate,
-	waitForStart,
-} from "../../src/runtime/start-queue.ts";
+import { enterStartQueue, type QueueEnd, removeDeadEntries, waitForStart } from "../../src/runtime/start-queue.ts";
 import { hasCode } from "../../src/system-error.ts";
 import { withEnvironment } from "../environment.ts";
-import { until, within, writeRecord } from "../plant.ts";
+import {
+	foreignQueueEntry,
+	queueSeat,
+	seatOfQueueEntries,
+	threeQueueEntries,
+	until,
+	within,
+	writeRecord,
+} from "../plant.ts";
 
-const DEFAULTS = { cpuIdle: 25, memoryFree: 20, settleMs: 60_000 };
-/** The wait's thresholds with no gate file: a diagnosis after 30 minutes, a failure after 2 hours (A-036). */
-const LIMITS = { diagnoseAfterMs: 30 * 60_000, failAfterMs: 2 * 3_600_000 };
 const JOB = "2026-11-21-queued-1a2b3c4d";
 /** The poll of the folder tests. */
 const POLL_MS = 20;
@@ -45,22 +40,6 @@ const logOf = (dir: string): string => (existsSync(join(dir, "log")) ? readFileS
 /** How the wait `waiting` ended, or "still waiting" when it has not ended within `BOUND_MS`. */
 const ended = (waiting: Promise<QueueEnd>) =>
 	Promise.race([waiting, delay<"still waiting">(BOUND_MS, "still waiting", { ref: false })]);
-
-/**
- * A seat in the OS temporary folder for one test, its gate file holding `text` (none when undefined), with one
- * registered project, `<seat>/repo`, whose jobs the tests queue; its path.
- */
-async function seat(t: TestContext, text?: string): Promise<string> {
-	const home = await mkdtemp(join(tmpdir(), "limen-start-gate-"));
-	t.after(() => rm(home, { recursive: true, force: true }));
-	await mkdir(join(home, ".limen"));
-	await writeFile(join(home, ".limen", "projects"), `${join(home, "repo")}\n`);
-	if (text !== undefined) {
-		await writeFile(join(home, ".limen", GATE_FILE), text);
-	}
-	withEnvironment(t, { LIMEN_HOME: home });
-	return home;
-}
 
 /** A reading below the default gate's 25% CPU idle, so the gate holds the job. */
 const HELD = '{"cpuIdle":10,"memoryFree":80}\n';
@@ -77,7 +56,7 @@ type JobPaths = { readonly dir: string; readonly entry: string; readonly queue: 
  * started `waitedMs` ago, so a test plants a long wait without waiting for it (T-31 (4)).
  */
 async function queuedJob(t: TestContext, reading: string, waitedMs = 0): Promise<JobPaths> {
-	const home = await seat(t);
+	const home = await queueSeat(t);
 	const file = join(home, "reading.json");
 	await writeFile(file, reading);
 	withEnvironment(t, { LIMEN_START_POLL_MS: String(POLL_MS), LIMEN_START_READING: file });
@@ -273,88 +252,6 @@ const failureFacts = (failure: LimenError) => ({
 });
 const CHECK_FAILED = { class: "environment", code: "QUEUE_RECORD_UNREADABLE", cause: true };
 
-test("T-03: LIMEN_START_GATE set in the environment does not override start-gate.json", async (t) => {
-	await seat(t, '{ "cpuIdle": 50, "memoryFree": 30, "settle": "5s" }\n');
-	const file = { gate: { cpuIdle: 50, memoryFree: 30, settleMs: 5_000 }, limits: LIMITS, ignored: [] };
-	withEnvironment(t, { LIMEN_START_GATE: "off" });
-	assert.deepEqual(startGate(), file);
-	process.env.LIMEN_START_GATE = '{ "cpuIdle": 1 }';
-	assert.deepEqual(startGate(), file);
-});
-
-test('a start-gate.json that holds the JSON string "off" turns the gate off and keeps the default thresholds', async (t) => {
-	await seat(t, '"off"\n');
-	assert.deepEqual(startGate(), { gate: undefined, limits: LIMITS, ignored: [] });
-});
-
-test("a seat with no start-gate.json gets the default gate, and a gate file object reads as it did", async (t) => {
-	const home = await seat(t);
-	assert.deepEqual(startGate(), { gate: DEFAULTS, limits: LIMITS, ignored: [] });
-	await writeFile(join(home, ".limen", GATE_FILE), '{ "settle": "1ms", "fast": true }\n');
-	const { gate, ignored } = startGate();
-	assert.deepEqual(
-		{ gate, ignored: ignored.map(({ message }) => message) },
-		{
-			gate: { ...DEFAULTS, settleMs: 1 },
-			ignored: [
-				"start-gate.json: fast: expected one of the fields cpuIdle, memoryFree, settle, diagnoseAfter or failAfter, got true",
-			],
-		},
-	);
-});
-
-// A-036: the wait's two thresholds live in the seat's gate file, read as `settle` is.
-test("start-gate.json sets when a wait gets its diagnosis and when it fails, as durations, beside the gate's values", async (t) => {
-	await seat(t, '{ "cpuIdle": 50, "diagnoseAfter": "1m", "failAfter": "3m" }\n');
-	assert.deepEqual(startGate(), {
-		gate: { ...DEFAULTS, cpuIdle: 50 },
-		limits: { diagnoseAfterMs: 60_000, failAfterMs: 180_000 },
-		ignored: [],
-	});
-});
-
-// A-036: a failure before the diagnosis would end a job no one was told of, so the pair is one value of the file.
-test("BAD_DATA: a failAfter not above diagnoseAfter leaves both at their defaults and names the field, as the gate's other bad values do", async (t) => {
-	const home = await seat(t);
-	const cases = [
-		[
-			'{ "cpuIdle": 50, "diagnoseAfter": "2h", "failAfter": "1h" }',
-			'failAfter: expected a duration above diagnoseAfter (2h), got "1h"',
-		],
-		[
-			'{ "cpuIdle": 50, "failAfter": "30m" }',
-			'failAfter: expected a duration above diagnoseAfter (30m by default), got "30m"',
-		],
-		[
-			'{ "cpuIdle": 50, "diagnoseAfter": "3h" }',
-			'diagnoseAfter: expected a duration below failAfter (2h by default), got "3h"',
-		],
-	];
-	const read: unknown[] = [];
-	for (const [text] of cases) {
-		await writeFile(join(home, ".limen", GATE_FILE), `${text}\n`);
-		const { gate, limits, ignored } = startGate();
-		read.push({ gate, limits, ignored: ignored.map(({ code, message }) => `${code} ${message}`) });
-	}
-	assert.deepEqual(
-		read,
-		cases.map(([, message]) => ({
-			gate: { ...DEFAULTS, cpuIdle: 50 },
-			limits: LIMITS,
-			ignored: [`BAD_DATA start-gate.json: ${message}`],
-		})),
-	);
-});
-
-test('a start-gate.json that is neither "off" nor an object keeps the default gate and names the file', async (t) => {
-	await seat(t, '"on"\n');
-	const { gate, ignored } = startGate();
-	assert.deepEqual(
-		{ gate, ignored: ignored.map(({ message }) => message) },
-		{ gate: DEFAULTS, ignored: ['start-gate.json: expected "off" or an object, got "on"'] },
-	);
-});
-
 // D-063 (3): a wrapper whose plant was removed polled the queue until it was killed, since no poll read its own folder.
 test("a job queued behind a held gate whose folder is removed stops waiting, leaves the queue and recreates nothing", (t) =>
 	whileQueued(t, async ({ dir, entry, waiting }) => {
@@ -464,80 +361,25 @@ test("QUEUE_RECORD_UNREADABLE: a queued job whose record check fails ends its wa
 		assert.match(failure.message, /its queue entry could not be removed either: /);
 	}));
 
-/**
- * The start queue of a seat for one test with three entries: a live one, whose wrapper is this process and whose job
- * runs; a dead one, whose wrapper is gone; and a malformed one. Returns the folder of the entries.
- */
-async function threeEntries(t: TestContext): Promise<string> {
-	const home = await seat(t);
-	const entries = join(home, ".limen", "start-queue", "entries");
-	await mkdir(entries, { recursive: true });
-	const job = (id: string) => join(home, "repo", ".limen", "jobs", id);
-	await writeRecord(job("2026-11-24-live-1a2b3c4d"), { state: "running" });
-	const entry = (id: string, pid: number) => ({ id, jobDir: job(id), label: id, priority: 2, queuedAt: 1, pid });
-	await writeFile(join(entries, "live.json"), JSON.stringify(entry("2026-11-24-live-1a2b3c4d", process.pid)));
-	await writeFile(join(entries, "dead.json"), JSON.stringify(entry("2026-11-24-dead-5e6f7a8b", 2_147_483_646)));
-	await writeFile(join(entries, "malformed.json"), "{ not json\n");
-	return entries;
-}
-
-// T-04, R-032 (d): `limen seat queue` reads the queue through `queueEntries`, which removed what it found dead.
-test("the queue's entries as seat queue reads them hold only the live one, and every entry file stays", async (t) => {
-	const entries = await threeEntries(t);
-	const listed = await queueEntries();
-	assert.deepEqual(
-		[listed.map((entry) => entry.id), readdirSync(entries).sort()],
-		[["2026-11-24-live-1a2b3c4d"], ["dead.json", "live.json", "malformed.json"]],
-	);
-});
-
-// R-032 (a) 4: the seat sweep removes them once per run instead.
+// R-032 (a) 4: `limen seat queue` leaves them (test/runtime/queue-reading.test.ts); the seat sweep removes them once per
+// run instead.
 test("removeDeadEntries removes the dead and the malformed entry, keeps the live one, and says how many it removed", async (t) => {
-	const entries = await threeEntries(t);
+	const entries = await threeQueueEntries(t);
 	assert.deepEqual([await removeDeadEntries(), readdirSync(entries)], [2, ["live.json"]]);
 });
 
-/** The job of the entry `foreignEntry` writes: it runs in a folder of no project the seat registers. */
-const FOREIGN = "2026-11-26-foreign-9a8b7c6d";
-/** The test's folder that holds the seat whose start queue keeps its entries in `entries`. */
-const homeOf = (entries: string): string => dirname(dirname(dirname(entries)));
-/**
- * Writes, into the start queue of the seat at `home`, the entry of a job whose wrapper is this process, whose record
- * runs and whose folder is no job of a project the seat registers (`<seat>/elsewhere`), first in start order (priority
- * 1, queued at 1); its file's name.
- */
-async function foreignEntry(home: string): Promise<string> {
-	const dir = join(home, "elsewhere", ".limen", "jobs", FOREIGN);
-	await writeRecord(dir, { state: "running" });
-	const entries = join(home, ".limen", "start-queue", "entries");
-	await mkdir(entries, { recursive: true });
-	const entry = { id: FOREIGN, jobDir: dir, label: FOREIGN, priority: 1, queuedAt: 1, pid: process.pid };
-	await writeFile(join(entries, `${FOREIGN}.json`), JSON.stringify(entry));
-	return `${FOREIGN}.json`;
-}
-
 // D-107 (5), R-102 open point 9: an entry was live on its pid and its record alone, so any process of the agents'
 // account could hold every other job's start until its failAfter with an entry that names a running record anywhere.
-test("the queue's entries as seat queue reads them leave out an entry whose folder is no job of a registered project", async (t) => {
-	const entries = await threeEntries(t);
-	await foreignEntry(homeOf(entries));
-	const listed = await queueEntries();
-	assert.deepEqual(
-		listed.map((entry) => entry.id),
-		["2026-11-24-live-1a2b3c4d"],
-	);
-});
-
 test("removeDeadEntries removes an entry whose folder is no job of a registered project", async (t) => {
-	const entries = await threeEntries(t);
-	const foreign = await foreignEntry(homeOf(entries));
+	const entries = await threeQueueEntries(t);
+	const foreign = await foreignQueueEntry(seatOfQueueEntries(entries));
 	await removeDeadEntries();
 	assert.equal(existsSync(join(entries, foreign)), false);
 });
 
 test("a queued job of a registered project starts while an entry whose folder is no job of a registered project is first in start order", async (t) => {
 	const paths = await queuedJob(t, OPEN);
-	await foreignEntry(paths.home);
+	await foreignQueueEntry(paths.home);
 	const stop = new AbortController();
 	const waiting = waitForStart(paths.dir, stop.signal);
 	try {
@@ -585,7 +427,7 @@ async function oldRule(home: string): Promise<void> {
 // A-010, R-102: a start priority that any process could set held every other job of the seat; the start priority goes
 // with no replacement (D-097 (6) (d)), so only the gate and the jobs ahead hold a job.
 test("a job with the gate off does not enter the start queue, whatever the seat folder holds", async (t) => {
-	const home = await seat(t, '"off"\n');
+	const home = await queueSeat(t, '"off"\n');
 	await oldRule(home);
 	const dir = join(home, "repo", ".limen", "jobs", JOB);
 	await mkdir(dir, { recursive: true });

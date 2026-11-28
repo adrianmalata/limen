@@ -19,7 +19,7 @@ import { isTerminal } from "../../src/job/job.ts";
 import { type Identity, readProgressSync, readRecordSync, transition } from "../../src/job/record.ts";
 import { platform } from "../../src/platform/platform.ts";
 import { hookSet } from "../../src/runtime/hook-set.ts";
-import { ownerState } from "../../src/runtime/reap.ts";
+import { ownerState } from "../../src/runtime/liveness.ts";
 import { deadlineSteerText, endGate, failInternalJob } from "../../src/runtime/wrapper.ts";
 import { withEnvironment } from "../environment.ts";
 import {

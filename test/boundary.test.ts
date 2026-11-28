@@ -28,7 +28,7 @@ import {
 } from "../src/boundary.ts";
 import { LimenError } from "../src/outcome.ts";
 import { PLANT_LIMITS, plantLimits } from "../src/project/limits.ts";
-import { GATE_FILE, startGate } from "../src/runtime/start-queue.ts";
+import { GATE_FILE, startGate } from "../src/runtime/queue-reading.ts";
 import { withEnvironment } from "./environment.ts";
 import { importsOf } from "./imports.ts";
 

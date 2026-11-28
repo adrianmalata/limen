@@ -4,10 +4,18 @@ import type { Stats } from "node:fs";
 import { open, readFile, stat } from "node:fs/promises";
 import { LimenError } from "../outcome.ts";
 import { liveDiffstat, workspaceRepository } from "../project/git.ts";
-import { type OwnerState, ownerState, startingJob } from "../runtime/reap.ts";
-import { queuedText } from "../runtime/start-queue.ts";
-import { derivePulse, isTerminal, type Job, type Pulse, parseJob, producedNothing, renderJob } from "./job.ts";
-import { isRateLimit, type JobRecord, type Progress, readProgress, readRecord } from "./record.ts";
+import { type OwnerState, ownerState, startingJob } from "../runtime/liveness.ts";
+import {
+	derivePulse,
+	formatDuration,
+	isTerminal,
+	type Job,
+	type Pulse,
+	parseJob,
+	producedNothing,
+	renderJob,
+} from "./job.ts";
+import { isRateLimit, type JobRecord, type Progress, type Queued, readProgress, readRecord } from "./record.ts";
 import { modelLine, readSessionUsage, tokenLine } from "./usage.ts";
 import type { ShownJob } from "./view.ts";
 
@@ -170,6 +178,12 @@ function runningPulse(record: JobRecord, owner: OwnerState, activity: string | u
 		queued: record.queued !== null,
 		...(activity ? { activity } : {}),
 	});
+}
+/** The wait and the reason a queued job shows in `limen status` and `limen show`. */
+function queuedText(queued: Queued): string {
+	const since = Date.parse(queued.since);
+	const wait = Number.isFinite(since) ? ` ${formatDuration(Date.now() - since)}` : "";
+	return queued.detail ? `waiting${wait}: ${queued.detail}, ${queued.ahead ?? 0} ahead` : `waiting${wait}: deciding`;
 }
 /**
  * The open checks an older record holds, history of the cut task note (A-044), its commits, and its side failures, as

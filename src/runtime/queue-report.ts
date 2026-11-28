@@ -1,7 +1,7 @@
 // The report of `limen seat queue` (T-04): the start gate, the current reading, and every waiting job in start order.
 // It reads the seat's queue and writes nothing: a dead or malformed entry stays where it is, and the seat sweep removes
-// it (src/runtime/sweeping.ts). Its module holds no write of the queue, which the waiting wrappers own
-// (src/runtime/start-queue.ts).
+// it (src/runtime/sweeping.ts). It reads through the queue's read half (src/runtime/queue-reading.ts), which holds no
+// write of the queue, which the waiting wrappers own (src/runtime/start-queue.ts).
 import { formatDuration } from "../job/job.ts";
 import {
 	GATE_FILE,
@@ -12,7 +12,7 @@ import {
 	readLoad,
 	settleLeft,
 	startGate,
-} from "./start-queue.ts";
+} from "./queue-reading.ts";
 
 /** `limen seat queue`: the gate, the current reading, and every waiting job in start order. */
 export async function queueReport(): Promise<string> {

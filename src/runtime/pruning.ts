@@ -36,7 +36,8 @@ import {
 	workspaceRepository,
 	worktreeChanges,
 } from "../project/git.ts";
-import { STARTUP_GRACE_MS, scopeHolds, startingJob } from "./reap.ts";
+import { startingJob } from "./liveness.ts";
+import { STARTUP_GRACE_MS, scopeHolds } from "./reap.ts";
 
 /**
  * One path that prune removed or moved: the job that recorded it, when one did, why no job kept it, and for a folder
