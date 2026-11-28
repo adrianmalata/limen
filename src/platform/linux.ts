@@ -48,11 +48,16 @@ const CGROUP_ROOT = "/sys/fs/cgroup";
 const SCOPE_CALL_TIMEOUT_MS = 10_000;
 /** How often a start in a new scope reads its process again until the command runs: an exec raises no event. */
 const SCOPE_START_POLL_MS = 10;
-/** The exit status of `systemctl is-active` for a unit that is not active (LSB "program is not running"). */
-const NOT_ACTIVE = 3;
 /**
- * The states `systemctl is-active` prints for a unit with no process left. It exits 3 for every state but `active` and
- * `reloading`, a `deactivating` scope included, which may still hold processes, so the printed word decides.
+ * The exit statuses of `systemctl is-active` for a unit that is not active: 3 (LSB "program is not running"), and 4
+ * (LSB "status is unknown"), which the seat's systemd 259 gives for a unit it does not hold, a name that never existed
+ * or a scope that ended and was collected (E-18). Both read alike, by the word printed with them.
+ */
+const NOT_ACTIVE: ReadonlySet<number> = new Set([3, 4]);
+/**
+ * The states `systemctl is-active` prints for a unit with no process left. It exits `NOT_ACTIVE` for every state but
+ * `active` and `reloading`, a `deactivating` scope included, which may still hold processes, so the printed word
+ * decides.
  */
 const ENDED_STATES: ReadonlySet<string> = new Set(["inactive", "failed"]);
 /**
@@ -231,17 +236,18 @@ function cgroupFolder(cgroup: string): string {
 
 /**
  * Whether a process is left in the scope `unit`. A scope with no process left is `gone`: its cgroup folder no longer
- * exists (the manager collected it), or `is-active` exits 3 and prints `inactive` or `failed`, as for a scope that
- * ended, or one that never started, such as the scope of a job whose launch failed. Every other state it exits 3 for,
- * `deactivating` first, is not ended, since the scope may still hold processes; the job is attempted again at the next
- * sweep (R-027 review round 1, finding 4). This is the one place of that rule; the end of a scope reads it here too.
+ * exists (the manager collected it), or `is-active` exits 3 or 4 (`NOT_ACTIVE`) and prints `inactive` or `failed`, as
+ * for a scope that ended, or one that never started, such as the scope of a job whose launch failed. Every other state
+ * printed with either exit, `deactivating` first, is not ended, since the scope may still hold processes; the job is
+ * attempted again at the next sweep (R-027 review round 1, finding 4). Exit 0 is `active`, and any other exit a call
+ * that failed, with its detail (T-01). This is the one place of that rule; the end of a scope reads it here too.
  */
 function scopeState(unit: string, cgroup: string | undefined): ScopeState {
 	if (cgroup !== undefined && statSync(cgroupFolder(cgroup), { throwIfNoEntry: false }) === undefined) {
 		return { kind: "gone" };
 	}
 	const active = systemctl(["--user", "is-active", unit]);
-	if (active.status === NOT_ACTIVE) {
+	if (active.status !== null && NOT_ACTIVE.has(active.status)) {
 		return ENDED_STATES.has(active.stdout.trim()) ? { kind: "gone" } : { kind: "active" };
 	}
 	const failure = callFailure(active);

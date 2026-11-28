@@ -264,9 +264,10 @@ test("signalScope gives the user manager's words for a scope with no process lef
 /**
  * A folder below `parent` whose systemctl answers `--user is-active` of every unit with `word` and exit code `status`,
  * as systemd answers for a unit in that state, and fails every other call; for one test of the user manager's answers.
+ * Its name holds both, so one test can put a word with two exit codes side by side.
  */
 function answeringSystemctl(parent: string, word: string, status: number): string {
-	const folder = join(parent, `systemctl-${word}`);
+	const folder = join(parent, `systemctl-${word}-${status}`);
 	mkdirSync(folder);
 	const script = [
 		"#!/bin/sh",
@@ -293,6 +294,21 @@ test("scopeState reads a scope that is-active calls inactive or failed, with exi
 		return linux.scopeState(UNIT, cgroup);
 	});
 	assert.deepEqual(states, [{ kind: "gone" }, { kind: "gone" }]);
+});
+
+// E-18: the seat's systemd 259 exits 4, not 3, for a unit it does not hold, such as the scope of a job that ended
+// before its wrapper ran, whose record names no cgroup; the end of that job read the scope's state as a failed call.
+test("scopeState of a scope with no recorded cgroup reads exits 3 and 4 of is-active alike, by the printed word", async (t) => {
+	const { folder } = await scopeFolder(t);
+	const path = process.env.PATH ?? "";
+	const states = [3, 4].map((status) =>
+		["inactive", "failed", "deactivating"].map((word) => {
+			process.env.PATH = `${answeringSystemctl(folder, word, status)}:${path}`;
+			return linux.scopeState(UNIT, undefined);
+		}),
+	);
+	const byWord = [{ kind: "gone" }, { kind: "gone" }, { kind: "active" }];
+	assert.deepEqual(states, [byWord, byWord]);
 });
 
 // A-024: the sweep's install reads the linger state from the file systemd keeps, with no call.

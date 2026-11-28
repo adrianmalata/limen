@@ -1,5 +1,6 @@
-// src/runtime/reap.ts: whether a job holds any process, its wrapper or its scope (R-032), and the reaper, which ends a
-// running job whose wrapper is gone only once the job's scope, or its wrapper's group, is gone (A-005).
+// src/runtime/reap.ts: whether a job holds any process, its wrapper or its scope (R-032), the reaper, which ends a
+// running job whose wrapper is gone only once the job's scope, or its wrapper's group, is gone (A-005), and the end of
+// the scope a finished job left (R-032).
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
@@ -13,7 +14,7 @@ import { type Identity, type JobRecord, readRecord, type Scope } from "../../src
 import { platform } from "../../src/platform/platform.ts";
 import { jobScope } from "../../src/runtime/launcher.ts";
 import { ownerState } from "../../src/runtime/liveness.ts";
-import { holdsProcesses, liveJob, reapDeadJobs } from "../../src/runtime/reap.ts";
+import { endLeftoverScopes, holdsProcesses, liveJob, reapDeadJobs } from "../../src/runtime/reap.ts";
 import { withEnvironment } from "../environment.ts";
 import {
 	failingSystemctl,
@@ -386,6 +387,27 @@ test("R-032: holdsProcesses asks the cgroup, not a user manager: a populated sco
 	assert.deepEqual(
 		[platform.scopeState(scope.unit, scope.cgroup), await holdsProcesses(await readRecord(job))],
 		[{ kind: "gone" }, true],
+	);
+});
+
+// E-18: the seat's systemd 259 exits 4 for the scope of a job that ended before its wrapper ran, a scope it never held,
+// and the sweep read that answer as a scope it could not end: a false `not ended` line and one more `stuck` a run.
+test("endLeftoverScopes clears the stuck of a finished job whose scope never started, and logs no failed end", async (t) => {
+	const { jobs } = await jobsFolder(t);
+	const id = "2026-11-28-unheld-1a2b3c4d";
+	const at = new Date().toISOString();
+	const job = join(jobs, id);
+	await writeRecord(job, {
+		state: "failed",
+		failure: { kind: "launch", detail: "the job's systemd user scope did not start", resetAt: null },
+		startedAt: at,
+		finishedAt: at,
+		stuck: { since: at, attempts: 1, detail: `${jobScope(id)} not ended: exit code 4` },
+	});
+	const failed = await endLeftoverScopes(jobs, new Set());
+	assert.deepEqual(
+		{ failed, stuck: (await readRecord(job))?.stuck, lines: logged(job, "reap: ") },
+		{ failed: [], stuck: undefined, lines: [] },
 	);
 });
 

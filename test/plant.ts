@@ -184,12 +184,13 @@ const SYSTEMD_RUN = [
  * The tests' systemctl: only `--user is-active <name>.scope` and `--user kill --signal=SIGTERM|SIGKILL <name>.scope`,
  * and any other call exits 1. It logs its words. A scope's processes are those whose environment holds its
  * LIMEN_CGROUP and this systemd's LIMEN_CGROUP_ROOT. `is-active` prints `active` and exits 0 while the scope has a
- * process, and prints `inactive` and exits 3 when it has none, as systemd does for a scope that ended or never
- * started. `kill --signal=SIGTERM` sends SIGTERM to each
- * process of the scope and leaves its folder, since the scope lives on while a process of it does. `kill
- * --signal=SIGKILL` sends SIGKILL to each process of the scope and removes its folder, as systemd collects a scope once
- * it is empty. With no process, either `kill` finds the scope not loaded, as for systemd, and removes its folder.
- * Unlike systemd, a scope whose processes all ended by themselves keeps its folder until a `kill`.
+ * process. With none it prints `inactive`, and it exits 3 while the scope's folder is there, and 4 once the folder is
+ * gone (a scope that never started, or one collected after a `kill`), as the seat's systemd 259 does for a unit it does
+ * not hold (E-18). `kill --signal=SIGTERM` sends SIGTERM to each process of the scope and leaves its folder, since the
+ * scope lives on while a process of it does. `kill --signal=SIGKILL` sends SIGKILL to each process of the scope and
+ * removes its folder, as systemd collects a scope once it is empty. With no process, either `kill` finds the scope not
+ * loaded, as for systemd, and removes its folder. Unlike systemd, a scope whose processes all ended by themselves keeps
+ * its folder until a `kill`.
  */
 const SYSTEMCTL = [
 	"#!/bin/sh",
@@ -212,6 +213,7 @@ const SYSTEMCTL = [
 	'if [ "$verb" = is-active ]; then',
 	'\t[ -n "$members" ] && { echo active; exit 0; }',
 	"\techo inactive",
+	'\t[ -d "$root$cgroup" ] || exit 4',
 	"\texit 3",
 	"fi",
 	'if [ "$verb" = term ] && [ -n "$members" ]; then',
