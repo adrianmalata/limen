@@ -2091,7 +2091,7 @@ Columns:
 | R-107 | The exit 4 of systemd 259's `is-active` reads as not active | 4 | A-029, E-18, D-112 | R-026 | S | delegated | night | — | systemd | 4.13 | done |
 | R-108 | The stall rule follows every pending tool of a message | 4 | A-059, E-19, D-112 | R-036 | S | delegated | night | — | pi | 4.12 | done |
 | R-109 | The alerts' unit sends over IPv4 first | 4 | A-066, D-108, D-112 | R-033 | S | delegated | night | — | systemd | 4.11 | done |
-| R-110 | A continuation reuses its parent's context message; change notices and the board digest come only on a change | 4 | A-079, A-037, A-051, D-114, D-120, D-126 | R-039, R-042, R-043, R-044 | M | delegated | night | — | pi | 4.2 | ready |
+| R-110 | A continuation reuses its parent's context message; change notices and the board digest come only on a change | 4 | A-079, A-037, A-051, D-114, D-120, D-126 | R-039, R-042, R-043, R-044 | M | delegated | night | — | pi | 4.2 | active |
 | R-111 | A wake is settled only by the run it entered; an idle sweep starts one run | 4 | A-089, A-090, D-128, D-129 | R-038 | L | delegated | night | — | pi | 4.14 | done |
 | R-112 | The wake hook's tests stop the hook before they remove its folder | 4 | A-092, D-133, D-136, E-22 | R-043 | S | delegated | night | — | — | — | done |
 | R-048 | Jobs run the bridge isolated: no `--approve`, `--offline`, a private `TMPDIR`, an explicit Claude Code path | 5 | A-025, E-3, E-4, E-15, D-005, D-017 | R-040, R-087 | M | delegated | night | — | pi, bridge | 5.8, 5.9 | planned |
@@ -6346,3 +6346,6 @@ Night run of 2026-11-27/28 (until 08:00; `night.mjs` run 1 started at 21:47:25, 
 - R-109 `done` (delegated): no `BLOCKED`; the main session's gate 1562/1562 (356.5 s), `fails-before.mjs` exit 0;
   review round 1 PASS with one guessed note (Node's family autoselection may still fall over to IPv6), which is
   `outcome.md` → Open point 2 for gate 5.4 and step 4.11.
+- R-110 `active` at `e0e2bcc` (protocol step 2, started before 08:00): its facts' places in its Decision 20; R-039
+  removed `boardDigest`, so the digest is built again from its text at `aa721d7`; the cue is the one
+  `before_agent_start` handler today; AC-9 names the gate's `--out`.

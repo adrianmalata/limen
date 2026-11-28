@@ -3,7 +3,8 @@ jedno powiadomienie o plikach zmienionych od jej zbudowania; w trakcie sesji (ko
 „changed <plik>” na zmieniony plik; skrót tablicy (NOW i NEXT) na końcu kontekstu koordynatora tylko po zmianie; golden
 trybu kontynuacji. Powiadomienia i skrót jadą z biegiem jak cue (D-120), a stan „co już dostarczono” czytany jest z
 kontekstu sesji, bez nowego pliku. Stan: napisany 26.11 przy `8b3cc59` z inwentarza `evidence/inventories/R-110.md`;
-`ready` za R-039, R-042, R-043 i R-044 (D-126: wspólne pliki hooka i modułu wiadomości kontekstowej). -->
+`ready` za R-039, R-042, R-043 i R-044 (D-126: wspólne pliki hooka i modułu wiadomości kontekstowej); `active` od 28.11
+w nocy przy `e0e2bcc`, z miejscami faktów w decyzji 20 (R-039 usunął `boardDigest`, więc skrót buduje się na nowo). -->
 
 # R-110 A continuation reuses its parent's context message; change notices and the board digest come only on a change
 
@@ -158,7 +159,7 @@ Files the criteria name that this ticket or R-039 creates: `src/runtime/context-
 - AC-7: `git grep -q 'limen-notice' -- hook/communication.ts` → exit 0.
 - AC-8: `git grep -q 'new text from the next session' -- hook/communication.ts src/runtime/context-message.ts` →
   exit 0.
-- AC-9: `node adrian-rebuild/tools/gate.mjs` → exit 0.
+- AC-9: `node adrian-rebuild/tools/gate.mjs --out node_modules/.rebuild-review/R-110.gate` → exit 0.
 - AC-10: `npx biome check --error-on-warnings .` → exit 0; `node adrian-rebuild/tools/check.mjs` → exit 0.
 - AC-11 (judgment): the frozen message's bytes never change in a session; the notice and the digest are `limen-*`
   custom messages returned with the run after the cue (D-120), the digest last and only on a change of its text, in the
@@ -223,3 +224,24 @@ inventory's questions in `evidence/inventories/R-110.md` → section 11):
     as well as R-039: R-042 and R-043 change `hook/communication.ts`, R-043 and R-044 (after R-040) change
     `src/runtime/context-message.ts`, and item 1 compares the parts R-040 and R-044 add. The night re-reads their
     changes there (D-025).
+20. 2026-11-28, at activation (`e0e2bcc`; the night's main session, protocol step 2, D-025): the facts' places after
+    R-038–R-045, R-112, R-047 and R-104–R-109. Fact 1: R-039 (`c3290a0`) removed `boardDigest` with the digest from
+    the system prompt, so no code builds a digest at `HEAD`; its text is `hook/communication.ts:294-304` at `aa721d7`
+    (`git show aa721d7:hook/communication.ts`): `## Board digest (spec/build.md)` with the `## NOW` and `## NEXT`
+    sections of `spec/build.md`, bounded at 1,000 lines, which Change 2's digest builds again (Decision 16), with the
+    module's own bound (`boundLines`, `src/runtime/context-message.ts:139`). At `HEAD` the hook reads `spec/build.md`
+    only for the cue's board-size line (`hook/communication.ts:261-269`, R-041). The one `before_agent_start` handler is
+    the cue's (`hook/communication.ts:84-96`), returning `{ message: { customType: "limen-turn-cue", content, display:
+    false } }`; the context message's delivery is `deliverContext` (from `:139`), which reads the session's entries
+    through the adapter (`heldContext(piContextEntries(…))`, `:177`). Item 1's headings are the ones `boundText`
+    writes (`## <label> (<path>)`, `src/runtime/context-message.ts:203-208`); `contextMessage` is at `:70`. Fact 2: the
+    reminders' memory `shown` is cleared through `deliverContext`'s `forget` at a session's start and a compaction
+    (`:107-111`). Fact 3: `startContinue` is `src/job/continuation.ts:90`, called by `src/job/group-rounds.ts:162` and
+    `src/runtime/resuming.ts:24`. Fact 4: the hook's root is `sessionRoot` (`src/runtime/hook-set.ts:33-35`, R-044),
+    which reads `LIMEN_CONTEXT_ROOT`; `LIMEN_JOB_ID` is read at `hook/communication.ts:234`, `:273` and `:362`, the last
+    already reading the job's record (`readRecordSync`). Fact 5: `test/hook/communication.test.ts:85-98` keeps one
+    handler per event in a `Map`. Fact 6: `docs/setup.md:185` (Hooks) now ends "The board digest is not in it.", the old
+    sentence of `:179` gone with R-039; the continue paragraph is `docs/jobs.md:161`; `CONTRIBUTING.md` names no digest;
+    `test/s4-steering.test.ts:78` names R-110 for the digest. Change 6: R-041 is done, and the goldens still leave the
+    cue out, so each golden checks the continuation's message, task and notice alone (T-29 (3)). The grep criteria at
+    `HEAD`: AC-6, AC-7 and AC-8 exit 1. AC-9 names the gate's `--out` form (D-130).
