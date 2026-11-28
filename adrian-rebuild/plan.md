@@ -189,7 +189,10 @@ folderu) i fakt E-22 (Pi czeka na handlery `session_shutdown`); po przerwie Adri
 PASS); D-137 (noc dziś do 8:00, sobota w dzień, przebieg weekendowy w dwóch oknach od soboty 15:00) i D-138 (commit
 ticketu po temacie, dokładna linia Rollback przy kolizji; commit `Tools:`); przekazanie do limen-rebuild-45, która
 zrobiła preflight nocy (testy runnera 43/43, handover 24/24, check.mjs bez błędów, 8 ticketów ready) i uruchamia
-night.mjs do 8:00. -->
+night.mjs do 8:00. Noc 27/28.11: zamknięte R-047, R-104–R-110 (osiem commitów, bramki do 1588/1588), domyślne nocne
+w R-047, R-104, R-105 i R-106 do potwierdzenia, pytanie Q-104 o folder z nieistniejącym gitdirem; koniec `no-ticket`,
+w etapie 4 został R-046 (pair), a `## State` ma szkic podsumowania bramki 5.4. -->
+
 
 
 
@@ -6364,3 +6367,37 @@ Night run of 2026-11-27/28 (until 08:00; `night.mjs` run 1 started at 21:47:25, 
   notes fixed by the main session. A note for R-048 in `## Tickets` (a continuation whose isolation differs from its
   parent's gets a false notice). The main session's gates 1588/1588 (365.5 s, 357.0 s, 361.8 s), AC-5's
   `fails-before.mjs` exit 0 after each. For gate 5.4: R-110's Deviations 1–7 and Open points.
+- End of the night (about 06:55, before 08:00): every stage-4 `night` ticket is `done` (R-047, R-104–R-110, eight
+  commits, `767ac6f` to `28b0b86`, each pushed), so no `ready` ticket is left and the night ends with the reason
+  `no-ticket` (`.night/status.json`). No ticket stopped; one question, Q-104, stops none. No test failed in any gate of
+  the main session (fifteen gates and their `fails-before.mjs` runs, all exit 0); one review reply was rejected by
+  `review-verdict.mjs` and run again (R-110). Two denied commands were not worked around: a web search and a `find`
+  outside the repository, both meant to read systemd's `LoadCredential=` documentation for R-106 (Decision 8 rests on
+  the sessions' reading, and seat step 4.10 checks it).
+- For Adrian in the morning (D-054 (2): the night defaults, each in its ticket's `## Decisions` and `outcome.md` →
+  Night defaults): R-047 Decision 11 (the Pi type contract checks a union field through the member that types it);
+  R-104 Decision 9 (the gone-gitdir test asserts `GIT_FAILED` as at `HEAD`), with Q-104 in `.night/questions.md`
+  (recommended: archive such a folder in `src/runtime/pruning.ts` only, a new finding and a small ticket); R-105
+  Decision 10 (the walk's place, a mixed file's entry also covers its waits, `startOrder`, shared fixtures in
+  `test/plant.ts`); R-106 Decision 8 (systemd's flat credentials `watch_<file>`, the `unwatched` key by streak, resends,
+  run-time entry checks, per-call git bounds) and its `outcome.md` → Night defaults.
+
+Gate 5.4 summary, draft (stage 4 has R-046 left, `pair`, L, `day-after`; the close and the gate are by day, with
+Adrian, after R-046):
+- Verdict so far: 18 of stage 4's 19 tickets are `done` (R-039–R-045, R-047, R-104–R-112), each with a green gate of the
+  main session and a review PASS; the gate grew from 1237 tests at `a0.3.0` to 1588 at `28b0b86`. R-046 (role prompts
+  literal, sourced and budgeted) needs its variants sheet (D-054 (3)) and must keep the owner register's
+  closing-overview sentence until R-073 (R-041 → Risk).
+- Still to do at the close (`## Stages` → Closing a stage), after R-046: the gate twice and the gate-time tool (M-10),
+  `node adrian-rebuild/tools/context-size.mjs` at `a0.3.0` and at the closing commit for the constant context per role
+  before and after (R-039–R-046 change it most), the inventory of unmeasured items and of the night defaults, the tag
+  `a0.4.0`, and the seat steps 4.0–4.14 of `## Deployment`.
+- Items for gate 5.4 collected in this section's handovers and entries since `limen-rebuild-40`, and from this night:
+  R-047 Deviations 1–3, Open points 1–4; R-104 Deviations 1–4, Open points 1–3; R-105 Deviations, Open points; R-106
+  Deviations, Open points 1–8 (Open point 8: whether a refused `deleted` or `unwatched` is kept until sent); R-107's
+  Risk (an exit 4 with `inactive` that is a real call failure reads as `gone`); R-108 Deviations 1–3, Open points 1–5;
+  R-109 Open point 2 (Node's family autoselection may still fall over to IPv6; step 4.11); R-110 Deviations 1–7, Open
+  points (above all 9: settled by G1). New notes in `## Tickets` from this night: R-060 (the mistake guard's import
+  test), R-058 and R-065 (their reads' waits), R-083 (two test files' opening lines), R-048 (a continuation's bridge
+  isolation), the stale R-102 note corrected.
+- The handover after it is `limen-rebuild-46` (by day); `## Agents` → protocol step 1 gives the next ticket: R-046.
