@@ -3,7 +3,8 @@ własną kopię `main` i co minutę pobiera ją bez wymuszonej aktualizacji, a n
 `main` na GitHubie wysyła alert na telefon i zachowuje historię, którą trzymał. Według D-117 to krok przebiegu alertów
 na koncie alertów, z adresami i kluczami tylko z plików roota (credentials), z liniami `main:forced`, `main:deleted`
 i `main:unwatched`. Stan: napisany 26.11 przy `87906e1` z inwentarza `evidence/inventories/R-106.md`; `active` od
-28.11 w nocy przy `1644a7b`, z miejscami faktów w decyzji 7. -->
+28.11 w nocy przy `1644a7b`, z miejscami faktów w decyzji 7; decyzja 8 (domyślna nocna) czyta wpisy z płaskich nazw
+poświadczeń systemd `watch_<plik>` i doprecyzowuje klucz `unwatched`, ponowne wysłanie i kontrole w czasie przebiegu. -->
 
 # R-106 A watcher outside the agents' account keeps a copy of `main` and alerts on its forced update or deletion
 
@@ -162,3 +163,49 @@ the kept ref, the wording and seat step 4.10; the main session's reading of the 
    with no timeout `git` at `:735`. Change 5's docs: `docs/seat/README.md` → `## Alerts` at `:25`;
    `docs/seat/agent-setup.md` → phase 6 is `## 6 · Phone: Moshi and the alerts` (`:152`). The grep criteria at `HEAD`:
    AC-4 and AC-5 exit 1. AC-7 names the gate's `--out` form (D-130).
+8. 2026-11-28, the implementer's `BLOCKED` in protocol step 3, before any change (night default, for Adrian to confirm
+   in the morning; D-054 (2) (b): technical choices inside Change 1 and 2 that `taste.md` does not settle, with
+   Decision 4's one `LoadCredential=watch:/etc/limen/watch` line unchanged). The question: systemd's `LoadCredential=`
+   with a folder as its source (systemd.exec(5), as the implementer and the main session read it; neither could open
+   the manual tonight, the web and the system's man pages being outside the permissions) loads each regular file of
+   the folder as its own credential named `<ID>_<file name>` and skips links, and a credential ID is a file name, so
+   `$CREDENTIALS_DIRECTORY` holds no `watch/` folder; the inventory had marked a folder source as unverified on
+   systemd 259 (`evidence/inventories/R-106.md`, Unverified 5). The answers, the implementer's recommendations:
+   (1) The module reads `$CREDENTIALS_DIRECTORY/watch_<project>.address`, `watch_<project>.key` and
+   `watch_known_hosts`; the source folder `/etc/limen/watch/` (root's, 0700), its files and the unit line stay as
+   Change 1 and Decision 4 say, and the install also refuses a subfolder or a link in the source folder, which systemd
+   would flatten or skip. The tests' fake credentials folder and the docs use the flat names. Seat step 4.10 confirms
+   the layout on systemd 259, as Risk already says. Rejected: reading both layouts (two forms of one input, one of
+   which systemd cannot produce) and the ticket's `watch/` as written (the seat would watch nothing).
+   (2) The record key of `unwatched` is `<project>/main/<streak start, UTC>/unwatched`, the streak's start kept in
+   `<project>.failures`, so each streak of 15 failed runs rings once (Change 1: "once per streak"; the held tip of
+   Change 2's key would silence a second streak at the same tip and is absent before the first tip). `forced` and
+   `deleted` keep Change 2's key `<project>/main/<held tip>/<kind>`.
+   (3) A refused send rings again next run: each run raises `forced` for every kept `refs/watch/forced/*` ref and
+   `deleted` and `unwatched` from the current state, and the alerts' record of what was sent leaves out what was sent
+   (Change 2's one record); "a second run raises nothing more" (Change 4) means after the send was recorded.
+   (4) At run time an entry is checked present, a regular file and well formed (missing → exit 4 after the other
+   projects, T-01, T-02); root's 0600 is the install's check on the source files, since systemd's copies in
+   `$CREDENTIALS_DIRECTORY` belong to the service's account and are never root's 0600.
+   (5) Each git call has its own time bound; the service's `TimeoutStartSec=120` stays, and the outcome names it as an
+   open point (several hanging fetches could reach it).
+9. 2026-11-28, review round 1 (FAIL; `review.md`), the findings to fix (protocol step 6; the main session's reading,
+   settled by D-117 (4) and D-110 (1), which a key wording of Change 2 cannot narrow, and by T-29 and T-30; not asked):
+   - F1 (finding 1, blocking): the record key of `forced` and `deleted` names the occurrence, not the held tip, so
+     every forced update and every deletion rings once, a tip seen before included (D-117 (4): "each further forced
+     update alerts again"; D-110 (1)). `forced`: `<project>/main/<the kept ref's time>/forced`, the time of the
+     `refs/watch/forced/<time>` ref that the forced update made (each run still raises `forced` for every kept ref not
+     yet reported, Decision 8 (3)). `deleted`: `<project>/main/<deletion start, UTC>/deleted`, the start of the
+     deletion kept in the state folder beside `<project>.failures` and cleared when `main` is seen again. The lines
+     stay `<project> main:forced <tip>` and `<project> main:deleted <tip>` (D-117 (5)). Tests, each failing before the
+     fix: X→Y forced, Y→X forced, X→Z forced rings three times; a deletion at X, `main` re-pushed at X, a second
+     deletion rings twice; a refused send of either still rings at the next run and a sent one never again.
+   - F2 (note 1, and the resend sentence finding 1 names): `docs/seat/README.md` says what the code does: with no
+     `known_hosts`, or no `git` or `ssh`, no entry is watched and the run exits 4; a resend is of the same occurrence,
+     and each new forced update or deletion rings.
+   - F3 (T-29 (3)): the two alerts tests that check several things are split, one mechanism each: "a forced update …
+     sends one line after the job lines, and a second run sends nothing more" (the order; the one send) and "a seat with
+     no watch entries alerts as before, names each registered project, and runs no program" (three tests).
+   - F4 (T-30): `--no-auto-gc` in `reach` and `--template=` in `makeCopy` carry their reasons in a comment in the code.
+   - Note 3 (Decision 6's `ssh` row) is the main session's, written in `plan.md` → `## System requirements`; note 4
+     (the tests at `HEAD` fail on loading) needs no change, since `outcome.md` records the runs on the mechanism.

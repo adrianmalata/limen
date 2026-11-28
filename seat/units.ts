@@ -10,6 +10,12 @@ export const ALERTS_SERVICE = "limen-alerts.service";
 export const ALERTS_TIMER = "limen-alerts.timer";
 /** The root-owned file, mode 0600, whose text is the ntfy topic; the service gets it as the credential `topic`. */
 export const TOPIC_FILE = "/etc/limen/alerts-topic";
+/**
+ * The root-owned folder, mode 0700, of the `main` watcher's entries (seat/main-watch.ts, D-117 (3)). The service loads
+ * it as the credential `watch`, which systemd hands over as one credential per file, `watch_<file name>`.
+ */
+export const WATCH_FOLDER = "/etc/limen/watch";
+export const WATCH_CREDENTIAL = "watch";
 /** What the service runs, by absolute paths: root's Node and the deployed checkout (A-025, D-010, the D-080 note). */
 const ALERTS_RUN = "/usr/bin/node /opt/limen/seat/alerts.ts run";
 /** A system account's name as `useradd` takes it by default, so a unit's `User=` holds nothing else. */
@@ -24,8 +30,9 @@ export function accountName(name: string): boolean {
 
 /**
  * The alerts' service and timer for the account `account` (D-085): a oneshot run every minute from boot, on its own
- * account, with the topic as a credential, its reported events in its own state folder, and no write right anywhere
- * else (`ProtectSystem=strict`, `ProtectHome=read-only`).
+ * account, with the topic and the `main` watcher's entries as credentials (D-117), its reported events and the
+ * watcher's copies in its own state folder, and no write right anywhere else (`ProtectSystem=strict`,
+ * `ProtectHome=read-only`).
  */
 export function alertsUnits(account: string): readonly UnitDefinition[] {
 	if (!accountName(account)) {
@@ -47,6 +54,7 @@ export function alertsUnits(account: string): readonly UnitDefinition[] {
 						["User", account],
 						["ExecStart", ALERTS_RUN],
 						["LoadCredential", `topic:${TOPIC_FILE}`],
+						["LoadCredential", `${WATCH_CREDENTIAL}:${WATCH_FOLDER}`],
 						["StateDirectory", "limen-alerts"],
 						["StateDirectoryMode", "0700"],
 						["TimeoutStartSec", "120"],

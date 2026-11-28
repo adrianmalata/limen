@@ -1835,6 +1835,7 @@ check it, and a missing tool or another version exits with code 4 naming both ve
 | systemd user instance with lingering | scopes and timers work (`systemd-run --user --scope true`); `systemd-analyze` present, which verifies the sweep's units at `--install` (R-032 F9) | R-026, R-032 | root enables lingering (3.1) |
 | Herdr | 0.9.3 on the seat | R-020 (T-12: tools found in use) | the seat |
 | setfacl, systemd-analyze, systemctl (system manager) | present for root: the alerts' install grants ACLs, verifies and enables system units | R-033 (`SEAT_TOOLS` in `seat/alerts.ts`) | the seat (Ubuntu's `acl` and `systemd`) |
+| ssh (the OpenSSH client) | present for the alerts account: the `main` watcher fetches each project's `main` with its read-only deploy key (R-106) | R-106 (probed by the alerts' install with the other seat tools) | the seat (Ubuntu's `openssh-client`) |
 
 ## Stages
 
@@ -2086,7 +2087,7 @@ Columns:
 | R-047 | The coordinator never waits | 4 | T-34 | R-039 | S | delegated | night | — | pi | 4.6 | done |
 | R-104 | The sweep's daily prune archives every unregistered folder and waits on no job's lock; a queue entry is live only for a project's job | 4 | A-002, A-024, T-25, D-107 | R-101 | M | delegated | night | — | — | — | done |
 | R-105 | The T-04 and T-26 scans follow what their rules name | 4 | T-04, T-26, D-107, D-116 | R-032, R-104 | M | delegated | night | — | — | — | done |
-| R-106 | A watcher outside the agents' account keeps a copy of `main` and alerts on its forced update or deletion | 4 | A-006, §7, D-110, D-117 | R-033 | S | delegated | night | — | systemd | 4.10 | active |
+| R-106 | A watcher outside the agents' account keeps a copy of `main` and alerts on its forced update or deletion | 4 | A-006, §7, D-110, D-117 | R-033 | S | delegated | night | — | systemd | 4.10 | done |
 | R-107 | The exit 4 of systemd 259's `is-active` reads as not active | 4 | A-029, E-18, D-112 | R-026 | S | delegated | night | — | systemd | 4.13 | ready |
 | R-108 | The stall rule follows every pending tool of a message | 4 | A-059, E-19, D-112 | R-036 | S | delegated | night | — | pi | 4.12 | ready |
 | R-109 | The alerts' unit sends over IPv4 first | 4 | A-066, D-108, D-112 | R-033 | S | delegated | night | — | systemd | 4.11 | ready |
@@ -6313,3 +6314,14 @@ Night run of 2026-11-27/28 (until 08:00; `night.mjs` run 1 started at 21:47:25, 
 - R-106 `active` at `1644a7b` (protocol step 2): its facts' places in its Decision 7 (the alerts' modules and tests
   unchanged; `isAncestor` and the deploy script's `units` step moved a few lines with R-045's and R-105's edits); AC-7
   names the gate's `--out`.
+- R-106 `done` (delegated): the implementer's `BLOCKED` before any change (systemd hands a `LoadCredential=` folder over
+  as flat credentials `<ID>_<file>`, so there is no `$CREDENTIALS_DIRECTORY/watch/`; the web and the man pages were
+  outside the permissions, so the fact rests on systemd.exec(5) as both sessions read it, and seat step 4.10 confirms
+  it) → Decision 8, night defaults (D-054 (2) (b)): `watch_<project>.*` and `watch_known_hosts`, the `unwatched` key by
+  streak, resends, run-time entry checks, per-call git bounds. A fresh implementer implemented it. Review round 1 FAIL
+  (blocking: `forced` and `deleted` keyed by the held tip, so a repeated tip never rang, against D-117 (4)) → F1–F4
+  (Decision 9: a key per occurrence, the README, split tests, two comments); round 2 PASS, its README note fixed by the
+  main session, the code gap of a refused `deleted` in `outcome.md` → Open points 8 for gate 5.4. Decision 6's `ssh`
+  row is in `## System requirements`. The main session's gates 1544/1544 (353.4 s) and 1551/1551 (347.0 s),
+  `fails-before.mjs` exit 0 after each. For the morning: Decision 8 and `outcome.md` → Night defaults; for gate 5.4:
+  R-106's Deviations and Open points 1–8.

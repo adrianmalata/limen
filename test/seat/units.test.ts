@@ -13,6 +13,7 @@ function rendered(name: string): string {
 	return unit.text;
 }
 
+// D-117 (3): the `main` watcher's entries reach the service as a credential, loaded from root's folder.
 test("limen-alerts.service renders as its golden text: a oneshot run of /usr/bin/node on the alerts account", () => {
 	assert.equal(
 		rendered(ALERTS_SERVICE),
@@ -26,6 +27,7 @@ test("limen-alerts.service renders as its golden text: a oneshot run of /usr/bin
 			"User=alerts-test",
 			"ExecStart=/usr/bin/node /opt/limen/seat/alerts.ts run",
 			"LoadCredential=topic:/etc/limen/alerts-topic",
+			"LoadCredential=watch:/etc/limen/watch",
 			"StateDirectory=limen-alerts",
 			"StateDirectoryMode=0700",
 			"TimeoutStartSec=120",

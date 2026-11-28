@@ -3,15 +3,15 @@
  * with a known reset only once its resume is overdue or Limen's resumes are used up), each long wait in the start queue
  * (A-036) and each job the seat sweep cannot end (R-032) of every registered project, sent from their own account,
  * which reads the job records read-only and keeps the events it reported and the projects it has read in its own
- * state folder (D-090). An alert holds only the project folder's base name, the event and the job id: it leaves the
- * seat through a public relay, so it carries no path, label or job text, and the topic comes only from the systemd
- * credential.
+ * state folder (D-090). After the job records, each run watches `main` of each repository root's entries name, and
+ * sends its forced update, its deletion, or 15 runs in a row that could not reach it (seat/main-watch.ts, D-117). An
+ * alert holds only the project folder's base name, the event and the job id or the tip: it leaves the seat through a
+ * public relay, so it carries no path, label or job text, and the topic comes only from the systemd credential.
  *
  *   node /opt/limen/seat/alerts.ts run                       the service, every minute, on the alerts account
  *   node /opt/limen/seat/alerts.ts install --account <name>  root, once: the read rights, the units, the timer
  *   node /opt/limen/seat/alerts.ts units --account <name>    root, from seat/deploy.ts: this version's units
  */
-import { spawnSync } from "node:child_process";
 import { existsSync, realpathSync, type Stats } from "node:fs";
 import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join } from "node:path";
@@ -25,9 +25,27 @@ import { type JobReader, newestOnWorktree } from "../src/job/unlanded.ts";
 import { LimenError } from "../src/outcome.ts";
 import type { ManagerCall } from "../src/platform/platform.ts";
 import { placeUnitFiles } from "../src/platform/systemd-units.ts";
+import {
+	checkWatchFolder,
+	type MainEvent,
+	type MainKind,
+	makeWatchFolder,
+	TIP_CHARACTERS,
+	watchMain,
+} from "./main-watch.ts";
+import { failed, type Runner, runProgram, why } from "./program.ts";
 import { absent, readRegistry, registryOf, registryPaths } from "./registries.ts";
-import { counted, printable, reason, requiredText, SeatFailure, type SeatOutcome } from "./tool-outcome.ts";
-import { ALERTS_SERVICE, ALERTS_TIMER, accountName, alertsUnitFiles, TOPIC_FILE } from "./units.ts";
+import {
+	counted,
+	modeOf,
+	printable,
+	reason,
+	requiredText,
+	SeatFailure,
+	type SeatOutcome,
+	shapeOf,
+} from "./tool-outcome.ts";
+import { ALERTS_SERVICE, ALERTS_TIMER, accountName, alertsUnitFiles, TOPIC_FILE, WATCH_FOLDER } from "./units.ts";
 
 const SCRIPT = "/opt/limen/seat/alerts.ts";
 const INSTALL = `node ${SCRIPT} install --account <account>`;
@@ -43,28 +61,22 @@ const TOPIC = /^[A-Za-z0-9_-]{1,64}$/;
 /** The width of every generated view (T-10), an alert line included (D-084). */
 const LINE_LIMIT = 100;
 const SEND_TIMEOUT_MS = 10_000;
-const PROGRAM_TIMEOUT_MS = 60_000;
-const MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 /** The file of the service's state folder that holds the reported events, one key per line. */
 const REPORTED = "reported";
 /** The file of the service's state folder that holds the roots of the projects the alerts have read, one per line. */
 const PROJECTS = "projects";
-/** The system tools the install runs, declared here and checked before it changes anything (T-12). */
-const SEAT_TOOLS = [
-	{ tool: "setfacl", use: "grants the alerts account its read rights (the package acl)" },
-	{ tool: "systemd-analyze", use: "verifies the units before they are loaded (D-010)" },
-	{ tool: "systemctl", use: "reloads the units and enables the timer" },
-] as const;
+/**
+ * The system tools the install and the alerts' runs need, declared here and checked by the install before it changes
+ * anything (T-12), each by a call that only prints its version.
+ */
+const SEAT_TOOLS: ReadonlyArray<{ readonly probe: readonly [string, ...string[]]; readonly need: string }> = [
+	{ probe: ["setfacl", "--version"], need: "the install grants the alerts account its read rights (the package acl)" },
+	{ probe: ["systemd-analyze", "--version"], need: "the install verifies the units before they are loaded (D-010)" },
+	{ probe: ["systemctl", "--version"], need: "the install reloads the units and enables the timer" },
+	{ probe: ["git", "--version"], need: "the main watcher keeps its copy of each watched main (D-117)" },
+	{ probe: ["ssh", "-V"], need: "the main watcher reaches each watched repository with its key (the OpenSSH client)" },
+];
 
-/** What a system program did: its exit status, null when it did not run to one; its output; why it did not start. */
-export type Ran = {
-	readonly status: number | null;
-	readonly stdout: string;
-	readonly stderr: string;
-	readonly error?: string;
-};
-/** Runs a system program to its end. */
-export type Runner = (argv: readonly [string, ...string[]]) => Ran;
 export type AlertsInput = {
 	/** The command-line arguments: the subcommand and its flags. */
 	readonly args: readonly string[];
@@ -80,21 +92,36 @@ export type AlertsInput = {
 	readonly unitFolder: string;
 	/** The root-owned file, mode 0600, that holds the ntfy topic. */
 	readonly topicFile: string;
+	/** The root-owned folder, mode 0700, of the `main` watcher's entries, which the install checks and makes. */
+	readonly watchFolder: string;
+	/** The time of a run, which the `main` watcher writes into a kept ref's name and the start of its failed runs. */
+	readonly now: () => Date;
 };
 
 /**
- * The events an alert reports (A-066), each with what a run's summary counts, the job record it reads it from, with
- * the id of the newest record on that job's worktree, and the words it sends. A plain `done` is no event. R-050, R-060
- * and R-069 add their kinds here.
+ * An event of the job records (A-066): what a run's summary counts, and the words it sends, read from the job record
+ * with the id of the newest record on that job's worktree.
  */
-const EVENTS: ReadonlyArray<{
+type RecordEvent = {
+	readonly from: "record";
 	readonly kind: string;
 	readonly counted: string;
 	readonly of: (record: JobRecord, newest: string | undefined) => string | undefined;
-}> = [
+};
+/** An event of the `main` watcher (seat/main-watch.ts): its kind, its word in the alert, and whether a tip follows. */
+type WatchEvent = {
+	readonly from: "main";
+	readonly kind: MainKind;
+	readonly event: string;
+	readonly namesTip: boolean;
+};
+
+/** The events an alert reports, in one list (T-25). A plain `done` is no event. R-050, R-060 and R-069 add theirs here. */
+const EVENTS: ReadonlyArray<RecordEvent | WatchEvent> = [
 	// A `quota` failure rings at once with no reset time, A-016 (4)'s "notify me once"; with a known one Limen resumes the
 	// job itself, so it rings only once that resume is overdue (src/job/quota.ts, D-100), or as `quota-exhausted`.
 	{
+		from: "record",
 		kind: "failed",
 		counted: "failed job",
 		of: (record, newest) =>
@@ -104,26 +131,38 @@ const EVENTS: ReadonlyArray<{
 	},
 	// A wait past the gate file's diagnoseAfter (A-036), read from the wait the record keeps after the job left the queue.
 	{
+		from: "record",
 		kind: "queue",
 		counted: "long start-queue wait",
 		of: (record) => ((record.queueWait?.diagnosedAt ?? null) === null ? undefined : "queue"),
 	},
 	// A job whose processes the seat sweep failed to end three times in a row (R-032), read from the record's `stuck`.
 	{
+		from: "record",
 		kind: "stuck",
 		counted: "stuck job",
 		of: (record) => (escalatedStuck(record) === undefined ? undefined : "stuck"),
 	},
+	// Each forced update or deletion of a watched `main` rings at once, with the tip the watcher's copy held; a remote no
+	// run could reach in 15 runs in a row rings once per such run of failures (D-117 (2), (4), (5)).
+	{ from: "main", kind: "forced", event: "main:forced", namesTip: true },
+	{ from: "main", kind: "deleted", event: "main:deleted", namesTip: true },
+	{ from: "main", kind: "unwatched", event: "main:unwatched", namesTip: false },
 ];
+const RECORD_EVENTS = EVENTS.filter((each): each is RecordEvent => each.from === "record");
 
-/** One event to report: the root of its project, its kind, its key, `<project path>/<job id>/<kind>`, and its line. */
+/**
+ * One event to report: the root of its project, or the name of a watched one; its kind; its key, `<project
+ * path>/<job id>/<kind>` or `<project>/main/<time of the occurrence>/<kind>`; and its line.
+ */
 type Alert = { readonly root: string; readonly kind: string; readonly key: string; readonly line: string };
 /**
- * What a pass over the projects found: how many it read, the roots whose jobs it listed, their events, what it could
- * not read, and the registries it read and those in homes it cannot enter.
+ * What a pass over the projects found: how many it read and their roots, the roots whose jobs it listed, their events,
+ * what it could not read, and the registries it read and those in homes it cannot enter.
  */
 type Scan = {
 	projects: number;
+	readonly roots: string[];
 	readonly listed: string[];
 	readonly alerts: Alert[];
 	readonly problems: string[];
@@ -187,40 +226,104 @@ function accountArgument(rest: readonly string[]): string {
 	return name;
 }
 
+/** What the state folder held when a run began: the reported events and the read projects, each undefined if none. */
+type State = { readonly reported: readonly string[] | undefined; readonly listed: readonly string[] | undefined };
+/** The sends of one run: the topic, the state folder, the record of what was sent, and the lines of the run. */
+type Sender = {
+	readonly topic: string;
+	readonly folder: string;
+	known: Set<string>;
+	readonly said: string[];
+	readonly unsent: string[];
+};
+
 /**
- * One run of the service: every event of every project it can read. A project it reads for the first time, every
- * project on its first run included, has its present events recorded as reported and none sent (A-054, D-090); the
- * other projects send each new event, recorded only after ntfy took it. What it cannot read or send is named once every
- * other project is done, so one damaged record never stops the rest (z. 10).
+ * One run of the service: every event of every project it can read, then the `main` watcher's (D-117). A project it
+ * reads for the first time, every project on its first run included, has its present events recorded as reported and
+ * none sent (A-054, D-090); the other projects send each new event, recorded only after ntfy took it. The watcher runs
+ * whatever the registries gave, since no file the agents' account writes may stop it (D-117 (3)). What it cannot read
+ * or send is named once every other project is done, so one damaged record never stops the rest (z. 10).
  */
 async function alertRun(input: AlertsInput, said: string[], secret: Secret): Promise<void> {
-	secret.topic = await credentialTopic(input.env);
+	const credentials = credentialsFolder(input.env);
+	secret.topic = await credentialTopic(credentials);
 	const folder = stateFolder(input.env);
-	const reported = await stateLines(folder, REPORTED);
-	const listed = await stateLines(folder, PROJECTS);
+	const state: State = { reported: await stateLines(folder, REPORTED), listed: await stateLines(folder, PROJECTS) };
 	const scan = await scanProjects(input.passwd);
-	const events = EVENTS.map((event) =>
+	const events = RECORD_EVENTS.map((event) =>
 		counted(scan.alerts.filter(({ kind }) => kind === event.kind).length, event.counted),
 	);
 	said.push(`read ${counted(scan.projects, "project")}: ${events.join(", ")}`);
+	const sender: Sender = { topic: secret.topic, folder, known: new Set(state.reported ?? []), said, unsent: [] };
+	const problems = [...scan.problems];
 	// A run that reads nothing would exit 0 every minute while no failure reaches the phone (T-01), and a first run
 	// would record nothing, so the failures already there would ring once the projects are readable.
 	if (scan.projects === 0) {
-		endRun([...scan.problems, noProjectRead(scan, input.passwd)], []);
+		problems.push(noProjectRead(scan, input.passwd));
+	} else {
+		const { read, known } = await recordFirstReads(folder, state, scan, said);
+		sender.known = known;
+		await sendNew(
+			sender,
+			scan.alerts.filter(({ root }) => read.has(root)),
+		);
 	}
-	const { read, known } = await recordFirstReads(folder, { reported, listed }, scan, said);
-	const unsent: string[] = [];
-	for (const alert of scan.alerts.filter(({ root, key }) => read.has(root) && !known.has(key))) {
-		const failure = await send(secret.topic, alert.line);
+	const registered = scan.roots.map((root) => basename(root));
+	const now = input.now();
+	const watch = await watchMain({ credentials, state: folder, path: input.env.PATH, run: input.run, now, registered });
+	said.push(...watch.said);
+	problems.push(...watch.problems);
+	await sendMainEvents(sender, scan.projects === 0 ? state : undefined, watch.events);
+	endRun(problems, sender.unsent);
+}
+
+/** Sends each of `alerts` the record of what was sent lacks, and records each once ntfy took it. */
+async function sendNew(sender: Sender, alerts: readonly Alert[]): Promise<void> {
+	for (const alert of alerts) {
+		if (sender.known.has(alert.key)) {
+			continue;
+		}
+		const failure = await send(sender.topic, alert.line);
 		if (failure === undefined) {
-			known.add(alert.key);
-			await saveLines(folder, REPORTED, known);
-			said.push(`sent: ${alert.line}`);
+			sender.known.add(alert.key);
+			await saveLines(sender.folder, REPORTED, sender.known);
+			sender.said.push(`sent: ${alert.line}`);
 		} else {
-			unsent.push(`not sent: ${alert.line} (${failure})`);
+			sender.unsent.push(`not sent: ${alert.line} (${failure})`);
 		}
 	}
-	endRun(scan.problems, unsent);
+}
+
+/**
+ * Sends the `main` events no run has sent. They pass no first read (A-054): a watcher's first run holds each tip and
+ * raises nothing, so an event is always news. `unread`, the state of a run that read no project, is checked first: when
+ * no run ever read one, the empty list of read projects is written before any send writes `reported`, so a later run
+ * still takes every project it reads as a first read, not as one of R-033's state that `recordFirstReads` sends from.
+ */
+async function sendMainEvents(sender: Sender, unread: State | undefined, events: readonly MainEvent[]): Promise<void> {
+	const alerts = events.map(mainAlert).filter(({ key }) => !sender.known.has(key));
+	if (alerts.length > 0 && unread !== undefined && unread.reported === undefined) {
+		await saveLines(sender.folder, PROJECTS, new Set());
+	}
+	await sendNew(sender, alerts);
+}
+
+/**
+ * The alert of a `main` event (D-117 (5)): `<project> main:<kind>` and, for a forced update or a deletion, the tip as
+ * its first 12 characters, keyed by the time of its occurrence (R-106 Decision 9), so each forced update, deletion or
+ * run of failures rings once, a tip rung before included (D-117 (4)).
+ */
+function mainAlert(event: MainEvent): Alert {
+	const kind = EVENTS.find((each): each is WatchEvent => each.from === "main" && each.kind === event.kind);
+	if (kind === undefined) {
+		throw new Error(`the list of events holds no main:${event.kind}`);
+	}
+	return {
+		root: event.project,
+		kind: event.kind,
+		key: `${event.project}/main/${event.at}/${event.kind}`,
+		line: alertLine(event.project, kind.event, kind.namesTip ? event.tip?.slice(0, TIP_CHARACTERS) : undefined),
+	};
 }
 
 /**
@@ -233,7 +336,7 @@ async function alertRun(input: AlertsInput, said: string[], secret: Secret): Pro
  */
 async function recordFirstReads(
 	folder: string,
-	state: { readonly reported: readonly string[] | undefined; readonly listed: readonly string[] | undefined },
+	state: State,
 	scan: Scan,
 	said: string[],
 ): Promise<{ readonly read: ReadonlySet<string>; readonly known: Set<string> }> {
@@ -289,17 +392,27 @@ function endRun(problems: readonly string[], unsent: readonly string[]): void {
 	}
 }
 
-/** The topic of the credential `topic` that systemd gives the service (A-066); no variable can name another. */
-async function credentialTopic(env: NodeJS.ProcessEnv): Promise<string> {
+/** Root's start of the service, which hands it its credentials and its state folder. */
+const START = `as root: systemctl start ${ALERTS_SERVICE}`;
+
+/**
+ * The folder where systemd gives the service its credentials, the topic (A-066) and the `main` watcher's entries
+ * (D-117 (3)); no variable can name another source.
+ */
+function credentialsFolder(env: NodeJS.ProcessEnv): string {
 	const folder = env.CREDENTIALS_DIRECTORY;
-	const start = `as root: systemctl start ${ALERTS_SERVICE}`;
 	if (!folder) {
 		throw new SeatFailure(
 			4,
 			`CREDENTIALS_DIRECTORY is not set: the alerts read their ntfy topic only from the credential topic that ${ALERTS_SERVICE} loads from ${TOPIC_FILE}`,
-			`run them as their service, ${start}`,
+			`run them as their service, ${START}`,
 		);
 	}
+	return folder;
+}
+
+/** The topic of the credential `topic` in the credentials folder `folder` (A-066). */
+async function credentialTopic(folder: string): Promise<string> {
 	const path = join(folder, "topic");
 	let text: string;
 	try {
@@ -308,7 +421,7 @@ async function credentialTopic(env: NodeJS.ProcessEnv): Promise<string> {
 		throw new SeatFailure(
 			4,
 			`cannot read the credential ${path}: ${reason(error)}`,
-			`check ${TOPIC_FILE}, then ${start}`,
+			`check ${TOPIC_FILE}, then ${START}`,
 		);
 	}
 	const topic = text.trim();
@@ -316,7 +429,7 @@ async function credentialTopic(env: NodeJS.ProcessEnv): Promise<string> {
 		throw new SeatFailure(
 			4,
 			`the credential ${path} holds no ntfy topic name (1 to 64 letters, digits, - or _)`,
-			`as root, write the topic into ${TOPIC_FILE}, then ${start}`,
+			`as root, write the topic into ${TOPIC_FILE}, then ${START}`,
 		);
 	}
 	return topic;
@@ -363,6 +476,7 @@ async function saveLines(folder: string, name: string, lines: ReadonlySet<string
 async function scanProjects(passwd: string): Promise<Scan> {
 	const scan: Scan = {
 		projects: 0,
+		roots: [],
 		listed: [],
 		alerts: [],
 		problems: [],
@@ -399,6 +513,7 @@ async function scanProjects(passwd: string): Promise<Scan> {
 				scan.problems.push(`cannot read the project ${line.root}: ${reason(line.error)}`);
 			} else {
 				scan.projects += 1;
+				scan.roots.push(line.root);
 				await projectAlerts(line.root, scan);
 			}
 		}
@@ -444,7 +559,7 @@ async function projectAlerts(root: string, scan: Scan): Promise<void> {
 		if (record.migrated !== undefined) {
 			continue;
 		}
-		for (const { kind, of } of EVENTS) {
+		for (const { kind, of } of RECORD_EVENTS) {
 			const event = of(record, record.worktree === null ? undefined : newest(record.worktree));
 			if (event !== undefined) {
 				const key = `${root}/${record.id}/${kind}`;
@@ -455,12 +570,14 @@ async function projectAlerts(root: string, scan: Scan): Promise<void> {
 }
 
 /**
- * The alert of D-084: `<project folder's base name> <event> <job id>`, at most 100 characters (T-10). A longer line
- * cuts the name with a visible ellipsis; an id too long for the line, which no Limen makes, keeps its end, the token.
+ * The alert of D-084: `<project folder's base name> <event> <subject>`, the subject a job id or a tip, or no subject
+ * (D-117 (5)), at most 100 characters (T-10). A longer line cuts the name with a visible ellipsis; a subject too long
+ * for the line, which no Limen makes, keeps its end, a job id's token.
  */
-export function alertLine(root: string, event: string, id: string): string {
+export function alertLine(root: string, event: string, subject?: string): string {
 	const name = [...printable(basename(root), "escape")];
-	const tail = [...` ${event} ${printable(id, "escape")}`];
+	const shown = subject === undefined ? "" : printable(subject, "escape");
+	const tail = [...` ${event}${subject === undefined ? "" : ` ${shown}`}`];
 	if (name.length + tail.length <= LINE_LIMIT) {
 		return [...name, ...tail].join("");
 	}
@@ -468,7 +585,7 @@ export function alertLine(root: string, event: string, id: string): string {
 		return [...name.slice(0, LINE_LIMIT - tail.length - 1), "…", ...tail].join("");
 	}
 	const head = `… ${event} …`;
-	return `${head}${[...printable(id, "escape")].slice(-(LINE_LIMIT - [...head].length)).join("")}`;
+	return `${head}${[...shown].slice(-(LINE_LIMIT - [...head].length)).join("")}`;
 }
 
 /** Posts `line` as the body of one ntfy message with no title; the reason it was not taken, or undefined. */
@@ -488,23 +605,21 @@ async function send(topic: string, line: string): Promise<string | undefined> {
 
 /**
  * Root's install (D-085): it refuses before any change unless it runs as root, the account exists and is one of the
- * alerts' own, and the topic file is root's with mode 0600; then it grants the account its read rights by ACL, once a
- * registry names a project, places and verifies the units, and enables the timer. Run again, it changes nothing that
- * is already in place.
+ * alerts' own, the topic file is root's with mode 0600, the watch folder of the `main` watcher, when there is one, and
+ * its entries are root's as the topic file is (seat/main-watch.ts), and every seat tool runs; then it grants the
+ * account its read rights by ACL, once a registry names a project, makes the watch folder when it is absent, places and
+ * verifies the units, and enables the timer. Run again, it changes nothing that is already in place.
  */
 async function install(input: AlertsInput, account: string, said: string[]): Promise<void> {
 	refuseUnlessRoot(input, "install");
 	const passwd = await requiredText(input.passwd, `node ${SCRIPT} install --account ${account}`);
 	await requireOwnAccount(accountEntry(passwd, account, input.passwd), account);
 	await requireTopicFile(input);
-	for (const { tool, use } of SEAT_TOOLS) {
-		const probe = input.run([tool, "--version"]);
-		if (failed(probe)) {
-			throw new SeatFailure(
-				4,
-				`${tool} cannot run (${why(probe)}); the install needs it: it ${use}`,
-				`install ${tool}, then ${INSTALL}`,
-			);
+	said.push(await checkWatchFolder(input.watchFolder, input.rootUid, INSTALL));
+	for (const { probe, need } of SEAT_TOOLS) {
+		const ran = input.run(probe);
+		if (failed(ran)) {
+			throw new SeatFailure(4, `${probe[0]} cannot run (${why(ran)}); ${need}`, `install ${probe[0]}, then ${INSTALL}`);
 		}
 	}
 	const grants = await grantsOf(passwd, input.passwd);
@@ -520,16 +635,31 @@ async function install(input: AlertsInput, account: string, said: string[]): Pro
 	said.push(
 		`granted ${account} --x on ${counted(grants.traverse.length, "folder")}, r-x on ${counted(grants.jobs.length, "jobs folder")} and r-- on ${counted(grants.registries.length, "registry", "registries")}`,
 	);
+	await watchFolder(input, INSTALL, said);
 	await placeUnits(input, account, said);
 	step(input.run, ["systemctl", "enable", "--now", ALERTS_TIMER], "enabling the timer");
 	said.push(`enabled ${ALERTS_TIMER}; its first run records the events already there and sends none (A-054)`);
 }
 
-/** The units step of `seat/deploy.ts` (D-085): this version's units for the account the installed service holds. */
+/**
+ * The units step of `seat/deploy.ts` (D-085): this version's units for the account the installed service holds, after
+ * the watch folder they load, which it makes when it is absent, so a deployment never leaves the service without it.
+ */
 async function refreshUnits(input: AlertsInput, account: string, said: string[]): Promise<void> {
 	refuseUnlessRoot(input, "units");
-	accountEntry(await requiredText(input.passwd, `node ${SCRIPT} units --account ${account}`), account, input.passwd);
+	const again = `node ${SCRIPT} units --account ${account}`;
+	accountEntry(await requiredText(input.passwd, again), account, input.passwd);
+	await watchFolder(input, again, said);
 	await placeUnits(input, account, said);
+}
+
+/** Makes the watch folder of the `main` watcher, root's with mode 0700, when it is absent (seat/main-watch.ts). */
+async function watchFolder(input: AlertsInput, again: string, said: string[]): Promise<void> {
+	if (await makeWatchFolder(input.watchFolder, again)) {
+		said.push(
+			`made the watch folder ${input.watchFolder}, root's with mode 0700; no main is watched until root writes its entries`,
+		);
+	}
 }
 
 function refuseUnlessRoot(input: AlertsInput, command: string): void {
@@ -595,13 +725,10 @@ async function requireTopicFile(input: AlertsInput): Promise<void> {
 		}
 		throw new SeatFailure(4, `cannot read the topic file ${path}: ${reason(error)}`, make);
 	}
-	const mode = (info.mode & 0o7777).toString(8).padStart(4, "0");
-	if (!info.isFile() || info.uid !== input.rootUid || mode !== "0600") {
-		const kind = info.isSymbolicLink() ? "a symbolic link" : info.isFile() ? "a file" : "no regular file";
-		const owner = info.uid === input.rootUid ? "root's" : `uid ${info.uid}'s`;
+	if (!info.isFile() || info.uid !== input.rootUid || modeOf(info) !== "0600") {
 		throw new SeatFailure(
 			1,
-			`refused: the topic file ${path} must be a regular file of root's with mode 0600; it is ${kind}, ${owner}, mode ${mode}`,
+			`refused: the topic file ${path} must be a regular file of root's with mode 0600; it is ${shapeOf(info, input.rootUid)}`,
 			make,
 		);
 	}
@@ -755,24 +882,6 @@ function step(run: Runner, argv: readonly [string, ...string[]], doing: string):
 	}
 }
 
-const failed = (result: Ran) => result.error !== undefined || result.status !== 0;
-const why = (result: Ran) => result.error ?? (result.stderr.trim() || `exit ${result.status ?? "unknown"}`);
-
-/** A system program run to its end, bounded; a program that cannot start says why. */
-function runProgram([program, ...args]: readonly [string, ...string[]]): Ran {
-	const result = spawnSync(program, args, {
-		encoding: "utf8",
-		timeout: PROGRAM_TIMEOUT_MS,
-		maxBuffer: MAX_OUTPUT_BYTES,
-	});
-	return {
-		status: result.status,
-		stdout: result.stdout ?? "",
-		stderr: result.stderr ?? "",
-		...(result.error ? { error: result.error.message } : {}),
-	};
-}
-
 // As in seat/deploy.ts: the entry point compares the real path of the script Node started, so a start through a
 // symlinked path runs the tool too, and an import by a test runs nothing.
 const started = process.argv[1];
@@ -786,6 +895,8 @@ if (started !== undefined && existsSync(started) && realpathSync(started) === fi
 		run: runProgram,
 		unitFolder: "/etc/systemd/system",
 		topicFile: TOPIC_FILE,
+		watchFolder: WATCH_FOLDER,
+		now: () => new Date(),
 	});
 	process.stdout.write(outcome.stdout);
 	process.stderr.write(outcome.stderr);

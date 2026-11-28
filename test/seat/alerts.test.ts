@@ -1,18 +1,28 @@
 // seat/alerts.ts on fixtures: its run against a local ntfy server, and its install and units step with a fake runner.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { once } from "node:events";
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
-import { type AlertsInput, alertLine, type Ran, runAlerts } from "../../seat/alerts.ts";
+import { type AlertsInput, alertLine, runAlerts } from "../../seat/alerts.ts";
+import type { Ran } from "../../seat/program.ts";
 import { ALERTS_SERVICE, ALERTS_TIMER, alertsUnitFiles } from "../../seat/units.ts";
 import type { JobRecord } from "../../src/job/record.ts";
-import { withEnvironment } from "../environment.ts";
 import { writeRecord } from "../plant.ts";
+import { type Ntfy, ntfy } from "./ntfy.ts";
+import {
+	bareRemote,
+	commitIn,
+	copyOf,
+	KEY_TEXT,
+	KNOWN_HOSTS_TEXT,
+	keptTimes,
+	recordingRunner,
+	setMain,
+	writeWatchEntry,
+} from "./watched-remote.ts";
 
 const SCRIPT = fileURLToPath(new URL("../../seat/alerts.ts", import.meta.url));
 const TOPIC = "limen-test-topic";
@@ -40,6 +50,8 @@ type Fixture = {
 	readonly state: string;
 	readonly units: string;
 	readonly topicFile: string;
+	/** The `main` watcher's folder of root's entries, which no fixture holds until a test writes it. */
+	readonly watchFolder: string;
 };
 
 async function fixture(t: TestContext): Promise<Fixture> {
@@ -73,37 +85,8 @@ async function fixture(t: TestContext): Promise<Fixture> {
 	await writeFile(join(credentials, "topic"), `${TOPIC}\n`);
 	const topicFile = join(dir, "alerts-topic");
 	await writeFile(topicFile, `${TOPIC}\n`, { mode: 0o600 });
-	return { dir, passwd, home, registry, synchronizer, ledger, credentials, state, units, topicFile };
-}
-
-type Post = { readonly path: string; readonly body: string; readonly title: string | undefined };
-/** A local ntfy server: what it was sent, and the status it answers with, 200 until a test changes it. */
-type Ntfy = { readonly posts: Post[]; answer: number };
-
-/** Starts a local ntfy server and points the alerts at it through their test knob for the test `t`. */
-async function ntfy(t: TestContext): Promise<Ntfy> {
-	const server: Ntfy = { posts: [], answer: 200 };
-	const http = createServer((request, response) => {
-		const body: Buffer[] = [];
-		request.on("data", (chunk: Buffer) => body.push(chunk));
-		request.on("end", () => {
-			const title = request.headers.title ?? request.headers["x-title"];
-			server.posts.push({
-				path: request.url ?? "",
-				body: Buffer.concat(body).toString("utf8"),
-				title: Array.isArray(title) ? title.join(",") : title,
-			});
-			response.statusCode = server.answer;
-			response.end("{}");
-		});
-	});
-	http.listen(0, "127.0.0.1");
-	await once(http, "listening");
-	t.after(() => http.close());
-	const address = http.address();
-	assert.ok(address !== null && typeof address === "object", "the server listens on a port");
-	withEnvironment(t, { LIMEN_ALERTS_URL: `http://127.0.0.1:${address.port}` });
-	return server;
+	const watchFolder = join(dir, "watch");
+	return { dir, passwd, home, registry, synchronizer, ledger, credentials, state, units, topicFile, watchFolder };
 }
 
 /** A runner that records every program it is asked to run and answers each with `answer`, success by default. */
@@ -126,6 +109,8 @@ function input(f: Fixture, args: readonly string[], overrides: Partial<AlertsInp
 		run: runner(() => assert.fail("a run of the alerts starts no program")).run,
 		unitFolder: f.units,
 		topicFile: f.topicFile,
+		watchFolder: f.watchFolder,
+		now: () => new Date(),
 		...overrides,
 	};
 }
@@ -654,6 +639,144 @@ test("a quota-exhausted job sends failed:quota-exhausted", async (t) => {
 	assert.deepEqual(await twoRuns(f, server), [`ledger failed:quota-exhausted ${QUOTA_ID}`]);
 });
 
+/** A bare remote whose `main` holds one commit, and the watch entry of `synchronizer` that names it; both. */
+async function watchedSynchronizer(f: Fixture): Promise<{ readonly remote: string; readonly tip: string }> {
+	const remote = bareRemote(join(f.dir, "remote.git"));
+	const tip = commitIn(remote);
+	setMain(remote, tip);
+	await writeWatchEntry(f.credentials, "synchronizer", remote);
+	return { remote, tip };
+}
+
+/** A run of the alerts with watch entries: its runner runs git for real, which finds git on the test's PATH. */
+const watchedRun = (f: Fixture) =>
+	run(f, {
+		env: { CREDENTIALS_DIRECTORY: f.credentials, STATE_DIRECTORY: f.state, PATH: process.env.PATH },
+		run: recordingRunner([]),
+	});
+
+const bodies = (server: Ntfy) => server.posts.map((post) => post.body);
+
+// D-117 (2): the watcher runs after the record events, so its lines follow the jobs' in a run.
+test("D-117: a forced update of a watched main sends its line after the job lines of the same run", async (t) => {
+	const [f, server] = [await fixture(t), await ntfy(t)];
+	const { remote, tip } = await watchedSynchronizer(f);
+	assert.equal((await watchedRun(f)).code, 0);
+	await writeRecord(job(f.synchronizer, FAILED_ID), QUOTA);
+	setMain(remote, commitIn(remote));
+	const sent = await watchedRun(f);
+	assert.equal(sent.code, 0, sent.stderr);
+	assert.deepEqual(bodies(server), [
+		`synchronizer failed:quota ${FAILED_ID}`,
+		`synchronizer main:forced ${tip.slice(0, 12)}`,
+	]);
+});
+
+// D-117 (2): the watcher's events go through the alerts' one record of what was sent.
+test("D-117: a main line ntfy took is recorded under its kept ref's time, and a second run sends nothing more", async (t) => {
+	const [f, server] = [await fixture(t), await ntfy(t)];
+	const { remote, tip } = await watchedSynchronizer(f);
+	assert.equal((await watchedRun(f)).code, 0);
+	setMain(remote, commitIn(remote));
+	for (const _ of [1, 2]) {
+		const ran = await watchedRun(f);
+		assert.equal(ran.code, 0, ran.stderr);
+	}
+	const [time] = keptTimes(copyOf(f.state, "synchronizer"));
+	assert.deepEqual(
+		{
+			posts: bodies(server),
+			reported: (await readFile(join(f.state, "reported"), "utf8"))
+				.split("\n")
+				.includes(`synchronizer/main/${time}/forced`),
+		},
+		{ posts: [`synchronizer main:forced ${tip.slice(0, 12)}`], reported: true },
+	);
+});
+
+test("D-117: a main line ntfy refuses leaves it unreported: the run exits 3, and the next run sends it", async (t) => {
+	const [f, server] = [await fixture(t), await ntfy(t)];
+	const { remote, tip } = await watchedSynchronizer(f);
+	assert.equal((await watchedRun(f)).code, 0);
+	setMain(remote, commitIn(remote));
+	server.answer = 503;
+	const refused = await watchedRun(f);
+	assert.equal(refused.code, 3, refused.stderr);
+	assert.ok(refused.stderr.includes(`synchronizer main:forced ${tip.slice(0, 12)}`), refused.stderr);
+	server.answer = 200;
+	for (const _ of [1, 2]) {
+		const ran = await watchedRun(f);
+		assert.equal(ran.code, 0, ran.stderr);
+	}
+	assert.deepEqual(bodies(server), [
+		`synchronizer main:forced ${tip.slice(0, 12)}`,
+		`synchronizer main:forced ${tip.slice(0, 12)}`,
+	]);
+});
+
+test("D-117: a seat with no watch entries sends the job lines as before", async (t) => {
+	const [f, server] = [await fixture(t), await ntfy(t)];
+	await firstRun(f);
+	await writeRecord(job(f.synchronizer, FAILED_ID), QUOTA);
+	const ran = await run(f);
+	assert.equal(ran.code, 0, ran.stderr);
+	assert.deepEqual(bodies(server), [`synchronizer failed:quota ${FAILED_ID}`]);
+});
+
+// D-117 (3): the registry only names a registered project that has no entry.
+test("D-117: a seat with no watch entries names each registered project in the run's output", async (t) => {
+	const [f] = [await fixture(t), await ntfy(t)];
+	const ran = await run(f);
+	assert.equal(ran.code, 0, ran.stderr);
+	assert.deepEqual(
+		ran.stdout.split("\n").filter((line) => line.includes("registered, but no watch entry")),
+		["synchronizer", "ledger"].map(
+			(name) => `main of ${name}: registered, but no watch entry (watch_${name}.address and .key)`,
+		),
+	);
+});
+
+test("D-117: a seat with no watch entries starts no program", async (t) => {
+	const [f] = [await fixture(t), await ntfy(t)];
+	const programs = runner();
+	const ran = await run(f, { run: programs.run });
+	assert.equal(ran.code, 0, ran.stderr);
+	assert.deepEqual(programs.calls, []);
+});
+
+// D-117 (3): the registry is the agents' file, so emptying it must not stop the watch of main.
+test("D-117: a run that reads no project still watches main and sends its line, then exits 4", async (t) => {
+	const [f, server] = [await fixture(t), await ntfy(t)];
+	const { remote, tip } = await watchedSynchronizer(f);
+	assert.equal((await watchedRun(f)).code, 0);
+	await writeFile(f.registry, "");
+	setMain(remote, commitIn(remote));
+	const ran = await watchedRun(f);
+	assert.equal(ran.code, 4, ran.stderr);
+	assert.match(ran.stderr, /read no project/);
+	assert.deepEqual(bodies(server), [`synchronizer main:forced ${tip.slice(0, 12)}`]);
+});
+
+// A-054: a main line written to `reported` before any project was read made a later run send old job failures.
+test("A-054: a main line sent before any run read a project leaves every project for its first read", async (t) => {
+	const [f, server] = [await fixture(t), await ntfy(t)];
+	const { remote, tip } = await watchedSynchronizer(f);
+	await rm(f.registry);
+	assert.equal((await watchedRun(f)).code, 4);
+	setMain(remote, commitIn(remote));
+	assert.equal((await watchedRun(f)).code, 4);
+	await writeRecord(job(f.synchronizer, FAILED_ID), QUOTA);
+	await writeFile(f.registry, `${f.synchronizer}\n${f.ledger}\n`);
+	const joined = await watchedRun(f);
+	assert.equal(joined.code, 0, joined.stderr);
+	assert.match(joined.stdout, /^first read of 2 projects: 1 event recorded as reported, none sent \(A-054\)$/m);
+	assert.deepEqual(bodies(server), [`synchronizer main:forced ${tip.slice(0, 12)}`]);
+});
+
+test("D-117: an alert with no subject is the project folder's base name and the event", () => {
+	assert.equal(alertLine("synchronizer", "main:unwatched"), "synchronizer main:unwatched");
+});
+
 test("D-084: an alert is the project folder's base name, the event and the job id, with no path", () => {
 	assert.equal(
 		alertLine("/home/agents/synchronizer", "failed:quota", FAILED_ID),
@@ -700,6 +823,9 @@ test("the entry point runs as a program: without a subcommand it exits 2 and nam
 	assert.match(ran.stderr, /install --account/);
 });
 
+/** The install's probes of the seat tools it and the runs need (T-12), each a call that prints only a version. */
+const PROBES = ["setfacl --version", "systemd-analyze --version", "systemctl --version", "git --version", "ssh -V"];
+
 /** The commands of a first install for `f`: the tool probes, the grants, the units and the timer. */
 function installCommands(f: Fixture): string[] {
 	const parents = (path: string) => {
@@ -712,9 +838,7 @@ function installCommands(f: Fixture): string[] {
 	const jobs = [join(f.ledger, ".limen", "jobs"), join(f.synchronizer, ".limen", "jobs")];
 	const traverse = [...new Set([f.registry, ...jobs].flatMap(parents))].sort();
 	return [
-		"setfacl --version",
-		"systemd-analyze --version",
-		"systemctl --version",
+		...PROBES,
 		`setfacl -m u:${ACCOUNT}:--x ${traverse.join(" ")}`,
 		`setfacl -m u:${ACCOUNT}:r-x ${jobs.join(" ")}`,
 		`setfacl -m u:${ACCOUNT}:r-- ${f.registry}`,
@@ -807,7 +931,7 @@ test("install refuses with exit 1 when no registry names a project, and grants, 
 	assert.equal(ran.code, 1, ran.stderr);
 	assert.match(ran.stderr, /names a project/);
 	assert.deepEqual(
-		calls.filter((call) => !call.endsWith("--version")),
+		calls.filter((call) => !PROBES.includes(call)),
 		[],
 	);
 	await assert.rejects(stat(join(f.units, ALERTS_SERVICE)), /ENOENT/);
@@ -919,7 +1043,7 @@ test("install refuses with exit 1 a registered project whose real path is not it
 	assert.equal(ran.code, 1, ran.stderr);
 	assert.ok(ran.stderr.includes(linked), ran.stderr);
 	assert.deepEqual(
-		calls.filter((call) => !call.endsWith("--version")),
+		calls.filter((call) => !PROBES.includes(call)),
 		[],
 	);
 });
@@ -949,4 +1073,98 @@ test("units with both units as this version renders them writes and verifies not
 	const ran = await runAlerts(input(f, ["units", "--account", ACCOUNT], { run: fake }));
 	assert.deepEqual([ran.code, calls], [0, ["systemctl daemon-reload"]], ran.stderr);
 	assert.match(ran.stdout, /unchanged/);
+});
+
+/** The kind, owner and mode of the folder at `path`, as a test compares them. */
+async function folderShape(path: string): Promise<{ folder: boolean; uid: number; mode: number }> {
+	const info = await stat(path);
+	return { folder: info.isDirectory(), uid: info.uid, mode: info.mode & 0o7777 };
+}
+
+// R-106 Change 2: the service loads the watch folder as a credential, so its source must exist on every seat.
+test("install makes the watch folder, root's with mode 0700, when it is absent", async (t) => {
+	const f = await fixture(t);
+	const ran = await runAlerts(input(f, ["install", "--account", ACCOUNT], { run: runner().run }));
+	assert.equal(ran.code, 0, ran.stderr);
+	assert.deepEqual(await folderShape(f.watchFolder), { folder: true, uid: UID, mode: 0o700 });
+});
+
+test("units makes the watch folder, root's with mode 0700, when it is absent", async (t) => {
+	const f = await fixture(t);
+	const ran = await runAlerts(input(f, ["units", "--account", ACCOUNT], { run: runner().run }));
+	assert.equal(ran.code, 0, ran.stderr);
+	assert.deepEqual(await folderShape(f.watchFolder), { folder: true, uid: UID, mode: 0o700 });
+});
+
+/** A watch folder of root's with mode 0700 holding a complete entry of `synchronizer` and the known hosts. */
+async function watchFolderOf(f: Fixture): Promise<void> {
+	await mkdir(f.watchFolder, { mode: 0o700 });
+	const files = [
+		["synchronizer.address", "git@example.test:owner/synchronizer.git\n"],
+		["synchronizer.key", KEY_TEXT],
+		["known_hosts", KNOWN_HOSTS_TEXT],
+	] as const;
+	for (const [name, text] of files) {
+		await writeFile(join(f.watchFolder, name), text, { mode: 0o600 });
+	}
+}
+
+test("install checks a watch folder of complete entries of root's and keeps it as it is", async (t) => {
+	const f = await fixture(t);
+	await watchFolderOf(f);
+	const ran = await runAlerts(input(f, ["install", "--account", ACCOUNT], { run: runner().run }));
+	assert.equal(ran.code, 0, ran.stderr);
+	assert.ok(ran.stdout.split("\n").includes(`checked 1 watch entry in ${f.watchFolder}`), ran.stdout);
+	assert.deepEqual(await folderShape(f.watchFolder), { folder: true, uid: UID, mode: 0o700 });
+});
+
+// R-106 Decision 8 (1), (4): root's 0600 is the install's check, and systemd skips a link and loads no subfolder.
+test("install refuses with exit 1 and runs nothing for a watch folder or entry that systemd would not hand over whole", async (t) => {
+	const cases: ReadonlyArray<{ name: string; make: (f: Fixture) => Promise<void> }> = [
+		{ name: "a folder of mode 0755", make: (f) => chmod(f.watchFolder, 0o755) },
+		{ name: "an entry file of mode 0644", make: (f) => chmod(join(f.watchFolder, "synchronizer.key"), 0o644) },
+		{
+			name: "an entry file that is a symbolic link",
+			make: async (f) => {
+				await rm(join(f.watchFolder, "synchronizer.key"));
+				await symlink(f.topicFile, join(f.watchFolder, "synchronizer.key"));
+			},
+		},
+		{ name: "a subfolder", make: (f) => mkdir(join(f.watchFolder, "ledger"), { mode: 0o700 }) },
+		{
+			name: "a file of no entry",
+			make: (f) => writeFile(join(f.watchFolder, "ledger.adress"), "x\n", { mode: 0o600 }),
+		},
+		{ name: "an entry with no key", make: (f) => rm(join(f.watchFolder, "synchronizer.key")) },
+		{ name: "entries with no known hosts", make: (f) => rm(join(f.watchFolder, "known_hosts")) },
+		{
+			name: "an address of two lines",
+			make: (f) => writeFile(join(f.watchFolder, "synchronizer.address"), "a\nb\n", { mode: 0o600 }),
+		},
+	];
+	for (const { name, make } of cases) {
+		const f = await fixture(t);
+		await watchFolderOf(f);
+		await make(f);
+		const { calls, run: fake } = runner();
+		const ran = await runAlerts(input(f, ["install", "--account", ACCOUNT], { run: fake }));
+		assert.equal(ran.code, 1, `${name}: ${ran.stderr}`);
+		assert.match(ran.stderr, /watch/, name);
+		assert.deepEqual(calls, [], name);
+	}
+});
+
+// T-12: the main watcher's tools are declared with the install's own, and a missing one stops it before any change.
+test("install exits 4 naming ssh when it cannot run, before any change", async (t) => {
+	const f = await fixture(t);
+	const { calls, run: fake } = runner((argv) =>
+		argv[0] === "ssh"
+			? { status: null, stdout: "", stderr: "", error: "spawnSync ssh ENOENT" }
+			: { status: 0, stdout: "", stderr: "" },
+	);
+	const ran = await runAlerts(input(f, ["install", "--account", ACCOUNT], { run: fake }));
+	assert.equal(ran.code, 4, ran.stderr);
+	assert.match(ran.stderr, /ssh cannot run/);
+	assert.deepEqual(calls, PROBES);
+	await assert.rejects(stat(join(f.units, ALERTS_SERVICE)), /ENOENT/);
 });
