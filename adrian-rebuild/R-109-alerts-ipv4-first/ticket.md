@@ -2,7 +2,7 @@
 limitu, a Node wybiera IPv6, więc serwis `limen-alerts.service` dostaje w swoim typowanym unicie
 `Environment=NODE_OPTIONS=--dns-result-order=ipv4first`, tak jak robi to dziś tymczasowy drop-in na seacie. Złoty test
 unitu pada przed zmianą; dokument seata dostaje jedno zdanie. Stan: napisany 26.11 przy `cbe6f1a` z inwentarza
-`evidence/inventories/R-109.md`; `ready` na noc. -->
+`evidence/inventories/R-109.md`; `active` od 28.11 w nocy przy `172e2a8`, z miejscami faktów po R-106 w decyzji 5. -->
 
 # R-109 The alerts' unit sends over IPv4 first
 
@@ -60,7 +60,7 @@ Facts at `c3bbc5c` (the read-only inventory `evidence/inventories/R-109.md`):
 - AC-4: `git grep -q 'D-108' -- seat/units.ts` → exit 0.
 - AC-5: `git grep -q 'ipv4first' -- docs/seat/README.md` → exit 0.
 - AC-6: `node adrian-rebuild/tools/fails-before.mjs` → exit 0, its output in `outcome.md` → `## Fails before`.
-- AC-7: `node adrian-rebuild/tools/gate.mjs` → exit 0.
+- AC-7: `node adrian-rebuild/tools/gate.mjs --out node_modules/.rebuild-review/R-109.gate` → exit 0.
 - AC-8: `npx biome check --error-on-warnings .` → exit 0; `node adrian-rebuild/tools/check.mjs` → exit 0.
 
 ## Migration
@@ -89,3 +89,13 @@ inventory's questions in `evidence/inventories/R-109.md` → section 9):
    assert the same line twice.
 3. One sentence in `docs/seat/README.md` (Q3 (a)).
 4. Step 4.11 follows D-118 (2) (Q4); `## Deployment` 4.11 is already amended.
+5. 2026-11-28, at activation (`172e2a8`; the night's main session, protocol step 2, D-025): the facts' places after
+   R-106, which changed the same files. Fact 1: `ALERTS_RUN` is `seat/units.ts:20`, `alertsUnits` starts at `:37`, its
+   `ExecStart=` at `:55`, then two `LoadCredential=` lines (`topic` at `:56`, R-106's `watch` at `:57`) and
+   `TimeoutStartSec=120` at `:60`; still no `Environment=` line. The send is `send` at `seat/alerts.ts:592-594`
+   (Node's `fetch`), which R-106's watcher's lines use too. Fact 2: `src/platform/systemd-units.ts` is unchanged
+   (`pathAssignment` at `:106`, `directiveLine` at `:124`). Fact 3: the golden test is `test/seat/units.test.ts:17`
+   (with R-106's `watch` line), T-10's line test at `:65-68`; `test/seat/alerts.test.ts` reads the expected text from
+   the code (`:861-862`). Fact 4: `placeUnits` is `seat/alerts.ts:847-856`; the deployment's verifications and its
+   alerts' units at `seat/deploy.ts:375-407`. Fact 5: `docs/seat/README.md:29` lists the service's settings. The grep
+   criteria at `HEAD`: AC-3, AC-4 and AC-5 exit 1. AC-7 names the gate's `--out` form (D-130).
